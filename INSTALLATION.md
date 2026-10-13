@@ -220,6 +220,7 @@ Alle Befehle im Ordner `/opt/taleward`:
 | Einrichtungscode neu | `sudo docker compose exec server chronik einrichtungscode` |
 | Zweiten Faktor eines Verwalters abschalten (Handy weg) | `sudo docker compose exec server chronik zweiter-faktor-aus -u name` |
 | Verwaltung nur aus bestimmten Netzen | in `.env` z. B. `VERWALTUNG_NUR_AUS=192.168.178.0/24, 10.8.0.0/24`, dann `sudo docker compose up -d` |
+| Abrechnung mit Guthaben (optional, standardmäßig aus) | Verwaltung → Abrechnung; Spielleitungen sehen ihr Guthaben unter `/guthaben` |
 | Andere Domain | `install.sh` noch einmal ausführen – Daten bleiben |
 
 Das automatische Update legt vorher selbst eine Sicherung an. Startet die neue Fassung nicht, stellt es die alte
