@@ -1,0 +1,20 @@
+{% extends "basis.html" %}
+{% block titel %}{{ _("Guthaben") }}{% endblock %}
+{% block inhalt %}
+<div class="anmeldung">
+  {% include "_kopf_marke.html" %}
+  <p class="leise zentriert">{{ _("Guthaben auf {server} · {betreiber}", server=angaben.server_name, betreiber=angaben.server_operator) }}</p>
+  <div class="karte">
+    <h2>{{ _("Dein Guthaben") }}</h2>
+    <p>{{ _("Hier siehst du als Spielleitung, was die Verarbeitung deiner Runden gekostet hat, und bestätigst teure Aufträge.") }}</p>
+    {% if fehler %}<div class="meldung meldung--fehler" role="alert">{{ fehler }}</div>{% endif %}
+    <form class="formular" method="post" action="/guthaben/anmelden">
+      <label>{{ _("Benutzername") }} <input type="text" name="username" value="{{ konto }}" autocomplete="username" required maxlength="64" autofocus></label>
+      <label>{{ _("Passwort") }} <input type="password" name="password" autocomplete="current-password" required maxlength="500"></label>
+      <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Anmelden") }}</button></div>
+    </form>
+    <p class="hilfe">{{ _("Du meldest dich in der App nur über einen Dienst an (Google, Discord, Apple, Microsoft)? Dann setz dir dort unter Konto ein Passwort.") }}</p>
+  </div>
+  <p class="zentriert">{% include "_sprachen.html" %}</p>
+</div>
+{% endblock %}

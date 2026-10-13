@@ -18,7 +18,7 @@ def ui_texte() -> set[str]:
         texte |= set(re.findall(r'_\(\s*"((?:[^"\\]|\\.)*)"', s)) | set(re.findall(r"_\(\s*'((?:[^'\\]|\\.)*)'", s))
     r = pathlib.Path("app/verwaltung/router.py").read_text(encoding="utf-8")
     texte |= set(re.findall(r'(?:\b_|tr\(request\))\(\s*"((?:[^"\\]|\\.)*)"', r))
-    for datei in ("app/verwaltung/assistent.py", "app/routers/anmeldung.py"):
+    for datei in ("app/verwaltung/assistent.py", "app/routers/anmeldung.py", "app/verwaltung/guthaben.py"):
         a = pathlib.Path(datei).read_text(encoding="utf-8")
         texte |= set(re.findall(r'(?:\b_|tr\(request\))\(\s*"((?:[^"\\]|\\.)*)"', a))
     a = pathlib.Path("app/verwaltung/assistent.py").read_text(encoding="utf-8")
@@ -31,6 +31,9 @@ def ui_texte() -> set[str]:
     from app import cloudanbieter
 
     texte |= cloudanbieter.texte()
+    from app.verwaltung import guthaben  # 0.4.85
+
+    texte |= set(guthaben.MELDUNGEN.values())
     return texte
 
 

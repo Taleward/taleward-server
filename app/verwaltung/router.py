@@ -1582,6 +1582,9 @@ def einbinden(app: FastAPI) -> None:
     from app.verwaltung import updates
 
     app.include_router(updates.router)
+    from app.verwaltung import guthaben
+
+    guthaben.einbinden(app)  # 0.4.85: Seite „Guthaben“ für Spielleitungen
     app.include_router(assistent.router)
     app.include_router(assistent.oeffentlich)
     app.include_router(router)
@@ -1608,7 +1611,7 @@ def einbinden(app: FastAPI) -> None:
             antwort.headers.setdefault("Cache-Control", "public, max-age=86400")  # Stil und Logo dürfen zwischengespeichert werden
             antwort.headers.setdefault("X-Content-Type-Options", "nosniff")
         elif pfad.startswith(("/verwaltung", "/einladung", "/datenschutz", "/passwort", "/konto/", "/konto-loeschen",
-                              "/auth/oidc/")):  # S26.1: auch die Bestätigungsseite der Anmeldung mit Diensten
+                              "/auth/oidc/", "/guthaben")):  # S26.1: auch die Bestätigungsseite der Anmeldung mit Diensten
             for k, v in SICHERHEITS_KOPFZEILEN.items():
                 antwort.headers.setdefault(k, v)
         elif pfad == "/app" or pfad.startswith("/app/"):

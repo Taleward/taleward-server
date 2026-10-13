@@ -1,0 +1,110 @@
+{% extends "basis.html" %}
+{% block titel %}{{ _("Guthaben") }}{% endblock %}
+{% block inhalt %}
+{% set arten = {"zahlung": _("Zahlung"), "gutschrift": _("Gutschrift"), "gutschein": _("Gutschein"), "verbrauch": _("Verarbeitung"), "rueckbuchung": _("Rückbuchung"), "erstattung": _("Erstattung"), "korrektur": _("Korrektur")} %}
+{% set auftragsarten = {"transcribe": _("Transkription"), "summarize": _("Kapitel"), "revise": _("Korrektur per Hinweis"), "document": _("SL-Unterlage")} %}
+{% set gruende = {"zahler_fehlt": _("Für diese Kampagne zahlt gerade niemand."), "freigabe": _("Wartet auf deine Bestätigung."), "leer": _("Wartet auf Guthaben."), "zu_knapp": _("Das Guthaben reicht dafür voraussichtlich nicht.")} %}
+<div class="aktionen">
+  <h1>{{ _("Guthaben") }}</h1>
+  <form method="post" action="/guthaben/abmelden"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="tw-btn tw-btn--quiet" type="submit">{{ person.display_name }} · {{ _("abmelden") }}</button></form>
+</div>
+<p class="leise">{{ angaben.server_name }} · {{ angaben.server_operator }}</p>
+
+{% for t in toepfe %}
+<section class="karte" aria-labelledby="topf-{{ loop.index }}">
+  <h2 id="topf-{{ loop.index }}">{% if t.name %}{{ _("Guthaben der Organisation {name}", name=t.name) }}{% else %}{{ _("Dein Guthaben") }}{% endif %}</h2>
+  <div class="zahl {% if t.saldo < 0 %}zahl--warnung{% endif %}">
+    <div class="zahl__wert">{{ euro(t.saldo) }}</div>
+    <div class="zahl__text">
+      {% if t.stand == "minus" %}{{ _("Im Minus. Neue Verarbeitungen starten erst, wenn das Guthaben wieder über null ist.") }}
+      {% elif t.stand == "leer" %}{{ _("Leer. Neue Verarbeitungen warten, bis wieder Guthaben da ist.") }}
+      {% elif t.stand == "knapp" %}{{ _("Knapp. Für die nächste lange Runde reicht es vielleicht nicht.") }}
+      {% else %}{{ _("Reicht für die nächsten Verarbeitungen.") }}{% endif %}
+    </div>
+  </div>
+  <p class="hilfe">{{ _("Aufladen mit Bezahlung kommt später. Bis dahin: Gutschein einlösen oder beim Betreiber melden.") }}{% if angaben.server_contact %} {{ angaben.server_contact }}{% endif %}</p>
+
+  <h3>{{ _("Gutschein einlösen") }}</h3>
+  <form class="formular formular--zeile" method="post" action="/guthaben/gutschein">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="guthaben_id" value="{{ t.g.id }}">
+    <label>{{ _("Code") }} <input type="text" name="code" required maxlength="40" autocomplete="off" spellcheck="false"></label>
+    <button class="tw-btn tw-btn--secondary" type="submit">{{ _("Einlösen") }}</button>
+  </form>
+
+  {% if t.wartend %}
+  <h3>{{ _("Wartende Aufträge") }}</h3>
+  <div class="tabelle-huelle"><table>
+    <thead><tr><th>{{ _("Kampagne") }}</th><th>{{ _("Art") }}</th><th>{{ _("Kostet etwa") }}</th><th>{{ _("Zustand") }}</th><th></th></tr></thead>
+    <tbody>
+    {% for w in t.wartend %}
+      <tr>
+        <td data-label="{{ _('Kampagne') }}"><strong>{{ w.kampagne.title if w.kampagne else "–" }}</strong>{% if w.runde %}<br><span class="leise">{{ _("Kapitel {n}", n=w.runde.number) }}</span>{% elif w.unterlage %}<br><span class="leise">{{ w.unterlage.title }}</span>{% endif %}</td>
+        <td data-label="{{ _('Art') }}">{{ auftragsarten.get(w.job.type, w.job.type) }}</td>
+        <td data-label="{{ _('Kostet etwa') }}">{{ euro(w.schaetzung) }}</td>
+        <td data-label="{{ _('Zustand') }}">{{ gruende.get(w.grund, _("Wartet, bis es an der Reihe ist.")) }}</td>
+        <td>{% if w.grund == "freigabe" %}<form method="post" action="/guthaben/auftraege/{{ w.job.id }}/verarbeiten"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit">{{ _("Verarbeiten") }}</button></form>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+
+  <h3 id="einstellungen">{{ _("Einstellungen") }}</h3>
+  <form class="formular" method="post" action="/guthaben/einstellungen">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="guthaben_id" value="{{ t.g.id }}">
+    <label>{{ _("Aufträge über diesem Betrag warten auf „Verarbeiten“ (Euro)") }}
+      <input type="text" name="freigabe_ab" value="{{ '%d,%02d' % (t.g.freigabe_ab_cent // 100, t.g.freigabe_ab_cent % 100) }}" inputmode="decimal" required maxlength="12"></label>
+    <label>{{ _("Charakterbögen von Spielern: höchstens Seiten je Bogen") }}
+      <input type="number" name="bogen_seiten" value="{{ t.g.bogen_seiten }}" min="1" max="2000" required></label>
+    <label>{{ _("Charakterbögen je Spieler und Kampagne") }}
+      <input type="number" name="boegen_je_spieler" value="{{ t.g.boegen_je_spieler }}" min="0" max="50" required></label>
+    <p class="hilfe">{{ _("Jede Änderung wird festgehalten.") }}</p>
+    <div><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
+  </form>
+
+  <h3>{{ _("Buchungen") }}</h3>
+  <div class="tabelle-huelle"><table>
+    <thead><tr><th>{{ _("Datum") }}</th><th>{{ _("Art") }}</th><th>{{ _("Betrag") }}</th></tr></thead>
+    <tbody>
+    {% for b in t.buchungen %}
+      <tr><td data-label="{{ _('Datum') }}">{{ zeit(b.angelegt) }}</td><td data-label="{{ _('Art') }}">{{ arten.get(b.art, b.art) }}{% if b.grund %}<br><span class="leise">{{ b.grund }}</span>{% endif %}</td><td data-label="{{ _('Betrag') }}">{{ euro(b.betrag_cent) }}</td></tr>
+    {% else %}
+      <tr><td colspan="3" class="leise">{{ _("Noch keine Buchungen.") }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endfor %}
+
+{% if kampagnen %}
+<section class="karte" id="kampagnen" aria-labelledby="kampagnen-titel">
+  <h2 id="kampagnen-titel">{{ _("Wer zahlt für deine Kampagnen") }}</h2>
+  {% if topf %}<p class="hilfe">{{ _("Für Kampagnen einer Organisation zahlt deren Guthaben. Das hier gilt nur für Kampagnen ohne Organisation.") }}</p>{% endif %}
+  <ul class="liste-av">
+  {% for k in kampagnen %}
+    <li><strong>{{ k.c.title }}</strong> –
+      {% if k.ich_zahle %}{{ _("du zahlst.") }}
+        {% if k.angeboten_an %}<span class="leise">{{ _("Angeboten an {name}.", name=k.angeboten_an) }}</span>{% endif %}
+        {% if k.andere %}
+        <form class="formular formular--zeile" method="post" action="/guthaben/kampagnen/{{ k.c.id }}/abgeben">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <label>{{ _("Zahlung abgeben an") }} <select name="an_user_id">{% for uid, name in k.andere.items() %}<option value="{{ uid }}">{{ name }}</option>{% endfor %}</select></label>
+          <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit">{{ _("Anbieten") }}</button>
+        </form>
+        {% endif %}
+      {% elif k.angebot_an_mich or k.ohne_zahler %}
+        {% if k.angebot_an_mich %}{{ _("{name} möchte die Zahlung an dich abgeben.", name=k.zahler or "?") }}{% else %}{{ _("Gerade zahlt niemand. Neue Verarbeitungen warten.") }}{% endif %}
+        <form class="formular formular--zeile" method="post" action="/guthaben/kampagnen/{{ k.c.id }}/uebernehmen">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <label class="haken"><input type="checkbox" name="bestaetigt" value="1" required> {{ _("Ich zahle ab jetzt für „{titel}“ aus meinem Guthaben.", titel=k.c.title) }}</label>
+          <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit">{{ _("Übernehmen") }}</button>
+        </form>
+      {% else %}{{ _("{name} zahlt.", name=k.zahler) }}{% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+<p class="zentriert">{% include "_sprachen.html" %}</p>
+{% endblock %}
