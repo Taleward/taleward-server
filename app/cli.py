@@ -474,9 +474,15 @@ def _auf_stoppdatei_achten() -> None:
         while not os.path.exists(datei):
             time.sleep(0.5)
         if os.name == "nt":
-            # Windows: KeyboardInterrupt im Hauptfaden, sobald der wieder Python ausführt (spätestens nach dem
-            # Warten auf Aufträge)
-            _thread.interrupt_main()
+            # Windows: wie Strg+C. raise_signal läuft durch den Signal-Handler von Python und weckt damit auch ein
+            # time.sleep im Hauptfaden (interrupt_main allein tut das nicht). Ein Warten auf Aufträge endet spätestens
+            # nach dessen Zeitgrenze.
+            import signal
+
+            try:
+                signal.raise_signal(signal.SIGINT)
+            except (OSError, ValueError):
+                _thread.interrupt_main()
         else:
             import signal
 

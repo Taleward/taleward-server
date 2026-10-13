@@ -53,9 +53,20 @@ def _dienste(db: Session, basis: str) -> list[dict]:
 
 @router.get("/anmeldung", response_class=HTMLResponse)
 def anmeldung(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db), fehler: str = ""):
+    return seite(request, user, db, fehler=fehler)
+
+
+def seite(request: Request, user: User, db: Session, fehler: str = "", faktor_neu: dict | None = None,
+          faktor_codes: list[str] | None = None) -> HTMLResponse:
+    """Seite „Anmeldung“: oben der eigene zweite Faktor (S4, seit 0.4.86 hier statt unter Konten), darunter die
+    Anmeldedienste für alle Mitglieder."""
+    from app.verwaltung import zweiter_faktor
+
     basis = oeffentliche_adresse(db, request)
+    faktor = {"aktiv": zweiter_faktor.aktiv(db, user.id), "codes_uebrig": zweiter_faktor.restliche_codes(db, user.id),
+              "neu": faktor_neu, "codes": faktor_codes}
     return _seite(request, "anmeldung.html", user, db, dienste=_dienste(db, basis), basis=basis,
-                  https=basis.startswith("https://"), mail_bereit=mail.kann_senden(db), fehler=fehler)
+                  https=basis.startswith("https://"), mail_bereit=mail.kann_senden(db), fehler=fehler, faktor=faktor)
 
 
 @router.post("/anmeldung/{dienst}", dependencies=[Depends(csrf_pruefen)])

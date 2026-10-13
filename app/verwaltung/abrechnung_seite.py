@@ -153,7 +153,7 @@ def _vorbedingungen(request: Request, user: User, db: Session) -> HTMLResponse |
         raise errors.not_found()
     if not _faktor(db, user):
         return _seite_abrechnung(request, user, db, 403, fehler=tr(request)(
-            "Gutschriften und Gutscheine gehen nur mit eingeschaltetem zweiten Faktor (Konten → Dein zweiter Faktor)."))
+            "Gutschriften und Gutscheine gehen nur mit eingeschaltetem zweiten Faktor (Anmeldung → Dein zweiter Faktor)."))
     return None
 
 

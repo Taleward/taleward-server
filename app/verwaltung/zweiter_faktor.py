@@ -141,25 +141,37 @@ def _loeschen(db: Session, schluessel: str) -> None:
 
 
 # ---------------------------------------------------------------- Prüfen
+def _verbrauchen(db: Session, user_id: str, alt: str, neu: dict) -> bool:
+    """S30.2: Stand nur ersetzen, wenn er seit dem Lesen unverändert ist (bedingtes Update in der Datenbank). Zwei
+    gleichzeitige Anfragen mit demselben Code: Die zweite findet den alten Stand nicht mehr und gilt nicht."""
+    from sqlalchemy import update
+    from sqlalchemy.exc import OperationalError
+
+    try:
+        erg = db.execute(update(ServerMeta).where(ServerMeta.key == _schluessel(user_id), ServerMeta.value == alt)
+                         .values(value=json.dumps(neu)).execution_options(synchronize_session="fetch"))
+    except OperationalError:  # SQLite: der andere hat gerade geschrieben – dieser Versuch gilt nicht
+        db.rollback()
+        return False
+    return erg.rowcount == 1
+
+
 def pruefen(db: Session, user_id: str, eingabe: str, jetzt: float | None = None) -> bool:
     """Code oder Wiederherstellungscode prüfen und verbrauchen. False bei falschem oder schon benutztem Code."""
+    alt = meta_lesen(db, _schluessel(user_id))
     s = stand(db, user_id)
-    if s is None:
+    if s is None or alt is None:
         return False
     eingabe = (eingabe or "").strip()
     fenster = _passendes_fenster(s["geheim"], eingabe, jetzt)
     if fenster is not None:
         if fenster <= int(s.get("zuletzt") or 0):
             return False  # derselbe (oder ein älterer) Code noch einmal: abgelehnt
-        s["zuletzt"] = fenster
-        meta_schreiben(db, _schluessel(user_id), json.dumps(s))
-        return True
+        return _verbrauchen(db, user_id, alt, {**s, "zuletzt": fenster})
     h = _hash(eingabe)
     codes = list(s.get("codes") or [])
     for i, c in enumerate(codes):
         if hmac.compare_digest(c, h):
             del codes[i]
-            s["codes"] = codes
-            meta_schreiben(db, _schluessel(user_id), json.dumps(s))
-            return True
+            return _verbrauchen(db, user_id, alt, {**s, "codes": codes})
     return False

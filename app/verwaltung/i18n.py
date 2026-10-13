@@ -776,7 +776,7 @@ EN: dict[str, str] = {
     "Gutschrift": "Credit",
     "Gutschrift bestätigen": "Confirm credit",
     "Gutschrift von Hand": "Manual credit",
-    "Gutschriften und Gutscheine gehen nur mit eingeschaltetem zweiten Faktor (Konten → Dein zweiter Faktor).": "Credits and vouchers only work with your second factor switched on (Accounts → Your second factor).",
+    "Gutschriften und Gutscheine gehen nur mit eingeschaltetem zweiten Faktor (Anmeldung → Dein zweiter Faktor).": "Credits and vouchers only work with your second factor switched on (Sign-in → Your second factor).",
     "Gültig bis": "Valid until",
     "Gültig bis (leer = ohne Ablauf)": "Valid until (empty = no expiry)",
     "Hier siehst du als Spielleitung, was die Verarbeitung deiner Runden gekostet hat, und bestätigst teure Aufträge.": "Here you as a GM see what processing your sessions has cost and confirm expensive jobs.",

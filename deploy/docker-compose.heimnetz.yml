@@ -52,7 +52,8 @@ services:
       DATA_DIR: /data
       PUBLIC_URL: ${TALEWARD_ADRESSE}
       EINGEBAUTER_WORKER: ${COMPOSE_PROFILES:-}
-      VERWALTUNG_NUR_AUS: ${VERWALTUNG_NUR_AUS:-}   # optional: Verwaltung nur aus diesen Netzen
+      # VERWALTUNG_NUR_AUS gibt es hier bewusst nicht: Über die Port-Weiterleitung von Docker sieht der Server als
+      # Absender die Docker-Adresse, nicht das Gerät – die Einstellung würde aussperren oder alle hereinlassen.
       # Taleward-Box: Ersteinrichtung ohne Code aus dem eigenen Netz (setzt das Abbild beim ersten Start)
       EINRICHTUNG_IM_HEIMNETZ: ${TALEWARD_EINRICHTUNG_IM_HEIMNETZ:-false}
     volumes:

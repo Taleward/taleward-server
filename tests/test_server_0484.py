@@ -290,7 +290,7 @@ def test_zweiter_faktor_einrichten_anmelden_ausschalten(client, dbs, admin, monk
     from app.verwaltung import zweiter_faktor as zf
 
     chef = dbs.query(User).filter_by(username="chef").one()
-    seite = client.get("/verwaltung/konten").text
+    seite = client.get("/verwaltung/anmeldung").text  # seit 0.4.86 unter Anmeldung
     assert "Dein zweiter Faktor" in seite and "Einrichten" in seite
     r = client.post("/verwaltung/zweiter-faktor/beginnen", data={"csrf": admin, "password": "falsch"})
     assert r.status_code == 400 and not zf.angefangen(dbs, chef.id)

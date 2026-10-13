@@ -301,8 +301,8 @@ def _wartet_auf_code(request: Request, db: Session) -> User | None:
     return user
 
 
-def _sitzung_setzen(antwort: Response, request: Request, db: Session, user: User) -> None:
-    antwort.set_cookie(COOKIE, _cookie_wert(db, user), max_age=SITZUNG_STUNDEN * 3600, httponly=True,
+def _sitzung_setzen(antwort: Response, request: Request, db: Session, user: User, wert: str | None = None) -> None:
+    antwort.set_cookie(COOKIE, wert or _cookie_wert(db, user), max_age=SITZUNG_STUNDEN * 3600, httponly=True,
                        samesite="strict", secure=request.url.scheme == "https", path="/verwaltung")
 
 
@@ -344,24 +344,32 @@ def faktor_beginnen(request: Request, password: str = Form(""), user: User = Dep
     from app.verwaltung import zweiter_faktor
 
     if not _passwort_stimmt(db, user, password):
-        return _konten_fehler(request, user, db, tr(request)("Das Passwort stimmt nicht."))
+        return _faktor_seite(request, user, db, fehler=tr(request)("Das Passwort stimmt nicht."))
     if zweiter_faktor.aktiv(db, user.id):
-        return _zurueck("/konten#zweiter-faktor")
+        return _zurueck("/anmeldung#zweiter-faktor")
     geheim = zweiter_faktor.beginnen(db, user.id)
     db.commit()
     return _faktor_einrichten(request, user, db, geheim)
+
+
+def _faktor_seite(request: Request, user: User, db: Session, fehler: str | None = None, neu: dict | None = None,
+                  codes: list[str] | None = None) -> HTMLResponse:
+    """Verwaltung → Anmeldung mit der Karte „Dein zweiter Faktor“ (seit 0.4.86 dort statt unter Konten)."""
+    from app.verwaltung import anmeldung
+
+    antwort = anmeldung.seite(request, user, db, fehler=fehler or "", faktor_neu=neu, faktor_codes=codes)
+    if fehler:
+        antwort.status_code = 400
+    return antwort
 
 
 def _faktor_einrichten(request: Request, user: User, db: Session, geheim: str, fehler: str | None = None):
     from app.verwaltung import zweiter_faktor
 
     adresse = zweiter_faktor.uri(geheim, user.username, angaben(db).server_name or "Taleward")
-    antwort = konten(request, user, db, fehler=fehler or "",
-                     faktor_neu={"geheim": " ".join(geheim[i:i + 4] for i in range(0, len(geheim), 4)),
-                                 "qr": qr_bild(adresse)})
-    if fehler:
-        antwort.status_code = 400
-    return antwort
+    return _faktor_seite(request, user, db, fehler=fehler,
+                         neu={"geheim": " ".join(geheim[i:i + 4] for i in range(0, len(geheim), 4)),
+                              "qr": qr_bild(adresse)})
 
 
 @router.post("/zweiter-faktor/bestaetigen", dependencies=[Depends(csrf_pruefen)])
@@ -371,7 +379,8 @@ def faktor_bestaetigen(request: Request, code: str = Form(""), user: User = Depe
 
     geheim = zweiter_faktor.angefangen(db, user.id)
     if geheim is None:
-        return _konten_fehler(request, user, db, tr(request)("Das Einrichten hat zu lange gedauert. Bitte neu beginnen."))
+        return _faktor_seite(request, user, db, fehler=tr(request)(
+            "Das Einrichten hat zu lange gedauert. Bitte neu beginnen."))
     codes = zweiter_faktor.bestaetigen(db, user.id, code)
     if codes is None:
         return _faktor_einrichten(request, user, db, geheim, tr(request)(
@@ -379,8 +388,10 @@ def faktor_bestaetigen(request: Request, code: str = Form(""), user: User = Depe
     # Andere Sitzungen dieses Kontos enden; diese bekommt ein neues Cookie
     meta_schreiben(db, f"verwaltung.abgemeldet.{user.id}", str(int(time.time())))
     db.commit()
-    antwort = konten(request, user, db, faktor_codes=codes)
-    _sitzung_setzen(antwort, request, db, user)
+    wert = _cookie_wert(db, user)
+    request.state.csrf = _csrf(wert)  # Formulare auf dieser Seite gehören schon zur neuen Sitzung
+    antwort = _faktor_seite(request, user, db, codes=codes)
+    _sitzung_setzen(antwort, request, db, user, wert)
     return antwort
 
 
@@ -391,10 +402,10 @@ def faktor_aus(request: Request, password: str = Form(""), code: str = Form(""),
 
     if not _passwort_stimmt(db, user, password) or not zweiter_faktor.pruefen(db, user.id, code):
         db.commit()  # ein richtiger, verbrauchter Code bleibt verbraucht
-        return _konten_fehler(request, user, db, tr(request)("Passwort oder Code stimmt nicht."))
+        return _faktor_seite(request, user, db, fehler=tr(request)("Passwort oder Code stimmt nicht."))
     zweiter_faktor.ausschalten(db, user.id)
     db.commit()
-    return _zurueck("/konten", "faktor_aus")
+    return _zurueck("/anmeldung", "faktor_aus")
 
 
 def _passwort_stimmt(db: Session, user: User, passwort: str) -> bool:
@@ -489,8 +500,7 @@ def konten_seite(request: Request, user: User = Depends(verwalter), db: Session 
     return konten(request, user, db, fehler=fehler)
 
 
-def konten(request: Request, user: User, db: Session, fehler: str = "", neuer_link: dict | None = None,
-           faktor_neu: dict | None = None, faktor_codes: list[str] | None = None) -> HTMLResponse:
+def konten(request: Request, user: User, db: Session, fehler: str = "", neuer_link: dict | None = None) -> HTMLResponse:
     from app.verwaltung import zweiter_faktor
 
     verwalter_ids = set(db.scalars(select(OrgMember.user_id).where(OrgMember.role == "admin")))
@@ -498,10 +508,8 @@ def konten(request: Request, user: User, db: Session, fehler: str = "", neuer_li
     liste = [{"u": u, "verwalter": u.id in verwalter_ids, "zuletzt": zuletzt.get(u.id)}
              for u in db.scalars(select(User).order_by(User.username))]
     for k in liste:
-        k["faktor"] = zweiter_faktor.aktiv(db, k["u"].id)
-    faktor = {"aktiv": zweiter_faktor.aktiv(db, user.id), "codes_uebrig": zweiter_faktor.restliche_codes(db, user.id),
-              "neu": faktor_neu, "codes": faktor_codes}
-    return _seite(request, "konten.html", user, db, konten=liste, fehler=fehler, neuer_link=neuer_link, faktor=faktor)
+        k["faktor"] = zweiter_faktor.aktiv(db, k["u"].id)  # Hinweis „zweiter Faktor“ in der Liste
+    return _seite(request, "konten.html", user, db, konten=liste, fehler=fehler, neuer_link=neuer_link)
 
 
 def _konten_fehler(request: Request, user: User, db: Session, text: str) -> HTMLResponse:

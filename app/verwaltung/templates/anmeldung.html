@@ -2,6 +2,7 @@
 {% block titel %}{{ _("Anmeldung") }}{% endblock %}
 {% block inhalt %}
 <h1>{{ _("Anmeldung") }}</h1>
+{% include "_zweiter_faktor.html" %}
 <div class="karte">
   <h2>{{ _("So melden sich Mitglieder an") }}</h2>
   <p>{{ _("Benutzername und Passwort gehen immer. Zusätzlich könnt ihr hier Anmeldedienste einrichten – die App zeigt dann „Mit Google anmelden“ usw. Jeder Dienst ist für die Mitglieder freiwillig.") }}</p>

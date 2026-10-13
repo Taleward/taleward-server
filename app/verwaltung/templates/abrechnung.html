@@ -68,7 +68,7 @@
 
 <div class="karte">
   <h2>{{ _("Gutschrift von Hand") }}</h2>
-  {% if not faktor %}<div class="meldung meldung--fehler">{{ _("Gutschriften und Gutscheine gehen nur mit eingeschaltetem zweiten Faktor (Konten → Dein zweiter Faktor).") }}</div>{% endif %}
+  {% if not faktor %}<div class="meldung meldung--fehler">{{ _("Gutschriften und Gutscheine gehen nur mit eingeschaltetem zweiten Faktor (Anmeldung → Dein zweiter Faktor).") }}</div>{% endif %}
   <form class="formular" method="post" action="/verwaltung/abrechnung/gutschrift">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label>{{ _("Benutzername") }} <input type="text" name="ziel_konto" maxlength="64" autocomplete="off"></label>
