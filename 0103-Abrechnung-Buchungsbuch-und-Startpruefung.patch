@@ -1,0 +1,866 @@
+From 3c5c0a01acf96457600aa99d6a38401de5193d8a Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 22:17:15 +0200
+Subject: [PATCH 103/107] Abrechnung: Buchungsbuch und Startpruefung
+
+Tabellen fuer Guthaben, Buchungen (nur Einfuegen), laufende Kostenauftraege, Gutscheine und Protokoll; Modul app/abrechnung.py, noch nicht angebunden.
+---
+ app/abrechnung.py                             | 576 ++++++++++++++++++
+ app/audio.py                                  |  16 +
+ app/models.py                                 |  94 ++-
+ .../b3d9e1f7a2c4_abrechnung_guthaben.py       | 114 ++++
+ 4 files changed, 799 insertions(+), 1 deletion(-)
+ create mode 100644 app/abrechnung.py
+ create mode 100644 migrations/versions/b3d9e1f7a2c4_abrechnung_guthaben.py
+
+diff --git a/app/abrechnung.py b/app/abrechnung.py
+new file mode 100644
+index 0000000..034406c
+--- /dev/null
++++ b/app/abrechnung.py
+@@ -0,0 +1,576 @@
++"""Abrechnung mit Guthaben (0.4.85): Wer verarbeiten lässt, zahlt aus einem Guthaben, das vorher aufgeladen wurde.
++
++Schalter `abrechnung.modus` in der Verwaltung: `aus` (Standard – alles wie bisher, alle Wege dazu antworten 404),
++`guthaben` (jede zahlende SL hat ein eigenes Guthaben) oder `topf` (die Organisation der Kampagne zahlt).
++
++- **Buchungsbuch:** Jede Bewegung ist eine eigene Zeile in `buchungen`, die die Datenbank weder ändern noch löschen
++  lässt. Der Saldo ist die Summe; einen gespeicherten Kontostand gibt es nicht. Beträge in ganzen Cent, Währung EUR.
++- **Start:** Geprüft wird genau an einer Stelle, wenn ein Auftrag vergeben wird (`queue.claim` und die
++  Cloud-Transkription in `extern`). Saldo ≤ 0 → der Auftrag wartet. Saldo minus Schätzung unter dem Deckel
++  (Standard −1,50 €) → er wartet. Je Guthaben läuft höchstens ein kostenpflichtiger Auftrag (Teilindex in der
++  Datenbank). Ein gestarteter Auftrag läuft immer zu Ende, auch ins Minus; automatische Wiederholungen gehören dazu.
++- **Abrechnung:** Am Ende (fertig oder endgültig gescheitert) wird gebucht. Cloud: die tatsächlichen Kosten aus dem
++  Verbrauchsprotokoll. Worker: Betreiberpreis × die Menge, die der Server beim Start selbst gemessen hat (Länge der
++  Aufnahme bzw. Seiten) – nie die vom Worker gemeldete Rechenzeit. Auf beides kommt der Aufschlag des Betreibers.
++- **Wer zahlt:** die zahlende SL der Kampagne (ohne Eintrag die SL, die sie angelegt hat; abgeben nur ausdrücklich)
++  bzw. im Topf-Modus die Organisation. Spieler zahlen nie.
++- Probeläufe der Verwaltung und Stimmprofile kosten nichts.
++
++Preise und Grenzen stehen in der Verwaltung (server_meta), nie im Repository.
++"""
++from __future__ import annotations
++
++import hashlib
++import json
++import math
++import secrets
++from dataclasses import asdict, dataclass, fields
++from datetime import datetime
++
++from sqlalchemy import func, select
++from sqlalchemy.exc import IntegrityError
++from sqlalchemy.orm import Session
++
++from app.db import utcnow
++from app.einstellungen import meta_lesen, meta_schreiben
++from app.models import (AbrechnungProtokoll, Buchung, Campaign, CampaignDocument, GameSession, Guthaben, Gutschein,
++                        Job, KostenAuftrag, Member, OrgMember, Upload, UsageLog)
++
++MODI = ("aus", "guthaben", "topf")
++KOSTENPFLICHTIG = ("transcribe", "summarize", "revise", "document")
++NUTZUNG = {"transcribe": "transcription", "summarize": "summary", "revise": "revision", "document": "document"}
++MAX_AUFNAHME_SEKUNDEN = 8 * 3600  # feste Obergrenze je Runde (Entscheidung Benjamin, 13.10.2026)
++
++
++# ---------------------------------------------------------------- Einstellungen des Betreibers
++@dataclass
++class Preise:
++    """Alle Werte in Cent. Worker-Preise legt der Betreiber fest; die Cloud-Werte sind nur Schätzungen für den Start
++    (0 = Mittelwert der bisherigen Läufe), abgerechnet werden dort die tatsächlichen Kosten."""
++
++    aufschlag_prozent: int = 0
++    worker_transkription_h: int = 0  # je Stunde Aufnahme
++    worker_kapitel_h: int = 0  # je Stunde Aufnahme
++    worker_korrektur: int = 0  # je Korrektur per Hinweis
++    worker_unterlage_seite: int = 0
++    cloud_transkription_h: int = 0
++    cloud_kapitel_h: int = 0
++    cloud_korrektur: int = 0
++    cloud_unterlage_seite: int = 0
++    deckel: int = 150  # so weit darf ein Auftrag ins Minus führen (laut Schätzung)
++    warnung_ab: int = 150  # „Guthaben knapp“ darunter
++    freigabe_standard: int = 200  # Aufträge darüber warten auf „Verarbeiten“ (je Guthaben einstellbar)
++    gutschrift_max: int = 5000  # Obergrenze je Gutschrift von Hand bzw. je Gutschein
++
++
++def modus(db: Session) -> str:
++    wert = meta_lesen(db, "abrechnung.modus") or "aus"
++    return wert if wert in MODI else "aus"
++
++
++def an(db: Session) -> bool:
++    return modus(db) != "aus"
++
++
++def preise(db: Session) -> Preise:
++    try:
++        roh = json.loads(meta_lesen(db, "abrechnung.preise") or "{}")
++    except ValueError:
++        roh = {}
++    p = Preise()
++    for f in fields(Preise):
++        try:
++            setattr(p, f.name, max(0, int(roh.get(f.name, getattr(p, f.name)))))
++        except (TypeError, ValueError):
++            pass
++    return p
++
++
++def preise_schreiben(db: Session, p: Preise, von: str) -> None:
++    alt = asdict(preise(db))
++    meta_schreiben(db, "abrechnung.preise", json.dumps(asdict(p)))
++    protokoll(db, von, "preise", alt=alt, neu=asdict(p))
++
++
++def modus_schreiben(db: Session, wert: str, von: str) -> None:
++    if wert not in MODI:
++        raise ValueError(wert)
++    protokoll(db, von, "modus", alt=modus(db), neu=wert)
++    meta_schreiben(db, "abrechnung.modus", wert)
++
++
++def protokoll(db: Session, von: str, was: str, guthaben_id: str | None = None, **daten) -> None:
++    db.add(AbrechnungProtokoll(von=von, guthaben_id=guthaben_id, was=was,
++                               daten=json.dumps(daten, ensure_ascii=False, default=str)))
++
++
++# ---------------------------------------------------------------- Guthaben und Saldo
++def _neu(db: Session, anlegen: bool, **werte) -> Guthaben:
++    """Neues Guthaben. anlegen=False (Lesewege wie Hinweise und Anzeigen): nur ein Vorläufiges ohne Zeile in der
++    Datenbank – Saldo 0, Einstellungen wie voreingestellt –, damit ein Lesezugriff keine Schreibsperre hält."""
++    g = Guthaben(freigabe_ab_cent=preise(db).freigabe_standard, bogen_seiten=20, boegen_je_spieler=3, **werte)
++    if anlegen:
++        db.add(g)
++        db.flush()
++    return g
++
++
++def guthaben_konto(db: Session, user_id: str, anlegen: bool = True) -> Guthaben:
++    g = db.scalar(select(Guthaben).where(Guthaben.user_id == user_id))
++    return g if g is not None else _neu(db, anlegen, art="konto", user_id=user_id)
++
++
++def guthaben_organisation(db: Session, org_id: str, anlegen: bool = True) -> Guthaben:
++    g = db.scalar(select(Guthaben).where(Guthaben.organization_id == org_id))
++    return g if g is not None else _neu(db, anlegen, art="organisation", organization_id=org_id)
++
++
++def saldo(db: Session, guthaben_id: str | None) -> int:
++    if guthaben_id is None:
++        return 0
++    return int(db.scalar(select(func.coalesce(func.sum(Buchung.betrag_cent), 0))
++                         .where(Buchung.guthaben_id == guthaben_id)) or 0)
++
++
++def stand(db: Session, g: Guthaben) -> str:
++    """minus | leer | knapp | gut – für Hinweise ohne Betrag."""
++    s = saldo(db, g.id)
++    if s < 0:
++        return "minus"
++    if s == 0:
++        return "leer"
++    return "knapp" if s < preise(db).warnung_ab else "gut"
++
++
++def buchen(db: Session, g: Guthaben, art: str, betrag_cent: int, von: str = "system", **bezug) -> Buchung:
++    b = Buchung(guthaben_id=g.id, art=art, betrag_cent=int(betrag_cent), von=von, **bezug)
++    db.add(b)
++    db.flush()
++    return b
++
++
++def darf_sehen(db: Session, user_id: str, g: Guthaben) -> bool:
++    """Saldo und Buchungen sieht nur das Konto selbst bzw. die Verwalter der Organisation (sonst 404)."""
++    if g.art == "konto":
++        return g.user_id == user_id
++    return db.scalar(select(func.count()).select_from(OrgMember).where(
++        OrgMember.organization_id == g.organization_id, OrgMember.user_id == user_id,
++        OrgMember.role == "admin")) > 0
++
++
++def sichtbare_guthaben(db: Session, user_id: str) -> list[Guthaben]:
++    """Eigenes Guthaben und – im Topf-Modus – die Töpfe der Organisationen, in denen die Person Verwalter ist."""
++    aus = [guthaben_konto(db, user_id)]
++    if modus(db) == "topf":
++        for om in db.scalars(select(OrgMember).where(OrgMember.user_id == user_id, OrgMember.role == "admin")):
++            aus.append(guthaben_organisation(db, om.organization_id))
++    return aus
++
++
++# ---------------------------------------------------------------- Wer zahlt
++def aktive_sl(db: Session, c: Campaign) -> list[Member]:
++    return list(db.scalars(select(Member).where(
++        Member.campaign_id == c.id, Member.role == "gm", Member.user_id.is_not(None), Member.left_at.is_(None),
++        Member.deleted_at.is_(None)).order_by(Member.joined_at)))
++
++
++def zahler_user_id(db: Session, c: Campaign) -> str | None:
++    """Zahlende SL der Kampagne, solange sie dort SL ist. Ohne Eintrag: die zuerst beigetretene SL (die Kampagne angelegt
++    hat). Ist diese nicht mehr SL, zahlt niemand, bis eine andere SL die Zahlung ausdrücklich übernimmt."""
++    uid = c.zahler_user_id
++    if uid is None:
++        erste = db.scalar(select(Member).where(Member.campaign_id == c.id, Member.role == "gm")
++                          .order_by(Member.joined_at).limit(1))
++        uid = erste.user_id if erste is not None else None
++    if uid is None or uid not in {m.user_id for m in aktive_sl(db, c)}:
++        return None
++    return uid
++
++
++def zahler(db: Session, c: Campaign | None, anlegen: bool = False) -> Guthaben | None:
++    """Guthaben, das für Aufträge dieser Kampagne zahlt. anlegen=False: ohne Schreibzugriff (siehe _neu)."""
++    if c is None:
++        return None
++    if modus(db) == "topf" and c.organization_id:
++        return guthaben_organisation(db, c.organization_id, anlegen)
++    uid = zahler_user_id(db, c)
++    return guthaben_konto(db, uid, anlegen) if uid else None
++
++
++def kampagne_von_auftrag(db: Session, job: Job) -> Campaign | None:
++    from app.queue import kampagne_von
++
++    return kampagne_von(db, job)
++
++
++def zahlung_anbieten(db: Session, c: Campaign, von: str, an_user_id: str) -> None:
++    if zahler_user_id(db, c) != von or an_user_id == von or an_user_id not in {m.user_id for m in aktive_sl(db, c)}:
++        raise ValueError("zahler")
++    c.zahler_angebot_user_id = an_user_id
++    protokoll(db, von, "zahler_angebot", kampagne=c.id, an=an_user_id)
++
++
++def zahlung_uebernehmen(db: Session, c: Campaign, user_id: str) -> None:
++    """Annehmen eines Angebots – oder übernehmen, wenn die bisherige zahlende SL nicht mehr SL ist."""
++    if user_id not in {m.user_id for m in aktive_sl(db, c)}:
++        raise ValueError("keine_sl")
++    if c.zahler_angebot_user_id != user_id and zahler_user_id(db, c) is not None:
++        raise ValueError("kein_angebot")
++    protokoll(db, user_id, "zahler_uebernommen", kampagne=c.id, vorher=c.zahler_user_id)
++    c.zahler_user_id, c.zahler_angebot_user_id = user_id, None
++
++
++# ---------------------------------------------------------------- Menge und Schätzung
++def aufnahme_messen(up: Upload) -> float | None:
++    """Länge einer fertig hochgeladenen Aufnahme selbst messen (ffprobe je Datei). Tisch: Dateien hintereinander
++    (Summe); Discord: Spuren gleichzeitig (längste). None = nicht messbar."""
++    import shutil
++    import tempfile
++    from pathlib import Path
++
++    from app import audio, storage
++
++    laengen = []
++    with tempfile.TemporaryDirectory(prefix="taleward-dauer-") as tmp:
++        for f in up.files:
++            ziel = Path(tmp) / f"teil-{f.position}{Path(f.file_name).suffix.lower()[:8]}"
++            with open(ziel, "wb") as aus:
++                for i in range(f.chunk_count):
++                    with open(storage.chunk_path(up.id, f.id, i), "rb") as ein:
++                        shutil.copyfileobj(ein, aus)
++            d = audio.dauer_datei(ziel)
++            ziel.unlink(missing_ok=True)
++            if d is None:
++                return None
++            laengen.append(d)
++    if not laengen:
++        return None
++    return max(laengen) if up.source == "discord" else sum(laengen)
++
++
++
++def aufnahme_sekunden(db: Session, session_id: str | None) -> int:
++    """Länge der Aufnahme nach eigener Messung des Servers; sonst die gemeldete Länge der Runde."""
++    if not session_id:
++        return 0
++    up = db.scalar(select(Upload).where(Upload.session_id == session_id, Upload.state == "completed")
++                   .order_by(Upload.completed_at.desc()).limit(1))
++    if up is not None and up.dauer_sekunden:
++        return int(math.ceil(up.dauer_sekunden))
++    s = db.get(GameSession, session_id)
++    if s is not None and s.duration_seconds:
++        return int(s.duration_seconds)
++    if up is not None:  # nicht messbar: grob nach Dateigröße (64 kbit/s – eher zu lang als zu kurz)
++        return int(sum(f.size_bytes for f in up.files) / 8000)
++    return 0
++
++
++def menge(db: Session, job: Job) -> int:
++    if job.type in ("transcribe", "summarize"):
++        return aufnahme_sekunden(db, job.session_id)
++    if job.type == "document":
++        doc = db.get(CampaignDocument, job.document_id or "")
++        return max(1, (doc.page_count or 1) if doc else 1)
++    return 1
++
++
++def _mittelwert_cloud(db: Session, art: str) -> float:
++    """Durchschnittliche Cloud-Kosten der letzten Läufe (Cent je Stunde Aufnahme, je Seite bzw. je Korrektur)."""
++    zeilen = list(db.scalars(select(UsageLog).where(UsageLog.engine == "external", UsageLog.kind == NUTZUNG[art],
++                                                    UsageLog.cost_cents > 0)
++                             .order_by(UsageLog.created_at.desc()).limit(50)))
++    if not zeilen:
++        return 0.0
++    kosten = sum(z.cost_cents for z in zeilen)
++    if art == "revise":
++        return kosten / len(zeilen)
++    if art == "document":
++        docs = [db.get(CampaignDocument, z.document_id or "") for z in zeilen]
++        return kosten / max(1, sum(max(1, d.page_count or 1) if d else 1 for d in docs))
++    if art == "transcribe":
++        sek = sum(z.audio_seconds or 0 for z in zeilen)
++    else:
++        runden = [db.get(GameSession, z.session_id or "") for z in zeilen]
++        sek = sum((r.duration_seconds or 0) if r else 0 for r in runden)
++    return kosten * 3600 / sek if sek > 0 else 0.0
++
++
++def preis_je_einheit(db: Session, art: str, weg: str) -> float:
++    """Cent je Stunde Aufnahme (Transkription, Kapitel), je Seite (Unterlage) bzw. je Stück (Korrektur)."""
++    p = preise(db)
++    worker = weg == "worker"
++    feld = {"transcribe": "transkription_h", "summarize": "kapitel_h", "revise": "korrektur",
++            "document": "unterlage_seite"}[art]
++    wert = getattr(p, ("worker_" if worker else "cloud_") + feld)
++    if not worker and wert == 0:
++        return _mittelwert_cloud(db, art)
++    return float(wert)
++
++
++def _mit_aufschlag(db: Session, cent: float) -> int:
++    return int(math.ceil(cent * (100 + preise(db).aufschlag_prozent) / 100 - 1e-9)) if cent > 0 else 0
++
++
++def betrag_fuer(db: Session, art: str, weg: str, m: int) -> int:
++    einheit = preis_je_einheit(db, art, weg)
++    basis = einheit * m / 3600 if art in ("transcribe", "summarize") else einheit * m
++    return _mit_aufschlag(db, basis)
++
++
++def schaetzung(db: Session, job: Job, weg: str | None = None) -> int:
++    """Geschätzte Kosten in Cent (mit Aufschlag). Ohne Weg: der teurere der möglichen Wege (für die Anzeige)."""
++    m = menge(db, job)
++    wege = [weg] if weg else ["worker", "cloud"]
++    return max(betrag_fuer(db, job.type, w, m) for w in wege)
++
++
++# ---------------------------------------------------------------- Start (ein Prüfpunkt)
++def warte_grund(db: Session, job: Job) -> str | None:
++    """Warum ein wartender Auftrag (noch) nicht startet – ohne etwas zu verändern. None = nichts aus der Abrechnung."""
++    if not an(db) or job.type not in KOSTENPFLICHTIG or job.state != "queued":
++        return None
++    if db.get(KostenAuftrag, job.id) is not None:
++        return None  # Wiederholung eines gestarteten Auftrags
++    g = zahler(db, kampagne_von_auftrag(db, job))
++    if g is None:
++        return "zahler_fehlt"
++    geschaetzt = schaetzung(db, job)
++    if job.kosten_freigegeben_at is None and geschaetzt > g.freigabe_ab_cent:
++        return "freigabe"
++    s = saldo(db, g.id)
++    if s <= 0:
++        return "leer"
++    if s - geschaetzt < -preise(db).deckel:
++        return "zu_knapp"
++    return None
++
++
++def starten(db: Session, job: Job, weg: str) -> str | None:
++    """Vor der Vergabe eines Auftrags aufrufen (in derselben Transaktion wie die Vergabe). None = darf starten; dann
++    ist der Kostenauftrag vorgemerkt und wird mit der Vergabe festgeschrieben. Sonst der Grund – und es ist nichts
++    verändert (Rollback)."""
++    if not an(db) or job.type not in KOSTENPFLICHTIG:
++        return None
++    if db.get(KostenAuftrag, job.id) is not None:
++        return None  # automatische Wiederholung: gehört zum selben Auftrag, schon vorgemerkt
++    c = kampagne_von_auftrag(db, job)
++    g = zahler(db, c, anlegen=True)
++    if g is None:
++        db.rollback()
++        return "zahler_fehlt"
++    weg_preis = "worker" if weg == "worker" else "cloud"
++    m = menge(db, job)
++    geschaetzt = betrag_fuer(db, job.type, weg_preis, m)
++    if job.kosten_freigegeben_at is None and max(geschaetzt, schaetzung(db, job)) > g.freigabe_ab_cent:
++        db.rollback()
++        return "freigabe"
++    # Erst die Zeile anlegen (Schreibsperre der Datenbank, Teilindex: höchstens einer je Guthaben), dann den Saldo
++    # innerhalb dieser Transaktion lesen – ein zweiter Start für dasselbe Guthaben scheitert am Index.
++    db.add(KostenAuftrag(job_id=job.id, guthaben_id=g.id, weg=weg, art=job.type, menge=m,
++                         schaetzung_cent=geschaetzt, zustand="laeuft"))
++    try:
++        db.flush()
++    except IntegrityError:
++        db.rollback()
++        return "laeuft_schon"
++    s = saldo(db, g.id)
++    if s <= 0:
++        db.rollback()
++        return "leer"
++    if s - geschaetzt < -preise(db).deckel:
++        db.rollback()
++        return "zu_knapp"
++    return None
++
++
++# ---------------------------------------------------------------- Abrechnen
++def _cloud_kosten(db: Session, k: KostenAuftrag, job: Job | None) -> int:
++    if job is None:
++        return 0
++    q = select(func.coalesce(func.sum(UsageLog.cost_cents), 0)).where(
++        UsageLog.engine == "external", UsageLog.kind == NUTZUNG[k.art], UsageLog.created_at >= k.angelegt)
++    if job.document_id:
++        q = q.where(UsageLog.document_id == job.document_id)
++    else:
++        q = q.where(UsageLog.session_id == job.session_id)
++    return int(db.scalar(q) or 0)
++
++
++def abrechnen(db: Session, k: KostenAuftrag) -> int:
++    """Einen beendeten Auftrag buchen (in der laufenden Transaktion). Gibt den Betrag zurück."""
++    job = db.get(Job, k.job_id)
++    if k.weg == "worker":
++        betrag = betrag_fuer(db, k.art, "worker", k.menge) if job is not None and job.state == "done" else 0
++    else:  # Cloud: tatsächliche Kosten (auch bei Fehlschlag, soweit angefallen); Testmodus kostet nichts
++        betrag = _mit_aufschlag(db, _cloud_kosten(db, k, job))
++    g = db.get(Guthaben, k.guthaben_id)
++    if betrag > 0:
++        buchen(db, g, "verbrauch", -betrag, job_id=k.job_id)
++    k.zustand, k.betrag_cent, k.abgerechnet_at = "abgerechnet", betrag, utcnow()
++    return betrag
++
++
++def offene_abrechnen(db: Session) -> int:
++    """Alle laufenden Kostenaufträge buchen, deren Auftrag fertig, gescheitert oder gelöscht ist. Läuft vor jeder
++    Vergabe und in der Wartung; der nächste Auftrag desselben Guthabens startet erst danach."""
++    anzahl = 0
++    for k in list(db.scalars(select(KostenAuftrag).where(KostenAuftrag.zustand == "laeuft"))):
++        job = db.get(Job, k.job_id)
++        if job is None or job.state in ("done", "failed"):
++            abrechnen(db, k)
++            anzahl += 1
++    if anzahl:
++        db.commit()
++    return anzahl
++
++
++# ---------------------------------------------------------------- Gutschrift von Hand und Gutscheine
++def gutschreiben(db: Session, g: Guthaben, betrag_cent: int, grund: str, von: str) -> Buchung:
++    if betrag_cent <= 0 or betrag_cent > preise(db).gutschrift_max:
++        raise ValueError("betrag")
++    grund = " ".join((grund or "").split())[:500]
++    if not grund:
++        raise ValueError("grund")
++    b = buchen(db, g, "gutschrift", betrag_cent, von=von, grund=grund)
++    protokoll(db, von, "gutschrift", g.id, betrag_cent=betrag_cent, grund=grund)
++    return b
++
++
++def stornieren(db: Session, buchung_id: str, von: str) -> Buchung:
++    """Gegenbuchung zu einer Gutschrift von Hand (höchstens einmal – eindeutiger Bezug in der Datenbank)."""
++    b = db.get(Buchung, buchung_id)
++    if b is None or b.art != "gutschrift":
++        raise ValueError("buchung")
++    g = db.get(Guthaben, b.guthaben_id)
++    try:
++        gegen = buchen(db, g, "korrektur", -b.betrag_cent, von=von, gegen_buchung_id=b.id,
++                       grund=f"Storno der Gutschrift vom {b.angelegt:%d.%m.%Y}")
++    except IntegrityError:
++        db.rollback()
++        raise ValueError("schon_storniert") from None
++    protokoll(db, von, "storno", g.id, buchung=b.id, betrag_cent=b.betrag_cent)
++    return gegen
++
++
++_CODE_ZEICHEN = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # 32 Zeichen = 5 Bit je Zeichen, 16 Zeichen = 80 Bit
++
++
++def _code_hash(code: str) -> str:
++    norm = "".join(c for c in (code or "").upper() if c.isalnum())
++    return hashlib.sha256(b"taleward-gutschein:" + norm.encode()).hexdigest()
++
++
++def gutscheine_erzeugen(db: Session, anzahl: int, betrag_cent: int, aktion: str, gueltig_bis: datetime | None,
++                        von: str) -> list[str]:
++    """Codes nur jetzt im Klartext; gespeichert wird nur ihr Hash."""
++    aktion = " ".join((aktion or "").split())[:100]
++    if not aktion or not 1 <= anzahl <= 100 or betrag_cent <= 0 or betrag_cent > preise(db).gutschrift_max:
++        raise ValueError("eingabe")
++    codes = []
++    for _ in range(anzahl):
++        roh = "".join(secrets.choice(_CODE_ZEICHEN) for _ in range(16))
++        code = "-".join(roh[i:i + 4] for i in range(0, 16, 4))
++        db.add(Gutschein(code_hash=_code_hash(code), aktion=aktion, betrag_cent=betrag_cent, gueltig_bis=gueltig_bis,
++                         angelegt_von=von))
++        codes.append(code)
++    protokoll(db, von, "gutscheine", anzahl=anzahl, betrag_cent=betrag_cent, aktion=aktion,
++              gueltig_bis=gueltig_bis.isoformat() if gueltig_bis else None)
++    return codes
++
++
++def gutschein_einloesen(db: Session, g: Guthaben, code: str, von: str) -> int:
++    """Atomar und nur einmal; je Guthaben höchstens ein Gutschein derselben Aktion. Wirft ValueError (für die Meldung
++    immer gleich – ob es den Code gibt, verrät die Antwort nicht)."""
++    from sqlalchemy import update
++
++    gs = db.scalar(select(Gutschein).where(Gutschein.code_hash == _code_hash(code)))
++    jetzt = utcnow()
++    if gs is None or gs.eingeloest_at is not None or (gs.gueltig_bis is not None and gs.gueltig_bis < jetzt):
++        raise ValueError("ungueltig")
++    schon = db.scalar(select(func.count()).select_from(Gutschein).where(
++        Gutschein.aktion == gs.aktion, Gutschein.eingeloest_von == g.id))
++    if schon:
++        raise ValueError("aktion")
++    res = db.execute(update(Gutschein).where(Gutschein.id == gs.id, Gutschein.eingeloest_at.is_(None))
++                     .values(eingeloest_von=g.id, eingeloest_at=jetzt))
++    if res.rowcount != 1:
++        db.rollback()
++        raise ValueError("ungueltig")
++    buchen(db, g, "gutschein", gs.betrag_cent, von=von, gutschein_id=gs.id)
++    return gs.betrag_cent
++
++
++# ---------------------------------------------------------------- Hinweis für die App (ProcessingStatus.message)
++def hinweis(db: Session, job: Job | None, lang: str) -> str | None:
++    """Text, warum ein wartender Auftrag wegen der Abrechnung nicht startet – ohne Saldo (nur die SL sieht wartende
++    Runden und Unterlagen). None = kein Grund aus der Abrechnung."""
++    from app import errors
++    from app.einstellungen import oeffentliche_adresse
++
++    if job is None:
++        return None
++    grund = warte_grund(db, job)
++    if grund is None:
++        return None
++    adresse = oeffentliche_adresse(db).rstrip("/") + "/guthaben"
++    topf = modus(db) == "topf" and bool(getattr(kampagne_von_auftrag(db, job), "organization_id", None))
++    schluessel = {"zahler_fehlt": "status.credit_no_payer", "freigabe": "status.credit_approval",
++                  "leer": "status.credit_pot_empty" if topf else "status.credit_empty",
++                  "zu_knapp": "status.credit_pot_empty" if topf else "status.credit_low"}[grund]
++    return errors.ApiError(0, schluessel, adresse=adresse, betrag=euro(schaetzung(db, job))).message(lang)
++
++
++# ---------------------------------------------------------------- Für Seiten
++def buchungen(db: Session, g: Guthaben, anzahl: int = 100) -> list[Buchung]:
++    return list(db.scalars(select(Buchung).where(Buchung.guthaben_id == g.id)
++                           .order_by(Buchung.angelegt.desc()).limit(anzahl)))
++
++
++def wartende_auftraege(db: Session, g: Guthaben) -> list[dict]:
++    """Wartende kostenpflichtige Aufträge, die dieses Guthaben bezahlen würde, mit Schätzung und Grund."""
++    aus = []
++    for job in db.scalars(select(Job).where(Job.state == "queued", Job.type.in_(KOSTENPFLICHTIG))
++                          .order_by(Job.created_at).limit(500)):
++        c = kampagne_von_auftrag(db, job)
++        z = zahler(db, c)
++        if z is None or z.id is None or z.id != g.id or db.get(KostenAuftrag, job.id) is not None:
++            continue
++        s = db.get(GameSession, job.session_id) if job.session_id else None
++        doc = db.get(CampaignDocument, job.document_id) if job.document_id else None
++        aus.append({"job": job, "kampagne": c, "runde": s, "unterlage": doc, "schaetzung": schaetzung(db, job),
++                    "grund": warte_grund(db, job)})
++    return aus
++
++
++def freigeben(db: Session, job: Job, user_id: str, g: Guthaben) -> None:
++    if job.state != "queued" or job.kosten_freigegeben_at is not None:
++        return
++    job.kosten_freigegeben_at = utcnow()
++    protokoll(db, user_id, "auftrag_freigegeben", g.id, job=job.id, schaetzung_cent=schaetzung(db, job))
++
++
++def einstellungen_aendern(db: Session, g: Guthaben, von: str, freigabe_ab_cent: int, bogen_seiten: int,
++                          boegen_je_spieler: int) -> None:
++    neu = {"freigabe_ab_cent": max(0, min(100_000, freigabe_ab_cent)),
++           "bogen_seiten": max(1, min(2000, bogen_seiten)),
++           "boegen_je_spieler": max(0, min(50, boegen_je_spieler))}
++    alt = {k: getattr(g, k) for k in neu}
++    if alt == neu:
++        return
++    for k, v in neu.items():
++        setattr(g, k, v)
++    protokoll(db, von, "einstellungen", g.id, alt=alt, neu=neu)
++
++
++def bogen_grenzen(db: Session, c: Campaign) -> tuple[int, int] | None:
++    """(Seiten je Bogen, Bögen je Spieler) für Charakterbögen von Spielern – None bei ausgeschalteter Abrechnung."""
++    if not an(db):
++        return None
++    g = zahler(db, c)
++    return (g.bogen_seiten, g.boegen_je_spieler) if g is not None else (20, 3)
++
++
++def euro(cent: int) -> str:
++    vorzeichen = "−" if cent < 0 else ""
++    cent = abs(int(cent))
++    return f"{vorzeichen}{cent // 100},{cent % 100:02d} €"
+diff --git a/app/audio.py b/app/audio.py
+index 95a0fba..efc5d2f 100644
+--- a/app/audio.py
++++ b/app/audio.py
+@@ -91,4 +91,20 @@ def dauer(wav: Path) -> float:
+ 
+ 
++def dauer_datei(datei: Path) -> float | None:
++    """Länge einer hochgeladenen Audiodatei laut ffprobe (Sekunden), ohne sie zu dekodieren. None = nicht messbar."""
++    programm = shutil.which("ffprobe")
++    if not programm:
++        return None
++    extra = {"creationflags": 0x08000000} if sys.platform == "win32" else {}
++    try:
++        res = subprocess.run([programm, "-v", "error", *EINGABE, "-show_entries", "format=duration",
++                              "-of", "default=noprint_wrappers=1:nokey=1", str(datei)],
++                             capture_output=True, stdin=subprocess.DEVNULL, timeout=120, **extra)
++        wert = float(res.stdout.decode(errors="replace").strip())
++    except (subprocess.TimeoutExpired, ValueError, OSError):
++        return None
++    return wert if wert > 0 else None
++
++
+ def hoerprobe(wav: Path, start: float, laenge: float, ziel: Path) -> bytes:
+     """Kurze Hörprobe als Ogg/Opus (wenige Sekunden, klein)."""
+diff --git a/app/models.py b/app/models.py
+index 2b2904a..fc64915 100644
+--- a/app/models.py
++++ b/app/models.py
+@@ -3,5 +3,5 @@ import uuid
+ from datetime import datetime
+ 
+-from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint
++from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
+ from sqlalchemy.orm import Mapped, mapped_column, relationship
+ 
+@@ -105,4 +105,8 @@ class Campaign(Base):
+     # 0.4.13: Links der Kampagne als JSON [{id, label, url, shared}] (app/links.py)
+     links: Mapped[str | None] = mapped_column(Text, nullable=True)
++    # 0.4.85 (Abrechnung, app/abrechnung.py): zahlende SL. None = die SL, die die Kampagne angelegt hat (die zuerst
++    # beigetretene SL). Abgeben nur ausdrücklich: Angebot an eine andere SL, die es annimmt.
++    zahler_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
++    zahler_angebot_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+ 
+@@ -344,4 +348,6 @@ class Upload(Base):
+     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+     completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
++    # 0.4.85: vom Server selbst gemessene Länge der Aufnahme (nur bei eingeschalteter Abrechnung)
++    dauer_sekunden: Mapped[float | None] = mapped_column(Float, nullable=True)
+ 
+     files: Mapped[list["UploadFile"]] = relationship(
+@@ -401,4 +407,6 @@ class Job(Base):
+     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
++    # 0.4.85 (Abrechnung): Die SL hat den Auftrag über ihrem Betrag für „Verarbeiten“ freigegeben
++    kosten_freigegeben_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+ 
+ 
+@@ -663,2 +671,86 @@ class EinmalToken(Base):
+     expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
++
++
++# ---------------------------------------------------------------- Abrechnung mit Guthaben (0.4.85, app/abrechnung.py)
++class Guthaben(Base):
++    """Wer zahlt: ein Konto (SL) oder eine Organisation (Topf). Einen Kontostand gibt es nicht – der Saldo ist die Summe
++    der Buchungen. Nach dem Löschen des Kontos bleibt die Zeile ohne Bezug (user_id NULL), die Buchungen bleiben."""
++
++    __tablename__ = "guthaben"
++    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
++    art: Mapped[str] = mapped_column(String(16))  # konto | organisation
++    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
++                                                unique=True)
++    organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id", ondelete="SET NULL"),
++                                                        nullable=True, unique=True)
++    # Einstellungen der SL bzw. der Verwalter (Änderungen stehen im Protokoll)
++    freigabe_ab_cent: Mapped[int] = mapped_column(Integer, default=200)
++    bogen_seiten: Mapped[int] = mapped_column(Integer, default=20)
++    boegen_je_spieler: Mapped[int] = mapped_column(Integer, default=3)
++    angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
++
++
++class Buchung(Base):
++    """Buchungsbuch: nur Einfügen. Ändern und Löschen verhindern Trigger in der Datenbank (Migration b3d9e1f7a2c4).
++    Beträge in ganzen Cent mit Vorzeichen (+ gutschreiben, − verbrauchen), Währung fest EUR."""
++
++    __tablename__ = "buchungen"
++    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
++    guthaben_id: Mapped[str] = mapped_column(ForeignKey("guthaben.id"), index=True)
++    art: Mapped[str] = mapped_column(String(16))  # zahlung|gutschrift|gutschein|verbrauch|rueckbuchung|erstattung|korrektur
++    betrag_cent: Mapped[int] = mapped_column(Integer)
++    waehrung: Mapped[str] = mapped_column(String(3), default="EUR")
++    job_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
++    gutschein_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
++    gegen_buchung_id: Mapped[str | None] = mapped_column(String(36), nullable=True, unique=True)
++    ereignis_id: Mapped[str | None] = mapped_column(String(200), nullable=True, unique=True)  # Zahlungsanbieter
++    grund: Mapped[str | None] = mapped_column(Text, nullable=True)
++    von: Mapped[str] = mapped_column(String(36), default="system")  # Konto des Verwalters oder „system“
++    angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
++
++
++class KostenAuftrag(Base):
++    """Je kostenpflichtigem Auftrag eine Zeile, angelegt beim Start (queue.claim) und beim Ende abgerechnet. Höchstens
++    ein laufender je Guthaben – das sichert ein eindeutiger Teilindex in der Datenbank selbst."""
++
++    __tablename__ = "kosten_auftraege"
++    __table_args__ = (Index("ix_kosten_auftraege_ein_laufender", "guthaben_id", unique=True,
++                            sqlite_where=text("zustand = 'laeuft'")),)
++    job_id: Mapped[str] = mapped_column(String(36), primary_key=True)
++    guthaben_id: Mapped[str] = mapped_column(ForeignKey("guthaben.id"), index=True)
++    weg: Mapped[str] = mapped_column(String(16))  # worker | zentrale | extern
++    art: Mapped[str] = mapped_column(String(16))  # Auftragsart (transcribe, summarize, revise, document)
++    menge: Mapped[int] = mapped_column(Integer, default=0)  # Sekunden Aufnahme bzw. Seiten bzw. 1
++    schaetzung_cent: Mapped[int] = mapped_column(Integer, default=0)
++    zustand: Mapped[str] = mapped_column(String(16), default="laeuft")  # laeuft | abgerechnet
++    betrag_cent: Mapped[int | None] = mapped_column(Integer, nullable=True)
++    angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
++    abgerechnet_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
++
++
++class Gutschein(Base):
++    """Gutscheincode über einen festen Betrag. Gespeichert wird nur die SHA-256 des Codes."""
++
++    __tablename__ = "gutscheine"
++    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
++    code_hash: Mapped[str] = mapped_column(String(64), unique=True)
++    aktion: Mapped[str] = mapped_column(String(100), index=True)
++    betrag_cent: Mapped[int] = mapped_column(Integer)
++    gueltig_bis: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
++    eingeloest_von: Mapped[str | None] = mapped_column(String(36), nullable=True)  # Guthaben
++    eingeloest_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
++    angelegt_von: Mapped[str] = mapped_column(String(36))
++    angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
++
++
++class AbrechnungProtokoll(Base):
++    """Wer hat wann was an der Abrechnung geändert (Einstellungen, Gutschrift, Gutscheine, Zahler). Nur Einfügen."""
++
++    __tablename__ = "abrechnung_protokoll"
++    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
++    von: Mapped[str] = mapped_column(String(36))
++    guthaben_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
++    was: Mapped[str] = mapped_column(String(40))
++    daten: Mapped[str] = mapped_column(Text, default="{}")
++    angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+diff --git a/migrations/versions/b3d9e1f7a2c4_abrechnung_guthaben.py b/migrations/versions/b3d9e1f7a2c4_abrechnung_guthaben.py
+new file mode 100644
+index 0000000..2b1ad91
+--- /dev/null
++++ b/migrations/versions/b3d9e1f7a2c4_abrechnung_guthaben.py
+@@ -0,0 +1,114 @@
++"""Abrechnung mit Guthaben (0.4.85): Buchungsbuch, laufende Kostenaufträge, Gutscheine, Protokoll
++
++Revision ID: b3d9e1f7a2c4
++Revises: a7c2e5f9b1d3
++"""
++from typing import Sequence, Union
++
++import sqlalchemy as sa
++from alembic import op
++
++revision: str = 'b3d9e1f7a2c4'
++down_revision: Union[str, Sequence[str], None] = 'a7c2e5f9b1d3'
++branch_labels: Union[str, Sequence[str], None] = None
++depends_on: Union[str, Sequence[str], None] = None
++
++NUR_EINFUEGEN = ("buchungen", "abrechnung_protokoll")
++
++
++def upgrade() -> None:
++    op.create_table(
++        "guthaben",
++        sa.Column("id", sa.String(36), primary_key=True),
++        sa.Column("art", sa.String(16), nullable=False),
++        sa.Column("user_id", sa.String(36), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
++                  unique=True),
++        sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id", ondelete="SET NULL"),
++                  nullable=True, unique=True),
++        sa.Column("freigabe_ab_cent", sa.Integer(), nullable=False),
++        sa.Column("bogen_seiten", sa.Integer(), nullable=False),
++        sa.Column("boegen_je_spieler", sa.Integer(), nullable=False),
++        sa.Column("angelegt", sa.DateTime(), nullable=False),
++    )
++    op.create_table(
++        "buchungen",
++        sa.Column("id", sa.String(36), primary_key=True),
++        sa.Column("guthaben_id", sa.String(36), sa.ForeignKey("guthaben.id"), nullable=False, index=True),
++        sa.Column("art", sa.String(16), nullable=False),
++        sa.Column("betrag_cent", sa.Integer(), nullable=False),
++        sa.Column("waehrung", sa.String(3), nullable=False),
++        sa.Column("job_id", sa.String(36), nullable=True),
++        sa.Column("gutschein_id", sa.String(36), nullable=True),
++        sa.Column("gegen_buchung_id", sa.String(36), nullable=True, unique=True),
++        sa.Column("ereignis_id", sa.String(200), nullable=True, unique=True),
++        sa.Column("grund", sa.Text(), nullable=True),
++        sa.Column("von", sa.String(36), nullable=False),
++        sa.Column("angelegt", sa.DateTime(), nullable=False),
++    )
++    op.create_table(
++        "kosten_auftraege",
++        sa.Column("job_id", sa.String(36), primary_key=True),
++        sa.Column("guthaben_id", sa.String(36), sa.ForeignKey("guthaben.id"), nullable=False, index=True),
++        sa.Column("weg", sa.String(16), nullable=False),
++        sa.Column("art", sa.String(16), nullable=False),
++        sa.Column("menge", sa.Integer(), nullable=False),
++        sa.Column("schaetzung_cent", sa.Integer(), nullable=False),
++        sa.Column("zustand", sa.String(16), nullable=False),
++        sa.Column("betrag_cent", sa.Integer(), nullable=True),
++        sa.Column("angelegt", sa.DateTime(), nullable=False),
++        sa.Column("abgerechnet_at", sa.DateTime(), nullable=True),
++    )
++    # Höchstens ein laufender kostenpflichtiger Auftrag je Guthaben – geprüft von der Datenbank selbst
++    op.create_index("ix_kosten_auftraege_ein_laufender", "kosten_auftraege", ["guthaben_id"], unique=True,
++                    sqlite_where=sa.text("zustand = 'laeuft'"))
++    op.create_table(
++        "gutscheine",
++        sa.Column("id", sa.String(36), primary_key=True),
++        sa.Column("code_hash", sa.String(64), nullable=False, unique=True),
++        sa.Column("aktion", sa.String(100), nullable=False, index=True),
++        sa.Column("betrag_cent", sa.Integer(), nullable=False),
++        sa.Column("gueltig_bis", sa.DateTime(), nullable=True),
++        sa.Column("eingeloest_von", sa.String(36), nullable=True),
++        sa.Column("eingeloest_at", sa.DateTime(), nullable=True),
++        sa.Column("angelegt_von", sa.String(36), nullable=False),
++        sa.Column("angelegt", sa.DateTime(), nullable=False),
++    )
++    op.create_table(
++        "abrechnung_protokoll",
++        sa.Column("id", sa.String(36), primary_key=True),
++        sa.Column("von", sa.String(36), nullable=False),
++        sa.Column("guthaben_id", sa.String(36), nullable=True, index=True),
++        sa.Column("was", sa.String(40), nullable=False),
++        sa.Column("daten", sa.Text(), nullable=False),
++        sa.Column("angelegt", sa.DateTime(), nullable=False),
++    )
++    for tabelle in NUR_EINFUEGEN:  # Buchungen und Protokoll lassen sich nicht ändern oder löschen
++        for vorgang in ("UPDATE", "DELETE"):
++            op.execute(f"CREATE TRIGGER {tabelle}_kein_{vorgang.lower()} BEFORE {vorgang} ON {tabelle} "
++                       f"BEGIN SELECT RAISE(ABORT, '{tabelle}: nur Einfuegen erlaubt'); END")
++    with op.batch_alter_table("campaigns") as b:
++        b.add_column(sa.Column("zahler_user_id", sa.String(36), nullable=True))
++        b.add_column(sa.Column("zahler_angebot_user_id", sa.String(36), nullable=True))
++    with op.batch_alter_table("jobs") as b:
++        b.add_column(sa.Column("kosten_freigegeben_at", sa.DateTime(), nullable=True))
++    with op.batch_alter_table("uploads") as b:
++        b.add_column(sa.Column("dauer_sekunden", sa.Float(), nullable=True))
++
++
++def downgrade() -> None:
++    with op.batch_alter_table("uploads") as b:
++        b.drop_column("dauer_sekunden")
++    with op.batch_alter_table("jobs") as b:
++        b.drop_column("kosten_freigegeben_at")
++    with op.batch_alter_table("campaigns") as b:
++        b.drop_column("zahler_angebot_user_id")
++        b.drop_column("zahler_user_id")
++    for tabelle in NUR_EINFUEGEN:
++        for vorgang in ("update", "delete"):
++            op.execute(f"DROP TRIGGER IF EXISTS {tabelle}_kein_{vorgang}")
++    op.drop_table("abrechnung_protokoll")
++    op.drop_table("gutscheine")
++    op.drop_index("ix_kosten_auftraege_ein_laufender", table_name="kosten_auftraege")
++    op.drop_table("kosten_auftraege")
++    op.drop_table("buchungen")
++    op.drop_table("guthaben")
+-- 
+2.43.0
