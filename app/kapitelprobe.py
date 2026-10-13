@@ -305,6 +305,25 @@ def _aufraeumen() -> None:
 _REIHE = threading.Lock()
 
 
+_START = threading.Lock()  # Start-Prüfung und „Korrektur läuft“ in einem Schritt (zwei schnelle Klicks)
+
+
+def noch_erlaubt(p: Probe, k) -> str | None:
+    """Nach dem Warten in der Reihe erneut prüfen, ob der Lauf noch darf: Starter ist weiter Spielleitung, und bei der
+    Cloud-API ist die Cloud-Zusammenfassung der Kampagne weiter an. None = ja, sonst die Meldung."""
+    from app.models import Campaign
+
+    with session_factory()() as db:
+        if not p.besitzer or not ist_sl(db, p.besitzer, p.campaign_id):
+            return "Du bist in dieser Kampagne nicht mehr Spielleitung – der Lauf wurde nicht gestartet."
+        if k.art == "api":
+            c = db.get(Campaign, p.campaign_id)
+            if c is None or not c.allow_cloud_summary:
+                return ("Die Cloud-Zusammenfassung ist für diese Kampagne inzwischen abgeschaltet – es wurde nichts an "
+                        "den Anbieter geschickt.")
+    return None
+
+
 def _rechnen(p: Probe, k, recap_ein: dict, vorschlag_ein: dict, campaign_id: str, session_id: str) -> None:
     if not _REIHE.acquire(blocking=False):
         p.schritt = "wartet"
@@ -312,6 +331,12 @@ def _rechnen(p: Probe, k, recap_ein: dict, vorschlag_ein: dict, campaign_id: str
         _REIHE.acquire()
     try:
         p.schritt = ""
+        grund = noch_erlaubt(p, k)  # S26.2: Freigabe und Rolle können sich während des Wartens geändert haben
+        if grund:
+            p.zustand, p.fehler = "fehler", grund
+            p.beendet = utcnow().isoformat().replace("+00:00", "Z")
+            _speichern(p)
+            return
         _rechnen_jetzt(p, k, recap_ein, vorschlag_ein, campaign_id, session_id)
     finally:
         _REIHE.release()
@@ -440,10 +465,16 @@ def korrigieren_starten(db: Session, p: Probe, hinweise: dict[int, str], fehlt: 
     """Einen Korrekturdurchgang im Hintergrund starten. hinweise: je Absatz (optional); fehlt: ein freier Text ohne
     Absatzangabe (0.4.70: das eine Feld, wie in der App geplant). Die Hinweise sind wie SL-Notizen nur für die SL; sie
     landen nur in diesem Probelauf. Wirft ValueError mit einem Code für die Meldung."""
+    with _START:
+        _korrektur_pruefen_und_setzen(db, p, hinweise, fehlt, user_id)
+
+
+def _korrektur_pruefen_und_setzen(db: Session, p: Probe, hinweise: dict[int, str], fehlt: str, user_id: str) -> None:
     from app.einstellungen import llm_konfig
     from app.models import Campaign
     from app.zusammenfassung import eingabe_bauen, recap_eingabe
 
+    p = lesen(p.id) or p  # frischer Stand: ein zweiter Klick sieht den ersten
     if p.zustand != "fertig" or p.korrektur_laeuft:
         raise ValueError("korrektur_laeuft")
     if len(p.korrekturen) >= KORREKTUR_DURCHGAENGE:
@@ -483,7 +514,10 @@ def _korrigieren(p: Probe, k, ein: dict, hinweise: dict[int, str], fehlt: str) -
     with _REIHE:
         t0 = time.monotonic()
         try:
-            if k.art == "attrappe":  # Testmodus: hängt an jeden genannten Absatz eine Markierung
+            grund = noch_erlaubt(p, k)  # S26.5: wie beim Probelauf nach dem Warten erneut prüfen
+            if grund:
+                runde["fehler"] = grund
+            elif k.art == "attrappe":  # Testmodus: hängt an jeden genannten Absatz eine Markierung
                 teile = absaetze(vorher)
                 neu = {i: teile[i] + " (Testmodus: korrigiert)" for i in hinweise if 0 <= i < len(teile)}
                 runde["nachher"] = "\n\n".join(neu.get(i, t) for i, t in enumerate(teile))

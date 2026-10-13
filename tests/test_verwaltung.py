@@ -177,10 +177,11 @@ def test_eigener_worker_starten(client, dbs, admin, monkeypatch):
         code = ("import os, signal, sys, time\n"
                 "ende = lambda *a: (print('beendet', flush=True), sys.exit(0))\n"
                 "signal.signal(signal.SIGINT, ende)\n"
-                "if hasattr(signal, 'SIGBREAK'):\n"
-                "    signal.signal(signal.SIGBREAK, ende)\n"
                 f"print('start', {modus!r}, {server_url!r}, os.environ['WORKER_TOKEN'][:3], flush=True)\n"
-                "time.sleep(60)\n")
+                "for _ in range(600):\n"
+                "    if os.path.exists(os.environ['WORKER_STOP_DATEI']):\n"  # wie der echte Worker (Windows)
+                "        ende()\n"
+                "    time.sleep(0.1)\n")
         return [sys.executable, "-c", code]
 
     knecht = lokaler_worker.LokalerKnecht(befehl=ersatz)

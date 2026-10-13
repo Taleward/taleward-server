@@ -134,6 +134,7 @@ def test_bericht_ueberschreibt_die_hinweise_nicht(client, world, dbs, tmp_path, 
 
     monkeypatch.setattr(sm.Ablauf, "korrigieren", korrigieren)
     monkeypatch.setattr("app.zusammenfassung.api_klient", lambda _k: Klient())
+    monkeypatch.setattr(probelauf, "noch_erlaubt", lambda *_a: None)  # erfundene Kampagne; Prüfung → test_server_0484
     p = Probe(id="11111111-1111-1111-1111-111111111111", session_id="s", kampagne="K", kapitel=1, quelle="Runde",
               zeilen=1, modell="m", gestartet="2026-10-09T00:00:00Z", zustand="fertig", text=TEXT, campaign_id="c",
               besitzer="b")

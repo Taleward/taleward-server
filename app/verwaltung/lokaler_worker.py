@@ -4,8 +4,8 @@
   Datenbank – nur ein Weg im Code.
 - Bei jedem Start bekommt er einen frischen Zugangsschlüssel. Das Geheimnis steht nirgends gespeichert, nur seine
   Prüfsumme (wie bei allen Workern).
-- Beenden per SIGINT (Windows: Strg+Untbr): Der Worker meldet einen laufenden Auftrag zurück und räumt seinen
-  Arbeitsordner auf.
+- Beenden per Stoppdatei (WORKER_STOP_DATEI) und unter Linux zusätzlich SIGINT: Der Worker meldet einen laufenden
+  Auftrag zurück und räumt seinen Arbeitsordner auf.
 - Soll er beim Serverstart mitstarten, steht das in server_meta („lokaler_worker“ = echt | attrappe | aus).
 """
 from __future__ import annotations
@@ -67,6 +67,10 @@ class LokalerKnecht:
         return {"laeuft": self.laeuft(), "modus": self._modus, "gestartet": self._gestartet,
                 "exitcode": code if self._proc is not None and code is not None else None}
 
+    @property
+    def stoppdatei(self) -> Path:
+        return get_settings().data_dir / "worker" / "stop"
+
     def log_ende(self, zeilen: int = 60) -> list[str]:
         try:
             with open(self.logdatei, encoding="utf-8", errors="replace") as f:
@@ -102,9 +106,10 @@ class LokalerKnecht:
             log = open(self.logdatei, "a", encoding="utf-8", newline="\n")
             log.write(f"\n===== {utcnow():%Y-%m-%d %H:%M} UTC – Start ({modus}) =====\n")
             log.flush()
+            self.stoppdatei.unlink(missing_ok=True)
             env = {**os.environ, "WORKER_TOKEN": f"wk.{w.id}.{geheim}", "PYTHONUNBUFFERED": "1",
-                   "WORKER_WORK_DIR": str(s.data_dir / "worker")}
-            # Eigene Prozessgruppe: unter Windows nur so lässt sich Strg+Untbr gezielt an den Worker schicken
+                   "WORKER_WORK_DIR": str(s.data_dir / "worker"), "WORKER_STOP_DATEI": str(self.stoppdatei)}
+            # Eigene Prozessgruppe bzw. Sitzung: Strg+C im Fenster des Servers trifft den Worker nicht mit
             gruppe = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" \
                 else {"start_new_session": True}
             self._proc = subprocess.Popen(self._befehl(modus, s.worker_server_url), stdout=log,
@@ -112,19 +117,25 @@ class LokalerKnecht:
             log.close()  # der Kindprozess hat seine eigene Kopie
             self._modus, self._gestartet = modus, utcnow()
 
-    def _beenden_intern(self, warten: float = 20.0) -> None:
+    def _beenden_intern(self, warten: float | None = None) -> None:
+        # Unter Windows merkt der Worker die Stoppdatei erst nach dem Warten auf Aufträge (bis zu 25 s)
+        warten = warten if warten is not None else (40.0 if os.name == "nt" else 20.0)
         p = self._proc
         if p is None or p.poll() is not None:
             return
         try:
-            # wie Strg+C: Auftrag zurückmelden, aufräumen (Windows: Strg+Untbr, der Worker behandelt es gleich)
-            p.send_signal(signal.CTRL_BREAK_EVENT if os.name == "nt" else signal.SIGINT)
+            # wie Strg+C: Auftrag zurückmelden, aufräumen. Unter Windows gibt es dafür kein Signal an einen Prozess
+            # ohne Konsole – dort (und zusätzlich überall) legt der Server die Stoppdatei an, auf die der Worker achtet.
+            self.stoppdatei.parent.mkdir(parents=True, exist_ok=True)
+            self.stoppdatei.touch()
+            if os.name != "nt":
+                p.send_signal(signal.SIGINT)
             p.wait(timeout=warten)
         except (subprocess.TimeoutExpired, OSError):
             p.kill()
             p.wait(timeout=5)
 
-    def beenden(self, warten: float = 20.0) -> None:
+    def beenden(self, warten: float | None = None) -> None:
         with self._lock:
             self._beenden_intern(warten)
 

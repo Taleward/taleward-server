@@ -7,8 +7,8 @@ Gezählt wird im Arbeitsspeicher eines Prozesses; nach einem Neustart beginnt es
 Seit 0.4.62:
 - Nur Zählen legt Schlüssel an, Nachsehen (`voll`) nicht.
 - Ist die Obergrenze erreicht, fallen zuerst abgelaufene Schlüssel weg, dann solche mit nur einem Versuch, erst
-  zuletzt der am längsten unbenutzte. Ein Schlüssel mit vielen Versuchen (eine laufende Sperre) lässt sich so nicht
-  mit Massen neuer Namen verdrängen.
+  zuletzt die mit den wenigsten Versuchen (seit 0.4.84; vorher der am längsten unbenutzte). Ein Schlüssel mit vielen
+  Versuchen (eine laufende Sperre) lässt sich so nicht mit Massen neuer Namen verdrängen.
 - `reservieren` zählt mehrere Schlüssel in fester Reihenfolge auf einmal und vor der eigentlichen Prüfung (z. B. vor
   dem Passwortvergleich); parallele Versuche können die Grenze so nicht überschreiten. Ist ein Schlüssel voll, wird
   keiner gezählt und die folgenden werden gar nicht erst angelegt (Adresse vor Name). Bei Erfolg gibt `freigeben`
@@ -85,8 +85,13 @@ class Zaehler:
                 return
             if len(self._daten[k]) <= 1:
                 self._weg(k)
-        while len(self._daten) > grenze:  # 3. notfalls der am längsten unbenutzte
-            self._weg(next(iter(self._daten)))
+        # 3. notfalls die mit den wenigsten Versuchen (bei Gleichstand die am längsten unbenutzten) – eine laufende
+        # Sperre hat viele Versuche und bleibt, auch wenn jemand mit sehr vielen Netzen Massen von Schlüsseln mit je
+        # zwei Versuchen anlegt (S26.4). Gleich ein Zehntel Luft schaffen, damit nicht jeder neue Schlüssel sortiert.
+        ziel = max(0, grenze - MAX_SCHLUESSEL // 10)
+        reihenfolge = sorted(enumerate(self._daten), key=lambda x: (len(self._daten[x[1]]), x[0]))
+        for _i, k in reihenfolge[:len(self._daten) - ziel]:
+            self._weg(k)
 
     def _weg(self, k: str) -> None:
         self._daten.pop(k, None)

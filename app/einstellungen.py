@@ -29,6 +29,18 @@ class Angaben:
     public_url: str | None = None  # z. B. https://taleward.meinverein.de – für Links in E-Mails und Anmeldedienste
 
 
+def ist_mistral_adresse(url: str | None) -> bool:
+    """Gehört die Adresse zu Mistral? Nur https und genau der Hostname api.mistral.ai – eine Adresse wie
+    https://api.mistral.ai.example.net bekommt den hinterlegten Transkriptions-Schlüssel nicht."""
+    from urllib.parse import urlsplit
+
+    try:
+        teile = urlsplit((url or "").strip())
+        return teile.scheme == "https" and (teile.hostname or "") == "api.mistral.ai"
+    except ValueError:
+        return False
+
+
 def oeffentliche_adresse(db: Session, request=None) -> str:
     """Adresse des Servers von außen: aus den Einstellungen, sonst aus der Anfrage."""
     url = angaben(db).public_url
@@ -165,7 +177,7 @@ class LlmKonfig:
 
     @property
     def ist_mistral(self) -> bool:
-        return "api.mistral.ai" in self.api_url
+        return ist_mistral_adresse(self.api_url)
 
     @property
     def anbieter(self):
@@ -198,7 +210,7 @@ def llm_konfig(db: Session) -> LlmKonfig:
     url = wert("llm.api_url", s.llm_api_url) or s.llm_api_url
     eigener = wert("llm.api_key", s.llm_api_key) or None
     key = eigener
-    if not key and "api.mistral.ai" in url:
+    if not key and ist_mistral_adresse(url):  # S26.3: Hostname exakt, nicht als Textteil
         key = extern_konfig(db).api_key
     try:
         kontext = int(wert("llm.lokal_kontext", s.llm_local_context))
