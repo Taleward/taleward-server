@@ -1,0 +1,287 @@
+From b1e896394137912f457d720a66ce355564e13de2 Mon Sep 17 00:00:00 2001
+From: Tinkerworkss <Tinkerworkss@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 19:12:47 +0200
+Subject: [PATCH 099/101] Probelauf, Korrektur und Worker robuster
+
+- Probelauf und Korrektur pruefen Rolle und Cloud-Freigabe nach dem Warten erneut.
+- Begrenzung behaelt Schluessel mit vielen Versuchen; Mistral-Adresse exakt.
+- Lokaler Worker stoppt ueber eine Stoppdatei; Wiederherstellen ueber die
+  SQLite-Sicherungsfunktion.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_013CssQZuRBCpCJdqrK2dJvj
+---
+ app/begrenzung.py                | 13 ++++++++----
+ app/einstellungen.py             | 16 ++++++++++++--
+ app/kapitelprobe.py              | 36 +++++++++++++++++++++++++++++++-
+ app/sicherung.py                 | 26 ++++++++---------------
+ app/verwaltung/lokaler_worker.py | 27 +++++++++++++++++-------
+ tests/test_korrektur.py          |  1 +
+ tests/test_verwaltung.py         |  7 ++++---
+ 7 files changed, 91 insertions(+), 35 deletions(-)
+
+diff --git a/app/begrenzung.py b/app/begrenzung.py
+index 9b9a930..27e0607 100644
+--- a/app/begrenzung.py
++++ b/app/begrenzung.py
+@@ -8,6 +8,6 @@ Seit 0.4.62:
+ - Nur Zählen legt Schlüssel an, Nachsehen (`voll`) nicht.
+ - Ist die Obergrenze erreicht, fallen zuerst abgelaufene Schlüssel weg, dann solche mit nur einem Versuch, erst
+-  zuletzt der am längsten unbenutzte. Ein Schlüssel mit vielen Versuchen (eine laufende Sperre) lässt sich so nicht
+-  mit Massen neuer Namen verdrängen.
++  zuletzt die mit den wenigsten Versuchen (seit 0.4.84; vorher der am längsten unbenutzte). Ein Schlüssel mit vielen
++  Versuchen (eine laufende Sperre) lässt sich so nicht mit Massen neuer Namen verdrängen.
+ - `reservieren` zählt mehrere Schlüssel in fester Reihenfolge auf einmal und vor der eigentlichen Prüfung (z. B. vor
+   dem Passwortvergleich); parallele Versuche können die Grenze so nicht überschreiten. Ist ein Schlüssel voll, wird
+@@ -86,6 +86,11 @@ class Zaehler:
+             if len(self._daten[k]) <= 1:
+                 self._weg(k)
+-        while len(self._daten) > grenze:  # 3. notfalls der am längsten unbenutzte
+-            self._weg(next(iter(self._daten)))
++        # 3. notfalls die mit den wenigsten Versuchen (bei Gleichstand die am längsten unbenutzten) – eine laufende
++        # Sperre hat viele Versuche und bleibt, auch wenn jemand mit sehr vielen Netzen Massen von Schlüsseln mit je
++        # zwei Versuchen anlegt (S26.4). Gleich ein Zehntel Luft schaffen, damit nicht jeder neue Schlüssel sortiert.
++        ziel = max(0, grenze - MAX_SCHLUESSEL // 10)
++        reihenfolge = sorted(enumerate(self._daten), key=lambda x: (len(self._daten[x[1]]), x[0]))
++        for _i, k in reihenfolge[:len(self._daten) - ziel]:
++            self._weg(k)
+ 
+     def _weg(self, k: str) -> None:
+diff --git a/app/einstellungen.py b/app/einstellungen.py
+index 275f5c1..6e25912 100644
+--- a/app/einstellungen.py
++++ b/app/einstellungen.py
+@@ -30,4 +30,16 @@ class Angaben:
+ 
+ 
++def ist_mistral_adresse(url: str | None) -> bool:
++    """Gehört die Adresse zu Mistral? Nur https und genau der Hostname api.mistral.ai – eine Adresse wie
++    https://api.mistral.ai.example.net bekommt den hinterlegten Transkriptions-Schlüssel nicht."""
++    from urllib.parse import urlsplit
++
++    try:
++        teile = urlsplit((url or "").strip())
++        return teile.scheme == "https" and (teile.hostname or "") == "api.mistral.ai"
++    except ValueError:
++        return False
++
++
+ def oeffentliche_adresse(db: Session, request=None) -> str:
+     """Adresse des Servers von außen: aus den Einstellungen, sonst aus der Anfrage."""
+@@ -166,5 +178,5 @@ class LlmKonfig:
+     @property
+     def ist_mistral(self) -> bool:
+-        return "api.mistral.ai" in self.api_url
++        return ist_mistral_adresse(self.api_url)
+ 
+     @property
+@@ -199,5 +211,5 @@ def llm_konfig(db: Session) -> LlmKonfig:
+     eigener = wert("llm.api_key", s.llm_api_key) or None
+     key = eigener
+-    if not key and "api.mistral.ai" in url:
++    if not key and ist_mistral_adresse(url):  # S26.3: Hostname exakt, nicht als Textteil
+         key = extern_konfig(db).api_key
+     try:
+diff --git a/app/kapitelprobe.py b/app/kapitelprobe.py
+index 0cc556e..00ccc63 100644
+--- a/app/kapitelprobe.py
++++ b/app/kapitelprobe.py
+@@ -306,4 +306,23 @@ _REIHE = threading.Lock()
+ 
+ 
++_START = threading.Lock()  # Start-Prüfung und „Korrektur läuft“ in einem Schritt (zwei schnelle Klicks)
++
++
++def noch_erlaubt(p: Probe, k) -> str | None:
++    """Nach dem Warten in der Reihe erneut prüfen, ob der Lauf noch darf: Starter ist weiter Spielleitung, und bei der
++    Cloud-API ist die Cloud-Zusammenfassung der Kampagne weiter an. None = ja, sonst die Meldung."""
++    from app.models import Campaign
++
++    with session_factory()() as db:
++        if not p.besitzer or not ist_sl(db, p.besitzer, p.campaign_id):
++            return "Du bist in dieser Kampagne nicht mehr Spielleitung – der Lauf wurde nicht gestartet."
++        if k.art == "api":
++            c = db.get(Campaign, p.campaign_id)
++            if c is None or not c.allow_cloud_summary:
++                return ("Die Cloud-Zusammenfassung ist für diese Kampagne inzwischen abgeschaltet – es wurde nichts an "
++                        "den Anbieter geschickt.")
++    return None
++
++
+ def _rechnen(p: Probe, k, recap_ein: dict, vorschlag_ein: dict, campaign_id: str, session_id: str) -> None:
+     if not _REIHE.acquire(blocking=False):
+@@ -313,4 +332,10 @@ def _rechnen(p: Probe, k, recap_ein: dict, vorschlag_ein: dict, campaign_id: str
+     try:
+         p.schritt = ""
++        grund = noch_erlaubt(p, k)  # S26.2: Freigabe und Rolle können sich während des Wartens geändert haben
++        if grund:
++            p.zustand, p.fehler = "fehler", grund
++            p.beendet = utcnow().isoformat().replace("+00:00", "Z")
++            _speichern(p)
++            return
+         _rechnen_jetzt(p, k, recap_ein, vorschlag_ein, campaign_id, session_id)
+     finally:
+@@ -441,8 +466,14 @@ def korrigieren_starten(db: Session, p: Probe, hinweise: dict[int, str], fehlt:
+     Absatzangabe (0.4.70: das eine Feld, wie in der App geplant). Die Hinweise sind wie SL-Notizen nur für die SL; sie
+     landen nur in diesem Probelauf. Wirft ValueError mit einem Code für die Meldung."""
++    with _START:
++        _korrektur_pruefen_und_setzen(db, p, hinweise, fehlt, user_id)
++
++
++def _korrektur_pruefen_und_setzen(db: Session, p: Probe, hinweise: dict[int, str], fehlt: str, user_id: str) -> None:
+     from app.einstellungen import llm_konfig
+     from app.models import Campaign
+     from app.zusammenfassung import eingabe_bauen, recap_eingabe
+ 
++    p = lesen(p.id) or p  # frischer Stand: ein zweiter Klick sieht den ersten
+     if p.zustand != "fertig" or p.korrektur_laeuft:
+         raise ValueError("korrektur_laeuft")
+@@ -484,5 +515,8 @@ def _korrigieren(p: Probe, k, ein: dict, hinweise: dict[int, str], fehlt: str) -
+         t0 = time.monotonic()
+         try:
+-            if k.art == "attrappe":  # Testmodus: hängt an jeden genannten Absatz eine Markierung
++            grund = noch_erlaubt(p, k)  # S26.5: wie beim Probelauf nach dem Warten erneut prüfen
++            if grund:
++                runde["fehler"] = grund
++            elif k.art == "attrappe":  # Testmodus: hängt an jeden genannten Absatz eine Markierung
+                 teile = absaetze(vorher)
+                 neu = {i: teile[i] + " (Testmodus: korrigiert)" for i in hinweise if 0 <= i < len(teile)}
+diff --git a/app/sicherung.py b/app/sicherung.py
+index a358de5..809c908 100644
+--- a/app/sicherung.py
++++ b/app/sicherung.py
+@@ -11,10 +11,8 @@ from __future__ import annotations
+ import json
+ import logging
+-import os
+ import re
+ import shutil
+ import sqlite3
+ import tempfile
+-import time
+ import zipfile
+ from dataclasses import dataclass
+@@ -171,16 +169,4 @@ def pruefen(datei: Path) -> dict:
+ 
+ 
+-def _beharrlich(aktion, *args, versuche: int = 20, **kwargs):
+-    """Unter Windows halten Virenscanner und Indexdienst eine eben gelesene Datei oft kurz offen
+-    (PermissionError). Dann ein paar Mal kurz warten statt mittendrin abzubrechen."""
+-    for i in range(versuche):
+-        try:
+-            return aktion(*args, **kwargs)
+-        except PermissionError:
+-            if os.name != "nt" or i == versuche - 1:
+-                raise
+-            time.sleep(0.25)
+-
+-
+ def wiederherstellen(datei: Path) -> Path:
+     """Nur bei gestopptem Server aufrufen (chronik wiederherstellen). Vorher wird der jetzige Stand gesichert.
+@@ -192,7 +178,13 @@ def wiederherstellen(datei: Path) -> Path:
+         with zipfile.ZipFile(datei) as z:
+             z.extractall(tmp)
+-        for endung in ("", "-wal", "-shm"):
+-            _beharrlich((s.data_dir / f"chronik.db{endung}").unlink, missing_ok=True)
+-        _beharrlich(os.replace, Path(tmp) / "chronik.db", s.data_dir / "chronik.db")
++        # Datenbank über die SQLite-Sicherungsfunktion zurückspielen statt die Datei zu ersetzen: Unter Windows lässt
++        # sich eine geöffnete Datei nicht löschen, und SQLite räumt sein Journal (-wal/-shm) dabei selbst mit auf.
++        quelle = sqlite3.connect(Path(tmp) / "chronik.db")
++        ziel = sqlite3.connect(s.data_dir / "chronik.db", timeout=30)
++        try:
++            quelle.backup(ziel)
++        finally:
++            quelle.close()
++            ziel.close()
+         for unter in ORDNER_IM_ZIP:
+             shutil.rmtree(s.data_dir / unter, ignore_errors=True)
+diff --git a/app/verwaltung/lokaler_worker.py b/app/verwaltung/lokaler_worker.py
+index 48c9ba7..fefee77 100644
+--- a/app/verwaltung/lokaler_worker.py
++++ b/app/verwaltung/lokaler_worker.py
+@@ -5,6 +5,6 @@
+ - Bei jedem Start bekommt er einen frischen Zugangsschlüssel. Das Geheimnis steht nirgends gespeichert, nur seine
+   Prüfsumme (wie bei allen Workern).
+-- Beenden per SIGINT (Windows: Strg+Untbr): Der Worker meldet einen laufenden Auftrag zurück und räumt seinen
+-  Arbeitsordner auf.
++- Beenden per Stoppdatei (WORKER_STOP_DATEI) und unter Linux zusätzlich SIGINT: Der Worker meldet einen laufenden
++  Auftrag zurück und räumt seinen Arbeitsordner auf.
+ - Soll er beim Serverstart mitstarten, steht das in server_meta („lokaler_worker“ = echt | attrappe | aus).
+ """
+@@ -68,4 +68,8 @@ class LokalerKnecht:
+                 "exitcode": code if self._proc is not None and code is not None else None}
+ 
++    @property
++    def stoppdatei(self) -> Path:
++        return get_settings().data_dir / "worker" / "stop"
++
+     def log_ende(self, zeilen: int = 60) -> list[str]:
+         try:
+@@ -103,7 +107,8 @@ class LokalerKnecht:
+             log.write(f"\n===== {utcnow():%Y-%m-%d %H:%M} UTC – Start ({modus}) =====\n")
+             log.flush()
++            self.stoppdatei.unlink(missing_ok=True)
+             env = {**os.environ, "WORKER_TOKEN": f"wk.{w.id}.{geheim}", "PYTHONUNBUFFERED": "1",
+-                   "WORKER_WORK_DIR": str(s.data_dir / "worker")}
+-            # Eigene Prozessgruppe: unter Windows nur so lässt sich Strg+Untbr gezielt an den Worker schicken
++                   "WORKER_WORK_DIR": str(s.data_dir / "worker"), "WORKER_STOP_DATEI": str(self.stoppdatei)}
++            # Eigene Prozessgruppe bzw. Sitzung: Strg+C im Fenster des Servers trifft den Worker nicht mit
+             gruppe = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" \
+                 else {"start_new_session": True}
+@@ -113,11 +118,17 @@ class LokalerKnecht:
+             self._modus, self._gestartet = modus, utcnow()
+ 
+-    def _beenden_intern(self, warten: float = 20.0) -> None:
++    def _beenden_intern(self, warten: float | None = None) -> None:
++        # Unter Windows merkt der Worker die Stoppdatei erst nach dem Warten auf Aufträge (bis zu 25 s)
++        warten = warten if warten is not None else (40.0 if os.name == "nt" else 20.0)
+         p = self._proc
+         if p is None or p.poll() is not None:
+             return
+         try:
+-            # wie Strg+C: Auftrag zurückmelden, aufräumen (Windows: Strg+Untbr, der Worker behandelt es gleich)
+-            p.send_signal(signal.CTRL_BREAK_EVENT if os.name == "nt" else signal.SIGINT)
++            # wie Strg+C: Auftrag zurückmelden, aufräumen. Unter Windows gibt es dafür kein Signal an einen Prozess
++            # ohne Konsole – dort (und zusätzlich überall) legt der Server die Stoppdatei an, auf die der Worker achtet.
++            self.stoppdatei.parent.mkdir(parents=True, exist_ok=True)
++            self.stoppdatei.touch()
++            if os.name != "nt":
++                p.send_signal(signal.SIGINT)
+             p.wait(timeout=warten)
+         except (subprocess.TimeoutExpired, OSError):
+@@ -125,5 +136,5 @@ class LokalerKnecht:
+             p.wait(timeout=5)
+ 
+-    def beenden(self, warten: float = 20.0) -> None:
++    def beenden(self, warten: float | None = None) -> None:
+         with self._lock:
+             self._beenden_intern(warten)
+diff --git a/tests/test_korrektur.py b/tests/test_korrektur.py
+index eb8c7ec..fc5b28b 100644
+--- a/tests/test_korrektur.py
++++ b/tests/test_korrektur.py
+@@ -135,4 +135,5 @@ def test_bericht_ueberschreibt_die_hinweise_nicht(client, world, dbs, tmp_path,
+     monkeypatch.setattr(sm.Ablauf, "korrigieren", korrigieren)
+     monkeypatch.setattr("app.zusammenfassung.api_klient", lambda _k: Klient())
++    monkeypatch.setattr(probelauf, "noch_erlaubt", lambda *_a: None)  # erfundene Kampagne; Prüfung → test_server_0484
+     p = Probe(id="11111111-1111-1111-1111-111111111111", session_id="s", kampagne="K", kapitel=1, quelle="Runde",
+               zeilen=1, modell="m", gestartet="2026-10-09T00:00:00Z", zustand="fertig", text=TEXT, campaign_id="c",
+diff --git a/tests/test_verwaltung.py b/tests/test_verwaltung.py
+index 3de2da6..d2329a2 100644
+--- a/tests/test_verwaltung.py
++++ b/tests/test_verwaltung.py
+@@ -178,8 +178,9 @@ def test_eigener_worker_starten(client, dbs, admin, monkeypatch):
+                 "ende = lambda *a: (print('beendet', flush=True), sys.exit(0))\n"
+                 "signal.signal(signal.SIGINT, ende)\n"
+-                "if hasattr(signal, 'SIGBREAK'):\n"
+-                "    signal.signal(signal.SIGBREAK, ende)\n"
+                 f"print('start', {modus!r}, {server_url!r}, os.environ['WORKER_TOKEN'][:3], flush=True)\n"
+-                "time.sleep(60)\n")
++                "for _ in range(600):\n"
++                "    if os.path.exists(os.environ['WORKER_STOP_DATEI']):\n"  # wie der echte Worker (Windows)
++                "        ende()\n"
++                "    time.sleep(0.1)\n")
+         return [sys.executable, "-c", code]
+ 
+-- 
+2.43.0
