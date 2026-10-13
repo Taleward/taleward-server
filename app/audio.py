@@ -90,6 +90,22 @@ def dauer(wav: Path) -> float:
         return w.getnframes() / w.getframerate()
 
 
+def dauer_datei(datei: Path) -> float | None:
+    """Länge einer hochgeladenen Audiodatei laut ffprobe (Sekunden), ohne sie zu dekodieren. None = nicht messbar."""
+    programm = shutil.which("ffprobe")
+    if not programm:
+        return None
+    extra = {"creationflags": 0x08000000} if sys.platform == "win32" else {}
+    try:
+        res = subprocess.run([programm, "-v", "error", *EINGABE, "-show_entries", "format=duration",
+                              "-of", "default=noprint_wrappers=1:nokey=1", str(datei)],
+                             capture_output=True, stdin=subprocess.DEVNULL, timeout=120, **extra)
+        wert = float(res.stdout.decode(errors="replace").strip())
+    except (subprocess.TimeoutExpired, ValueError, OSError):
+        return None
+    return wert if wert > 0 else None
+
+
 def hoerprobe(wav: Path, start: float, laenge: float, ziel: Path) -> bytes:
     """Kurze Hörprobe als Ogg/Opus (wenige Sekunden, klein)."""
     res = ffmpeg(["-hide_banner", "-loglevel", "error", "-y", "-ss", f"{max(0.0, start):.2f}",

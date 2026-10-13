@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base, UTCDateTime, utcnow
@@ -104,6 +104,10 @@ class Campaign(Base):
     imported_by_member_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     # 0.4.13: Links der Kampagne als JSON [{id, label, url, shared}] (app/links.py)
     links: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 0.4.85 (Abrechnung, app/abrechnung.py): zahlende SL. None = die SL, die die Kampagne angelegt hat (die zuerst
+    # beigetretene SL). Abgeben nur ausdrücklich: Angebot an eine andere SL, die es annimmt.
+    zahler_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    zahler_angebot_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     members: Mapped[list["Member"]] = relationship(back_populates="campaign", cascade="all, delete-orphan")
@@ -343,6 +347,8 @@ class Upload(Base):
     chunk_size: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # 0.4.85: vom Server selbst gemessene Länge der Aufnahme (nur bei eingeschalteter Abrechnung)
+    dauer_sekunden: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     files: Mapped[list["UploadFile"]] = relationship(
         cascade="all, delete-orphan", order_by="UploadFile.position"
@@ -400,6 +406,8 @@ class Job(Base):
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 0.4.85 (Abrechnung): Die SL hat den Auftrag über ihrem Betrag für „Verarbeiten“ freigegeben
+    kosten_freigegeben_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 # ---------------------------------------------------------------- Ergebnis der Transkription
@@ -662,3 +670,87 @@ class EinmalToken(Base):
     daten: Mapped[str] = mapped_column(Text, default="{}")
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+# ---------------------------------------------------------------- Abrechnung mit Guthaben (0.4.85, app/abrechnung.py)
+class Guthaben(Base):
+    """Wer zahlt: ein Konto (SL) oder eine Organisation (Topf). Einen Kontostand gibt es nicht – der Saldo ist die Summe
+    der Buchungen. Nach dem Löschen des Kontos bleibt die Zeile ohne Bezug (user_id NULL), die Buchungen bleiben."""
+
+    __tablename__ = "guthaben"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    art: Mapped[str] = mapped_column(String(16))  # konto | organisation
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+                                                unique=True)
+    organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id", ondelete="SET NULL"),
+                                                        nullable=True, unique=True)
+    # Einstellungen der SL bzw. der Verwalter (Änderungen stehen im Protokoll)
+    freigabe_ab_cent: Mapped[int] = mapped_column(Integer, default=200)
+    bogen_seiten: Mapped[int] = mapped_column(Integer, default=20)
+    boegen_je_spieler: Mapped[int] = mapped_column(Integer, default=3)
+    angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class Buchung(Base):
+    """Buchungsbuch: nur Einfügen. Ändern und Löschen verhindern Trigger in der Datenbank (Migration b3d9e1f7a2c4).
+    Beträge in ganzen Cent mit Vorzeichen (+ gutschreiben, − verbrauchen), Währung fest EUR."""
+
+    __tablename__ = "buchungen"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    guthaben_id: Mapped[str] = mapped_column(ForeignKey("guthaben.id"), index=True)
+    art: Mapped[str] = mapped_column(String(16))  # zahlung|gutschrift|gutschein|verbrauch|rueckbuchung|erstattung|korrektur
+    betrag_cent: Mapped[int] = mapped_column(Integer)
+    waehrung: Mapped[str] = mapped_column(String(3), default="EUR")
+    job_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    gutschein_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    gegen_buchung_id: Mapped[str | None] = mapped_column(String(36), nullable=True, unique=True)
+    ereignis_id: Mapped[str | None] = mapped_column(String(200), nullable=True, unique=True)  # Zahlungsanbieter
+    grund: Mapped[str | None] = mapped_column(Text, nullable=True)
+    von: Mapped[str] = mapped_column(String(36), default="system")  # Konto des Verwalters oder „system“
+    angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class KostenAuftrag(Base):
+    """Je kostenpflichtigem Auftrag eine Zeile, angelegt beim Start (queue.claim) und beim Ende abgerechnet. Höchstens
+    ein laufender je Guthaben – das sichert ein eindeutiger Teilindex in der Datenbank selbst."""
+
+    __tablename__ = "kosten_auftraege"
+    __table_args__ = (Index("ix_kosten_auftraege_ein_laufender", "guthaben_id", unique=True,
+                            sqlite_where=text("zustand = 'laeuft'")),)
+    job_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    guthaben_id: Mapped[str] = mapped_column(ForeignKey("guthaben.id"), index=True)
+    weg: Mapped[str] = mapped_column(String(16))  # worker | zentrale | extern
+    art: Mapped[str] = mapped_column(String(16))  # Auftragsart (transcribe, summarize, revise, document)
+    menge: Mapped[int] = mapped_column(Integer, default=0)  # Sekunden Aufnahme bzw. Seiten bzw. 1
+    schaetzung_cent: Mapped[int] = mapped_column(Integer, default=0)
+    zustand: Mapped[str] = mapped_column(String(16), default="laeuft")  # laeuft | abgerechnet
+    betrag_cent: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    abgerechnet_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
+
+class Gutschein(Base):
+    """Gutscheincode über einen festen Betrag. Gespeichert wird nur die SHA-256 des Codes."""
+
+    __tablename__ = "gutscheine"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    aktion: Mapped[str] = mapped_column(String(100), index=True)
+    betrag_cent: Mapped[int] = mapped_column(Integer)
+    gueltig_bis: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    eingeloest_von: Mapped[str | None] = mapped_column(String(36), nullable=True)  # Guthaben
+    eingeloest_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    angelegt_von: Mapped[str] = mapped_column(String(36))
+    angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class AbrechnungProtokoll(Base):
+    """Wer hat wann was an der Abrechnung geändert (Einstellungen, Gutschrift, Gutscheine, Zahler). Nur Einfügen."""
+
+    __tablename__ = "abrechnung_protokoll"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    von: Mapped[str] = mapped_column(String(36))
+    guthaben_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    was: Mapped[str] = mapped_column(String(40))
+    daten: Mapped[str] = mapped_column(Text, default="{}")
+    angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
