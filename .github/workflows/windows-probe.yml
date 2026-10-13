@@ -1,0 +1,32 @@
+name: Windows-Probe
+# Probe für den Einzelplatz unter Windows: Laufen die Server-Tests auch dort?
+# Nur von Hand starten (Actions → Windows-Probe → Run workflow). Kein Schreibrecht, ändert nichts am Repo.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  tests:
+    runs-on: windows-2025
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: ffmpeg
+        shell: pwsh
+        run: choco install ffmpeg -y --no-progress
+      - name: Tests
+        shell: pwsh
+        run: |
+          uv sync --frozen
+          uv run pytest -q -rf -p no:cacheprovider --junitxml=windows-tests.xml
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: windows-tests
+          path: windows-tests.xml
+          retention-days: 7
