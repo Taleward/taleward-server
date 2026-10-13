@@ -76,6 +76,8 @@ def tr(request: Request):
 # Meldungen nach einer Aktion (?ok=…) – der Text ist zugleich der Übersetzungsschlüssel
 MELDUNGEN = {
     "faktor_aus": "Der zweite Faktor ist ausgeschaltet. Die Anmeldung braucht jetzt nur noch das Passwort.",
+    "gutschrift": "Gutgeschrieben.",
+    "storno": "Die Gutschrift ist storniert.",
     "probe_runde": "Bitte eine Runde mit Abschrift wählen.",
     "probe_cloud": "Für diese Kampagne ist die Cloud-Zusammenfassung nicht freigegeben. Das entscheidet die Spielleitung in der App auf der Übersicht der Kampagne unter „Kampagne verwalten“ → „Cloud-Dienste“.",
     "probe_datei": "Die Abschrift-Datei ist zu groß (höchstens 5 MB) oder enthält keine Zeilen „[h:mm:ss] Sprecher: Text“.",
@@ -1582,8 +1584,9 @@ def einbinden(app: FastAPI) -> None:
     from app.verwaltung import updates
 
     app.include_router(updates.router)
-    from app.verwaltung import guthaben
+    from app.verwaltung import abrechnung_seite, guthaben
 
+    app.include_router(abrechnung_seite.router)  # 0.4.85: Verwaltung → Abrechnung
     guthaben.einbinden(app)  # 0.4.85: Seite „Guthaben“ für Spielleitungen
     app.include_router(assistent.router)
     app.include_router(assistent.oeffentlich)
