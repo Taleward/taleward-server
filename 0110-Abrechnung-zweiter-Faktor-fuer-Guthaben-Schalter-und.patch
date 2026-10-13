@@ -1,0 +1,255 @@
+From 3a97f591646a063cafa10848d3a063382ce2a5b2 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 00:53:32 +0200
+Subject: [PATCH 110/111] Abrechnung: zweiter Faktor fuer Guthaben, Schalter
+ und Preise
+
+Seite Guthaben fragt nach dem Code, wenn das Konto einen zweiten Faktor hat. Schalter (ausser Aus) und Preise nur mit zweitem Faktor. Hinweis bei fehlenden Cloud-Schaetzwerten. Laenge nicht messbarer Aufnahmen nach Dateigroesse.
+---
+ app/routers/uploads.py                      |  3 +-
+ app/verwaltung/abrechnung_seite.py          | 18 +++++-
+ app/verwaltung/guthaben.py                  | 65 +++++++++++++++++++--
+ app/verwaltung/i18n.py                      |  6 +-
+ app/verwaltung/templates/abrechnung.html    |  5 +-
+ app/verwaltung/templates/anmelden_code.html |  7 ++-
+ tests/test_abrechnung_0485.py               |  8 +++
+ 7 files changed, 96 insertions(+), 16 deletions(-)
+
+diff --git a/app/routers/uploads.py b/app/routers/uploads.py
+index b2c9a1e..5aa67ce 100644
+--- a/app/routers/uploads.py
++++ b/app/routers/uploads.py
+@@ -195,5 +195,6 @@ def complete(uploadId: str, request: Request, user: User = Depends(current_user)
+     if abrechnung.an(db):  # 0.4.85: Länge selbst messen (Schätzung der Kosten) und die feste Obergrenze je Runde
+         up.dauer_sekunden = abrechnung.aufnahme_messen(up)
+-        if up.dauer_sekunden and up.dauer_sekunden > abrechnung.MAX_AUFNAHME_SEKUNDEN:
++        laenge = up.dauer_sekunden or abrechnung.groesse_sekunden(up)  # N4: nicht messbar → nach Dateigröße
++        if laenge > abrechnung.MAX_AUFNAHME_SEKUNDEN:
+             storage.delete_upload_files(up.id)
+             up.state = "aborted"
+diff --git a/app/verwaltung/abrechnung_seite.py b/app/verwaltung/abrechnung_seite.py
+index 855ed08..ed5e17b 100644
+--- a/app/verwaltung/abrechnung_seite.py
++++ b/app/verwaltung/abrechnung_seite.py
+@@ -95,5 +95,9 @@ def _seite_abrechnung(request: Request, user: User, db: Session, status: int = 2
+         protokoll.append({"z": z, "von": von.display_name if von else z.von, "daten": _kurz(json.loads(z.daten or "{}"))})
+     orgs = list(db.scalars(select(Organization).order_by(Organization.name)))
+-    daten = {"bestaetigen": None, "codes": None, **ctx}
++    # N6: Cloud-Arten ohne eigenen Schätzwert und ohne bisherige Läufe – die würden mit 0 € geschätzt
++    namen = {"transcribe": tr(request)("Transkription"), "summarize": tr(request)("Kapitel"),
++             "revise": tr(request)("Korrektur per Hinweis"), "document": tr(request)("SL-Unterlage")}
++    ohne = [namen[a] for a in abrechnung.KOSTENPFLICHTIG if abrechnung.preis_je_einheit(db, a, "cloud") <= 0]
++    daten = {"bestaetigen": None, "codes": None, "cloud_ohne_schaetzung": ", ".join(ohne), **ctx}
+     antwort = _seite(request, "abrechnung.html", user, db, modus=abrechnung.modus(db), preisfelder=PREISFELDER,
+                      werte=werte, euro_feld=_euro_feld, euro=abrechnung.euro, konten=konten, aktionen=aktionen,
+@@ -113,4 +117,6 @@ def modus(request: Request, modus: str = Form(""), user: User = Depends(verwalte
+     if modus not in abrechnung.MODI:
+         return _seite_abrechnung(request, user, db, 400, fehler=tr(request)("Bitte eine der Möglichkeiten wählen."))
++    if modus != "aus" and not _faktor(db, user):  # 0.4.87 (N3); Ausschalten geht immer – die Notbremse
++        return _ohne_faktor(request, user, db)
+     if modus != abrechnung.modus(db):
+         abrechnung.modus_schreiben(db, modus, user.id)
+@@ -121,4 +127,6 @@ def modus(request: Request, modus: str = Form(""), user: User = Depends(verwalte
+ @router.post("/abrechnung/preise", dependencies=[Depends(csrf_pruefen)])
+ async def preise(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)):
++    if not _faktor(db, user):  # 0.4.87 (N3): Aufschlag und Preise nur mit zweitem Faktor
++        return _ohne_faktor(request, user, db)
+     form = await request.form()
+     p = abrechnung.preise(db)
+@@ -149,10 +157,14 @@ def _ziel(db: Session, ziel_konto: str, ziel_org: str) -> Guthaben | None:
+ 
+ 
++def _ohne_faktor(request: Request, user: User, db: Session) -> HTMLResponse:
++    return _seite_abrechnung(request, user, db, 403, fehler=tr(request)(
++        "Das geht nur mit eingeschaltetem zweiten Faktor (Anmeldung → Dein zweiter Faktor)."))
++
++
+ def _vorbedingungen(request: Request, user: User, db: Session) -> HTMLResponse | None:
+     if not abrechnung.an(db):
+         raise errors.not_found()
+     if not _faktor(db, user):
+-        return _seite_abrechnung(request, user, db, 403, fehler=tr(request)(
+-            "Gutschriften und Gutscheine gehen nur mit eingeschaltetem zweiten Faktor (Anmeldung → Dein zweiter Faktor)."))
++        return _ohne_faktor(request, user, db)
+     return None
+ 
+diff --git a/app/verwaltung/guthaben.py b/app/verwaltung/guthaben.py
+index 33fb52e..440680f 100644
+--- a/app/verwaltung/guthaben.py
++++ b/app/verwaltung/guthaben.py
+@@ -6,5 +6,6 @@ ab bzw. übernimmt sie. Im Topf-Modus sehen die Verwalter der Organisation hier
+ 
+ Anmeldung mit Benutzername und Passwort (wie „Konto löschen“), eigenes kurzlebiges Cookie nur für diesen Pfad. Konten
+-nur mit Anmeldung über einen Dienst setzen sich in der App unter Konto ein Passwort.
++nur mit Anmeldung über einen Dienst setzen sich in der App unter Konto ein Passwort. Hat das Konto einen zweiten Faktor
++eingeschaltet (Verwalter), kommt danach der Code aus der Authenticator-App (0.4.87, N2).
+ """
+ from __future__ import annotations
+@@ -30,4 +31,6 @@ from app.verwaltung.router import _seite, tr
+ router = APIRouter(prefix="/guthaben", include_in_schema=False)
+ COOKIE = "tw_guthaben"
++COOKIE_CODE = "tw_guthaben_code"
++CODE_MINUTEN = 5
+ STUNDEN = 2
+ GUTSCHEIN_FENSTER = 15 * 60
+@@ -134,14 +137,64 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
+         return _anmeldeseite(request, db, tr(request)("Benutzername oder Passwort stimmen nicht."), name, 401)
+     ZAEHLER.freigeben(versuch)
++    from app.verwaltung import zweiter_faktor
++
++    if zweiter_faktor.aktiv(db, user.id):  # N2: erst noch der Code
++        antwort = _code_seite(request, db)
++        antwort.set_cookie(COOKIE_CODE, _token(user, f"{server_id()}:guthaben-code", timedelta(minutes=CODE_MINUTEN)),
++                           max_age=CODE_MINUTEN * 60, httponly=True, samesite="strict",
++                           secure=request.url.scheme == "https", path="/guthaben")
++        return antwort
++    return _sitzung(request, user)
++
++
++def _token(user: User, aud: str, dauer: timedelta) -> str:
+     jetzt = utcnow()
+-    wert = jwt.encode({"sub": user.id, "tv": user.token_version, "aud": _aud(), "iat": jetzt,
+-                       "exp": jetzt + timedelta(hours=STUNDEN), "jti": secrets.token_hex(8)},
+-                      get_settings().jwt_secret, algorithm="HS256")
++    return jwt.encode({"sub": user.id, "tv": user.token_version, "aud": aud, "iat": jetzt, "exp": jetzt + dauer,
++                       "jti": secrets.token_hex(8)}, get_settings().jwt_secret, algorithm="HS256")
++
++
++def _sitzung(request: Request, user: User) -> RedirectResponse:
+     antwort = _zurueck()
+-    antwort.set_cookie(COOKIE, wert, max_age=STUNDEN * 3600, httponly=True, samesite="strict",
+-                       secure=request.url.scheme == "https", path="/guthaben")
++    antwort.set_cookie(COOKIE, _token(user, _aud(), timedelta(hours=STUNDEN)), max_age=STUNDEN * 3600, httponly=True,
++                       samesite="strict", secure=request.url.scheme == "https", path="/guthaben")
++    antwort.delete_cookie(COOKIE_CODE, path="/guthaben")
+     return antwort
+ 
+ 
++def _code_seite(request: Request, db: Session, fehler: str | None = None, status: int = 200) -> HTMLResponse:
++    antwort = _seite(request, "anmelden_code.html", None, db, fehler=fehler, ziel="/guthaben/anmelden/code",
++                     zurueck="/guthaben")
++    antwort.status_code = status
++    return antwort
++
++
++@router.post("/anmelden/code", dependencies=[Depends(_an)])
++def anmelden_code(request: Request, code: str = Form(""), db: Session = Depends(get_db)):
++    """Zweiter Schritt der Anmeldung (N2): gleiche Prüfung und gleiche Fehlversuch-Grenze wie in der Verwaltung."""
++    from app.begrenzung import ZAEHLER
++    from app.verwaltung import zweiter_faktor
++    from app.verwaltung.router import _versuch
++
++    wert = request.cookies.get(COOKIE_CODE)
++    try:
++        daten = jwt.decode(wert or "", get_settings().jwt_secret, algorithms=["HS256"],
++                           audience=f"{server_id()}:guthaben-code")
++    except jwt.PyJWTError:
++        return _zurueck()
++    user = db.get(User, daten.get("sub"))
++    if user is None or user.token_version != daten.get("tv") or user.setup_account:
++        return _zurueck()
++    versuch = _versuch(begrenzung.adresse(request), f"code:{user.id}")
++    if versuch is None:
++        return _code_seite(request, db, tr(request)("Zu viele Fehlversuche. Bitte in ein paar Minuten erneut versuchen."),
++                           429)
++    if not zweiter_faktor.pruefen(db, user.id, code):
++        return _code_seite(request, db, tr(request)(
++            "Der Code stimmt nicht oder wurde schon benutzt. Nimm den nächsten aus deiner App."), 400)
++    ZAEHLER.freigeben(versuch)
++    db.commit()
++    return _sitzung(request, user)
++
++
+ @router.post("/abmelden", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
+ def abmelden():
+diff --git a/app/verwaltung/i18n.py b/app/verwaltung/i18n.py
+index 883eead..8305bee 100644
+--- a/app/verwaltung/i18n.py
++++ b/app/verwaltung/i18n.py
+@@ -777,5 +777,4 @@ EN: dict[str, str] = {
+     "Gutschrift bestätigen": "Confirm credit",
+     "Gutschrift von Hand": "Manual credit",
+-    "Gutschriften und Gutscheine gehen nur mit eingeschaltetem zweiten Faktor (Anmeldung → Dein zweiter Faktor).": "Credits and vouchers only work with your second factor switched on (Sign-in → Your second factor).",
+     "Gültig bis": "Valid until",
+     "Gültig bis (leer = ohne Ablauf)": "Valid until (empty = no expiry)",
+@@ -832,4 +831,9 @@ EN: dict[str, str] = {
+     "Übernehmen": "Take over",
+     "„Guthaben knapp“ unter (Euro)": "“Credit running low” below (euros)",
++    # 0.4.87
++    "Ohne zweiten Faktor kannst du hier nur nachsehen und die Abrechnung ausschalten. Einschalten, Preise, Gutschriften und Gutscheine brauchen ihn.": "Without a second factor you can only look around here and switch billing off. Switching it on, prices, credits and vouchers need it.",
++    "Zweiten Faktor einrichten": "Set up second factor",
++    "Das geht nur mit eingeschaltetem zweiten Faktor (Anmeldung → Dein zweiter Faktor).": "This only works with your second factor switched on (Sign-in → Your second factor).",
++    "Für die Cloud fehlen noch Schätzwerte: {arten}. Ohne sie schätzt der Server solche Aufträge mit 0 € – Freigabe-Betrag und Deckel greifen dann nicht. Trag die Werte unter „Preise und Grenzen“ ein, bevor du einschaltest.": "Cloud estimates are still missing: {arten}. Without them the server estimates such jobs at €0 – the approval amount and the cap don't apply then. Enter the values under “Prices and limits” before switching on.",
+     "Ob die Einladung noch gilt, zeigt dir die App.": "The app will tell you whether the invite is still valid.",
+     "In Taleward öffnen": "Open in Taleward",
+diff --git a/app/verwaltung/templates/abrechnung.html b/app/verwaltung/templates/abrechnung.html
+index 59d4181..b9daf0f 100644
+--- a/app/verwaltung/templates/abrechnung.html
++++ b/app/verwaltung/templates/abrechnung.html
+@@ -5,4 +5,5 @@
+ <h1>{{ _("Abrechnung") }}</h1>
+ <p class="leise">{{ _("Wer verarbeiten lässt, zahlt aus einem Guthaben. Spieler zahlen nie. Aufladen mit Bezahlung kommt in einer späteren Fassung; bis dahin gibt es Gutschriften und Gutscheine.") }}</p>
++{% if not faktor %}<div class="meldung meldung--fehler">{{ _("Ohne zweiten Faktor kannst du hier nur nachsehen und die Abrechnung ausschalten. Einschalten, Preise, Gutschriften und Gutscheine brauchen ihn.") }} <a href="/verwaltung/anmeldung#zweiter-faktor">{{ _("Zweiten Faktor einrichten") }}</a></div>{% endif %}
+ 
+ {% if codes %}
+@@ -36,4 +37,5 @@
+     {% endfor %}
+     <p class="hilfe">{{ _("Eingeschaltet sehen Spielleitungen ihr Guthaben unter /guthaben auf diesem Server. Die monatliche Kostengrenze unter Einstellungen bleibt als Notbremse.") }}</p>
++    {% if cloud_ohne_schaetzung %}<p class="meldung meldung--fehler">{{ _("Für die Cloud fehlen noch Schätzwerte: {arten}. Ohne sie schätzt der Server solche Aufträge mit 0 € – Freigabe-Betrag und Deckel greifen dann nicht. Trag die Werte unter „Preise und Grenzen“ ein, bevor du einschaltest.", arten=cloud_ohne_schaetzung) }}</p>{% endif %}
+     <div><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
+   </form>
+@@ -48,5 +50,5 @@
+     <label>{{ _(text) }} <input type="text" name="{{ name }}" value="{{ euro_feld(werte[name]) if ist_euro else werte[name] }}" inputmode="decimal" required maxlength="12"></label>
+     {% endfor %}
+-    <div><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
++    <div><button class="tw-btn tw-btn--secondary" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Speichern") }}</button></div>
+   </form>
+ </div>
+@@ -69,5 +71,4 @@
+ <div class="karte">
+   <h2>{{ _("Gutschrift von Hand") }}</h2>
+-  {% if not faktor %}<div class="meldung meldung--fehler">{{ _("Gutschriften und Gutscheine gehen nur mit eingeschaltetem zweiten Faktor (Anmeldung → Dein zweiter Faktor).") }}</div>{% endif %}
+   <form class="formular" method="post" action="/verwaltung/abrechnung/gutschrift">
+     <input type="hidden" name="csrf" value="{{ csrf }}">
+diff --git a/app/verwaltung/templates/anmelden_code.html b/app/verwaltung/templates/anmelden_code.html
+index 807c7cd..0330a74 100644
+--- a/app/verwaltung/templates/anmelden_code.html
++++ b/app/verwaltung/templates/anmelden_code.html
+@@ -4,7 +4,8 @@
+ <div class="anmeldung">
+   {% include "_kopf_marke.html" %}
+-  <p class="leise zentriert">{{ _("Verwaltung von {name} · {betreiber}", name=angaben.server_name, betreiber=angaben.server_operator) }}</p>
++  {% if ziel %}<p class="leise zentriert">{{ _("Guthaben auf {server} · {betreiber}", server=angaben.server_name, betreiber=angaben.server_operator) }}</p>
++  {% else %}<p class="leise zentriert">{{ _("Verwaltung von {name} · {betreiber}", name=angaben.server_name, betreiber=angaben.server_operator) }}</p>{% endif %}
+   <div class="karte">
+-    <form class="formular" method="post" action="/verwaltung/anmelden/code">
++    <form class="formular" method="post" action="{{ ziel or '/verwaltung/anmelden/code' }}">
+       <label>{{ _("Code aus deiner Authenticator-App") }}
+         <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus maxlength="20"></label>
+@@ -13,5 +14,5 @@
+     </form>
+   </div>
+-  <p class="zentriert"><a href="/verwaltung/anmelden">{{ _("Zurück zur Anmeldung") }}</a></p>
++  <p class="zentriert"><a href="{{ zurueck or '/verwaltung/anmelden' }}">{{ _("Zurück zur Anmeldung") }}</a></p>
+ </div>
+ {% endblock %}
+diff --git a/tests/test_abrechnung_0485.py b/tests/test_abrechnung_0485.py
+index 40011fa..0733d79 100644
+--- a/tests/test_abrechnung_0485.py
++++ b/tests/test_abrechnung_0485.py
+@@ -493,4 +493,12 @@ def test_verwaltung_schalter_und_preise(client, dbs, admin):  # noqa: F811
+                                                               "grund": "x"})
+     assert r.status_code == 404  # Schalter aus
++    from app.models import User
++    from app.verwaltung import zweiter_faktor as zf
++    from tests.test_server_0484 import _code
++
++    chef = dbs.scalar(select(User).where(User.username == "chef"))  # seit 0.4.87 nur mit zweitem Faktor (N3)
++    zf.beginnen(dbs, chef.id)
++    zf.bestaetigen(dbs, chef.id, _code(dbs, chef.id))
++    dbs.commit()
+     r = client.post("/verwaltung/abrechnung/modus", data={"csrf": admin, "modus": "guthaben"}, follow_redirects=False)
+     assert r.status_code == 303 and abrechnung.modus(dbs) == "guthaben"
+-- 
+2.43.0
