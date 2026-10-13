@@ -1,0 +1,455 @@
+From d779f33c7bd5a6f76fee31410eded2031e73b2fb Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 22:17:15 +0200
+Subject: [PATCH 106/107] Abrechnung: Verwaltung mit Schalter, Preisen,
+ Gutschrift und Gutscheinen
+
+---
+ app/verwaltung/abrechnung_seite.py       | 238 +++++++++++++++++++++++
+ app/verwaltung/router.py                 |   5 +-
+ app/verwaltung/templates/abrechnung.html | 133 +++++++++++++
+ app/verwaltung/templates/basis.html      |   2 +-
+ tests/test_verwaltung2.py                |   7 +-
+ 5 files changed, 380 insertions(+), 5 deletions(-)
+ create mode 100644 app/verwaltung/abrechnung_seite.py
+ create mode 100644 app/verwaltung/templates/abrechnung.html
+
+diff --git a/app/verwaltung/abrechnung_seite.py b/app/verwaltung/abrechnung_seite.py
+new file mode 100644
+index 0000000..4fc6f83
+--- /dev/null
++++ b/app/verwaltung/abrechnung_seite.py
+@@ -0,0 +1,238 @@
++"""Verwaltung → „Abrechnung“ (0.4.85): Schalter, Preise des Betreibers, Übersicht der Guthaben, Gutschrift von Hand und
++Gutscheine. Gutschrift und Gutscheine nur mit eingeschaltetem zweiten Faktor, mit Rückfrage, Obergrenze und Protokoll.
++Bei ausgeschalteter Abrechnung lassen sich nur Schalter und Preise ändern."""
++from __future__ import annotations
++
++import json
++from dataclasses import fields
++from datetime import datetime, time, timezone
++
++from fastapi import APIRouter, Depends, Form, Request
++from fastapi.responses import HTMLResponse
++from sqlalchemy import func, select
++from sqlalchemy.orm import Session
++
++from app import abrechnung, errors
++from app.db import get_db
++from app.models import AbrechnungProtokoll, Buchung, Guthaben, Gutschein, Organization, User
++from app.verwaltung.router import _seite, _zurueck, csrf_pruefen, tr, verwalter
++
++router = APIRouter(prefix="/verwaltung", include_in_schema=False)
++
++# Felder der Preise in der Reihenfolge der Seite: (Name, Beschriftung, Euro-Betrag?)
++PREISFELDER = [
++    ("aufschlag_prozent", "Aufschlag in Prozent (auf alle Kosten)", False),
++    ("worker_transkription_h", "Worker: Transkription je Stunde Aufnahme (Euro)", True),
++    ("worker_kapitel_h", "Worker: Kapitel je Stunde Aufnahme (Euro)", True),
++    ("worker_korrektur", "Worker: Korrektur per Hinweis (Euro)", True),
++    ("worker_unterlage_seite", "Worker: SL-Unterlage je Seite (Euro)", True),
++    ("cloud_transkription_h", "Cloud, nur Schätzung: Transkription je Stunde Aufnahme (Euro, 0 = Mittelwert)", True),
++    ("cloud_kapitel_h", "Cloud, nur Schätzung: Kapitel je Stunde Aufnahme (Euro, 0 = Mittelwert)", True),
++    ("cloud_korrektur", "Cloud, nur Schätzung: Korrektur per Hinweis (Euro, 0 = Mittelwert)", True),
++    ("cloud_unterlage_seite", "Cloud, nur Schätzung: SL-Unterlage je Seite (Euro, 0 = Mittelwert)", True),
++    ("deckel", "So weit darf ein Auftrag laut Schätzung ins Minus führen (Euro)", True),
++    ("warnung_ab", "„Guthaben knapp“ unter (Euro)", True),
++    ("freigabe_standard", "Neue Guthaben: Aufträge darüber warten auf „Verarbeiten“ (Euro)", True),
++    ("gutschrift_max", "Höchstens je Gutschrift von Hand bzw. je Gutschein (Euro)", True),
++]
++
++
++def _euro_lesen(text: str) -> int | None:
++    t = (text or "").strip().replace("€", "").replace(" ", "").replace(".", "").replace(",", ".")
++    try:
++        wert = round(float(t) * 100)
++    except ValueError:
++        return None
++    return wert if 0 <= wert <= 10_000_000 else None
++
++
++def _euro_feld(cent: int) -> str:
++    return f"{cent // 100},{cent % 100:02d}"
++
++
++def _name(db: Session, g: Guthaben) -> str:
++    if g.art == "organisation":
++        org = db.get(Organization, g.organization_id) if g.organization_id else None
++        return org.name if org else "?"
++    u = db.get(User, g.user_id) if g.user_id else None
++    return f"{u.display_name} ({u.username})" if u else "–"
++
++
++def _kurz(daten: dict) -> str:
++    """Protokolleintrag lesbar: bei alt/neu nur, was sich geändert hat."""
++    alt, neu = daten.get("alt"), daten.get("neu")
++    if isinstance(alt, dict) and isinstance(neu, dict):
++        return ", ".join(f"{k}: {alt.get(k)} → {v}" for k, v in neu.items() if alt.get(k) != v)
++    if "alt" in daten and "neu" in daten:
++        return f"{alt} → {neu}"
++    return ", ".join(f"{k}: {v}" for k, v in daten.items() if v is not None)
++
++
++def _faktor(db: Session, user: User) -> bool:
++    from app.verwaltung import zweiter_faktor
++
++    return zweiter_faktor.aktiv(db, user.id)
++
++
++def _seite_abrechnung(request: Request, user: User, db: Session, status: int = 200, **ctx) -> HTMLResponse:
++    if abrechnung.an(db):
++        abrechnung.offene_abrechnen(db)
++    p = abrechnung.preise(db)
++    werte = {f.name: getattr(p, f.name) for f in fields(p)}
++    konten = []
++    for g in db.scalars(select(Guthaben).order_by(Guthaben.angelegt)):
++        konten.append({"g": g, "name": _name(db, g), "saldo": abrechnung.saldo(db, g.id)})
++    aktionen = db.execute(select(Gutschein.aktion, Gutschein.betrag_cent, func.count(),
++                                 func.count(Gutschein.eingeloest_at), func.max(Gutschein.gueltig_bis))
++                          .group_by(Gutschein.aktion, Gutschein.betrag_cent).order_by(Gutschein.aktion)).all()
++    storniert = set(db.scalars(select(Buchung.gegen_buchung_id).where(Buchung.gegen_buchung_id.is_not(None))))
++    gutschriften = [{"b": b, "name": _name(db, db.get(Guthaben, b.guthaben_id))}
++                    for b in db.scalars(select(Buchung).where(Buchung.art == "gutschrift")
++                                        .order_by(Buchung.angelegt.desc()).limit(20)) if b.id not in storniert]
++    protokoll = []
++    for z in db.scalars(select(AbrechnungProtokoll).order_by(AbrechnungProtokoll.angelegt.desc()).limit(30)):
++        von = db.get(User, z.von)
++        protokoll.append({"z": z, "von": von.display_name if von else z.von, "daten": _kurz(json.loads(z.daten or "{}"))})
++    orgs = list(db.scalars(select(Organization).order_by(Organization.name)))
++    daten = {"bestaetigen": None, "codes": None, **ctx}
++    antwort = _seite(request, "abrechnung.html", user, db, modus=abrechnung.modus(db), preisfelder=PREISFELDER,
++                     werte=werte, euro_feld=_euro_feld, euro=abrechnung.euro, konten=konten, aktionen=aktionen,
++                     gutschriften=gutschriften, protokoll=protokoll, faktor=_faktor(db, user), orgs=orgs,
++                     an=abrechnung.an(db), **daten)
++    antwort.status_code = status
++    return antwort
++
++
++@router.get("/abrechnung", response_class=HTMLResponse)
++def seite(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)):
++    return _seite_abrechnung(request, user, db)
++
++
++@router.post("/abrechnung/modus", dependencies=[Depends(csrf_pruefen)])
++def modus(request: Request, modus: str = Form(""), user: User = Depends(verwalter), db: Session = Depends(get_db)):
++    if modus not in abrechnung.MODI:
++        return _seite_abrechnung(request, user, db, 400, fehler=tr(request)("Bitte eine der Möglichkeiten wählen."))
++    if modus != abrechnung.modus(db):
++        abrechnung.modus_schreiben(db, modus, user.id)
++        db.commit()
++    return _zurueck("/abrechnung", "gespeichert")
++
++
++@router.post("/abrechnung/preise", dependencies=[Depends(csrf_pruefen)])
++async def preise(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)):
++    form = await request.form()
++    p = abrechnung.preise(db)
++    for name, _text, ist_euro in PREISFELDER:
++        roh = str(form.get(name, ""))
++        if ist_euro:
++            wert = _euro_lesen(roh)
++        else:
++            try:
++                wert = int(roh.strip())
++            except ValueError:
++                wert = None
++            wert = wert if wert is not None and 0 <= wert <= 1000 else None
++        if wert is None:
++            return _seite_abrechnung(request, user, db, 400, fehler=tr(request)(
++                "Bitte überall eine Zahl eingeben (Euro mit Komma, z. B. 1,50)."))
++        setattr(p, name, wert)
++    abrechnung.preise_schreiben(db, p, user.id)
++    db.commit()
++    return _zurueck("/abrechnung", "gespeichert")
++
++
++def _ziel(db: Session, ziel_konto: str, ziel_org: str) -> Guthaben | None:
++    if ziel_org:
++        return abrechnung.guthaben_organisation(db, ziel_org) if db.get(Organization, ziel_org) else None
++    u = db.scalar(select(User).where(User.username == ziel_konto.strip().lower())) if ziel_konto.strip() else None
++    return abrechnung.guthaben_konto(db, u.id) if u is not None and not u.setup_account else None
++
++
++def _vorbedingungen(request: Request, user: User, db: Session) -> HTMLResponse | None:
++    if not abrechnung.an(db):
++        raise errors.not_found()
++    if not _faktor(db, user):
++        return _seite_abrechnung(request, user, db, 403, fehler=tr(request)(
++            "Gutschriften und Gutscheine gehen nur mit eingeschaltetem zweiten Faktor (Konten → Dein zweiter Faktor)."))
++    return None
++
++
++@router.post("/abrechnung/gutschrift", dependencies=[Depends(csrf_pruefen)])
++def gutschrift(request: Request, ziel_konto: str = Form(""), ziel_org: str = Form(""), betrag: str = Form(""),
++               grund: str = Form(""), bestaetigt: str = Form(""), user: User = Depends(verwalter),
++               db: Session = Depends(get_db)):
++    sperre = _vorbedingungen(request, user, db)
++    if sperre is not None:
++        return sperre
++    _ = tr(request)
++    g = _ziel(db, ziel_konto, ziel_org)
++    cent = _euro_lesen(betrag)
++    grenze = abrechnung.preise(db).gutschrift_max
++    if g is None:
++        return _seite_abrechnung(request, user, db, 400, fehler=_("Dieses Konto gibt es nicht."))
++    if not cent or cent > grenze:
++        return _seite_abrechnung(request, user, db, 400, fehler=_(
++            "Bitte einen Betrag über 0 und höchstens {betrag} eingeben.", betrag=abrechnung.euro(grenze)))
++    if not " ".join(grund.split()):
++        return _seite_abrechnung(request, user, db, 400, fehler=_("Bitte einen Grund angeben."))
++    if not bestaetigt:  # Rückfrage
++        db.rollback()
++        return _seite_abrechnung(request, user, db, bestaetigen={
++            "name": _name(db, g), "betrag": abrechnung.euro(cent), "grund": grund.strip()[:500],
++            "ziel_konto": ziel_konto, "ziel_org": ziel_org, "roh": betrag})
++    abrechnung.gutschreiben(db, g, cent, grund, user.id)
++    db.commit()
++    return _zurueck("/abrechnung", "gutschrift")
++
++
++@router.post("/abrechnung/storno/{buchung_id}", dependencies=[Depends(csrf_pruefen)])
++def storno(request: Request, buchung_id: str, bestaetigt: str = Form(""), user: User = Depends(verwalter),
++           db: Session = Depends(get_db)):
++    sperre = _vorbedingungen(request, user, db)
++    if sperre is not None:
++        return sperre
++    if not bestaetigt:
++        return _seite_abrechnung(request, user, db, 400, fehler=tr(request)(
++            "Bitte das Stornieren mit dem Haken bestätigen."))
++    try:
++        abrechnung.stornieren(db, buchung_id, user.id)
++    except ValueError:
++        db.rollback()
++        return _seite_abrechnung(request, user, db, 400, fehler=tr(request)(
++            "Diese Gutschrift lässt sich nicht (mehr) stornieren."))
++    db.commit()
++    return _zurueck("/abrechnung", "storno")
++
++
++@router.post("/abrechnung/gutscheine", dependencies=[Depends(csrf_pruefen)])
++def gutscheine(request: Request, anzahl: str = Form(""), betrag: str = Form(""), aktion: str = Form(""),
++               gueltig_bis: str = Form(""), bestaetigt: str = Form(""), user: User = Depends(verwalter),
++               db: Session = Depends(get_db)):
++    sperre = _vorbedingungen(request, user, db)
++    if sperre is not None:
++        return sperre
++    _ = tr(request)
++    cent = _euro_lesen(betrag)
++    try:
++        n = int(anzahl.strip())
++    except ValueError:
++        n = 0
++    bis = None
++    if gueltig_bis.strip():
++        try:
++            bis = datetime.combine(datetime.strptime(gueltig_bis.strip(), "%Y-%m-%d").date(), time(23, 59, 59),
++                                   tzinfo=timezone.utc)
++        except ValueError:
++            return _seite_abrechnung(request, user, db, 400, fehler=_("Das Datum ist ungültig."))
++    if not bestaetigt:
++        return _seite_abrechnung(request, user, db, 400, fehler=_("Bitte das Erzeugen mit dem Haken bestätigen."))
++    try:
++        codes = abrechnung.gutscheine_erzeugen(db, n, cent or 0, aktion, bis, user.id)
++    except ValueError:
++        db.rollback()
++        return _seite_abrechnung(request, user, db, 400, fehler=_(
++            "Bitte 1 bis 100 Gutscheine, einen Betrag bis {betrag} und einen Namen für die Aktion angeben.",
++            betrag=abrechnung.euro(abrechnung.preise(db).gutschrift_max)))
++    db.commit()
++    return _seite_abrechnung(request, user, db, codes={"liste": codes, "betrag": abrechnung.euro(cent or 0),
++                                                       "aktion": aktion.strip()})
+diff --git a/app/verwaltung/router.py b/app/verwaltung/router.py
+index 6d75260..77a377d 100644
+--- a/app/verwaltung/router.py
++++ b/app/verwaltung/router.py
+@@ -77,4 +77,6 @@ def tr(request: Request):
+ MELDUNGEN = {
+     "faktor_aus": "Der zweite Faktor ist ausgeschaltet. Die Anmeldung braucht jetzt nur noch das Passwort.",
++    "gutschrift": "Gutgeschrieben.",
++    "storno": "Die Gutschrift ist storniert.",
+     "probe_runde": "Bitte eine Runde mit Abschrift wählen.",
+     "probe_cloud": "Für diese Kampagne ist die Cloud-Zusammenfassung nicht freigegeben. Das entscheidet die Spielleitung in der App auf der Übersicht der Kampagne unter „Kampagne verwalten“ → „Cloud-Dienste“.",
+@@ -1583,6 +1585,7 @@ def einbinden(app: FastAPI) -> None:
+ 
+     app.include_router(updates.router)
+-    from app.verwaltung import guthaben
++    from app.verwaltung import abrechnung_seite, guthaben
+ 
++    app.include_router(abrechnung_seite.router)  # 0.4.85: Verwaltung → Abrechnung
+     guthaben.einbinden(app)  # 0.4.85: Seite „Guthaben“ für Spielleitungen
+     app.include_router(assistent.router)
+diff --git a/app/verwaltung/templates/abrechnung.html b/app/verwaltung/templates/abrechnung.html
+new file mode 100644
+index 0000000..b51f778
+--- /dev/null
++++ b/app/verwaltung/templates/abrechnung.html
+@@ -0,0 +1,133 @@
++{% extends "basis.html" %}
++{% block titel %}{{ _("Abrechnung") }}{% endblock %}
++{% block inhalt %}
++{% set arten = {"zahlung": _("Zahlung"), "gutschrift": _("Gutschrift"), "gutschein": _("Gutschein"), "verbrauch": _("Verarbeitung"), "rueckbuchung": _("Rückbuchung"), "erstattung": _("Erstattung"), "korrektur": _("Korrektur")} %}
++<h1>{{ _("Abrechnung") }}</h1>
++<p class="leise">{{ _("Wer verarbeiten lässt, zahlt aus einem Guthaben. Spieler zahlen nie. Aufladen mit Bezahlung kommt in einer späteren Fassung; bis dahin gibt es Gutschriften und Gutscheine.") }}</p>
++
++{% if codes %}
++<div class="karte" id="codes">
++  <h2>{{ _("Neue Gutscheine: {aktion}", aktion=codes.aktion) }}</h2>
++  <p>{{ _("Je {betrag}. Die Codes werden nur jetzt angezeigt – kopiere sie jetzt. Jeder gilt einmal.", betrag=codes.betrag) }}</p>
++  <ul class="codeliste">{% for c in codes.liste %}<li><code>{{ c }}</code></li>{% endfor %}</ul>
++</div>
++{% endif %}
++
++{% if bestaetigen %}
++<div class="karte" id="bestaetigen">
++  <h2>{{ _("Gutschrift bestätigen") }}</h2>
++  <p>{{ _("{betrag} für {name} gutschreiben. Grund: {grund}", betrag=bestaetigen.betrag, name=bestaetigen.name, grund=bestaetigen.grund) }}</p>
++  <form class="formular" method="post" action="/verwaltung/abrechnung/gutschrift">
++    <input type="hidden" name="csrf" value="{{ csrf }}">
++    <input type="hidden" name="ziel_konto" value="{{ bestaetigen.ziel_konto }}"><input type="hidden" name="ziel_org" value="{{ bestaetigen.ziel_org }}">
++    <input type="hidden" name="betrag" value="{{ bestaetigen.roh }}"><input type="hidden" name="grund" value="{{ bestaetigen.grund }}">
++    <label class="haken"><input type="checkbox" name="bestaetigt" value="1" required> {{ _("Ja, so gutschreiben. Das steht danach dauerhaft im Buchungsbuch.") }}</label>
++    <div class="aktionen"><button class="tw-btn tw-btn--primary" type="submit">{{ _("Gutschreiben") }}</button> <a href="/verwaltung/abrechnung">{{ _("Abbrechen") }}</a></div>
++  </form>
++</div>
++{% endif %}
++
++<div class="karte">
++  <h2>{{ _("Schalter") }}</h2>
++  <form class="formular" method="post" action="/verwaltung/abrechnung/modus">
++    <input type="hidden" name="csrf" value="{{ csrf }}">
++    {% for wert, text in [("aus", _("Aus – alles wie bisher, nichts wird abgerechnet")), ("guthaben", _("Guthaben je Spielleitung")), ("topf", _("Topf der Organisation (zahlt für ihre Kampagnen)"))] %}
++    <label class="haken"><input type="radio" name="modus" value="{{ wert }}" {% if modus == wert %}checked{% endif %}> {{ text }}</label>
++    {% endfor %}
++    <p class="hilfe">{{ _("Eingeschaltet sehen Spielleitungen ihr Guthaben unter /guthaben auf diesem Server. Die monatliche Kostengrenze unter Einstellungen bleibt als Notbremse.") }}</p>
++    <div><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
++  </form>
++</div>
++
++<div class="karte">
++  <h2>{{ _("Preise und Grenzen") }}</h2>
++  <p class="hilfe">{{ _("Cloud-Kosten werden so abgerechnet, wie sie anfallen, plus Aufschlag. Die Cloud-Werte hier dienen nur der Schätzung vor dem Start. Worker-Arbeit kostet, was du hier festlegst, gemessen an der Länge der Aufnahme bzw. den Seiten.") }}</p>
++  <form class="formular" method="post" action="/verwaltung/abrechnung/preise">
++    <input type="hidden" name="csrf" value="{{ csrf }}">
++    {% for name, text, ist_euro in preisfelder %}
++    <label>{{ _(text) }} <input type="text" name="{{ name }}" value="{{ euro_feld(werte[name]) if ist_euro else werte[name] }}" inputmode="decimal" required maxlength="12"></label>
++    {% endfor %}
++    <div><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
++  </form>
++</div>
++
++{% if an %}
++<div class="karte">
++  <h2>{{ _("Guthaben") }}</h2>
++  <div class="tabelle-huelle"><table>
++    <thead><tr><th>{{ _("Wer") }}</th><th>{{ _("Saldo") }}</th></tr></thead>
++    <tbody>
++    {% for k in konten %}
++      <tr><td data-label="{{ _('Wer') }}">{{ k.name }}{% if k.g.art == "organisation" %} <span class="leise">({{ _("Organisation") }})</span>{% endif %}</td><td data-label="{{ _('Saldo') }}">{{ euro(k.saldo) }}</td></tr>
++    {% else %}
++      <tr><td colspan="2" class="leise">{{ _("Noch kein Guthaben angelegt.") }}</td></tr>
++    {% endfor %}
++    </tbody>
++  </table></div>
++</div>
++
++<div class="karte">
++  <h2>{{ _("Gutschrift von Hand") }}</h2>
++  {% if not faktor %}<div class="meldung meldung--fehler">{{ _("Gutschriften und Gutscheine gehen nur mit eingeschaltetem zweiten Faktor (Konten → Dein zweiter Faktor).") }}</div>{% endif %}
++  <form class="formular" method="post" action="/verwaltung/abrechnung/gutschrift">
++    <input type="hidden" name="csrf" value="{{ csrf }}">
++    <label>{{ _("Benutzername") }} <input type="text" name="ziel_konto" maxlength="64" autocomplete="off"></label>
++    {% if modus == "topf" %}
++    <label>{{ _("oder Organisation") }} <select name="ziel_org"><option value="">–</option>{% for o in orgs %}<option value="{{ o.id }}">{{ o.name }}</option>{% endfor %}</select></label>
++    {% endif %}
++    <label>{{ _("Betrag (Euro)") }} <input type="text" name="betrag" inputmode="decimal" required maxlength="12"></label>
++    <label>{{ _("Grund") }} <input type="text" name="grund" required maxlength="500"></label>
++    <div><button class="tw-btn tw-btn--secondary" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Weiter") }}</button></div>
++  </form>
++  {% if gutschriften %}
++  <h3>{{ _("Letzte Gutschriften") }}</h3>
++  <ul class="liste-av">
++  {% for z in gutschriften %}
++    <li><span>{{ zeit(z.b.angelegt) }} · {{ z.name }} · {{ euro(z.b.betrag_cent) }} · <span class="leise">{{ z.b.grund }}</span></span>
++      <details><summary>{{ _("Stornieren") }}</summary>
++        <form class="formular formular--zeile" method="post" action="/verwaltung/abrechnung/storno/{{ z.b.id }}">
++          <input type="hidden" name="csrf" value="{{ csrf }}">
++          <label class="haken"><input type="checkbox" name="bestaetigt" value="1" required> {{ _("Gegenbuchung über denselben Betrag anlegen") }}</label>
++          <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Stornieren") }}</button>
++        </form></details></li>
++  {% endfor %}
++  </ul>
++  {% endif %}
++</div>
++
++<div class="karte">
++  <h2>{{ _("Gutscheine") }}</h2>
++  <form class="formular" method="post" action="/verwaltung/abrechnung/gutscheine">
++    <input type="hidden" name="csrf" value="{{ csrf }}">
++    <label>{{ _("Aktion (z. B. Verlosung Oktober)") }} <input type="text" name="aktion" required maxlength="100"></label>
++    <label>{{ _("Anzahl (1–100)") }} <input type="number" name="anzahl" value="1" min="1" max="100" required></label>
++    <label>{{ _("Betrag je Gutschein (Euro)") }} <input type="text" name="betrag" inputmode="decimal" required maxlength="12"></label>
++    <label>{{ _("Gültig bis (leer = ohne Ablauf)") }} <input type="date" name="gueltig_bis"></label>
++    <p class="hilfe">{{ _("Je Konto gilt höchstens ein Gutschein derselben Aktion.") }}</p>
++    <label class="haken"><input type="checkbox" name="bestaetigt" value="1" required> {{ _("Gutscheine jetzt erzeugen") }}</label>
++    <div><button class="tw-btn tw-btn--secondary" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Erzeugen") }}</button></div>
++  </form>
++  {% if aktionen %}
++  <div class="tabelle-huelle"><table>
++    <thead><tr><th>{{ _("Aktion") }}</th><th>{{ _("Betrag") }}</th><th>{{ _("Eingelöst") }}</th><th>{{ _("Gültig bis") }}</th></tr></thead>
++    <tbody>
++    {% for a in aktionen %}
++      <tr><td data-label="{{ _('Aktion') }}">{{ a[0] }}</td><td data-label="{{ _('Betrag') }}">{{ euro(a[1]) }}</td><td data-label="{{ _('Eingelöst') }}">{{ _("{n} von {gesamt}", n=a[3], gesamt=a[2]) }}</td><td data-label="{{ _('Gültig bis') }}">{{ zeit(a[4]) if a[4] else "–" }}</td></tr>
++    {% endfor %}
++    </tbody>
++  </table></div>
++  {% endif %}
++</div>
++{% endif %}
++
++<div class="karte">
++  <h2>{{ _("Protokoll") }}</h2>
++  <ul class="liste-av">
++  {% for p in protokoll %}
++    <li><span>{{ zeit(p.z.angelegt) }} · {{ p.von }} · <strong>{{ p.z.was }}</strong> <span class="leise">{{ p.daten }}</span></span></li>
++  {% else %}
++    <li class="leise">{{ _("Noch keine Einträge.") }}</li>
++  {% endfor %}
++  </ul>
++</div>
++{% endblock %}
+diff --git a/app/verwaltung/templates/basis.html b/app/verwaltung/templates/basis.html
+index f10b783..fbaadc1 100644
+--- a/app/verwaltung/templates/basis.html
++++ b/app/verwaltung/templates/basis.html
+@@ -23,5 +23,5 @@
+   </div>
+   <nav class="nav" aria-label="{{ _('Bereiche') }}">
+-    {% for ziel, text in [("uebersicht", _("Übersicht")), ("transkription", _("Transkription")), ("zusammenfassung", _("Zusammenfassung")), ("warteschlange", _("Warteschlange")), ("konten", _("Konten")), ("anmeldung", _("Anmeldung")), ("updates", _("Updates")), ("einstellungen", _("Einstellungen"))] %}
++    {% for ziel, text in [("uebersicht", _("Übersicht")), ("transkription", _("Transkription")), ("zusammenfassung", _("Zusammenfassung")), ("warteschlange", _("Warteschlange")), ("konten", _("Konten")), ("abrechnung", _("Abrechnung")), ("anmeldung", _("Anmeldung")), ("updates", _("Updates")), ("einstellungen", _("Einstellungen"))] %}
+     <a href="/verwaltung/{{ '' if ziel == 'uebersicht' else ziel }}" {% if aktiv == ziel %}aria-current="page"{% endif %}>{{ text }}</a>
+     {% endfor %}
+diff --git a/tests/test_verwaltung2.py b/tests/test_verwaltung2.py
+index 8c106d1..d9396aa 100644
+--- a/tests/test_verwaltung2.py
++++ b/tests/test_verwaltung2.py
+@@ -19,5 +19,6 @@ def ui_texte() -> set[str]:
+     r = pathlib.Path("app/verwaltung/router.py").read_text(encoding="utf-8")
+     texte |= set(re.findall(r'(?:\b_|tr\(request\))\(\s*"((?:[^"\\]|\\.)*)"', r))
+-    for datei in ("app/verwaltung/assistent.py", "app/routers/anmeldung.py", "app/verwaltung/guthaben.py"):
++    for datei in ("app/verwaltung/assistent.py", "app/routers/anmeldung.py", "app/verwaltung/guthaben.py",
++                  "app/verwaltung/abrechnung_seite.py"):
+         a = pathlib.Path(datei).read_text(encoding="utf-8")
+         texte |= set(re.findall(r'(?:\b_|tr\(request\))\(\s*"((?:[^"\\]|\\.)*)"', a))
+@@ -32,7 +33,7 @@ def ui_texte() -> set[str]:
+ 
+     texte |= cloudanbieter.texte()
+-    from app.verwaltung import guthaben  # 0.4.85
++    from app.verwaltung import abrechnung_seite, guthaben  # 0.4.85
+ 
+-    texte |= set(guthaben.MELDUNGEN.values())
++    texte |= {text for _n, text, _e in abrechnung_seite.PREISFELDER} | set(guthaben.MELDUNGEN.values())
+     return texte
+ 
+-- 
+2.43.0
