@@ -10,22 +10,25 @@ def _anfrage(host):
     return SimpleNamespace(client=SimpleNamespace(host=host) if host else None)
 
 
-def test_heimnetz_ohne_code_nur_wenn_eingeschaltet_und_privat(monkeypatch):
-    from app import config
+def test_heimnetz_ohne_code_nur_wenn_eingeschaltet_und_privat(dbs, monkeypatch):
+    import time
+
+    from app import config, einrichtung
     from app.einrichtung import heimnetz_ohne_code
+    from app.einstellungen import meta_schreiben
 
     config.get_settings.cache_clear()
-    assert not heimnetz_ohne_code(_anfrage("192.168.178.20"))  # Standard: aus
+    einrichtung.beim_start(dbs)  # hält den ersten Start fest (0.4.87)
+    assert not heimnetz_ohne_code(_anfrage("192.168.178.20"), dbs)  # Standard: aus
     monkeypatch.setenv("EINRICHTUNG_IM_HEIMNETZ", "true")
     config.get_settings.cache_clear()
     for privat in ("192.168.178.20", "10.0.0.5", "172.17.0.1", "127.0.0.1", "fe80::1", "fd00::5"):
-        assert heimnetz_ohne_code(_anfrage(privat)), privat
+        assert heimnetz_ohne_code(_anfrage(privat), dbs), privat
     for fremd in ("8.8.8.8", "2a00:1450::1", "testclient", None):
-        assert not heimnetz_ohne_code(_anfrage(fremd)), fremd
-    from app import einrichtung
-
-    monkeypatch.setattr(einrichtung, "_GESTARTET", einrichtung._GESTARTET - einrichtung.HEIMNETZ_FRIST_S - 1)
-    assert not heimnetz_ohne_code(_anfrage("192.168.178.20"))  # 30 Minuten nach dem Start nur noch mit Code
+        assert not heimnetz_ohne_code(_anfrage(fremd), dbs), fremd
+    meta_schreiben(dbs, einrichtung.ERSTER_START, str(time.time() - einrichtung.HEIMNETZ_FRIST_S - 1))
+    dbs.commit()
+    assert not heimnetz_ohne_code(_anfrage("192.168.178.20"), dbs)  # 30 Minuten nach dem ersten Start nur mit Code
     config.get_settings.cache_clear()
 
 
@@ -35,7 +38,7 @@ def test_box_einrichtung_ohne_code(client, dbs, monkeypatch):
     einrichtung.beim_start(dbs)
     # ohne Freigabe: wie immer nur mit Code
     assert 'name="username"' not in client.get("/verwaltung/einrichtung").text
-    monkeypatch.setattr(einrichtung, "heimnetz_ohne_code", lambda request: True)
+    monkeypatch.setattr(einrichtung, "heimnetz_ohne_code", lambda request, db: True)
     seite = client.get("/verwaltung/einrichtung").text
     assert 'name="username"' in seite
     code = re.search(r'name="code" value="([^"]+)"', seite).group(1)

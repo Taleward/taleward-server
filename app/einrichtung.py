@@ -46,20 +46,26 @@ def code_pruefen(db: Session, code: str) -> bool:
 
 
 HEIMNETZ_FRIST_S = 30 * 60
-_GESTARTET = time.monotonic()
+ERSTER_START = "einrichtung.erster_start"
 
 
-def heimnetz_ohne_code(request) -> bool:
+def heimnetz_ohne_code(request, db: Session) -> bool:
     """Taleward-Box: Ersteinrichtung ohne Code – nur wenn so eingeschaltet (EINRICHTUNG_IM_HEIMNETZ) und die Anfrage
-    aus einem privaten Netz kommt (Heimnetz, Vereins-WLAN). Aus dem Internet gilt weiter der Code."""
+    aus einem privaten Netz kommt (Heimnetz, Vereins-WLAN). Aus dem Internet gilt weiter der Code.
+    Seit 0.4.87 (S6/S21.3) nur in den ersten 30 Minuten nach dem **ersten** Start (Zeitpunkt in der Datenbank), nicht
+    nach jedem Neustart wieder."""
     import ipaddress
 
     from app.config import get_settings
 
     if not get_settings().einrichtung_im_heimnetz or request.client is None:
         return False
-    if time.monotonic() - _GESTARTET > HEIMNETZ_FRIST_S:
-        return False  # nur kurz nach dem Start; danach (oder bis zum nächsten Neustart der Box) mit Code
+    try:
+        erster = float(meta_lesen(db, ERSTER_START) or "")
+    except ValueError:
+        return False  # ohne festgehaltenen ersten Start: nur mit Code
+    if not 0 <= time.time() - erster <= HEIMNETZ_FRIST_S:
+        return False
     try:
         adresse = ipaddress.ip_address(request.client.host)
     except ValueError:
@@ -75,6 +81,8 @@ def beim_start(db: Session) -> str | None:
     """Beim Serverstart: Wird noch eingerichtet, Code sicherstellen und deutlich ins Protokoll schreiben."""
     if not braucht_einrichtung(db):
         return None
+    if meta_lesen(db, ERSTER_START) is None:  # S6/S21.3: Frist läuft ab dem ersten Start, nicht ab jedem Neustart
+        meta_schreiben(db, ERSTER_START, str(time.time()))
     code = code_erzeugen(db)
     from app.einstellungen import angaben
 

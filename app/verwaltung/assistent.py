@@ -29,7 +29,6 @@ oeffentlich = APIRouter(include_in_schema=False)
 SCHRITTE = [("verein", "Verein"), ("betrieb", "Betriebsart"), ("zusammenfassung", "Zusammenfassung"),
             ("datenschutz", "Datenschutz"), ("sicherung", "Sicherung"), ("spielleitung", "Spielleitung")]
 MISTRAL_URL = "https://api.mistral.ai/v1"
-LEICHT = ("admin", "passwort", "password", "12345678", "taleward")
 
 
 def _weiter(schritt: str) -> RedirectResponse:
@@ -50,7 +49,9 @@ def _passwort_fehler(_, name: str, password: str, password2: str) -> str | None:
         return _("Das Passwort braucht mindestens {n} Zeichen.", n=MIN_PASSWORT)
     if password != password2:
         return _("Die beiden Passwörter stimmen nicht überein.")
-    if password.lower() in (*LEICHT, name):
+    from app.konto import passwort_zu_schwach
+
+    if passwort_zu_schwach(password, name):  # S21.2: dieselbe Prüfung wie bei Konten der App
         return _("Dieses Passwort ist zu leicht zu erraten.")
     return None
 
@@ -70,7 +71,7 @@ def einrichtung_seite(request: Request, code: str = "", db: Session = Depends(ge
     alt = _alte_sitzung(request, db)
     if alt is None and not einrichtung.braucht_einrichtung(db):
         return RedirectResponse("/verwaltung/anmelden", status_code=303)
-    if not code and alt is None and einrichtung.heimnetz_ohne_code(request):
+    if not code and alt is None and einrichtung.heimnetz_ohne_code(request, db):
         code = einrichtung.code_erzeugen(db)  # Taleward-Box: Code wird still ins Formular gelegt
     gueltig = alt is not None or einrichtung.code_pruefen(db, code)
     return _seite(request, "einrichtung.html", None, db, fehler=fehler, code=code if gueltig else "",

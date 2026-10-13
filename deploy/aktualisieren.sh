@@ -80,18 +80,30 @@ if [ "$jetzt" -eq 0 ]; then
   stunde=$(date +%H)
   [ "$stunde" -ge 3 ] && [ "$stunde" -lt 5 ] || exit 0
 fi
-rm -f "$ORDNER/server-jetzt"
+als_container() {  # Befehl mit den Rechten des Containers (uid 1000) ausführen – nie als root im Ordner des Containers
+  command -v setpriv >/dev/null 2>&1 || return 1
+  setpriv --reuid=1000 --regid=1000 --clear-groups "$@"
+}
+
+# Der Ordner gehört dem Container. Was root dort ändert, könnte ein Verweis woandershin lenken (zwischen Prüfen und
+# Schreiben, S21.5) – darum schreibt und löscht dort der Benutzer des Containers.
+als_container rm -f "$ORDNER/server-jetzt" 2>/dev/null \
+  || { [ -d "$ORDNER" ] && [ ! -L "$ORDNER" ] && rm -f "$ORDNER/server-jetzt"; }
 
 melden() {  # ergebnis, von, nach, meldung
-  # Erst in einer neuen Datei im Ordner von root schreiben, dann hinüberschieben: Der Ordner gehört dem Container,
-  # root folgt dort keinem Verweis und ändert keine Rechte rekursiv.
-  local tmp
-  tmp=$(mktemp "$ZIEL/.server-status.XXXXXX") || return 0
-  printf '{"zeit": "%s", "ergebnis": "%s", "von": "%s", "nach": "%s", "meldung": "%s"}\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$3" "${4//\"/\'}" > "$tmp"
-  chmod 644 "$tmp"
-  chown 1000:1000 "$tmp" 2>/dev/null || true
-  if [ -d "$ORDNER" ] && [ ! -L "$ORDNER" ]; then mv -f "$tmp" "$STATUS"; else rm -f "$tmp"; fi
+  local inhalt tmp
+  inhalt=$(printf '{"zeit": "%s", "ergebnis": "%s", "von": "%s", "nach": "%s", "meldung": "%s"}' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$3" "${4//\"/\'}")
+  # shellcheck disable=SC2016  # $1 wird erst in der inneren Shell ausgewertet
+  if ! printf '%s\n' "$inhalt" | als_container sh -c 'umask 022; cat > "$1.neu" && mv -f "$1.neu" "$1"' _ "$STATUS" \
+      2>/dev/null; then
+    # Ohne setpriv (sehr alte Systeme): wie bisher über eine Datei im Ordner von root
+    tmp=$(mktemp "$ZIEL/.server-status.XXXXXX") || return 0
+    printf '%s\n' "$inhalt" > "$tmp"
+    chmod 644 "$tmp"
+    chown 1000:1000 "$tmp" 2>/dev/null || true
+    if [ -d "$ORDNER" ] && [ ! -L "$ORDNER" ]; then mv -f "$tmp" "$STATUS"; else rm -f "$tmp"; fi
+  fi
   echo "[taleward] $1: $2 → $3 $4"
 }
 
