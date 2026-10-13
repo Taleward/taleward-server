@@ -58,25 +58,36 @@ def create_campaign(body: schemas.CampaignCreate, user: User = Depends(current_u
 
 JOIN_FENSTER = 15 * 60
 JOIN_JE_KONTO, JOIN_JE_ADRESSE = 10, 30  # falsche Codes im Fenster
-# 0.4.62: zusätzlich eine Grenze über alle Adressen – wer viele Adressen hat, rät nicht schneller
-JOIN_SERVERWEIT, JOIN_SERVER_FENSTER = 300, 60 * 60
+# 0.4.62: zusätzlich Grenzen über alle Adressen – wer viele Adressen hat, rät nicht schneller.
+# 0.4.83: getrennt nach Beitritt/Registrierung und Vorschau/Einladungsseite (zusammen so viel wie vorher). Ist die
+# Grenze für den Beitritt voll, wird ein Code trotzdem geprüft, wenn Adresse, Netz (IPv4 /24, IPv6 /48) und Konto im
+# Fenster noch keinen falschen Code hatten – gültige Einladungen bleiben so auch bei voller Grenze möglich, Raten
+# bleibt bei einem Versuch je Netz und Viertelstunde. Die Vorschau prüft bei voller Grenze gar nicht mehr (429; die
+# App macht dann ohne Titel weiter), die Einladungsseite zeigt eine neutrale Fassung.
+JOIN_SERVERWEIT, JOIN_SERVER_FENSTER = 200, 60 * 60
+VORSCHAU_SERVERWEIT = 100
 
 
-def code_versuch(adresse: str, konto_id: str | None = None):
-    """Einladungscode-Versuch vorab zählen (Beitritt, Vorschau, Einladungsseite teilen die Zähler). None = gesperrt;
-    bei gültigem Code gibt der Aufrufer die Zählung mit ZAEHLER.freigeben zurück."""
-    from app.begrenzung import ZAEHLER
+def code_versuch(adresse: str, konto_id: str | None = None, vorschau: bool = False):
+    """Einladungscode-Versuch vorab zählen. None = gesperrt; bei gültigem Code gibt der Aufrufer die Zählung mit
+    ZAEHLER.freigeben zurück. vorschau=True für Vorschau und Einladungsseite (ohne Anmeldung, nur Anzeige)."""
+    from app.begrenzung import ZAEHLER, netz
 
     posten = [(f"join-adr:{adresse}", JOIN_JE_ADRESSE, JOIN_FENSTER)]
     if konto_id:
         posten.append((f"join-konto:{konto_id}", JOIN_JE_KONTO, JOIN_FENSTER))
-    posten.append(("join-alle", JOIN_SERVERWEIT, JOIN_SERVER_FENSTER))
-    versuch = ZAEHLER.reservieren(posten)
-    if versuch is None and ZAEHLER.voll("join-alle", JOIN_SERVERWEIT, JOIN_SERVER_FENSTER):
-        import logging
+    gesamt = ("vorschau-alle", VORSCHAU_SERVERWEIT, JOIN_SERVER_FENSTER) if vorschau \
+        else ("join-alle", JOIN_SERVERWEIT, JOIN_SERVER_FENSTER)
+    versuch = ZAEHLER.reservieren(posten + [gesamt])
+    if versuch is not None or vorschau or not ZAEHLER.voll(*gesamt):
+        return versuch
+    import logging
 
-        logging.getLogger("begrenzung").warning("Sehr viele falsche Einladungscodes: Beitritte sind vorübergehend gesperrt")
-    return versuch
+    logging.getLogger("begrenzung").warning("Sehr viele falsche Einladungscodes: nur noch Erstversuche je Netz")
+    # Erstversuch: alle eigenen Zähler noch leer. Das Netz zählt doppelt, damit der Eintrag nicht als „ein Versuch“
+    # vorzeitig verdrängt wird (begrenzung._platz_schaffen); freigeben nimmt beide zurück.
+    schluessel = [k for k, _n, _f in posten] + [f"join-netz:{netz(adresse)}"] * 2
+    return ZAEHLER.reservieren([(k, 1, JOIN_FENSTER) for k in schluessel])
 
 
 @router.get("/invites/{code}", response_model=schemas.InvitePreviewOut)
@@ -86,7 +97,7 @@ def invite_preview(code: str, request: Request, response: Response, db: Session 
     from app.begrenzung import ZAEHLER
 
     response.headers["Cache-Control"] = "no-store"
-    versuch = code_versuch(begrenzung.adresse(request))
+    versuch = code_versuch(begrenzung.adresse(request), vorschau=True)
     if versuch is None:
         raise errors.ApiError(429, "too_many_requests")
     inv = db.get(Invite, normalize_invite_code(code[:64]))

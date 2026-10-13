@@ -69,9 +69,17 @@ def registrieren(db: Session, adresse: str, invite_code: str, username: str, dis
     _begrenzen(adresse)
     if registrierung(db) != "invite_only":
         raise errors.ApiError(403, "registration_closed")
+    # 0.4.83: falsche Codes zählen wie beim Beitritt (Adresse und serverweit)
+    from app.begrenzung import ZAEHLER
+    from app.routers.campaigns import code_versuch
+
+    versuch = code_versuch(adresse)
+    if versuch is None:
+        raise errors.ApiError(429, "too_many_requests")
     inv = db.get(Invite, normalize_invite_code(invite_code or ""))
     if inv is None or inv.expires_at <= utcnow():
         raise errors.ApiError(404, "invite_invalid")
+    ZAEHLER.freigeben(versuch)
     if accept_privacy is not True or age_confirmed is not True:
         raise errors.bad_request("consent_required")
     name = (username or "").strip().lower()

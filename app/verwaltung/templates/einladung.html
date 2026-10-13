@@ -15,7 +15,8 @@
     <h2>{{ _("Du bist eingeladen!") }}</h2>
     <p class="leise">{{ _("Server: {name} · {betreiber}", name=angaben.server_name, betreiber=angaben.server_operator) }}</p>
     <code class="einladung__code">{{ code }}</code>
-    <p class="leise zentriert">{{ _("gültig bis {zeit}", zeit=zeit(bis)) }}</p>
+    {% if bis %}<p class="leise zentriert">{{ _("gültig bis {zeit}", zeit=zeit(bis)) }}</p>
+    {% else %}<p class="leise zentriert">{{ _("Ob die Einladung noch gilt, zeigt dir die App.") }}</p>{% endif %}
     {% if qr %}<figure class="einladung__qr"><img src="{{ qr }}" width="222" height="222" alt="{{ _('QR-Code mit dem Einladungslink') }}">
       <figcaption class="hilfe">{{ _("Am Tisch: mit der Handykamera scannen.") }}</figcaption></figure>{% endif %}
     <div class="knopfstapel">

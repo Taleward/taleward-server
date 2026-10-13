@@ -74,7 +74,10 @@ def test_ohne_freigabe_wird_uebergangen(client, dbs):
         "/v1.3.0/taleward-1.3.0.apk": APK + b"neu", "/v1.2.0/taleward-1.2.0.apk": APK}, unsigniert=("v0.9.0",))
     ergebnis = aktualisierung.pruefen(dbs, gh)
     assert ergebnis["app"] == "1.2.0"  # 1.3.0 wartet noch auf die Freigabe
-    assert ergebnis["server"] is None  # neuestes Tag ohne Freigabe → keine Meldung
+    # 0.4.83: das neueste Tag ohne Freigabe blockiert nicht – die neueste freigegebene gilt (älter als die eigene
+    # Fassung, also keine Meldung)
+    assert ergebnis["server"] == "0.4.1"
+    assert aktualisierung.server_update(dbs) is None
     assert meta_lesen(dbs, "update.fehler") == ""
     assert client.get("/api/v1/info").json()["latestAppVersion"] == "1.2.0"
 

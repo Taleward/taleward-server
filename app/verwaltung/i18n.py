@@ -678,6 +678,7 @@ EN: dict[str, str] = {
     "Du bist eingeladen!": "You’re invited!",
     "Server: {name} · {betreiber}": "Server: {name} · {betreiber}",
     "gültig bis {zeit}": "valid until {zeit}",
+    "Ob die Einladung noch gilt, zeigt dir die App.": "The app will tell you whether the invite is still valid.",
     "In Taleward öffnen": "Open in Taleward",
     "App herunterladen": "Download the app",
     "Android fragt einmal, ob Installationen aus dieser Quelle erlaubt sind – das ist bei Apps außerhalb des Play Store normal.":

@@ -215,7 +215,7 @@ Alle Befehle im Ordner `/opt/taleward`:
 | Protokoll ansehen | `sudo docker compose logs -f server` |
 | Update | läuft **automatisch** nachts (3–5 Uhr) mit Sicherung vorher; abschaltbar unter Verwaltung → Updates |
 | Update sofort | Verwaltung → Updates → „Jetzt aktualisieren“ oder `sudo ./aktualisieren.sh --jetzt` |
-| Bestimmte Fassung | in `.env` `TALEWARD_VERSION=v0.4.12` eintragen, dann `sudo docker compose build && sudo docker compose up -d` |
+| Bestimmte Fassung | in `.env` `TALEWARD_VERSION=v0.4.12` eintragen und die Zeile `TALEWARD_COMMIT=…` löschen, dann `sudo docker compose build && sudo docker compose up -d` |
 | Neu starten | `sudo docker compose restart` |
 | Einrichtungscode neu | `sudo docker compose exec server chronik einrichtungscode` |
 | Andere Domain | `install.sh` noch einmal ausführen – Daten bleiben |

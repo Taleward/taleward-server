@@ -49,8 +49,9 @@ x-ollama: &ollama
 services:
   server:
     build:
-      # Gebaut direkt aus dem öffentlichen Repository; TALEWARD_VERSION = Branch oder Tag (Standard: main)
-      context: https://github.com/Tinkerworkss/taleward-server.git#${TALEWARD_VERSION:-main}
+      # Gebaut direkt aus dem öffentlichen Repository: TALEWARD_COMMIT = der freigegebene Commit (setzt aktualisieren.sh),
+      # sonst TALEWARD_VERSION = Branch oder Tag (Standard: main). Von Hand bauen: TALEWARD_COMMIT aus der .env löschen.
+      context: https://github.com/Tinkerworkss/taleward-server.git#${TALEWARD_COMMIT:-${TALEWARD_VERSION:-main}}
     image: taleward-server:${TALEWARD_VERSION:-main}
     restart: unless-stopped
     environment:
@@ -96,7 +97,7 @@ services:
     profiles: ["worker"]
     <<: *worker
     build:
-      context: https://github.com/Tinkerworkss/taleward-server.git#${TALEWARD_VERSION:-main}
+      context: https://github.com/Tinkerworkss/taleward-server.git#${TALEWARD_COMMIT:-${TALEWARD_VERSION:-main}}
       dockerfile: Dockerfile.worker
       args: { TORCH_BACKEND: cu128 }
     image: taleward-worker:${TALEWARD_VERSION:-main}
@@ -109,7 +110,7 @@ services:
     profiles: ["worker-cpu"]
     <<: *worker
     build:
-      context: https://github.com/Tinkerworkss/taleward-server.git#${TALEWARD_VERSION:-main}
+      context: https://github.com/Tinkerworkss/taleward-server.git#${TALEWARD_COMMIT:-${TALEWARD_VERSION:-main}}
       dockerfile: Dockerfile.worker
       args: { TORCH_BACKEND: cpu }
     image: taleward-worker:${TALEWARD_VERSION:-main}-cpu

@@ -14,6 +14,8 @@ Seit 0.4.62:
   keiner gezählt und die folgenden werden gar nicht erst angelegt (Adresse vor Name). Bei Erfolg gibt `freigeben`
   die Zählung zurück.
 - `adresse` fasst IPv6-Adressen zu ihrem /64-Netz zusammen (ein Anschluss hat meist ein ganzes /64).
+- 0.4.83: `netz` fasst noch gröber zusammen (IPv4 /24, IPv6 /48) – für Grenzen, die ein Angreifer mit vielen
+  Adressen eines Anbieters nicht vervielfachen soll.
 """
 from __future__ import annotations
 
@@ -43,6 +45,16 @@ def adresse_aus(host: str | None) -> str:
             return str(ip.ipv4_mapped)
         return str(ipaddress.ip_network(f"{ip}/64", strict=False))
     return str(ip)
+
+
+def netz(adr: str) -> str:
+    """Gröberes Netz zu einer Zähler-Adresse (Ergebnis von `adresse`): IPv4 → /24, IPv6 → /48."""
+    try:
+        n = ipaddress.ip_network(adr, strict=False)
+    except ValueError:
+        return adr
+    return str(n.supernet(new_prefix=24 if n.version == 4 else 48)) if n.prefixlen > (24 if n.version == 4 else 48) \
+        else str(n)
 
 
 class Zaehler:

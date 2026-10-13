@@ -1283,8 +1283,8 @@ def qr_bild(text: str) -> str:
     return segno.make(text, error="m").svg_data_uri(scale=6, border=3, dark="#2A2118", light="#FBF6EA")
 
 
-# Dieselben Zähler wie beim Beitreten und bei der Vorschau (routers/campaigns.py, code_versuch): Wer Codes rät, hat
-# für alle drei Wege zusammen nur ein Kontingent.
+# Dieselben Zähler wie bei der Vorschau (routers/campaigns.py, code_versuch): Wer Codes rät, hat für alle Wege
+# zusammen nur ein Kontingent je Adresse.
 
 
 @seiten.get("/einladung/{code}", response_class=HTMLResponse)
@@ -1303,18 +1303,21 @@ def einladung(code: str, request: Request, db: Session = Depends(get_db)):
 
     code = normalize_invite_code(code)[:32]
     einladung = None
-    versuch = code_versuch(begrenzung.adresse(request))
+    versuch = code_versuch(begrenzung.adresse(request), vorschau=True)
     if versuch is not None:
         einladung = db.get(Invite, code)
         if einladung is not None:
             ZAEHLER.freigeben(versuch)
-    gueltig = einladung is not None and einladung.expires_at > utcnow()
+    # 0.4.83: Bei zu vielen Versuchen ungeprüft eine neutrale Fassung (ohne Ablaufdatum) – sagt nichts über den Code,
+    # führt aber weiter in die App, wo der Beitritt entscheidet
+    ungeprueft = versuch is None
+    gueltig = ungeprueft or (einladung is not None and einladung.expires_at > utcnow())
     link = str(request.base_url).rstrip("/") + f"/einladung/{code}"
     a = angaben(db)
     ziel = urlsplit(a.app_download_url or "")
     store = ziel.netloc.endswith(("play.google.com", "apps.apple.com"))
     antwort = _seite(request, "einladung.html", None, db, code=code, gueltig=gueltig,
-                     bis=einladung.expires_at if gueltig else None, link=link,
+                     bis=einladung.expires_at if gueltig and not ungeprueft else None, link=link,
                      app_link="taleward://einladung?url=" + quote(link, safe=""),
                      apk_hinweis=ziel.path.lower().endswith(".apk") or not store,
                      og_bild=str(request.base_url).rstrip("/") + "/verwaltung/static/marke/og-image.png",

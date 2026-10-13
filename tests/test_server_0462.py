@@ -99,7 +99,10 @@ def test_falsche_codes_ueber_alle_adressen_begrenzt(client, world, monkeypatch):
         assert r.status_code == 404
     begrenzung.ZAEHLER.vergessen("join-adr:")
     begrenzung.ZAEHLER.vergessen("join-konto:")
+    # 0.4.83: bei voller Grenze noch ein Erstversuch je Netz und Konto (gültige Codes bleiben möglich), dann Schluss
     r = client.post(f"{API}/campaigns/join", json={"code": "RABE-00000009"}, headers=world["out"])
+    assert r.status_code == 404
+    r = client.post(f"{API}/campaigns/join", json={"code": "RABE-00000010"}, headers=world["out"])
     assert r.status_code == 429
 
 

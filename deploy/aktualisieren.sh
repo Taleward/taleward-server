@@ -3,8 +3,9 @@
 # taleward-aktualisieren.timer, den install.sh einrichtet; aktualisiert wird nur nachts (3–5 Uhr) oder sofort, wenn
 # in der Verwaltung „Jetzt aktualisieren“ gewählt wurde.
 #
-# Ablauf: neueste Fassung (Git-Tag v…) ermitteln → Freigabe prüfen → Sicherung → neue Fassung bauen und starten →
-# Gesundheit prüfen. Klappt der Start nicht, geht es zurück auf die alte Fassung und die Sicherung von eben.
+# Ablauf: neueste freigegebene Fassung (Git-Tag v…, neuer als die laufende) ermitteln → Sicherung → genau den
+# freigegebenen Commit bauen und starten → Gesundheit prüfen. Klappt der Start nicht, geht es zurück auf die alte
+# Fassung und die Sicherung von eben.
 # Freigabe: Installiert wird nur eine Fassung, deren freigabe.txt mit dem Freigabe-Schlüssel unterschrieben ist
 # (Anhänge des Release v…, ssh-keygen -Y verify). Ohne Freigabe bleibt alles, wie es ist.
 # Die Verwaltung schaltet das ein/aus (daten/aktualisierung/server-auto.txt) und zeigt das Ergebnis
@@ -17,6 +18,8 @@ set -uo pipefail
 
 REPO_NAME=Tinkerworkss/taleward-server
 REPO=https://github.com/$REPO_NAME.git
+DOWNLOAD=https://github.com/$REPO_NAME/releases/download
+ROH=https://raw.githubusercontent.com/$REPO_NAME
 # Öffentlicher Freigabe-Schlüssel (gleichlautend in app/freigabe.py und in der Worker-App)
 FREIGABE_SCHLUESSEL="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP8G+vT3BsQPQ+D5UlN615BaEd1FCXEYcxO1KEf7u7Sd"
 
@@ -36,10 +39,26 @@ freigabe_pruefen() {
   echo "$commit"
 }
 
-if [ "${1:-}" = "--freigabe-pruefen" ]; then  # nur prüfen (Tests): --freigabe-pruefen <ordner> <tag>
-  freigabe_pruefen "$2" "$3"
-  exit $?
-fi
+# Fassungen eines Repos, neueste zuerst: nur Tags genau der Form refs/tags/vX.Y.Z (höchstens 10)
+kandidaten() {
+  git ls-remote --tags --refs "$1" 'v*' 2>/dev/null | awk '{print $2}' | sed -n 's#^refs/tags/##p' \
+    | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V -r | head -n 10
+}
+
+# Commit, auf den genau refs/tags/<tag> zeigt (bei Tags mit Text der aufgelöste); Branches und Tags, die nur so ähnlich
+# heißen (z. B. zz/refs/tags/<tag>), zählen nicht
+tag_commit() {  # repo, tag
+  local zeilen
+  zeilen=$(git ls-remote "$1" "refs/tags/$2" "refs/tags/$2^{}" 2>/dev/null) || return 1
+  printf '%s\n' "$zeilen" | awk -v t="refs/tags/$2" '$2 == t "^{}" {print $1; f=1; exit} END {if (!f) exit 1}' \
+    || printf '%s\n' "$zeilen" | awk -v t="refs/tags/$2" '$2 == t {print $1; f=1; exit} END {if (!f) exit 1}'
+}
+
+case "${1:-}" in  # nur prüfen (Tests)
+  --freigabe-pruefen) freigabe_pruefen "$2" "$3"; exit $? ;;  # <ordner> <tag>
+  --kandidaten) kandidaten "$2"; exit $? ;;                   # <repo>
+  --tag-commit) tag_commit "$2" "$3"; exit $? ;;              # <repo> <tag>
+esac
 
 ZIEL=${TALEWARD_ZIEL:-/opt/taleward}
 ORDNER="$ZIEL/daten/aktualisierung"
@@ -84,46 +103,66 @@ gesund() {
   return 1
 }
 
-version_setzen() {
-  if grep -q '^TALEWARD_VERSION=' .env; then
-    sed -i "s/^TALEWARD_VERSION=.*/TALEWARD_VERSION=$1/" .env
+wert_setzen() {  # name, wert in .env
+  if grep -q "^$1=" .env; then
+    sed -i "s/^$1=.*/$1=$2/" .env
   else
-    echo "TALEWARD_VERSION=$1" >> .env
+    echo "$1=$2" >> .env
   fi
+}
+version_setzen() {  # tag, commit – gebaut wird der Commit, der Name dient nur dem Bild
+  wert_setzen TALEWARD_VERSION "$1"
+  wert_setzen TALEWARD_COMMIT "$2"
 }
 
 ALT=$(sed -n 's/^TALEWARD_VERSION=//p' .env); ALT=${ALT:-main}
-NEU=$(git ls-remote --tags --refs "$REPO" 'v*' 2>/dev/null | sed 's#.*refs/tags/##' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
-if [ -z "$NEU" ]; then
+ALT_COMMIT=$(sed -n 's/^TALEWARD_COMMIT=//p' .env)
+KANDIDATEN=$(kandidaten "$REPO")
+if [ -z "$KANDIDATEN" ]; then
   melden "fehler" "$ALT" "$ALT" "GitHub nicht erreichbar"
   exit 1
 fi
-if [ "$ALT" = "$NEU" ]; then
-  if [ -t 1 ]; then echo "[taleward] schon aktuell: $NEU"; fi
-  exit 0  # nichts zu tun – letztes Ergebnis bleibt für die Verwaltung stehen
-fi
-# Nie auf eine ältere Fassung wechseln
-if [ "$ALT" != "main" ] && [ "$(printf '%s\n%s\n' "$ALT" "$NEU" | sort -V | tail -1)" != "$NEU" ]; then
-  exit 0
-fi
 
-# Freigabe prüfen – ohne gültige Unterschrift wird nichts geändert
 command -v ssh-keygen >/dev/null 2>&1 || apt-get install -y -q openssh-client >/dev/null 2>&1 || true
 if ! command -v ssh-keygen >/dev/null 2>&1; then
-  melden "fehler" "$ALT" "$NEU" "ssh-keygen fehlt (Paket openssh-client) – die Freigabe kann nicht geprüft werden"
+  melden "fehler" "$ALT" "$ALT" "ssh-keygen fehlt (Paket openssh-client) – die Freigabe kann nicht geprüft werden"
   exit 1
 fi
-FREIGABE_URL="https://github.com/$REPO_NAME/releases/download/$NEU"
-if ! curl -fsSL --max-filesize 65536 "$FREIGABE_URL/freigabe.txt" -o "$FREIGABE/freigabe.txt" \
-   || ! curl -fsSL --max-filesize 4096 "$FREIGABE_URL/freigabe.txt.sig" -o "$FREIGABE/freigabe.txt.sig"; then
-  melden "wartet" "$ALT" "$NEU" "Fassung $NEU ist noch nicht freigegeben – es bleibt bei $ALT"
-  exit 0
+
+# Die neueste freigegebene Fassung, die neuer ist als die laufende. Ein neueres Tag ohne Freigabe wird übergangen
+# (es blockiert nichts), auf eine ältere Fassung wird nie gewechselt. Ohne gültige Unterschrift wird nichts geändert.
+NEU="" WARTET="" UNGUELTIG=""
+for kandidat in $KANDIDATEN; do
+  if [ "$ALT" != "main" ]; then
+    [ "$kandidat" = "$ALT" ] && break
+    [ "$(printf '%s\n%s\n' "$ALT" "$kandidat" | sort -V | tail -1)" = "$kandidat" ] || break
+  fi
+  rm -f "$FREIGABE/freigabe.txt" "$FREIGABE/freigabe.txt.sig"
+  FREIGABE_URL="$DOWNLOAD/$kandidat"
+  if ! curl -fsSL --max-filesize 65536 "$FREIGABE_URL/freigabe.txt" -o "$FREIGABE/freigabe.txt" \
+     || ! curl -fsSL --max-filesize 4096 "$FREIGABE_URL/freigabe.txt.sig" -o "$FREIGABE/freigabe.txt.sig"; then
+    WARTET=${WARTET:-$kandidat}
+    continue
+  fi
+  if COMMIT=$(freigabe_pruefen "$FREIGABE" "$kandidat"); then
+    NEU=$kandidat
+    break
+  fi
+  UNGUELTIG=${UNGUELTIG:-$kandidat}
+done
+if [ -z "$NEU" ]; then
+  if [ -n "$UNGUELTIG" ]; then
+    melden "fehler" "$ALT" "$UNGUELTIG" "Die Freigabe von $UNGUELTIG ist ungültig – nichts geändert"
+    exit 1
+  fi
+  if [ -n "$WARTET" ]; then
+    melden "wartet" "$ALT" "$WARTET" "Fassung $WARTET ist noch nicht freigegeben – es bleibt bei $ALT"
+  elif [ -t 1 ]; then
+    echo "[taleward] schon aktuell: $ALT"
+  fi
+  exit 0  # nichts zu tun – letztes Ergebnis bleibt für die Verwaltung stehen
 fi
-if ! COMMIT=$(freigabe_pruefen "$FREIGABE" "$NEU"); then
-  melden "fehler" "$ALT" "$NEU" "Die Freigabe von $NEU ist ungültig – nichts geändert"
-  exit 1
-fi
-TAG_COMMIT=$(git ls-remote "$REPO" "refs/tags/$NEU" "refs/tags/$NEU^{}" 2>/dev/null | sort -k2 | tail -1 | cut -f1)
+TAG_COMMIT=$(tag_commit "$REPO" "$NEU") || TAG_COMMIT=""
 if [ "$TAG_COMMIT" != "$COMMIT" ]; then
   melden "fehler" "$ALT" "$NEU" "Tag $NEU zeigt nicht auf den freigegebenen Stand – nichts geändert"
   exit 1
@@ -135,7 +174,7 @@ if [ -z "$SICHERUNG" ]; then
   exit 1
 fi
 
-version_setzen "$NEU"
+version_setzen "$NEU" "$COMMIT"
 # Server mit frischem Grundbild; ein eingebauter Worker (COMPOSE_PROFILES) ohne --pull, damit sein mehrere GB großes
 # KI-Paket aus dem Zwischenspeicher kommt, solange sich engine-requirements.txt nicht ändert
 # Fertige Bilder (Caddy, Ollama) bei der Gelegenheit auch auffrischen – schlägt das fehl, läuft das alte weiter
@@ -151,7 +190,7 @@ if grundbild_bauen && docker compose build >>"$BAULOG" 2>&1 \
   melden "aktualisiert" "$ALT" "$NEU" ""
   # Paketdateien (dieses Skript, docker-compose.yml, Caddyfile) aus genau dem freigegebenen Stand übernehmen –
   # fehlt eine in der Fassung, bleibt die vorhandene (docker-compose.override.yml wird nie angefasst)
-  QUELLE="https://raw.githubusercontent.com/$REPO_NAME/$COMMIT/deploy"
+  QUELLE="$ROH/$COMMIT/deploy"
   compose=docker-compose.yml
   [ "$(sed -n 's/^TALEWARD_MODUS=//p' .env)" = "heimnetz" ] && compose=docker-compose.heimnetz.yml
   for paar in aktualisieren.sh:aktualisieren.sh "$compose":docker-compose.yml Caddyfile:Caddyfile; do
@@ -165,7 +204,8 @@ if grundbild_bauen && docker compose build >>"$BAULOG" 2>&1 \
 fi
 
 # Zurück: alte Fassung (Image ist noch da) und Datenbank von vor dem Update
-version_setzen "$ALT"
+wert_setzen TALEWARD_VERSION "$ALT"
+if [ -n "$ALT_COMMIT" ]; then wert_setzen TALEWARD_COMMIT "$ALT_COMMIT"; else sed -i '/^TALEWARD_COMMIT=/d' .env; fi
 docker compose stop server >/dev/null 2>&1
 docker compose run --rm server chronik wiederherstellen "$SICHERUNG" >/dev/null 2>&1
 docker compose up -d >/dev/null 2>&1

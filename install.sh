@@ -258,8 +258,8 @@ curl -fsSL "$QUELLE/deploy/aktualisieren.sh" -o "$ZIEL/aktualisieren.sh" && chmo
 # Feste Fassung: neuestes Tag v…; die automatischen Updates gehen von dort weiter
 VERSION=$(alt_wert TALEWARD_VERSION)
 if [ -z "$VERSION" ]; then
-  VERSION=$(git ls-remote --tags --refs "$REPO" 'v*' 2>/dev/null \
-    | sed 's#.*refs/tags/##' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+  VERSION=$(git ls-remote --tags --refs "$REPO" 'v*' 2>/dev/null | awk '{print $2}' \
+    | sed -n 's#^refs/tags/##p' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
   VERSION=${VERSION:-main}
 fi
 # Eigene Zusätze in der .env behalten (z. B. COMPOSE_PROFILES=worker für den eingebauten Worker)

@@ -5,6 +5,7 @@
 - Berücksichtigt wird nur eine Fassung mit gültiger Freigabe (app/freigabe.py: freigabe.txt, vom Rechteinhaber
   unterschrieben). Die SHA-256 jeder Datei kommt aus dieser Freigabe, nicht von GitHub. Fassungen ohne Freigabe
   (noch nicht bestätigt) werden übergangen; eine ungültige Unterschrift erscheint als Fehler in der Verwaltung.
+  Als neueste gilt die neueste freigegebene Fassung; auf eine ältere als die schon bekannte wird nie gewechselt.
 - Dateien für App und Worker lädt er einmal herunter, prüft die SHA-256 und bietet sie unter /downloads/… selbst an.
   Handys und Worker fragen nur ihren Server – nie GitHub. Der Worker bekommt die Freigabe mit und prüft sie selbst.
 - Freigabe: „automatisch“ (Standard) gibt jede neue Fassung sofort frei; „manuell“ erst nach Klick in der Verwaltung.
@@ -178,8 +179,13 @@ def _freigabe(klient: httpx.Client, repo: str, tag: str, url_text: str, url_sig:
             "_dateien": f.dateien}
 
 
-def _neueste(klient: httpx.Client, art: Art) -> dict | None:
-    """Neueste Fassung mit gültiger Freigabe. Ungültige Unterschriften werfen UpdateFehler (erst nach der Suche)."""
+MAX_TAGS = 10  # so viele Server-Tags (neueste zuerst) höchstens nach einer Freigabe absuchen
+
+
+def _neueste(klient: httpx.Client, art: Art, mindestens: str | None = None) -> dict | None:
+    """Neueste Fassung mit gültiger Freigabe, nicht älter als `mindestens` (die schon bekannte) – eine neuere ohne
+    Freigabe blockiert nichts, auf eine ältere wird nie zurückgegangen (0.4.83). Ungültige Unterschriften werfen
+    UpdateFehler (erst nach der Suche)."""
     repo = art.repo()
     if art.quelle == "tags":
         r = klient.get(f"https://api.github.com/repos/{repo}/tags", params={"per_page": 100})
@@ -187,16 +193,29 @@ def _neueste(klient: httpx.Client, art: Art) -> dict | None:
             return None
         r.raise_for_status()
         treffer = [(m.group(1), t) for t in r.json() if (m := re.match(art.tag, t.get("name", "")))]
-        if not treffer:
-            return None
-        v, t = max(treffer, key=lambda x: version_tupel(x[0]) or (0,))
-        tag = t["name"]
-        basis = f"https://github.com/{repo}/releases/download/{tag}"
-        f = _freigabe(klient, repo, tag, f"{basis}/{fg.DATEI}", f"{basis}/{fg.SIGNATUR}")
-        if f is None:
-            return None  # neueste Fassung noch nicht freigegeben
-        f.pop("_dateien")
-        return {"version": v, "notizen": "", "url": f"https://github.com/{repo}/releases/tag/{tag}", "tag": tag, **f}
+        treffer.sort(key=lambda x: version_tupel(x[0]) or (0,), reverse=True)
+        fehler = None
+        for v, t in treffer[:MAX_TAGS]:
+            if mindestens and _neuer(mindestens, v):
+                break
+            tag = t["name"]
+            basis = f"https://github.com/{repo}/releases/download/{tag}"
+            try:
+                f = _freigabe(klient, repo, tag, f"{basis}/{fg.DATEI}", f"{basis}/{fg.SIGNATUR}")
+            except UpdateFehler as e:
+                fehler = fehler or e
+                continue
+            if f is None:
+                continue  # (noch) nicht freigegeben – eine ältere freigegebene kann trotzdem die neueste sein
+            f.pop("_dateien")
+            eintrag = {"version": v, "notizen": "", "url": f"https://github.com/{repo}/releases/tag/{tag}",
+                       "tag": tag, **f}
+            if fehler:
+                eintrag["_fehler"] = str(fehler)
+            return eintrag
+        if fehler:
+            raise fehler
+        return None
     r = klient.get(f"https://api.github.com/repos/{repo}/releases", params={"per_page": 30})
     if r.status_code == 404:
         return None
@@ -218,6 +237,8 @@ def _neueste(klient: httpx.Client, art: Art) -> dict | None:
     kandidaten.sort(key=lambda k: version_tupel(k[0]) or (0,), reverse=True)
     fehler = None
     for version, rel, anhang, anhaenge in kandidaten:
+        if mindestens and _neuer(mindestens, version):
+            break
         try:
             f = _freigabe(klient, repo, rel["tag_name"], anhaenge[fg.DATEI]["browser_download_url"],
                           anhaenge[fg.SIGNATUR]["browser_download_url"])
@@ -354,20 +375,21 @@ def pruefen(db: Session, klient: httpx.Client | None = None) -> dict:
     ergebnis, fehler = {}, []
     try:
         for schluessel, art in ARTEN.items():
+            bisher = stand(db, schluessel)
             try:
-                eintrag = _neueste(klient, art)
+                eintrag = _neueste(klient, art, bisher.get("version") if bisher else None)
             except (httpx.HTTPError, ValueError) as e:
                 fehler.append(f"{art.name}: {type(e).__name__}")
                 continue
             except UpdateFehler as e:
                 fehler.append(f"{art.name}: {e}")
                 continue
-            ergebnis[schluessel] = eintrag["version"] if eintrag else None
-            if not eintrag:
+            if not eintrag:  # nichts Freigegebenes, das neuer ist: bekannter Stand bleibt
+                ergebnis[schluessel] = bisher.get("version") if bisher else None
                 continue
+            ergebnis[schluessel] = eintrag["version"]
             if eintrag.get("_fehler"):
                 fehler.append(f"{art.name}: {eintrag.pop('_fehler')}")
-            bisher = stand(db, schluessel)
             if bisher and bisher.get("version") == eintrag["version"] and bisher.get("bereit") \
                     and bisher.get("freigabe") == eintrag.get("freigabe"):
                 continue
