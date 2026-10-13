@@ -3,15 +3,16 @@
 {% block inhalt %}
 <div class="anmeldung">
   {% include "_kopf_marke.html" %}
-  <p class="leise zentriert">{{ _("Verwaltung von {name} · {betreiber}", name=angaben.server_name, betreiber=angaben.server_operator) }}</p>
+  {% if ziel %}<p class="leise zentriert">{{ _("Guthaben auf {server} · {betreiber}", server=angaben.server_name, betreiber=angaben.server_operator) }}</p>
+  {% else %}<p class="leise zentriert">{{ _("Verwaltung von {name} · {betreiber}", name=angaben.server_name, betreiber=angaben.server_operator) }}</p>{% endif %}
   <div class="karte">
-    <form class="formular" method="post" action="/verwaltung/anmelden/code">
+    <form class="formular" method="post" action="{{ ziel or '/verwaltung/anmelden/code' }}">
       <label>{{ _("Code aus deiner Authenticator-App") }}
         <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus maxlength="20"></label>
       <p class="hilfe">{{ _("Handy nicht zur Hand? Gib einen deiner Wiederherstellungscodes ein. Jeder gilt nur einmal.") }}</p>
       <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Anmelden") }}</button></div>
     </form>
   </div>
-  <p class="zentriert"><a href="/verwaltung/anmelden">{{ _("Zurück zur Anmeldung") }}</a></p>
+  <p class="zentriert"><a href="{{ zurueck or '/verwaltung/anmelden' }}">{{ _("Zurück zur Anmeldung") }}</a></p>
 </div>
 {% endblock %}

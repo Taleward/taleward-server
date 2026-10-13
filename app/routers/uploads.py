@@ -194,7 +194,8 @@ def complete(uploadId: str, request: Request, user: User = Depends(current_user)
 
     if abrechnung.an(db):  # 0.4.85: Länge selbst messen (Schätzung der Kosten) und die feste Obergrenze je Runde
         up.dauer_sekunden = abrechnung.aufnahme_messen(up)
-        if up.dauer_sekunden and up.dauer_sekunden > abrechnung.MAX_AUFNAHME_SEKUNDEN:
+        laenge = up.dauer_sekunden or abrechnung.groesse_sekunden(up)  # N4: nicht messbar → nach Dateigröße
+        if laenge > abrechnung.MAX_AUFNAHME_SEKUNDEN:
             storage.delete_upload_files(up.id)
             up.state = "aborted"
             set_state(s, "created")

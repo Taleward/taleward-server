@@ -94,7 +94,11 @@ def _seite_abrechnung(request: Request, user: User, db: Session, status: int = 2
         von = db.get(User, z.von)
         protokoll.append({"z": z, "von": von.display_name if von else z.von, "daten": _kurz(json.loads(z.daten or "{}"))})
     orgs = list(db.scalars(select(Organization).order_by(Organization.name)))
-    daten = {"bestaetigen": None, "codes": None, **ctx}
+    # N6: Cloud-Arten ohne eigenen Schätzwert und ohne bisherige Läufe – die würden mit 0 € geschätzt
+    namen = {"transcribe": tr(request)("Transkription"), "summarize": tr(request)("Kapitel"),
+             "revise": tr(request)("Korrektur per Hinweis"), "document": tr(request)("SL-Unterlage")}
+    ohne = [namen[a] for a in abrechnung.KOSTENPFLICHTIG if abrechnung.preis_je_einheit(db, a, "cloud") <= 0]
+    daten = {"bestaetigen": None, "codes": None, "cloud_ohne_schaetzung": ", ".join(ohne), **ctx}
     antwort = _seite(request, "abrechnung.html", user, db, modus=abrechnung.modus(db), preisfelder=PREISFELDER,
                      werte=werte, euro_feld=_euro_feld, euro=abrechnung.euro, konten=konten, aktionen=aktionen,
                      gutschriften=gutschriften, protokoll=protokoll, faktor=_faktor(db, user), orgs=orgs,
@@ -112,6 +116,8 @@ def seite(request: Request, user: User = Depends(verwalter), db: Session = Depen
 def modus(request: Request, modus: str = Form(""), user: User = Depends(verwalter), db: Session = Depends(get_db)):
     if modus not in abrechnung.MODI:
         return _seite_abrechnung(request, user, db, 400, fehler=tr(request)("Bitte eine der Möglichkeiten wählen."))
+    if modus != "aus" and not _faktor(db, user):  # 0.4.87 (N3); Ausschalten geht immer – die Notbremse
+        return _ohne_faktor(request, user, db)
     if modus != abrechnung.modus(db):
         abrechnung.modus_schreiben(db, modus, user.id)
         db.commit()
@@ -120,6 +126,8 @@ def modus(request: Request, modus: str = Form(""), user: User = Depends(verwalte
 
 @router.post("/abrechnung/preise", dependencies=[Depends(csrf_pruefen)])
 async def preise(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)):
+    if not _faktor(db, user):  # 0.4.87 (N3): Aufschlag und Preise nur mit zweitem Faktor
+        return _ohne_faktor(request, user, db)
     form = await request.form()
     p = abrechnung.preise(db)
     for name, _text, ist_euro in PREISFELDER:
@@ -148,12 +156,16 @@ def _ziel(db: Session, ziel_konto: str, ziel_org: str) -> Guthaben | None:
     return abrechnung.guthaben_konto(db, u.id) if u is not None and not u.setup_account else None
 
 
+def _ohne_faktor(request: Request, user: User, db: Session) -> HTMLResponse:
+    return _seite_abrechnung(request, user, db, 403, fehler=tr(request)(
+        "Das geht nur mit eingeschaltetem zweiten Faktor (Anmeldung → Dein zweiter Faktor)."))
+
+
 def _vorbedingungen(request: Request, user: User, db: Session) -> HTMLResponse | None:
     if not abrechnung.an(db):
         raise errors.not_found()
     if not _faktor(db, user):
-        return _seite_abrechnung(request, user, db, 403, fehler=tr(request)(
-            "Gutschriften und Gutscheine gehen nur mit eingeschaltetem zweiten Faktor (Anmeldung → Dein zweiter Faktor)."))
+        return _ohne_faktor(request, user, db)
     return None
 
 

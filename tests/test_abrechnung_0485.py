@@ -492,6 +492,14 @@ def test_verwaltung_schalter_und_preise(client, dbs, admin):  # noqa: F811
     r = client.post("/verwaltung/abrechnung/gutschrift", data={"csrf": admin, "ziel_konto": "chef", "betrag": "1",
                                                               "grund": "x"})
     assert r.status_code == 404  # Schalter aus
+    from app.models import User
+    from app.verwaltung import zweiter_faktor as zf
+    from tests.test_server_0484 import _code
+
+    chef = dbs.scalar(select(User).where(User.username == "chef"))  # seit 0.4.87 nur mit zweitem Faktor (N3)
+    zf.beginnen(dbs, chef.id)
+    zf.bestaetigen(dbs, chef.id, _code(dbs, chef.id))
+    dbs.commit()
     r = client.post("/verwaltung/abrechnung/modus", data={"csrf": admin, "modus": "guthaben"}, follow_redirects=False)
     assert r.status_code == 303 and abrechnung.modus(dbs) == "guthaben"
     felder = {name: "0" for name, _t, _e in __import__("app.verwaltung.abrechnung_seite",

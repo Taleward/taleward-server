@@ -5,7 +5,8 @@ Unter /guthaben sieht die SL ihr Guthaben und ihre Buchungen, löst Gutscheine e
 ab bzw. übernimmt sie. Im Topf-Modus sehen die Verwalter der Organisation hier auch deren Guthaben.
 
 Anmeldung mit Benutzername und Passwort (wie „Konto löschen“), eigenes kurzlebiges Cookie nur für diesen Pfad. Konten
-nur mit Anmeldung über einen Dienst setzen sich in der App unter Konto ein Passwort.
+nur mit Anmeldung über einen Dienst setzen sich in der App unter Konto ein Passwort. Hat das Konto einen zweiten Faktor
+eingeschaltet (Verwalter), kommt danach der Code aus der Authenticator-App (0.4.87, N2).
 """
 from __future__ import annotations
 
@@ -29,6 +30,8 @@ from app.verwaltung.router import _seite, tr
 
 router = APIRouter(prefix="/guthaben", include_in_schema=False)
 COOKIE = "tw_guthaben"
+COOKIE_CODE = "tw_guthaben_code"
+CODE_MINUTEN = 5
 STUNDEN = 2
 GUTSCHEIN_FENSTER = 15 * 60
 GUTSCHEIN_JE_KONTO, GUTSCHEIN_JE_ADRESSE = 10, 30
@@ -133,14 +136,64 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
     if not verify_password(password, methode.secret if methode else None) or user.setup_account:
         return _anmeldeseite(request, db, tr(request)("Benutzername oder Passwort stimmen nicht."), name, 401)
     ZAEHLER.freigeben(versuch)
+    from app.verwaltung import zweiter_faktor
+
+    if zweiter_faktor.aktiv(db, user.id):  # N2: erst noch der Code
+        antwort = _code_seite(request, db)
+        antwort.set_cookie(COOKIE_CODE, _token(user, f"{server_id()}:guthaben-code", timedelta(minutes=CODE_MINUTEN)),
+                           max_age=CODE_MINUTEN * 60, httponly=True, samesite="strict",
+                           secure=request.url.scheme == "https", path="/guthaben")
+        return antwort
+    return _sitzung(request, user)
+
+
+def _token(user: User, aud: str, dauer: timedelta) -> str:
     jetzt = utcnow()
-    wert = jwt.encode({"sub": user.id, "tv": user.token_version, "aud": _aud(), "iat": jetzt,
-                       "exp": jetzt + timedelta(hours=STUNDEN), "jti": secrets.token_hex(8)},
-                      get_settings().jwt_secret, algorithm="HS256")
+    return jwt.encode({"sub": user.id, "tv": user.token_version, "aud": aud, "iat": jetzt, "exp": jetzt + dauer,
+                       "jti": secrets.token_hex(8)}, get_settings().jwt_secret, algorithm="HS256")
+
+
+def _sitzung(request: Request, user: User) -> RedirectResponse:
     antwort = _zurueck()
-    antwort.set_cookie(COOKIE, wert, max_age=STUNDEN * 3600, httponly=True, samesite="strict",
-                       secure=request.url.scheme == "https", path="/guthaben")
+    antwort.set_cookie(COOKIE, _token(user, _aud(), timedelta(hours=STUNDEN)), max_age=STUNDEN * 3600, httponly=True,
+                       samesite="strict", secure=request.url.scheme == "https", path="/guthaben")
+    antwort.delete_cookie(COOKIE_CODE, path="/guthaben")
     return antwort
+
+
+def _code_seite(request: Request, db: Session, fehler: str | None = None, status: int = 200) -> HTMLResponse:
+    antwort = _seite(request, "anmelden_code.html", None, db, fehler=fehler, ziel="/guthaben/anmelden/code",
+                     zurueck="/guthaben")
+    antwort.status_code = status
+    return antwort
+
+
+@router.post("/anmelden/code", dependencies=[Depends(_an)])
+def anmelden_code(request: Request, code: str = Form(""), db: Session = Depends(get_db)):
+    """Zweiter Schritt der Anmeldung (N2): gleiche Prüfung und gleiche Fehlversuch-Grenze wie in der Verwaltung."""
+    from app.begrenzung import ZAEHLER
+    from app.verwaltung import zweiter_faktor
+    from app.verwaltung.router import _versuch
+
+    wert = request.cookies.get(COOKIE_CODE)
+    try:
+        daten = jwt.decode(wert or "", get_settings().jwt_secret, algorithms=["HS256"],
+                           audience=f"{server_id()}:guthaben-code")
+    except jwt.PyJWTError:
+        return _zurueck()
+    user = db.get(User, daten.get("sub"))
+    if user is None or user.token_version != daten.get("tv") or user.setup_account:
+        return _zurueck()
+    versuch = _versuch(begrenzung.adresse(request), f"code:{user.id}")
+    if versuch is None:
+        return _code_seite(request, db, tr(request)("Zu viele Fehlversuche. Bitte in ein paar Minuten erneut versuchen."),
+                           429)
+    if not zweiter_faktor.pruefen(db, user.id, code):
+        return _code_seite(request, db, tr(request)(
+            "Der Code stimmt nicht oder wurde schon benutzt. Nimm den nächsten aus deiner App."), 400)
+    ZAEHLER.freigeben(versuch)
+    db.commit()
+    return _sitzung(request, user)
 
 
 @router.post("/abmelden", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
