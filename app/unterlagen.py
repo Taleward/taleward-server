@@ -267,6 +267,9 @@ def hochladen(db: Session, campaign_id: str, member_id: str, dateiname: str, dat
 
 def loeschen(db: Session, doc: CampaignDocument) -> None:
     """Unterlage samt Datei, Text, Vorschlägen und Aufträgen löschen. Übernommene Einträge bleiben."""
+    from app import abrechnung
+
+    abrechnung.vor_loeschen(db, document_id=doc.id)  # 0.4.87 (N1): Gestartetes wird vor dem Löschen gebucht
     db.execute(delete(Proposal).where(Proposal.document_id == doc.id))
     db.execute(delete(Job).where(Job.document_id == doc.id))
     shutil.rmtree(ordner(doc.id), ignore_errors=True)

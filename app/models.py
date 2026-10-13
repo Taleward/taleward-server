@@ -722,6 +722,10 @@ class KostenAuftrag(Base):
     weg: Mapped[str] = mapped_column(String(16))  # worker | zentrale | extern
     art: Mapped[str] = mapped_column(String(16))  # Auftragsart (transcribe, summarize, revise, document)
     menge: Mapped[int] = mapped_column(Integer, default=0)  # Sekunden Aufnahme bzw. Seiten bzw. 1
+    # 0.4.87 (N1): Bezug auch ohne den Auftrag – Runde, Unterlage oder Kampagne können vor dem Abrechnen gelöscht werden
+    campaign_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    session_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    document_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     schaetzung_cent: Mapped[int] = mapped_column(Integer, default=0)
     zustand: Mapped[str] = mapped_column(String(16), default="laeuft")  # laeuft | abgerechnet
     betrag_cent: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -733,6 +737,9 @@ class Gutschein(Base):
     """Gutscheincode über einen festen Betrag. Gespeichert wird nur die SHA-256 des Codes."""
 
     __tablename__ = "gutscheine"
+    # 0.4.87 (N5): je Guthaben höchstens ein eingelöster Gutschein derselben Aktion – in der Datenbank selbst
+    __table_args__ = (Index("ix_gutscheine_aktion_eingeloest", "aktion", "eingeloest_von", unique=True,
+                            sqlite_where=text("eingeloest_von IS NOT NULL")),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     code_hash: Mapped[str] = mapped_column(String(64), unique=True)
     aktion: Mapped[str] = mapped_column(String(100), index=True)

@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import abrechnung  # noqa: F401 – meldet das Ereignis „beim Abschluss abrechnen“ an (0.4.87)
 from app.config import get_settings
 from app.db import run_migrations
 from app.errors import install_error_handlers

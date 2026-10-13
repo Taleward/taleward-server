@@ -69,6 +69,9 @@ def delete_session(sessionId: str, user: User = Depends(current_user), db: Sessi
     for up in db.scalars(select(Upload).where(Upload.session_id == s.id)):
         storage.delete_upload_files(up.id)
     storage.delete_samples(s.id)
+    from app import abrechnung
+
+    abrechnung.vor_loeschen(db, session_id=s.id)  # 0.4.87 (N1): Gestartetes wird vor dem Löschen gebucht
     campaign_id, nummer = s.campaign_id, s.number
     db.delete(s)
     db.flush()

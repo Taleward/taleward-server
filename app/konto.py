@@ -200,7 +200,10 @@ def exportieren(db: Session, u: User, basis_url: str) -> dict:
 # ---------------------------------------------------------------- Löschen
 def _kampagne_loeschen(db: Session, c: Campaign) -> None:
     """Kampagne, in der sonst niemand ist, samt Dateien löschen."""
+    from app import abrechnung
     from app.bilder import cover_ordner, loeschen, portrait_ordner
+
+    abrechnung.vor_loeschen(db, campaign_id=c.id)  # 0.4.87 (N1): Gestartetes wird vor dem Löschen gebucht
 
     for s in db.scalars(select(GameSession).where(GameSession.campaign_id == c.id)):
         storage.delete_samples(s.id)

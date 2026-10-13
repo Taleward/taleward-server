@@ -142,10 +142,12 @@ def stand(db: Session, g: Guthaben) -> str:
     return "knapp" if s < preise(db).warnung_ab else "gut"
 
 
-def buchen(db: Session, g: Guthaben, art: str, betrag_cent: int, von: str = "system", **bezug) -> Buchung:
+def buchen(db: Session, g: Guthaben, art: str, betrag_cent: int, von: str = "system", _schreiben: bool = True,
+           **bezug) -> Buchung:
     b = Buchung(guthaben_id=g.id, art=art, betrag_cent=int(betrag_cent), von=von, **bezug)
     db.add(b)
-    db.flush()
+    if _schreiben:  # nicht während eines laufenden Schreibvorgangs (Ereignis beim Abschluss)
+        db.flush()
     return b
 
 
@@ -249,8 +251,14 @@ def aufnahme_messen(up: Upload) -> float | None:
 
 
 
+def groesse_sekunden(up: Upload) -> int:
+    """Grobe Länge nach Dateigröße (64 kbit/s – eher zu lang als zu kurz), wenn die Aufnahme nicht messbar ist."""
+    return int(sum(f.size_bytes for f in up.files) / 8000)
+
+
 def aufnahme_sekunden(db: Session, session_id: str | None) -> int:
-    """Länge der Aufnahme nach eigener Messung des Servers; sonst die gemeldete Länge der Runde."""
+    """Länge der Aufnahme nach eigener Messung des Servers. Nicht messbar: das Größere aus der gemeldeten Länge der Runde
+    (setzt die SL) und der Schätzung nach Dateigröße (0.4.87, N4)."""
     if not session_id:
         return 0
     up = db.scalar(select(Upload).where(Upload.session_id == session_id, Upload.state == "completed")
@@ -258,11 +266,8 @@ def aufnahme_sekunden(db: Session, session_id: str | None) -> int:
     if up is not None and up.dauer_sekunden:
         return int(math.ceil(up.dauer_sekunden))
     s = db.get(GameSession, session_id)
-    if s is not None and s.duration_seconds:
-        return int(s.duration_seconds)
-    if up is not None:  # nicht messbar: grob nach Dateigröße (64 kbit/s – eher zu lang als zu kurz)
-        return int(sum(f.size_bytes for f in up.files) / 8000)
-    return 0
+    gemeldet = int(s.duration_seconds) if s is not None and s.duration_seconds else 0
+    return max(gemeldet, groesse_sekunden(up) if up is not None else 0)
 
 
 def menge(db: Session, job: Job) -> int:
@@ -367,7 +372,8 @@ def starten(db: Session, job: Job, weg: str) -> str | None:
     # Erst die Zeile anlegen (Schreibsperre der Datenbank, Teilindex: höchstens einer je Guthaben), dann den Saldo
     # innerhalb dieser Transaktion lesen – ein zweiter Start für dasselbe Guthaben scheitert am Index.
     db.add(KostenAuftrag(job_id=job.id, guthaben_id=g.id, weg=weg, art=job.type, menge=m,
-                         schaetzung_cent=geschaetzt, zustand="laeuft"))
+                         schaetzung_cent=geschaetzt, zustand="laeuft", campaign_id=c.id if c else None,
+                         session_id=job.session_id, document_id=job.document_id))
     try:
         db.flush()
     except IntegrityError:
@@ -385,34 +391,69 @@ def starten(db: Session, job: Job, weg: str) -> str | None:
 
 # ---------------------------------------------------------------- Abrechnen
 def _cloud_kosten(db: Session, k: KostenAuftrag, job: Job | None) -> int:
-    if job is None:
+    """Tatsächliche Cloud-Kosten aus dem Verbrauchsprotokoll. Das Protokoll bleibt beim Löschen von Runde oder
+    Unterlage erhalten; der Bezug steht seit 0.4.87 am Kostenauftrag selbst (N1)."""
+    document_id = k.document_id or (job.document_id if job is not None else None)
+    session_id = k.session_id or (job.session_id if job is not None else None)
+    if not document_id and not session_id:
         return 0
     q = select(func.coalesce(func.sum(UsageLog.cost_cents), 0)).where(
         UsageLog.engine == "external", UsageLog.kind == NUTZUNG[k.art], UsageLog.created_at >= k.angelegt)
-    if job.document_id:
-        q = q.where(UsageLog.document_id == job.document_id)
+    if document_id:
+        q = q.where(UsageLog.document_id == document_id)
     else:
-        q = q.where(UsageLog.session_id == job.session_id)
+        q = q.where(UsageLog.session_id == session_id)
     return int(db.scalar(q) or 0)
 
 
-def abrechnen(db: Session, k: KostenAuftrag) -> int:
-    """Einen beendeten Auftrag buchen (in der laufenden Transaktion). Gibt den Betrag zurück."""
+def abrechnen(db: Session, k: KostenAuftrag, _schreiben: bool = True) -> int:
+    """Einen Kostenauftrag buchen (in der laufenden Transaktion). Gibt den Betrag zurück.
+
+    Worker: endgültig gescheitert kostet nichts. Fertig – oder gelöscht, bevor er fertig war (Runde, Unterlage oder
+    Kampagne weg) – kostet den vollen Betrag; die Arbeit ist dann getan bzw. begonnen (N1)."""
     job = db.get(Job, k.job_id)
     if k.weg == "worker":
-        betrag = betrag_fuer(db, k.art, "worker", k.menge) if job is not None and job.state == "done" else 0
+        betrag = 0 if job is not None and job.state == "failed" else betrag_fuer(db, k.art, "worker", k.menge)
     else:  # Cloud: tatsächliche Kosten (auch bei Fehlschlag, soweit angefallen); Testmodus kostet nichts
         betrag = _mit_aufschlag(db, _cloud_kosten(db, k, job))
     g = db.get(Guthaben, k.guthaben_id)
     if betrag > 0:
-        buchen(db, g, "verbrauch", -betrag, job_id=k.job_id)
+        buchen(db, g, "verbrauch", -betrag, job_id=k.job_id, _schreiben=_schreiben)
     k.zustand, k.betrag_cent, k.abgerechnet_at = "abgerechnet", betrag, utcnow()
     return betrag
 
 
+def vor_loeschen(db: Session, *, campaign_id: str | None = None, session_id: str | None = None,
+                 document_id: str | None = None) -> int:
+    """0.4.87 (N1): Vor dem Löschen einer Kampagne, Runde oder Unterlage deren laufende Kostenaufträge buchen – sonst
+    verschwände der Auftrag und mit ihm der Bezug. Gilt unabhängig vom Schalter (gestartet ist gestartet)."""
+    bedingung = []
+    if campaign_id:
+        runden = select(GameSession.id).where(GameSession.campaign_id == campaign_id)
+        unterlagen = select(CampaignDocument.id).where(CampaignDocument.campaign_id == campaign_id)
+        bedingung += [KostenAuftrag.campaign_id == campaign_id,
+                      KostenAuftrag.job_id.in_(select(Job.id).where(Job.session_id.in_(runden))),
+                      KostenAuftrag.job_id.in_(select(Job.id).where(Job.document_id.in_(unterlagen)))]
+    if session_id:
+        bedingung += [KostenAuftrag.session_id == session_id,
+                      KostenAuftrag.job_id.in_(select(Job.id).where(Job.session_id == session_id))]
+    if document_id:
+        bedingung += [KostenAuftrag.document_id == document_id,
+                      KostenAuftrag.job_id.in_(select(Job.id).where(Job.document_id == document_id))]
+    if not bedingung:
+        return 0
+    from sqlalchemy import or_
+
+    anzahl = 0
+    for k in list(db.scalars(select(KostenAuftrag).where(KostenAuftrag.zustand == "laeuft", or_(*bedingung)))):
+        abrechnen(db, k)
+        anzahl += 1
+    return anzahl
+
+
 def offene_abrechnen(db: Session) -> int:
-    """Alle laufenden Kostenaufträge buchen, deren Auftrag fertig, gescheitert oder gelöscht ist. Läuft vor jeder
-    Vergabe und in der Wartung; der nächste Auftrag desselben Guthabens startet erst danach."""
+    """Sicherheitsnetz: alle laufenden Kostenaufträge buchen, deren Auftrag fertig, gescheitert oder gelöscht ist.
+    Seit 0.4.87 wird schon beim Abschluss gebucht (siehe unten); das hier fängt Übriggebliebenes."""
     anzahl = 0
     for k in list(db.scalars(select(KostenAuftrag).where(KostenAuftrag.zustand == "laeuft"))):
         job = db.get(Job, k.job_id)
@@ -491,8 +532,12 @@ def gutschein_einloesen(db: Session, g: Guthaben, code: str, von: str) -> int:
         Gutschein.aktion == gs.aktion, Gutschein.eingeloest_von == g.id))
     if schon:
         raise ValueError("aktion")
-    res = db.execute(update(Gutschein).where(Gutschein.id == gs.id, Gutschein.eingeloest_at.is_(None))
-                     .values(eingeloest_von=g.id, eingeloest_at=jetzt))
+    try:
+        res = db.execute(update(Gutschein).where(Gutschein.id == gs.id, Gutschein.eingeloest_at.is_(None))
+                         .values(eingeloest_von=g.id, eingeloest_at=jetzt))
+    except IntegrityError:  # 0.4.87 (N5): gleichzeitig ein anderer Code derselben Aktion – der Index lässt nur einen zu
+        db.rollback()
+        raise ValueError("aktion") from None
     if res.rowcount != 1:
         db.rollback()
         raise ValueError("ungueltig")
@@ -574,3 +619,40 @@ def euro(cent: int) -> str:
     vorzeichen = "−" if cent < 0 else ""
     cent = abs(int(cent))
     return f"{vorzeichen}{cent // 100},{cent % 100:02d} €"
+
+
+# ---------------------------------------------------------------- Abrechnen beim Abschluss (0.4.87, N1)
+# Aufträge werden an vielen Stellen beendet (Ergebnis eines Workers, Zentrale, Cloud, endgültiges Scheitern). Statt
+# jede Stelle einzeln anzupassen, bucht ein Datenbank-Ereignis in derselben Transaktion, in der ein Auftrag „done“ oder
+# „failed“ wird: vor dem Schreiben merken, nach dem Schreiben buchen (dann sind auch Verbrauchsprotokolle derselben
+# Transaktion in der Datenbank). Das Commit schreibt die Buchung mit.
+from sqlalchemy import event as _event  # noqa: E402
+from sqlalchemy import inspect as _inspect  # noqa: E402
+from sqlalchemy.orm import Session as _Sitzung  # noqa: E402
+
+_MERKER = "abrechnung.beendet"
+
+
+@_event.listens_for(_Sitzung, "before_flush")
+def _beendete_merken(session, _flush, _objekte) -> None:
+    ids = {o.id for o in session.dirty if isinstance(o, Job) and o.state in ("done", "failed")
+           and _inspect(o).attrs.state.history.has_changes()}
+    if ids:
+        session.info.setdefault(_MERKER, set()).update(ids)
+
+
+@_event.listens_for(_Sitzung, "after_flush_postexec")
+def _beendete_buchen(session, _flush) -> None:
+    ids = session.info.pop(_MERKER, None)
+    if not ids:
+        return
+    with session.no_autoflush:
+        for job_id in ids:
+            k = session.get(KostenAuftrag, job_id)
+            if k is not None and k.zustand == "laeuft":
+                abrechnen(session, k, _schreiben=False)
+
+
+@_event.listens_for(_Sitzung, "after_rollback")
+def _merker_leeren(session) -> None:
+    session.info.pop(_MERKER, None)

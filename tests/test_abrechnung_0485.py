@@ -123,10 +123,10 @@ def test_leeres_guthaben_wartet_und_startet_nach_gutschrift(client, world, dbs, 
     assert job is not None
     k = dbs.get(KostenAuftrag, job.id)
     assert k.zustand == "laeuft" and k.guthaben_id == g.id and 55 <= k.menge <= 65  # vom Server gemessen (60 s)
-    # Fertig → beim nächsten Prüfpunkt abgerechnet: 60 s × 1,20 €/h = 2 ct, + 10 % → aufgerundet 3 ct
+    # Fertig → im selben Schritt abgerechnet: 60 s × 1,20 €/h = 2 ct, + 10 % → aufgerundet 3 ct
     dbs.get(Job, job.id).state = "done"
     dbs.commit()
-    assert abrechnung.offene_abrechnen(dbs) == 1
+    assert abrechnung.offene_abrechnen(dbs) == 0  # seit 0.4.87 schon beim Abschluss gebucht
     assert abrechnung.saldo(dbs, g.id) == 5 - abrechnung.betrag_fuer(dbs, "transcribe", "worker", k.menge)
     assert dbs.get(KostenAuftrag, job.id).zustand == "abgerechnet"
 
