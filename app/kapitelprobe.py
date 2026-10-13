@@ -287,7 +287,7 @@ def starten(db: Session, s: GameSession, abschrift: str | None = None, dateiname
     _aufraeumen()
     _speichern(p)
     if abschrift is not None:
-        (ordner(p.id) / "transkript.txt").write_text(abschrift, encoding="utf-8")
+        (ordner(p.id) / "transkript.txt").write_text(abschrift, encoding="utf-8", newline="\n")
     threading.Thread(target=_rechnen, args=(p, k, recap_ein, vorschlag_ein, s.campaign_id, s.id),
                      name=f"probelauf-{p.id[:8]}", daemon=True).start()
     return p
@@ -391,42 +391,42 @@ def _dateien_schreiben(p: Probe) -> None:
             text = f"{p.titel}\n\n{text_mit_teilen(p.text, p.teile)}\n"
             if p.offene_faeden:
                 text += "\nOffene Fäden:\n" + "\n".join(f"- {f}" for f in p.offene_faeden) + "\n"
-            (o / "recap.txt").write_text(text, encoding="utf-8")
-            (o / "vorschlaege.json").write_text(json.dumps(p.vorschlaege, ensure_ascii=False, indent=2), encoding="utf-8")
-            (o / "pruefung.json").write_text(json.dumps(p.pruefung, ensure_ascii=False, indent=2), encoding="utf-8")
+            (o / "recap.txt").write_text(text, encoding="utf-8", newline="\n")
+            (o / "vorschlaege.json").write_text(json.dumps(p.vorschlaege, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+            (o / "pruefung.json").write_text(json.dumps(p.pruefung, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
             if p.notizen:
-                (o / "notizen.txt").write_text(p.notizen + "\n", encoding="utf-8")
+                (o / "notizen.txt").write_text(p.notizen + "\n", encoding="utf-8", newline="\n")
             if p.stand:
-                (o / "stand.txt").write_text("\n".join(f"- {s}" for s in p.stand) + "\n", encoding="utf-8")
+                (o / "stand.txt").write_text("\n".join(f"- {s}" for s in p.stand) + "\n", encoding="utf-8", newline="\n")
             if p.auswahl:
                 from app.sprachmodell import auswahl_text
 
                 (o / "auswahl.txt").write_text(
                     "\n".join(f"{z} ({a['rang']})" for z, a in zip(auswahl_text(p.auswahl).split("\n"), p.auswahl))
-                    + "\n", encoding="utf-8")
+                    + "\n", encoding="utf-8", newline="\n")
             if p.pflicht:
-                (o / "pflicht.json").write_text(json.dumps(p.pflicht, ensure_ascii=False, indent=2), encoding="utf-8")
+                (o / "pflicht.json").write_text(json.dumps(p.pflicht, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
             if p.entwurf:
-                (o / "entwurf.txt").write_text(p.entwurf + "\n", encoding="utf-8")
+                (o / "entwurf.txt").write_text(p.entwurf + "\n", encoding="utf-8", newline="\n")
             if p.lang:
-                (o / "lang.txt").write_text(p.lang + "\n", encoding="utf-8")
+                (o / "lang.txt").write_text(p.lang + "\n", encoding="utf-8", newline="\n")
             if p.unklar:
-                (o / "unklar.json").write_text(json.dumps(p.unklar, ensure_ascii=False, indent=2), encoding="utf-8")
+                (o / "unklar.json").write_text(json.dumps(p.unklar, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
             if p.einschnitte:
                 (o / "einschnitte.json").write_text(json.dumps(p.einschnitte, ensure_ascii=False, indent=2),
-                                                    encoding="utf-8")
+                                                    encoding="utf-8", newline="\n")
             if p.kurzer_entwurf:
                 (o / "rohantwort.txt").write_text("\n\n".join(
                     f"Entwurf mit {k['woerter']} Wörtern (Untergrenze {k['untergrenze']}), Antwort des Modells:\n{k['antwort']}"
-                    for k in p.kurzer_entwurf) + "\n", encoding="utf-8")
+                    for k in p.kurzer_entwurf) + "\n", encoding="utf-8", newline="\n")
             if p.zweiter_blick:
                 (o / "zweiter-blick.json").write_text(json.dumps(p.zweiter_blick, ensure_ascii=False, indent=2),
-                                                      encoding="utf-8")
+                                                      encoding="utf-8", newline="\n")
         (o / "ergebnis.json").write_text(json.dumps({k: v for k, v in p.__dict__.items()
                                                       if k not in ("text", "vorschlaege", "pruefung", "besitzer", "notizen", "auswahl",
                                                                   "pflicht", "entwurf", "lang", "korrekturen", "unklar",
                                                                   "zweiter_blick", "einschnitte", "kurzer_entwurf")},
-                                                     ensure_ascii=False, indent=2), encoding="utf-8")
+                                                     ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
     except OSError:
         log.warning("Probelauf %s: Dateien konnten nicht geschrieben werden", p.id)
 
@@ -522,8 +522,8 @@ def _korrigieren(p: Probe, k, ein: dict, hinweise: dict[int, str], fehlt: str) -
 def _korrektur_dateien(p: Probe) -> None:
     o = ordner(p.id)
     try:
-        (o / "korrektur.json").write_text(json.dumps(p.korrekturen, ensure_ascii=False, indent=2), encoding="utf-8")
-        (o / "recap-korrigiert.txt").write_text(f"{p.titel}\n\n{aktueller_text(p)}\n", encoding="utf-8")
+        (o / "korrektur.json").write_text(json.dumps(p.korrekturen, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+        (o / "recap-korrigiert.txt").write_text(f"{p.titel}\n\n{aktueller_text(p)}\n", encoding="utf-8", newline="\n")
     except OSError:
         log.warning("Probelauf %s: Korrektur-Dateien konnten nicht geschrieben werden", p.id)
 

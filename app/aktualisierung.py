@@ -477,12 +477,12 @@ def server_auto(db: Session | None = None) -> bool:
 
 def server_auto_setzen(an: bool) -> None:
     ablage().mkdir(parents=True, exist_ok=True)
-    (ablage() / "server-auto.txt").write_text("an" if an else "aus", encoding="utf-8")
+    (ablage() / "server-auto.txt").write_text("an" if an else "aus", encoding="utf-8", newline="\n")
 
 
 def server_jetzt() -> None:
     ablage().mkdir(parents=True, exist_ok=True)
-    (ablage() / "server-jetzt").write_text(utcnow().isoformat(), encoding="utf-8")
+    (ablage() / "server-jetzt").write_text(utcnow().isoformat(), encoding="utf-8", newline="\n")
 
 
 def server_jetzt_angefordert() -> bool:

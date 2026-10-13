@@ -186,9 +186,9 @@ def _ablegen(repo: str, fassung: str, quelle: str, arbeiten) -> Stand:
     try:
         dateien = arbeiten(tmp)
         if repo in NOTICE:
-            (tmp / "NOTICE.txt").write_text(NOTICE[repo].format(fassung=fassung), encoding="utf-8")
+            (tmp / "NOTICE.txt").write_text(NOTICE[repo].format(fassung=fassung), encoding="utf-8", newline="\n")
         stand = Stand(repo, fassung, sorted(dateien, key=lambda d: d["pfad"]), quelle)
-        (tmp / "manifest.json").write_text(json.dumps(stand.manifest(), indent=2), encoding="utf-8")
+        (tmp / "manifest.json").write_text(json.dumps(stand.manifest(), indent=2), encoding="utf-8", newline="\n")
         shutil.rmtree(ziel, ignore_errors=True)
         tmp.rename(ziel)
         return stand

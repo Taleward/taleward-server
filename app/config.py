@@ -146,7 +146,7 @@ def _geheimnis(data_dir: Path) -> str:
     wert = secrets.token_urlsafe(48)
     data_dir.mkdir(parents=True, exist_ok=True)
     tmp = datei.with_suffix(".tmp")
-    tmp.write_text(wert, encoding="utf-8")
+    tmp.write_text(wert, encoding="utf-8", newline="\n")
     tmp.chmod(0o600)
     tmp.replace(datei)
     return wert

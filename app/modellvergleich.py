@@ -528,23 +528,23 @@ def speichern(ordner: Path, info: dict, richter: str, ergebnisse: list[Ergebnis]
         d = ordner / _ordnername(f"{e.modell}-ctx{e.kontext}" + (f"-lauf{e.lauf}" if e.lauf > 1 else ""))
         d.mkdir(exist_ok=True)
         if e.pruefliste:
-            (d / "pruefliste.md").write_text(pruefliste_md(e) + "\n", encoding="utf-8")
+            (d / "pruefliste.md").write_text(pruefliste_md(e) + "\n", encoding="utf-8", newline="\n")
         if e.ok:  # jede Stufe immer, auch wenn sie gleich blieb – sonst fehlt der Vorher/Nachher-Vergleich
-            (d / "kapitel-1.txt").write_text(f"{e.titel}\n\n{e.kapitel1 or e.text}\n", encoding="utf-8")
-            (d / "kapitel-2.txt").write_text(f"{e.titel}\n\n{e.kapitel2 or e.kapitel1 or e.text}\n", encoding="utf-8")
-            (d / "fehlend.json").write_text(json.dumps(e.fehlend, ensure_ascii=False, indent=2), encoding="utf-8")
+            (d / "kapitel-1.txt").write_text(f"{e.titel}\n\n{e.kapitel1 or e.text}\n", encoding="utf-8", newline="\n")
+            (d / "kapitel-2.txt").write_text(f"{e.titel}\n\n{e.kapitel2 or e.kapitel1 or e.text}\n", encoding="utf-8", newline="\n")
+            (d / "fehlend.json").write_text(json.dumps(e.fehlend, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
             (d / "pruefung.json").write_text(json.dumps({"vorher": e.pruefung_vorher, "nachher": e.pruefung_nachher,
                                                          "richter": e.richter_absaetze}, ensure_ascii=False, indent=2),
-                                             encoding="utf-8")
+                                             encoding="utf-8", newline="\n")
             (d / "relationspruefung.json").write_text(json.dumps({"vorher": e.relationen_vorher,
                                                                   "nachher": e.relationen_nachher},
-                                                                 ensure_ascii=False, indent=2), encoding="utf-8")
-        (d / "recap.txt").write_text(f"{e.titel}\n\n{e.text}\n" if e.ok else f"Fehler: {e.fehler}\n", encoding="utf-8")
+                                                                 ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+        (d / "recap.txt").write_text(f"{e.titel}\n\n{e.text}\n" if e.ok else f"Fehler: {e.fehler}\n", encoding="utf-8", newline="\n")
         for name, inhalt in (("letzte-antwort.txt", e.letzte_antwort), ("notizen.txt", e.notizen),
                              ("verlauf.txt", e.verlauf)):
             if inhalt:
-                (d / name).write_text(inhalt, encoding="utf-8")
-        (d / "vorschlaege.json").write_text(json.dumps(e.vorschlaege, ensure_ascii=False, indent=2), encoding="utf-8")
+                (d / name).write_text(inhalt, encoding="utf-8", newline="\n")
+        (d / "vorschlaege.json").write_text(json.dumps(e.vorschlaege, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
         (d / "ergebnis.json").write_text(json.dumps({**asdict(e), "letzte_antwort": None, "notizen": None, "verlauf": None,
                                                      "pruefliste": None, "kapitel1": None, "kapitel2": None,
                                                      "fehlend": len(e.fehlend),
@@ -555,9 +555,9 @@ def speichern(ordner: Path, info: dict, richter: str, ergebnisse: list[Ergebnis]
                                                      "pruefung_vorher": None, "pruefung_nachher": None,
                                                      "relationen_vorher": None, "relationen_nachher": None,
                                                      "token_s": e.token_s}, ensure_ascii=False, indent=2),
-                                         encoding="utf-8")
-    (ordner / "bericht.md").write_text(bericht_md(info, richter, ergebnisse), encoding="utf-8")
-    (ordner / "bericht.html").write_text(bericht_html(info, richter, ergebnisse), encoding="utf-8")
+                                         encoding="utf-8", newline="\n")
+    (ordner / "bericht.md").write_text(bericht_md(info, richter, ergebnisse), encoding="utf-8", newline="\n")
+    (ordner / "bericht.html").write_text(bericht_html(info, richter, ergebnisse), encoding="utf-8", newline="\n")
 
 
 def transkript_speichern(ordner: Path, recap_ein: dict) -> Path:
@@ -578,7 +578,7 @@ def transkript_speichern(ordner: Path, recap_ein: dict) -> Path:
 
     zeilen = [f"[{uhr(z['start'])}] {z['sprecher']}: {z['text']}" for z in recap_ein.get("transkript") or []]
     pfad = ordner / "transkript.txt"
-    pfad.write_text("\n".join(kopf) + "\n\n" + "\n".join(zeilen) + "\n", encoding="utf-8")
+    pfad.write_text("\n".join(kopf) + "\n\n" + "\n".join(zeilen) + "\n", encoding="utf-8", newline="\n")
     return pfad
 
 

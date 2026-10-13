@@ -175,7 +175,10 @@ def test_eigener_worker_starten(client, dbs, admin, monkeypatch):
 
     def ersatz(modus, server_url):
         code = ("import os, signal, sys, time\n"
-                "signal.signal(signal.SIGINT, lambda *a: (print('beendet', flush=True), sys.exit(0)))\n"
+                "ende = lambda *a: (print('beendet', flush=True), sys.exit(0))\n"
+                "signal.signal(signal.SIGINT, ende)\n"
+                "if hasattr(signal, 'SIGBREAK'):\n"
+                "    signal.signal(signal.SIGBREAK, ende)\n"
                 f"print('start', {modus!r}, {server_url!r}, os.environ['WORKER_TOKEN'][:3], flush=True)\n"
                 "time.sleep(60)\n")
         return [sys.executable, "-c", code]

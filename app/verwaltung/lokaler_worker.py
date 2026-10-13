@@ -4,7 +4,8 @@
   Datenbank – nur ein Weg im Code.
 - Bei jedem Start bekommt er einen frischen Zugangsschlüssel. Das Geheimnis steht nirgends gespeichert, nur seine
   Prüfsumme (wie bei allen Workern).
-- Beenden per SIGINT: Der Worker meldet einen laufenden Auftrag zurück und räumt seinen Arbeitsordner auf.
+- Beenden per SIGINT (Windows: Strg+Untbr): Der Worker meldet einen laufenden Auftrag zurück und räumt seinen
+  Arbeitsordner auf.
 - Soll er beim Serverstart mitstarten, steht das in server_meta („lokaler_worker“ = echt | attrappe | aus).
 """
 from __future__ import annotations
@@ -98,14 +99,16 @@ class LokalerKnecht:
             self.logdatei.parent.mkdir(parents=True, exist_ok=True)
             if self.logdatei.exists() and self.logdatei.stat().st_size > LOG_MAX:
                 self.logdatei.unlink()
-            log = open(self.logdatei, "a", encoding="utf-8")
+            log = open(self.logdatei, "a", encoding="utf-8", newline="\n")
             log.write(f"\n===== {utcnow():%Y-%m-%d %H:%M} UTC – Start ({modus}) =====\n")
             log.flush()
             env = {**os.environ, "WORKER_TOKEN": f"wk.{w.id}.{geheim}", "PYTHONUNBUFFERED": "1",
                    "WORKER_WORK_DIR": str(s.data_dir / "worker")}
+            # Eigene Prozessgruppe: unter Windows nur so lässt sich Strg+Untbr gezielt an den Worker schicken
+            gruppe = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" \
+                else {"start_new_session": True}
             self._proc = subprocess.Popen(self._befehl(modus, s.worker_server_url), stdout=log,
-                                          stderr=subprocess.STDOUT, env=env, cwd=os.getcwd(),
-                                          start_new_session=True)
+                                          stderr=subprocess.STDOUT, env=env, cwd=os.getcwd(), **gruppe)
             log.close()  # der Kindprozess hat seine eigene Kopie
             self._modus, self._gestartet = modus, utcnow()
 
@@ -114,9 +117,10 @@ class LokalerKnecht:
         if p is None or p.poll() is not None:
             return
         try:
-            p.send_signal(signal.SIGINT)  # wie Strg+C: Auftrag zurückmelden, aufräumen
+            # wie Strg+C: Auftrag zurückmelden, aufräumen (Windows: Strg+Untbr, der Worker behandelt es gleich)
+            p.send_signal(signal.CTRL_BREAK_EVENT if os.name == "nt" else signal.SIGINT)
             p.wait(timeout=warten)
-        except subprocess.TimeoutExpired:
+        except (subprocess.TimeoutExpired, OSError):
             p.kill()
             p.wait(timeout=5)
 
@@ -158,7 +162,7 @@ def eingebauten_worker_koppeln(db: Session) -> Path | None:
     neu = datei.with_suffix(".neu")
     alt_umask = os.umask(0o077)
     try:
-        neu.write_text(f"wk.{w.id}.{geheim}\n", encoding="utf-8")
+        neu.write_text(f"wk.{w.id}.{geheim}\n", encoding="utf-8", newline="\n")
     finally:
         os.umask(alt_umask)
     os.replace(neu, datei)  # nie halb geschrieben lesen

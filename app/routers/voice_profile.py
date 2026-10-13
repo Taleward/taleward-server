@@ -6,6 +6,7 @@ Löschen entfernt Profil, alles Gelernte, offene Aufträge und eine noch nicht v
 import shutil
 import subprocess
 import tempfile
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFile
 from sqlalchemy.orm import Session
@@ -41,13 +42,14 @@ def _dauer(daten: bytes) -> float | None:
     """Länge der Aufnahme per ffprobe, falls vorhanden (sonst prüft der Worker)."""
     if shutil.which("ffprobe") is None:
         return None
-    with tempfile.NamedTemporaryFile(suffix=".audio") as f:
-        f.write(daten)
-        f.flush()
+    # Eigener Ordner statt NamedTemporaryFile: unter Windows darf ffprobe eine noch offene Datei nicht lesen
+    with tempfile.TemporaryDirectory() as ordner:
+        datei = Path(ordner) / "aufnahme.audio"
+        datei.write_bytes(daten)
         from app.audio import EINGABE
 
         res = subprocess.run(["ffprobe", "-v", "error", *EINGABE, "-show_entries", "format=duration", "-of", "csv=p=0",
-                              f.name], capture_output=True, text=True, timeout=20)
+                              str(datei)], capture_output=True, text=True, timeout=20)
     try:
         return float(res.stdout.strip())
     except ValueError:

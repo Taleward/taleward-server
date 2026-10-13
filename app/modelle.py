@@ -76,7 +76,7 @@ def _merken(repo: str, fassung: str) -> None:
     datei = merkdatei()
     datei.parent.mkdir(parents=True, exist_ok=True)
     tmp = datei.with_suffix(".tmp")
-    tmp.write_text(json.dumps(daten, indent=2, sort_keys=True), encoding="utf-8")
+    tmp.write_text(json.dumps(daten, indent=2, sort_keys=True), encoding="utf-8", newline="\n")
     tmp.replace(datei)
 
 
@@ -239,7 +239,7 @@ def vom_server(repo: str, quelle: ServerQuelle) -> Bereit | None:
                     raise ModellFehler(f"Unerwarteter Pfad im Modellverzeichnis: {str(d.get('pfad'))[:100]}")
                 if quelle.laden(repo, fassung, d["pfad"], tmp / d["pfad"]) != d["sha256"]:
                     raise ModellFehler(f"Prüfsumme stimmt nicht: {d['pfad']} – bitte erneut versuchen.")
-            (tmp / ".vollstaendig").write_text(fassung, encoding="utf-8")
+            (tmp / ".vollstaendig").write_text(fassung, encoding="utf-8", newline="\n")
             shutil.rmtree(ordner, ignore_errors=True)
             tmp.rename(ordner)
         except BaseException:

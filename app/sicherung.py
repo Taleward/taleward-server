@@ -15,6 +15,7 @@ import re
 import shutil
 import sqlite3
 import tempfile
+import time
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -169,6 +170,18 @@ def pruefen(datei: Path) -> dict:
         raise SicherungFehler("Die Datei ist keine gültige ZIP-Datei.") from None
 
 
+def _beharrlich(aktion, *args, versuche: int = 20, **kwargs):
+    """Unter Windows halten Virenscanner und Indexdienst eine eben gelesene Datei oft kurz offen
+    (PermissionError). Dann ein paar Mal kurz warten statt mittendrin abzubrechen."""
+    for i in range(versuche):
+        try:
+            return aktion(*args, **kwargs)
+        except PermissionError:
+            if os.name != "nt" or i == versuche - 1:
+                raise
+            time.sleep(0.25)
+
+
 def wiederherstellen(datei: Path) -> Path:
     """Nur bei gestopptem Server aufrufen (chronik wiederherstellen). Vorher wird der jetzige Stand gesichert.
     Liefert den Pfad dieser Vorher-Sicherung."""
@@ -179,8 +192,8 @@ def wiederherstellen(datei: Path) -> Path:
         with zipfile.ZipFile(datei) as z:
             z.extractall(tmp)
         for endung in ("", "-wal", "-shm"):
-            (s.data_dir / f"chronik.db{endung}").unlink(missing_ok=True)
-        os.replace(Path(tmp) / "chronik.db", s.data_dir / "chronik.db")
+            _beharrlich((s.data_dir / f"chronik.db{endung}").unlink, missing_ok=True)
+        _beharrlich(os.replace, Path(tmp) / "chronik.db", s.data_dir / "chronik.db")
         for unter in ORDNER_IM_ZIP:
             shutil.rmtree(s.data_dir / unter, ignore_errors=True)
             if (Path(tmp) / unter).exists():

@@ -1,5 +1,7 @@
 """Schritt 1: Anmeldung, Kampagnen, Sessions, Bibel, Fehlerformat, CORS.
 Alle Antworten werden zusätzlich automatisch gegen die YAML geprüft (siehe conftest.py)."""
+import sys
+
 import pytest
 
 API = "/api/v1"
@@ -70,7 +72,9 @@ def test_geheimnis_wird_selbst_erzeugt(monkeypatch, tmp_path):
     config.get_settings.cache_clear()
     erstes = config.get_settings().jwt_secret
     check_settings()
-    assert len(erstes) >= 32 and (tmp_path / "daten" / "geheimnis.txt").stat().st_mode & 0o777 == 0o600
+    assert len(erstes) >= 32
+    if sys.platform != "win32":  # Windows kennt keine Unix-Rechte; dort schützt der Nutzerordner
+        assert (tmp_path / "daten" / "geheimnis.txt").stat().st_mode & 0o777 == 0o600
     config.get_settings.cache_clear()
     assert config.get_settings().jwt_secret == erstes  # bleibt nach einem Neustart gleich
     config.get_settings.cache_clear()

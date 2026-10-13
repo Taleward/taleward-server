@@ -389,7 +389,7 @@ def sprecher_statistik(segmente: list[dict], namen: dict[str, str]) -> list[dict
 
 def ausgabe_schreiben(ordner: Path, segmente: list[dict], namen: dict[str, str]) -> None:
     absaetze = absaetze_bilden(segmente)
-    with open(ordner / "transkript.txt", "w", encoding="utf-8") as f:
+    with open(ordner / "transkript.txt", "w", encoding="utf-8", newline="\n") as f:
         for a in absaetze:
             f.write(f"[{fmt_zeit(a['start'])}] {namen.get(a['speaker'], a['speaker'])}: {a['text']}\n\n")
     daten = [
@@ -397,7 +397,7 @@ def ausgabe_schreiben(ordner: Path, segmente: list[dict], namen: dict[str, str])
          "speaker": namen.get(s.get("speaker"), s.get("speaker")), "text": (s.get("text") or "").strip()}
         for s in segmente
     ]
-    (ordner / "transkript.json").write_text(json.dumps(daten, ensure_ascii=False, indent=1), encoding="utf-8")
+    (ordner / "transkript.json").write_text(json.dumps(daten, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
 
 
 def bericht_schreiben(ordner: Path, *, quelle: Path, einst: dict, dauer_audio: float, bericht: Bericht,
@@ -447,7 +447,7 @@ def bericht_schreiben(ordner: Path, *, quelle: Path, einst: dict, dauer_audio: f
           "3. Gibt es erfundene Sätze in Pausen oder Musik (typischer Whisper-Fehler)?",
           "4. Ist eine Stimme in zwei aufgeteilt oder sind zwei Stimmen zusammengelegt?"]
     text = "\n".join(z) + "\n"
-    (ordner / "bericht.md").write_text(text, encoding="utf-8")
+    (ordner / "bericht.md").write_text(text, encoding="utf-8", newline="\n")
     return text
 
 

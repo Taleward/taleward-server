@@ -107,7 +107,7 @@ def aktuell(sprache: str) -> bool:
     # Listen aus Server 0.4.30 haben noch keinen Stand-Vermerk – gleiche Fassung laut QUELLE.txt: nachtragen
     try:
         if FASSUNG in (ordner() / "QUELLE.txt").read_text(encoding="utf-8"):
-            _stand_pfad(sprache).write_text(_soll(sprache), encoding="utf-8")
+            _stand_pfad(sprache).write_text(_soll(sprache), encoding="utf-8", newline="\n")
             return True
     except OSError:
         pass
@@ -143,11 +143,11 @@ def herunterladen(sprache: str, klient=None) -> bool:
     with gzip.open(neu, "wt", encoding="utf-8") as f:
         f.write("\n".join(sorted(set(behalten))))
     neu.replace(pfad(sprache))
-    _stand_pfad(sprache).write_text(_soll(sprache), encoding="utf-8")
+    _stand_pfad(sprache).write_text(_soll(sprache), encoding="utf-8", newline="\n")
     (ordner() / "QUELLE.txt").write_text(
         "Wortlisten: FrequencyWords von Hermit Dave (https://github.com/hermitdave/FrequencyWords), Fassung "
         f"{FASSUNG}, aus OpenSubtitles 2018. Lizenz: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). "
-        f"Gekürzt auf Wörter mit mindestens {MIN_ANZAHL} Vorkommen, kleingeschrieben.\n", encoding="utf-8")
+        f"Gekürzt auf Wörter mit mindestens {MIN_ANZAHL} Vorkommen, kleingeschrieben.\n", encoding="utf-8", newline="\n")
     log.info("Wortliste %s geladen: %d Wörter", sprache, len(set(behalten)))
     return True
 

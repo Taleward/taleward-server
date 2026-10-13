@@ -338,6 +338,10 @@ def worker(
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     logging.getLogger("httpx").setLevel(logging.WARNING)  # nicht jede Anfrage protokollieren
+    import signal
+
+    if hasattr(signal, "SIGBREAK"):  # Windows: Strg+Untbr vom Server (lokaler Worker) wie Strg+C behandeln
+        signal.signal(signal.SIGBREAK, signal.default_int_handler)
     _systemzertifikate()
     s = get_settings()
     server = server or s.worker_server_url
@@ -462,7 +466,7 @@ def _env_setzen(werte: dict[str, str], datei: Path = Path(".env")) -> None:
         if schluessel in offen and ("=" in z):
             zeilen[i] = f"{schluessel}={offen.pop(schluessel)}"
     zeilen += [f"{k}={v}" for k, v in offen.items()]
-    datei.write_text("\n".join(zeilen) + "\n", encoding="utf-8")
+    datei.write_text("\n".join(zeilen) + "\n", encoding="utf-8", newline="\n")
 
 
 def _koppeln(server: str, code: str, name: str | None, unsicher: bool) -> str:
