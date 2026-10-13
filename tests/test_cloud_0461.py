@@ -211,4 +211,8 @@ def test_probelaeufe_nacheinander(client, world, dbs, tmp_path, admin):  # noqa:
             break
         time.sleep(0.05)
     assert probelauf.lesen(pid).zustand == "fertig"
+    # „fertig“ steht schon in der Datei, wenn der Faden noch die Reihe freigibt – kurz auf sein Ende warten
+    for t in threading.enumerate():
+        if t.name.startswith("probelauf-"):
+            t.join(timeout=5)
     assert not any(t.name.startswith("probelauf-") and t.is_alive() for t in threading.enumerate())
