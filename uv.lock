@@ -2002,6 +2002,7 @@ dependencies = [
     { name = "segno" },
     { name = "sqlalchemy" },
     { name = "typer" },
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -2037,6 +2038,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "truststore", marker = "extra == 'ki'", specifier = ">=0.10" },
     { name = "typer", specifier = ">=0.12" },
+    { name = "tzdata", marker = "sys_platform == 'win32'", specifier = ">=2024.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
     { name = "whisperx", marker = "extra == 'ki'", specifier = "==3.8.6" },
 ]

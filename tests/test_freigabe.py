@@ -147,7 +147,8 @@ def _skript_mit_testschluessel(tmp_path):
     return pfad
 
 
-@pytest.mark.skipif(not __import__("shutil").which("ssh-keygen"), reason="ssh-keygen fehlt")
+@pytest.mark.skipif(not __import__("shutil").which("ssh-keygen") or __import__("sys").platform == "win32",
+                    reason="ssh-keygen fehlt bzw. das Update-Skript läuft nur auf Linux")
 def test_aktualisieren_sh_prueft_freigabe(tmp_path):
     import subprocess
 
@@ -157,7 +158,7 @@ def test_aktualisieren_sh_prueft_freigabe(tmp_path):
 
     def pruefen(text: bytes, sig: str, tag="v0.4.38"):
         (ordner / "freigabe.txt").write_bytes(text)
-        (ordner / "freigabe.txt.sig").write_text(sig)
+        (ordner / "freigabe.txt.sig").write_text(sig, encoding="utf-8")
         return subprocess.run(["bash", str(skript), "--freigabe-pruefen", str(ordner), tag], capture_output=True,
                               text=True)
 

@@ -25,7 +25,7 @@ def hub(tmp_path, monkeypatch):
         d = cache / "snapshots" / fassung
         d.mkdir(parents=True, exist_ok=True)
         if vollstaendig:
-            (d / "config.yaml").write_text("x")
+            (d / "config.yaml").write_text("x", encoding="utf-8")
         stand["lokal"].add(fassung)
 
     def laden(repo, fassung, token, nur_lokal):

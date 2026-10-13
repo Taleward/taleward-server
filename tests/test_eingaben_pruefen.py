@@ -31,7 +31,7 @@ def test_fremde_fassung_loescht_nichts(tmp_path, monkeypatch):
     config.get_settings.cache_clear()
     opfer = tmp_path / "daten" / "wichtig"
     opfer.mkdir(parents=True)
-    (opfer / "datei.txt").write_text("bleibt")
+    (opfer / "datei.txt").write_text("bleibt", encoding="utf-8")
 
     class Quelle:
         def verzeichnis(self, repo):
@@ -39,7 +39,7 @@ def test_fremde_fassung_loescht_nichts(tmp_path, monkeypatch):
 
     with pytest.raises(modelle.ModellFehler):
         modelle.vom_server("org/modell", Quelle())
-    assert (opfer / "datei.txt").read_text() == "bleibt"
+    assert (opfer / "datei.txt").read_text(encoding="utf-8") == "bleibt"
 
     class Quelle2:
         def verzeichnis(self, repo):
@@ -120,7 +120,7 @@ def test_obergrenze_jeder_anfrage():
 def test_caddy_begrenzt():
     from pathlib import Path
 
-    assert "max_size" in (Path(__file__).resolve().parents[1] / "deploy" / "Caddyfile").read_text()
+    assert "max_size" in (Path(__file__).resolve().parents[1] / "deploy" / "Caddyfile").read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------- Audioformate
@@ -129,7 +129,7 @@ def test_wiedergabeliste_wird_nicht_geoeffnet(tmp_path):
     from app import audio
 
     datei = tmp_path / "aufnahme.audio"
-    datei.write_text("#EXTM3U\n#EXTINF:1,\nhttp://127.0.0.1:9/x.ts\n")
+    datei.write_text("#EXTM3U\n#EXTINF:1,\nhttp://127.0.0.1:9/x.ts\n", encoding="utf-8")
     with pytest.raises(audio.AudioFehler):
         audio.dekodieren(datei)
     assert "-protocol_whitelist" in audio.EINGABE and "-format_whitelist" in audio.EINGABE

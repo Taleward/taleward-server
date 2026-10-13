@@ -146,9 +146,9 @@ def test_koppeln_schreibt_env(tmp_path):
     from app.cli import _env_setzen
 
     datei = tmp_path / ".env"
-    datei.write_text("# WORKER_TOKEN=\nHF_TOKEN=hf_x\nWORKER_SERVER_URL=http://alt\n")
+    datei.write_text("# WORKER_TOKEN=\nHF_TOKEN=hf_x\nWORKER_SERVER_URL=http://alt\n", encoding="utf-8")
     _env_setzen({"WORKER_TOKEN": "wk.a.b", "WORKER_SERVER_URL": "https://neu"}, datei)
-    assert datei.read_text() == "WORKER_TOKEN=wk.a.b\nHF_TOKEN=hf_x\nWORKER_SERVER_URL=https://neu\n"
+    assert datei.read_text(encoding="utf-8") == "WORKER_TOKEN=wk.a.b\nHF_TOKEN=hf_x\nWORKER_SERVER_URL=https://neu\n"
 
 
 def test_datenschutz(client, dbs, admin, schluessel_ok):  # noqa: F811

@@ -198,7 +198,7 @@ def test_server_automatisch_im_docker_paket(client, dbs, admin, gh, monkeypatch)
     seite = client.get("/verwaltung/updates").text
     assert "Automatisch aktualisieren" in seite and "checked" in seite and "Jetzt aktualisieren" in seite
     client.post("/verwaltung/updates/server-auto", data={"csrf": admin}, follow_redirects=False)
-    assert (aktualisierung.ablage() / "server-auto.txt").read_text() == "aus"
+    assert (aktualisierung.ablage() / "server-auto.txt").read_text(encoding="utf-8") == "aus"
     client.post("/verwaltung/updates/server-auto", data={"csrf": admin, "an": "an"}, follow_redirects=False)
     assert aktualisierung.server_auto()
     r = client.post("/verwaltung/updates/server-jetzt", data={"csrf": admin}, follow_redirects=False)
@@ -209,7 +209,7 @@ def test_server_automatisch_im_docker_paket(client, dbs, admin, gh, monkeypatch)
     monkeypatch.setattr(benachrichtigung, "melden", lambda db, art, **w: gemeldet.append((art, w)))
     (aktualisierung.ablage() / "server-status.json").write_text(
         '{"zeit": "2026-09-29T03:10:00Z", "ergebnis": "zurueckgenommen", "von": "v0.4.3", "nach": "v0.5.0", '
-        '"meldung": "Die neue Fassung startete nicht"}')
+        '"meldung": "Die neue Fassung startete nicht"}', encoding="utf-8")
     aktualisierung.server_status_melden(dbs)
     aktualisierung.server_status_melden(dbs)
     assert [g[0] for g in gemeldet] == ["server_update_fehler"] and gemeldet[0][1]["wichtig"] is True

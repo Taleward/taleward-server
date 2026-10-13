@@ -52,7 +52,7 @@ def test_server_legt_schluessel_fuer_den_eingebauten_worker_an(client, dbs, monk
 
     datei = _eingebaut(monkeypatch, tmp_path)
     assert eingebauten_worker_koppeln(dbs) == datei
-    erster = datei.read_text().strip()
+    erster = datei.read_text(encoding="utf-8").strip()
     if os.name == "posix":
         assert stat.S_IMODE(datei.stat().st_mode) == 0o600  # nur für den Besitzer
     assert client.get("/worker/v1/config", headers={"Authorization": f"Bearer {erster}"}).status_code == 200
@@ -61,7 +61,7 @@ def test_server_legt_schluessel_fuer_den_eingebauten_worker_an(client, dbs, monk
 
     # Neustart des Servers: neuer Schlüssel, der alte gilt nicht mehr
     eingebauten_worker_koppeln(dbs)
-    zweiter = datei.read_text().strip()
+    zweiter = datei.read_text(encoding="utf-8").strip()
     assert zweiter != erster
     assert client.get("/worker/v1/config", headers={"Authorization": f"Bearer {erster}"}).status_code == 401
     assert client.get("/worker/v1/config", headers={"Authorization": f"Bearer {zweiter}"}).status_code == 200
@@ -80,7 +80,7 @@ def test_worker_liest_den_schluessel_aus_der_datei(tmp_path):
     datei = tmp_path / "worker-token"
     assert _token_aus_datei(None) is None
     assert _token_aus_datei(datei, warten_s=0) is None
-    datei.write_text("wk.1.abc\n")
+    datei.write_text("wk.1.abc\n", encoding="utf-8")
     assert _token_aus_datei(datei, warten_s=0) == "wk.1.abc"
 
 
@@ -144,7 +144,7 @@ def test_einstellungen_kommen_ueber_die_config(client, dbs, monkeypatch, tmp_pat
 
     datei = _eingebaut(monkeypatch, tmp_path)
     eingebauten_worker_koppeln(dbs)
-    h = {"Authorization": f"Bearer {datei.read_text().strip()}"}
+    h = {"Authorization": f"Bearer {datei.read_text(encoding='utf-8').strip()}"}
     assert client.get("/worker/v1/config", headers=h).json()["eingebaut"] == {}  # nichts gesetzt: .env gilt
     eingebaut.speichern(dbs, "6144", "large-v3-turbo", True, None)
     dbs.commit()

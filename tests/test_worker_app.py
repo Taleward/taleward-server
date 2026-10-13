@@ -129,5 +129,5 @@ def test_engine_requirements_passen_zu_uv_lock(tmp_path):
     ziel = tmp_path / "req.txt"
     subprocess.run(["uv", "export", "--format", "requirements-txt", "--extra", "ki", "--no-dev", "--no-hashes",
                     "--no-emit-project", "--no-header", "--frozen", "-q", "-o", str(ziel)], cwd=wurzel, check=True)
-    assert ziel.read_text() == (wurzel / "engine-requirements.txt").read_text(), \
+    assert ziel.read_text(encoding="utf-8") == (wurzel / "engine-requirements.txt").read_text(encoding="utf-8"), \
         "engine-requirements.txt neu erzeugen (Befehl in docs/ENTWICKLUNG.md)"

@@ -139,10 +139,10 @@ def _lauf(tmp_path, **kw):
 def test_ablauf_mit_attrappen(tmp_path, monkeypatch):
     _attrappen(monkeypatch)
     ordner = _lauf(tmp_path)
-    txt = (ordner / "transkript.txt").read_text()
+    txt = (ordner / "transkript.txt").read_text(encoding="utf-8")
     assert "] Stimme 1: Ihr betretet die Taverne" in txt
     assert "] Stimme 2: Ich bin Lena" in txt
-    bericht = (ordner / "bericht.md").read_text()
+    bericht = (ordner / "bericht.md").read_text(encoding="utf-8")
     assert "Transkription (Whisper)" in bericht and "Sprechertrennung" in bericht
     assert "| Lena |" in bericht and "Elfe Aranel" in bericht
     assert "Hochgerechnet auf 4 Stunden" in bericht
@@ -154,7 +154,7 @@ def test_ablauf_ohne_sprecher_und_tisch(tmp_path, monkeypatch):
     _attrappen(monkeypatch)
     ordner = _lauf(tmp_path, ohne_sprecher=True, hf_token=None, tisch=True)
     assert (ordner / "tisch-hoerprobe.mp3").exists()
-    assert "keine Sprechertrennung" in (ordner / "bericht.md").read_text()
+    assert "keine Sprechertrennung" in (ordner / "bericht.md").read_text(encoding="utf-8")
 
 
 @needs_ffmpeg

@@ -53,7 +53,7 @@ def test_holen_von_hugging_face(client, dbs, hf_zugang):
     assert stand.fassung == SHA and stand.quelle == "huggingface"
     assert {d["pfad"] for d in stand.dateien} == set(DATEIEN)  # ../boese ignoriert
     ordner = modellablage._ordner(REPO, SHA)
-    assert "CC-BY-4.0" in (ordner / "NOTICE.txt").read_text() and SHA in (ordner / "NOTICE.txt").read_text()
+    assert "CC-BY-4.0" in (ordner / "NOTICE.txt").read_text(encoding="utf-8") and SHA in (ordner / "NOTICE.txt").read_text(encoding="utf-8")
     assert modellablage.vorhanden(dbs).fassung == SHA
     assert modellablage.datei(dbs, REPO, SHA, "../chronik.db") is None
     assert modellablage.datei(dbs, REPO, SHA, "config.yaml").read_bytes() == DATEIEN["config.yaml"]
@@ -193,7 +193,7 @@ def test_automatisch_und_verwaltung(client, dbs, monkeypatch):  # noqa: F811
     dbs.commit()
     assert modellablage.automatisch(dbs, klient=hf_transport()).fassung == SHA
     assert meta_lesen(dbs, "modellablage.fehler") == ""
-    manifest = json.loads((modellablage._ordner(REPO, SHA) / "manifest.json").read_text())
+    manifest = json.loads((modellablage._ordner(REPO, SHA) / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["fassung"] == SHA
 
 

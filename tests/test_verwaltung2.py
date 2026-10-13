@@ -14,17 +14,17 @@ API = "/api/v1"
 def ui_texte() -> set[str]:
     texte = set()
     for f in pathlib.Path("app/verwaltung/templates").glob("*.html"):
-        s = f.read_text()
+        s = f.read_text(encoding="utf-8")
         texte |= set(re.findall(r'_\(\s*"((?:[^"\\]|\\.)*)"', s)) | set(re.findall(r"_\(\s*'((?:[^'\\]|\\.)*)'", s))
-    r = pathlib.Path("app/verwaltung/router.py").read_text()
+    r = pathlib.Path("app/verwaltung/router.py").read_text(encoding="utf-8")
     texte |= set(re.findall(r'(?:\b_|tr\(request\))\(\s*"((?:[^"\\]|\\.)*)"', r))
     for datei in ("app/verwaltung/assistent.py", "app/routers/anmeldung.py"):
-        a = pathlib.Path(datei).read_text()
+        a = pathlib.Path(datei).read_text(encoding="utf-8")
         texte |= set(re.findall(r'(?:\b_|tr\(request\))\(\s*"((?:[^"\\]|\\.)*)"', a))
-    a = pathlib.Path("app/verwaltung/assistent.py").read_text()
+    a = pathlib.Path("app/verwaltung/assistent.py").read_text(encoding="utf-8")
     schritte = re.search(r"SCHRITTE = \[(.*?)\]", a, re.S).group(1)
     texte |= set(re.findall(r'\("\w+", "([^"]+)"\)', schritte))
-    e = pathlib.Path("app/einrichtung.py").read_text()
+    e = pathlib.Path("app/einrichtung.py").read_text(encoding="utf-8")
     texte |= set(re.findall(r'Punkt\("\w+", "([^"]+)"', e))
     m = re.search(r"MELDUNGEN = \{(.*?)\n\}", r, re.S)
     texte |= set(re.findall(r':\s*"((?:[^"\\]|\\.)*)"', m.group(1)))

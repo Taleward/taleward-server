@@ -495,7 +495,9 @@ typing-inspection==0.4.4
     #   pydantic
     #   pydantic-settings
 tzdata==2026.4 ; sys_platform == 'emscripten' or sys_platform == 'win32'
-    # via pandas
+    # via
+    #   pandas
+    #   taleward-server
 urllib3==2.8.0
     # via requests
 uvicorn==0.53.0
