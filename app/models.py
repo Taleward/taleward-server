@@ -472,6 +472,8 @@ class Recap(Base):
     review: Mapped[str | None] = mapped_column(Text, nullable=True)  # 0.4.6: Prüfteil als JSON, nur für die SL
     # 0.4.15: offener Korrektur-Entwurf als JSON (Hinweis, Auftrag, Änderungen), nur für die SL, geht nie in den Umzug
     revision: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 0.4.17: Teile im Kapitel als JSON [{title, firstParagraph}]; None = ohne Teile (app/kapitelteile.py)
+    parts: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 

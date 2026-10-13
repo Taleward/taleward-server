@@ -67,6 +67,8 @@ class ServerInfoOut(ApiModel):
     auth_providers: list["AuthProviderOut"] = []
     password_reset: bool = False
     audio_retention: "AudioRetentionOut | None" = None
+    public_url: str | None = None  # 0.4.16: Adresse für andere Geräte (Einladungslink, wenn die App über localhost läuft)
+    server_id: str | None = None  # 0.4.16: feste Kennung dieses Servers (wie `aud` im Token)
 
 
 class InvitePreviewOut(ApiModel):
@@ -505,6 +507,7 @@ class RecapOut(ApiModel):
     published_at: datetime | None
     review: dict | None = None  # 0.4.6: Prüfteil, nur für die SL (für Spieler weggelassen)
     revision: dict | None = None  # 0.4.15: Korrektur-Entwurf, nur für die SL (für Spieler weggelassen)
+    parts: list[dict] = []  # 0.4.17: Teile im Kapitel; leer = ohne Teile
 
 
 class RevisionIn(ApiModel):
@@ -516,10 +519,16 @@ class DecisionIn(ApiModel):
     accept: bool
 
 
+class RecapPartIn(ApiModel):
+    title: str = Field(max_length=2000)  # Länge prüft app/kapitelteile.py (400 invalid_parts)
+    first_paragraph: int
+
+
 class RecapIn(ApiModel):
     title: str | None = Field(default=None, max_length=300)
     text: str | None = Field(default=None, max_length=100000)
     open_threads: list[str] | None = Field(default=None, max_length=50)
+    parts: list[RecapPartIn] | None = Field(default=None, max_length=50)  # 0.4.17
 
 
 class EvidenceOut(ApiModel):

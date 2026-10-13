@@ -219,6 +219,10 @@ MESSAGES: dict[str, tuple[str, str]] = {
                              "Corrections can only be requested while the chapter is waiting for review."),
     "invalid_input.revision_note": ("Schreib in eigenen Worten, was nicht stimmt oder fehlt – höchstens 2000 Zeichen.",
                                     "Describe in your own words what is wrong or missing – at most 2000 characters."),
+    "invalid_parts": ("Die Zwischenüberschriften passen nicht zum Text. Jede braucht einen Titel (höchstens 120 Zeichen) "
+                      "und muss vor einem eigenen Absatz stehen, in der Reihenfolge des Kapitels.",
+                      "The section headings don't fit the text. Each needs a title (at most 120 characters) and has to "
+                      "stand before its own paragraph, in the order of the chapter."),
     "recap_changed": ("Das Kapitel hat sich inzwischen geändert. Sieh es dir noch einmal an und versuch es dann erneut.",
                       "The chapter has changed in the meantime. Take another look and then try again."),
     "revision_running": ("Die Korrektur läuft gerade. Warte kurz, bis sie fertig ist.",

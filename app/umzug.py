@@ -36,7 +36,7 @@ from pydantic import Field, ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app import errors, links, schemas, storage
+from app import errors, kapitelteile, links, schemas, storage
 from app.config import get_settings
 from app.db import utcnow
 from app.models import (
@@ -284,7 +284,7 @@ def packliste(db: Session, c: Campaign, zugestimmt: set[str]) -> tuple[dict, lis
                           for a in s.attendees],
             "recap": None if r is None else {"title": r.title, "text": r.text,
                                              "openThreads": json.loads(r.open_threads or "[]"),
-                                             "editedAt": _z(r.edited_at)},
+                                             "editedAt": _z(r.edited_at), "parts": kapitelteile.lesen(r)},
             "gmNote": (notiz.text or None) if notiz is not None else None,
             "comments": kommentare,
         })
@@ -505,6 +505,12 @@ class _Recap(schemas.ApiModel):
     text: str = Field(max_length=500_000)
     open_threads: list[str] = Field(default=[], max_length=200)
     edited_at: datetime | None = None
+    parts: list[dict] = Field(default=[], max_length=50)  # 0.4.17; ältere Umzugsdateien ohne
+
+
+def _teile_json(teile: list, text: str) -> str | None:
+    gut = kapitelteile.bereinigt(teile, text)
+    return json.dumps(gut, ensure_ascii=False) if gut else None
 
 
 class _Kommentar(schemas.ApiModel):
@@ -860,7 +866,8 @@ def _anlegen(db: Session, user: User, z: zipfile.ZipFile, d: _Datei, angelegt: l
         if s.recap is not None:
             db.add(Recap(session_id=g.id, title=s.recap.title, text=s.recap.text,
                          open_threads=json.dumps(s.recap.open_threads, ensure_ascii=False),
-                         edited_at=s.recap.edited_at, model=None, review=None, created_at=jetzt))
+                         edited_at=s.recap.edited_at, model=None, review=None, created_at=jetzt,
+                         parts=_teile_json(s.recap.parts, s.recap.text)))
         if (s.gm_note or "").strip():
             db.add(GmNote(session_id=g.id, text=s.gm_note, updated_at=jetzt))
         for kom in s.comments:

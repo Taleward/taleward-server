@@ -245,6 +245,9 @@ def recap_out(s: GameSession, r: Recap, sl: bool = False, lang: str = "de") -> s
 
         out.review = pruefteil.lesen(r.review)
         out.revision = korrektur.fuer_app(r, lang)  # 0.4.15: null ohne Entwurf
+    from app import kapitelteile
+
+    out.parts = kapitelteile.lesen(r)  # 0.4.17: für Spieler und SL gleich
     return out
 
 
@@ -272,8 +275,9 @@ def put_recap(sessionId: str, body: schemas.RecapIn, request: Request, user: Use
         raise errors.not_found("recap")
     _pruefbar(s)
     felder = body.model_fields_set
-    from app import korrektur
+    from app import kapitelteile, korrektur
 
+    absaetze_vorher = kapitelteile.anzahl_absaetze(r.text)
     text_neu = "text" in felder and (body.text or "").strip() != r.text.strip()
     if text_neu and (korrektur.lesen(r) or {}).get("state") == "running":
         raise errors.conflict("revision_running")  # 0.4.15
@@ -287,6 +291,14 @@ def put_recap(sessionId: str, body: schemas.RecapIn, request: Request, user: Use
         if not text:
             raise errors.bad_request("validation_error", "validation_error.recap_text")
         r.text = text
+    if "parts" in felder:  # 0.4.17: bezieht sich auf den Text dieser Anfrage (sonst den gespeicherten)
+        try:
+            kapitelteile.schreiben(r, kapitelteile.pruefen(
+                [p.model_dump(by_alias=True) for p in body.parts or []], r.text))
+        except kapitelteile.Ungueltig:
+            raise errors.bad_request("invalid_parts") from None
+    elif text_neu and kapitelteile.anzahl_absaetze(r.text) != absaetze_vorher:
+        kapitelteile.schreiben(r, [])  # ältere App ohne `parts`: Teile nur bei gleicher Absatzzahl behalten
     if text_neu:
         korrektur.verwerfen(db, r)  # Bearbeiten von Hand verwirft einen offenen Entwurf
     if "open_threads" in felder:

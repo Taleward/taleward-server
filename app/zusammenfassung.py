@@ -196,6 +196,7 @@ class Ergebnis:
     tokens_out: int = 0
     kosten_cent: int = 0
     pruefung: dict | None = None  # Antwort der Gegenprüfung (0.4.6); None = nicht geprüft
+    teile: list = field(default_factory=list)  # 0.4.17: Teile im Kapitel [{title, firstParagraph}]
 
 
 K_GEGENPRUEFEN = "pruefung.gegenpruefen"
@@ -299,7 +300,8 @@ def ergebnis_aus(d: dict, kosten_cent: int = 0) -> Ergebnis:
     return Ergebnis(titel=titel_saeubern(d.get("title") or ""), text=d["text"], offene_faeden=list(d.get("openThreads") or []),
                     vorschlaege=v, modell=d.get("model") or "?", tokens_in=int(d.get("tokensIn") or 0),
                     tokens_out=int(d.get("tokensOut") or 0), kosten_cent=kosten_cent,
-                    pruefung=d.get("review") if isinstance(d.get("review"), dict) else None)
+                    pruefung=d.get("review") if isinstance(d.get("review"), dict) else None,
+                    teile=d.get("parts") if isinstance(d.get("parts"), list) else [])
 
 
 def api_klient(k):
@@ -383,6 +385,13 @@ GEHEIM_HINWEIS = {"de": "Enthält Formulierungen aus geheimen Notizen – bitte 
                   "en": "Contains wording from secret notes – please check before sharing."}
 
 
+def _teile_json(teile: list, text: str) -> str | None:
+    from app import kapitelteile
+
+    gut = kapitelteile.bereinigt(teile, text)
+    return json.dumps(gut, ensure_ascii=False) if gut else None
+
+
 def speichern(db: Session, s: GameSession, erg: Ergebnis, rechenzeit: float, engine: str = "local",
               worker_id: str | None = None) -> None:
     """Ersetzt Recap und Vorschläge dieser Session (bei Neustart) und stellt die Session zur Prüfung bereit."""
@@ -399,7 +408,8 @@ def speichern(db: Session, s: GameSession, erg: Ergebnis, rechenzeit: float, eng
     text = erg.text.strip()
     db.add(Recap(session_id=s.id, title=erg.titel.strip()[:300] or f"Kapitel {s.number}", text=text,
                  open_threads=json.dumps([f.strip() for f in erg.offene_faeden if f.strip()], ensure_ascii=False),
-                 model=erg.modell, review=pruefteil.als_json(pruefteil.bauen(erg.pruefung, text, stellen, sprache))))
+                 model=erg.modell, review=pruefteil.als_json(pruefteil.bauen(erg.pruefung, text, stellen, sprache)),
+                 parts=_teile_json(erg.teile, text)))
     eintraege = {e.id: e for e in db.scalars(select(Entry).where(Entry.campaign_id == s.campaign_id))}
     geheime_texte = geheime_bibeltexte(eintraege.values())
     # Qualitätsprüfung Stufe 1: Belege gegen das Transkript prüfen (erfundene Zitate fallen weg)

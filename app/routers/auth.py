@@ -13,7 +13,7 @@ from app.models import AuthMethod, Organization, OrgMember, User
 from app.security import create_token, verify_password
 from app.services import user_out
 
-API_VERSION = "0.4.15"
+API_VERSION = "0.4.17"
 
 router = APIRouter(tags=["Auth"])
 
@@ -51,7 +51,34 @@ def info(request: Request, db: Session = Depends(get_db)):
         auth_providers=[schemas.AuthProviderOut(id=d, name=anmeldedienste.DIENSTE[d]["name"]) for d in dienste],
         password_reset=mail.kann_senden(db) and mail_adresse(db) is not None,
         audio_retention=schemas.AudioRetentionOut(**aufbewahrung.lesen(db).api()),
+        public_url=oeffentliche_herkunft(a.public_url), server_id=server_id(),
     )
+
+
+def oeffentliche_herkunft(url: str | None) -> str | None:
+    """0.4.16: eingetragene öffentliche Adresse als Herkunft (Schema, Host, Port). http nur für private Adressen –
+    sonst null, die App bleibt dann bei ihrer eigenen Adresse."""
+    import ipaddress
+    from urllib.parse import urlsplit
+
+    if not url:
+        return None
+    try:
+        teile = urlsplit(url.strip())
+        host, port = teile.hostname, teile.port
+    except ValueError:
+        return None
+    if teile.scheme not in ("http", "https") or not host or teile.username or teile.password:
+        return None
+    if teile.scheme == "http":
+        try:
+            if not ipaddress.ip_address(host).is_private:
+                return None
+        except ValueError:
+            if not (host == "localhost" or host.endswith((".local", ".lan", ".home.arpa", ".fritz.box"))):
+                return None
+    netz = f"[{host}]" if ":" in host else host
+    return f"{teile.scheme}://{netz}" + (f":{port}" if port else "")
 
 
 LOGIN_FENSTER = 15 * 60

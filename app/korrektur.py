@@ -156,7 +156,12 @@ def entscheiden(db: Session, s: GameSession, r: Recap, annehmen: bool) -> None:
         if aenderungen:
             for c in aenderungen:
                 teile[c["index"]] = c["after"]
+            from app import kapitelteile
+
+            vorher = len(teile)
             r.text = "\n\n".join(teile)
+            if kapitelteile.anzahl_absaetze(r.text) != vorher:  # 0.4.17: Teile bleiben nur bei gleichen Absätzen
+                kapitelteile.schreiben(r, [])
             r.edited_at = utcnow()
             pruefung = pruefteil.lesen(r.review)
             geaendert = {c["index"] for c in aenderungen}

@@ -456,6 +456,7 @@ class SummaryResultIn(ApiModel):
     open_threads: list[str] = Field(default=[], max_length=20)
     proposals: list[ProposalIn] = Field(default=[], max_length=30)
     review: dict | None = None  # 0.4.6: Gegenprüfung (sprachmodell.Ablauf.gegenpruefen)
+    parts: list[dict] | None = Field(default=None, max_length=50)  # 0.4.17: Teile im Kapitel (prüft der Server)
     model: str | None = Field(default=None, max_length=100)
     tokens_in: int = Field(default=0, ge=0)
     tokens_out: int = Field(default=0, ge=0)
@@ -476,7 +477,7 @@ def summary_result(jobId: str, body: SummaryResultIn, worker: Worker = Depends(c
     ein = vorschlag_eingabe(db, s, eingabe_bauen(db, s))
     roh = [p.model_dump(by_alias=True) for p in body.proposals]
     d = {"title": body.title, "text": body.text, "openThreads": body.open_threads, "model": body.model,
-         "tokensIn": body.tokens_in, "tokensOut": body.tokens_out, "review": body.review,
+         "tokensIn": body.tokens_in, "tokensOut": body.tokens_out, "review": body.review, "parts": body.parts or [],
          "proposals": pruefen(roh, {e["id"] for e in ein["bibel"]}, {e["id"] for e in ein["geheim"]},
                               charaktere=[p["charakter"] for p in ein["personen"] if p.get("charakter")],
                               namen={e["id"]: e["name"] for e in ein["bibel"] + ein["geheim"]})}

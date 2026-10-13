@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Taleward API
-  version: 0.4.15
+  version: 0.4.17
   description: |
     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
 
@@ -28,7 +28,7 @@ info:
       (CORS: Header erlauben!). Ist minAppVersion gesetzt und die App älter – oder fehlt der Header ganz –, antwortet
       der Server auf alles außer /info, /einladung und /verwaltung mit 426 `app_outdated` (message nennt die
       Mindestversion). Die App sperrt dann die Kampagnen dieses Servers und zeigt den Download (appDownloadUrl).
-    - App-Updates (ab 0.4.1): Der Server holt täglich das neueste Release aus `Tinkerworkss/taleward-app` (Tag `v1.2.3`
+    - App-Updates (ab 0.4.1): Der Server holt täglich das neueste Release aus `Taleward/taleward-app` (Tag `v1.2.3`
       oder `app-v1.2.3`, Anhang `*.apk`), prüft die SHA-256 und bietet die Datei selbst an
       (`https://<server>/downloads/app/<version>/<datei>.apk`, öffentlich). /info nennt latestAppVersion, appDownloadUrl
       (immer dieser Server), appDownloadSha256, appDownloadSizeBytes, releaseNotes; von Hand eingetragene Werte haben
@@ -182,6 +182,14 @@ info:
     Änderungen in 0.4.15 (Kapitel per Hinweis korrigieren): POST /sessions/{id}/recap/revision – die SL schreibt in
     eigenen Worten, was nicht stimmt oder fehlt; der Server schreibt nur die betroffenen Absätze neu und legt einen
     Entwurf vor (`Recap.revision`, nur SL). POST …/recap/revision/decision übernimmt oder verwirft ihn als Ganzes.
+    Änderungen in 0.4.16 (Server auf einem PC im Heimnetz): ServerInfo.publicUrl – unter welcher Adresse andere Geräte
+    diesen Server erreichen; die App baut Einladungslink und QR-Code daraus, wenn sie selbst über localhost verbunden
+    ist. ServerInfo.serverId – feste Kennung des Servers; die App erkennt daran denselben Server unter neuer Adresse.
+    Beides optional, ältere Apps ignorieren es.
+    Änderungen in 0.4.17 (Teile im Kapitel): Recap.parts – lange Runden können in Teile mit eigener Zwischenüberschrift
+    gegliedert sein (nur bei einem natürlichen Einschnitt). Der Text bleibt eine Folge von Absätzen; `parts` nennt je
+    Teil die Überschrift und den ersten Absatz. Absatz-Indizes in Prüfteil und Korrektur zählen weiter über das ganze
+    Kapitel. PUT /sessions/{id}/recap nimmt `parts` mit. Ältere Apps ignorieren das Feld und zeigen alles am Stück.
 
 servers:
   - url: https://taleward.example.org/api/v1
@@ -1947,6 +1955,9 @@ paths:
       description: |
         Ab 0.4.15: Ein geänderter `text` verwirft einen offenen Korrektur-Entwurf; läuft gerade ein Korrektur-Auftrag,
         kommt 409 `revision_running`.
+        Ab 0.4.17: `parts` ersetzt die Teile des Kapitels (leere Liste = keine Teile). Fehlt `parts` und ändert sich
+        `text`, behält der Server die Teile nur, wenn die Zahl der Absätze gleich bleibt, sonst `parts: []`. Ungültige
+        Teile (Index außerhalb des Textes, nicht aufsteigend, leere Überschrift) → 400 `invalid_parts`.
       requestBody:
         required: true
         content:
@@ -1957,6 +1968,10 @@ paths:
                 title: { type: string }
                 text: { type: string }
                 openThreads: { type: array, items: { type: string } }
+                parts:
+                  type: array
+                  description: Ab 0.4.17. Bezieht sich auf `text` aus derselben Anfrage (sonst auf den gespeicherten Text).
+                  items: { $ref: "#/components/schemas/RecapPart" }
       responses:
         "200":
           description: OK
@@ -2989,6 +3004,25 @@ components:
           oneOf:
             - $ref: "#/components/schemas/CloudProviderInfo"
             - type: "null"
+        publicUrl:
+          type: [string, "null"]
+          example: "http://192.168.178.24:8000"
+          description: |
+            Ab 0.4.16. Herkunft (Schema, Host, Port; ohne Pfad, ohne `/` am Ende), unter der andere Geräte diesen Server
+            erreichen. Auf einem PC im Heimnetz die aktuelle Heimnetz-Adresse (ändert sie sich, meldet der Server die neue);
+            sonst die öffentliche Adresse oder null. http nur für private Adressen (wie die App sie auch sonst nur dort
+            zulässt). Die App nimmt sie für Einladungslink (`<publicUrl>/einladung/<CODE>`) und QR-Code, wenn sie selbst
+            über localhost / 127.0.0.1 / ::1 verbunden ist; sonst wie bisher die eigene Adresse. Fehlt das Feld oder ist es
+            null, gilt das bisherige Verhalten.
+        serverId:
+          type: [string, "null"]
+          pattern: "^[A-Za-z0-9_-]{1,64}$"
+          description: |
+            Ab 0.4.16. Feste Kennung dieses Servers (dieselbe wie `serverId` bei der Anmeldung mit Diensten und `aud` im
+            Token); ändert sich nie, auch nicht mit der Adresse. Liest die App eine Einladung unter neuer Adresse und
+            meldet der Server dort dieselbe serverId wie eine gespeicherte Verbindung, bietet sie „Adresse aktualisieren“
+            an statt einer zweiten Verbindung. Das Token geht dabei nicht an die neue Adresse; die Person meldet sich dort
+            neu an (Name ist vorausgefüllt). Kein Geheimnis – nur zum Wiedererkennen.
 
     CloudProviderInfo:
       type: object
@@ -3582,7 +3616,7 @@ components:
         sessionId: { type: string }
         number: { type: integer }
         title: { type: string }
-        text: { type: string, description: Vorlesbarer Recap, Absätze durch Leerzeilen getrennt }
+        text: { type: string, description: "Vorlesbarer Recap, Absätze durch Leerzeilen getrennt" }
         openThreads: { type: array, items: { type: string } }
         publishedAt: { type: [string, "null"], format: date-time }
         review: { $ref: "#/components/schemas/RecapReview" }
@@ -3591,6 +3625,25 @@ components:
           oneOf:
             - { $ref: "#/components/schemas/RecapRevision" }
             - { type: "null" }
+        parts:
+          type: array
+          description: |
+            Ab 0.4.17, optional. Teile eines langen Kapitels mit eigener Zwischenüberschrift, aufsteigend nach
+            `firstParagraph`; fehlt oder leer = Kapitel ohne Teile. Der Server gliedert nur bei einem natürlichen
+            Einschnitt (Zeitsprung, Orts- und Szenenwechsel), ab etwa 4 Stunden Spielzeit. Für Spieler und SL gleich.
+            Eine Korrektur per Hinweis ändert die Teile nicht; „Kapitel neu schreiben“ liefert sie neu.
+          items: { $ref: "#/components/schemas/RecapPart" }
+
+    RecapPart:
+      type: object
+      description: |
+        Ab 0.4.17. Ein Teil beginnt bei Absatz `firstParagraph` (0-basiert, Absatz = durch Leerzeile getrennter Block in
+        Recap.text) und reicht bis vor den nächsten Teil. Die App zeigt `title` als Zwischenüberschrift vor diesem Absatz
+        (Lesen, Vorlesen, Prüfen) und übergeht Teile, die nicht zum Text passen.
+      required: [title, firstParagraph]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 120, description: "Kurze Überschrift ohne Nummer, z. B. „Die Anwerbung“" }
+        firstParagraph: { type: integer, minimum: 0 }
 
     RecapRevision:
       type: object

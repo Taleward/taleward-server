@@ -25,6 +25,7 @@ URN = "urn:session-chronik"
 OPTIONAL_FIELDS = {"characterBackstory", "gmNotes", "hiddenFromMemberIds", "memberId", "guestName", "start", "page",
                    "review", "hotwords",  # 0.4.6: nur für die SL, für Spieler weggelassen
                    "revision",  # 0.4.15: nur für die SL, für Spieler weggelassen
+                   "parts",  # 0.4.17: nur, wenn das Kapitel Teile hat
                    "gmNotices", "originCharacterId", "originEntryId", "originVersion",  # 0.4.7: nur SL (und Urheberin)
                    "details",  # 0.4.7: Error.details nur bei manchen Fehlercodes
                    "characterId", "characterVersion",  # 0.4.8: nur für die Person selbst und die SL
