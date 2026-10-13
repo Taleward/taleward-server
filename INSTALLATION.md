@@ -34,7 +34,7 @@ Wie es nach der Installation weitergeht – Transkription, Zusammenfassung, Anme
 Im Terminal des Servers einfügen:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Tinkerworkss/taleward-server/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/Taleward/taleward-server/main/install.sh | sudo bash
 ```
 
 Das Skript
@@ -89,7 +89,7 @@ Speicherkarten-Abbild mit Raspberry Pi OS, Docker und dem Taleward-Server. Kein 
 
 - **Du brauchst:** einen Raspberry Pi 4 oder 5 mit 4–8 GB, eine Speicherkarte ab 16 GB (besser 32 GB) oder eine SSD,
   ein Netzteil und ein Netzwerkkabel oder WLAN.
-- **Abbild:** auf GitHub unter [Releases](https://github.com/Tinkerworkss/taleward-server/releases) → „Taleward-Box v…“
+- **Abbild:** auf GitHub unter [Releases](https://github.com/Taleward/taleward-server/releases) → „Taleward-Box v…“
   → `Taleward-Box-v….img.xz`
 
 So geht's:
@@ -117,7 +117,7 @@ Gut zu wissen:
 ## Einen PC als Worker verbinden
 
 Auf dem PC mit Grafikkarte die **Worker-App** installieren
-([taleward-worker](https://github.com/Tinkerworkss/taleward-worker), Windows oder Linux). In der Verwaltung
+([taleward-worker](https://github.com/Taleward/taleward-worker), Windows oder Linux). In der Verwaltung
 **Transkription → Weiteren Worker anbinden → Kopplungscode erzeugen** und Adresse und Code in der App eintragen.
 
 Der PC braucht keine Portfreigabe im Router – er fragt beim Server nach Arbeit. Ist er aus, warten die Aufnahmen, bis
@@ -218,6 +218,8 @@ Alle Befehle im Ordner `/opt/taleward`:
 | Bestimmte Fassung | in `.env` `TALEWARD_VERSION=v0.4.12` eintragen und die Zeile `TALEWARD_COMMIT=…` löschen, dann `sudo docker compose build && sudo docker compose up -d` |
 | Neu starten | `sudo docker compose restart` |
 | Einrichtungscode neu | `sudo docker compose exec server chronik einrichtungscode` |
+| Zweiten Faktor eines Verwalters abschalten (Handy weg) | `sudo docker compose exec server chronik zweiter-faktor-aus -u name` |
+| Verwaltung nur aus bestimmten Netzen | in `.env` z. B. `VERWALTUNG_NUR_AUS=192.168.178.0/24, 10.8.0.0/24`, dann `sudo docker compose up -d` |
 | Andere Domain | `install.sh` noch einmal ausführen – Daten bleiben |
 
 Das automatische Update legt vorher selbst eine Sicherung an. Startet die neue Fassung nicht, stellt es die alte

@@ -75,6 +75,7 @@ def tr(request: Request):
 
 # Meldungen nach einer Aktion (?ok=…) – der Text ist zugleich der Übersetzungsschlüssel
 MELDUNGEN = {
+    "faktor_aus": "Der zweite Faktor ist ausgeschaltet. Die Anmeldung braucht jetzt nur noch das Passwort.",
     "probe_runde": "Bitte eine Runde mit Abschrift wählen.",
     "probe_cloud": "Für diese Kampagne ist die Cloud-Zusammenfassung nicht freigegeben. Das entscheidet die Spielleitung in der App auf der Übersicht der Kampagne unter „Kampagne verwalten“ → „Cloud-Dienste“.",
     "probe_datei": "Die Abschrift-Datei ist zu groß (höchstens 5 MB) oder enthält keine Zeilen „[h:mm:ss] Sprecher: Text“.",
@@ -250,15 +251,175 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
             fehler = tr(request)("Dieses Konto hat kein Verwalter-Recht. Freischalten mit: uv run chronik admin -u {name}",
                                  name=name)
         else:
+            from app.verwaltung import zweiter_faktor
+
             ZAEHLER.freigeben(versuch)
             ZAEHLER.loeschen(f"verw-name:{name}")
+            if not user.setup_account and zweiter_faktor.aktiv(db, user.id):  # S4: erst noch der Code
+                antwort = RedirectResponse("/verwaltung/anmelden/code", status_code=303)
+                antwort.set_cookie(COOKIE_CODE, _code_cookie(db, user), max_age=CODE_MINUTEN * 60, httponly=True,
+                                   samesite="strict", secure=request.url.scheme == "https", path="/verwaltung")
+                return antwort
             antwort = _zurueck("/einrichtung" if user.setup_account else "/")
-            antwort.set_cookie(COOKIE, _cookie_wert(db, user), max_age=SITZUNG_STUNDEN * 3600, httponly=True,
-                               samesite="strict", secure=request.url.scheme == "https", path="/verwaltung")
+            _sitzung_setzen(antwort, request, db, user)
             return antwort
     antwort = _seite(request, "anmelden.html", None, db, kein_verwalter=False, fehler=fehler, ersteinrichtung=False)
     antwort.status_code = 400
     return antwort
+
+
+# ---------------------------------------------------------------- Zweiter Faktor (S4, 0.4.84)
+COOKIE_CODE = "tw_verwaltung_code"
+CODE_MINUTEN = 5
+
+
+def _aud_code(db: Session) -> str:
+    return f"{server_id()}:verwaltung-code"
+
+
+def _code_cookie(db: Session, user: User) -> str:
+    jetzt = utcnow()
+    return jwt.encode({"sub": user.id, "tv": user.token_version, "aud": _aud_code(db), "iat": jetzt,
+                       "exp": jetzt + timedelta(minutes=CODE_MINUTEN), "jti": secrets.token_hex(8)},
+                      get_settings().jwt_secret, algorithm="HS256")
+
+
+def _wartet_auf_code(request: Request, db: Session) -> User | None:
+    """Konto, das nach richtigem Passwort noch den Code eingeben muss (kurzlebiges Cookie), sonst None."""
+    wert = request.cookies.get(COOKIE_CODE)
+    if not wert:
+        return None
+    try:
+        daten = jwt.decode(wert, get_settings().jwt_secret, algorithms=["HS256"], audience=_aud_code(db))
+    except jwt.PyJWTError:
+        return None
+    user = db.get(User, daten.get("sub"))
+    if user is None or user.token_version != daten.get("tv") or not _ist_verwalter(db, user):
+        return None
+    return user
+
+
+def _sitzung_setzen(antwort: Response, request: Request, db: Session, user: User) -> None:
+    antwort.set_cookie(COOKIE, _cookie_wert(db, user), max_age=SITZUNG_STUNDEN * 3600, httponly=True,
+                       samesite="strict", secure=request.url.scheme == "https", path="/verwaltung")
+
+
+@router.get("/anmelden/code", response_class=HTMLResponse)
+def code_seite(request: Request, db: Session = Depends(get_db)):
+    if _wartet_auf_code(request, db) is None:
+        return RedirectResponse("/verwaltung/anmelden", status_code=303)
+    return _seite(request, "anmelden_code.html", None, db, fehler=None)
+
+
+@router.post("/anmelden/code")
+def code_pruefen(request: Request, code: str = Form(""), db: Session = Depends(get_db)):
+    from app.begrenzung import ZAEHLER
+    from app.verwaltung import zweiter_faktor
+
+    user = _wartet_auf_code(request, db)
+    if user is None:
+        return RedirectResponse("/verwaltung/anmelden", status_code=303)
+    versuch = _versuch(begrenzung.adresse(request), f"code:{user.id}")
+    if versuch is None:
+        fehler = tr(request)("Zu viele Fehlversuche. Bitte in ein paar Minuten erneut versuchen.")
+    elif zweiter_faktor.pruefen(db, user.id, code):
+        ZAEHLER.freigeben(versuch)
+        db.commit()
+        antwort = _zurueck("/")
+        _sitzung_setzen(antwort, request, db, user)
+        antwort.delete_cookie(COOKIE_CODE, path="/verwaltung")
+        return antwort
+    else:
+        fehler = tr(request)("Der Code stimmt nicht oder wurde schon benutzt. Nimm den nächsten aus deiner App.")
+    antwort = _seite(request, "anmelden_code.html", None, db, fehler=fehler)
+    antwort.status_code = 400
+    return antwort
+
+
+@router.post("/zweiter-faktor/beginnen", dependencies=[Depends(csrf_pruefen)])
+def faktor_beginnen(request: Request, password: str = Form(""), user: User = Depends(verwalter),
+                    db: Session = Depends(get_db)):
+    from app.verwaltung import zweiter_faktor
+
+    if not _passwort_stimmt(db, user, password):
+        return _konten_fehler(request, user, db, tr(request)("Das Passwort stimmt nicht."))
+    if zweiter_faktor.aktiv(db, user.id):
+        return _zurueck("/konten#zweiter-faktor")
+    geheim = zweiter_faktor.beginnen(db, user.id)
+    db.commit()
+    return _faktor_einrichten(request, user, db, geheim)
+
+
+def _faktor_einrichten(request: Request, user: User, db: Session, geheim: str, fehler: str | None = None):
+    from app.verwaltung import zweiter_faktor
+
+    adresse = zweiter_faktor.uri(geheim, user.username, angaben(db).server_name or "Taleward")
+    antwort = konten(request, user, db, fehler=fehler or "",
+                     faktor_neu={"geheim": " ".join(geheim[i:i + 4] for i in range(0, len(geheim), 4)),
+                                 "qr": qr_bild(adresse)})
+    if fehler:
+        antwort.status_code = 400
+    return antwort
+
+
+@router.post("/zweiter-faktor/bestaetigen", dependencies=[Depends(csrf_pruefen)])
+def faktor_bestaetigen(request: Request, code: str = Form(""), user: User = Depends(verwalter),
+                       db: Session = Depends(get_db)):
+    from app.verwaltung import zweiter_faktor
+
+    geheim = zweiter_faktor.angefangen(db, user.id)
+    if geheim is None:
+        return _konten_fehler(request, user, db, tr(request)("Das Einrichten hat zu lange gedauert. Bitte neu beginnen."))
+    codes = zweiter_faktor.bestaetigen(db, user.id, code)
+    if codes is None:
+        return _faktor_einrichten(request, user, db, geheim, tr(request)(
+            "Der Code passt nicht. Prüfe, ob die Uhr des Handys stimmt, und gib den aktuellen Code ein."))
+    # Andere Sitzungen dieses Kontos enden; diese bekommt ein neues Cookie
+    meta_schreiben(db, f"verwaltung.abgemeldet.{user.id}", str(int(time.time())))
+    db.commit()
+    antwort = konten(request, user, db, faktor_codes=codes)
+    _sitzung_setzen(antwort, request, db, user)
+    return antwort
+
+
+@router.post("/zweiter-faktor/aus", dependencies=[Depends(csrf_pruefen)])
+def faktor_aus(request: Request, password: str = Form(""), code: str = Form(""), user: User = Depends(verwalter),
+               db: Session = Depends(get_db)):
+    from app.verwaltung import zweiter_faktor
+
+    if not _passwort_stimmt(db, user, password) or not zweiter_faktor.pruefen(db, user.id, code):
+        db.commit()  # ein richtiger, verbrauchter Code bleibt verbraucht
+        return _konten_fehler(request, user, db, tr(request)("Passwort oder Code stimmt nicht."))
+    zweiter_faktor.ausschalten(db, user.id)
+    db.commit()
+    return _zurueck("/konten", "faktor_aus")
+
+
+def _passwort_stimmt(db: Session, user: User, passwort: str) -> bool:
+    methode = db.scalar(select(AuthMethod).where(AuthMethod.user_id == user.id, AuthMethod.kind == "password"))
+    return bool(methode and verify_password(passwort, methode.secret))
+
+
+def netz_erlaubt(host: str | None) -> bool:
+    """VERWALTUNG_NUR_AUS: Ist die Absenderadresse in einem der eingetragenen Netze? Leer = überall erlaubt."""
+    import ipaddress
+
+    netze = [n.strip() for n in get_settings().verwaltung_nur_aus.split(",") if n.strip()]
+    if not netze:
+        return True
+    try:
+        ip = ipaddress.ip_address(host or "")
+    except ValueError:
+        return False
+    if ip.version == 6 and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    for n in netze:
+        try:
+            if ip in ipaddress.ip_network(n, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 @router.post("/abmelden", dependencies=[Depends(csrf_pruefen)])
@@ -322,13 +483,23 @@ def uebersicht(request: Request, user: User = Depends(verwalter), db: Session = 
 
 # ---------------------------------------------------------------- Konten
 @router.get("/konten", response_class=HTMLResponse)
-def konten(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db), fehler: str = "",
-           neuer_link: dict | None = None):
+def konten_seite(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db), fehler: str = ""):
+    return konten(request, user, db, fehler=fehler)
+
+
+def konten(request: Request, user: User, db: Session, fehler: str = "", neuer_link: dict | None = None,
+           faktor_neu: dict | None = None, faktor_codes: list[str] | None = None) -> HTMLResponse:
+    from app.verwaltung import zweiter_faktor
+
     verwalter_ids = set(db.scalars(select(OrgMember.user_id).where(OrgMember.role == "admin")))
     zuletzt = dict(db.execute(select(AuthMethod.user_id, AuthMethod.last_used_at)).all())
     liste = [{"u": u, "verwalter": u.id in verwalter_ids, "zuletzt": zuletzt.get(u.id)}
              for u in db.scalars(select(User).order_by(User.username))]
-    return _seite(request, "konten.html", user, db, konten=liste, fehler=fehler, neuer_link=neuer_link)
+    for k in liste:
+        k["faktor"] = zweiter_faktor.aktiv(db, k["u"].id)
+    faktor = {"aktiv": zweiter_faktor.aktiv(db, user.id), "codes_uebrig": zweiter_faktor.restliche_codes(db, user.id),
+              "neu": faktor_neu, "codes": faktor_codes}
+    return _seite(request, "konten.html", user, db, konten=liste, fehler=fehler, neuer_link=neuer_link, faktor=faktor)
 
 
 def _konten_fehler(request: Request, user: User, db: Session, text: str) -> HTMLResponse:
@@ -1426,12 +1597,18 @@ def einbinden(app: FastAPI) -> None:
 
     @app.middleware("http")
     async def _kopfzeilen(request: Request, call_next):
-        antwort: Response = await call_next(request)
         pfad = request.url.path
+        if pfad.startswith("/verwaltung") and not netz_erlaubt(request.client.host if request.client else None):
+            antwort = Response(status_code=404)  # S4: VERWALTUNG_NUR_AUS – von außen gibt es keine Verwaltung
+            for k, v in SICHERHEITS_KOPFZEILEN.items():
+                antwort.headers.setdefault(k, v)
+            return antwort
+        antwort: Response = await call_next(request)
         if pfad.startswith("/verwaltung/static/"):
             antwort.headers.setdefault("Cache-Control", "public, max-age=86400")  # Stil und Logo dürfen zwischengespeichert werden
             antwort.headers.setdefault("X-Content-Type-Options", "nosniff")
-        elif pfad.startswith(("/verwaltung", "/einladung", "/datenschutz", "/passwort", "/konto/", "/konto-loeschen")):
+        elif pfad.startswith(("/verwaltung", "/einladung", "/datenschutz", "/passwort", "/konto/", "/konto-loeschen",
+                              "/auth/oidc/")):  # S26.1: auch die Bestätigungsseite der Anmeldung mit Diensten
             for k, v in SICHERHEITS_KOPFZEILEN.items():
                 antwort.headers.setdefault(k, v)
         elif pfad == "/app" or pfad.startswith("/app/"):

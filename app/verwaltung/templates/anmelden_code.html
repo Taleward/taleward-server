@@ -1,0 +1,17 @@
+{% extends "basis.html" %}
+{% block titel %}{{ _("Code eingeben") }}{% endblock %}
+{% block inhalt %}
+<div class="anmeldung">
+  {% include "_kopf_marke.html" %}
+  <p class="leise zentriert">{{ _("Verwaltung von {name} · {betreiber}", name=angaben.server_name, betreiber=angaben.server_operator) }}</p>
+  <div class="karte">
+    <form class="formular" method="post" action="/verwaltung/anmelden/code">
+      <label>{{ _("Code aus deiner Authenticator-App") }}
+        <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus maxlength="20"></label>
+      <p class="hilfe">{{ _("Handy nicht zur Hand? Gib einen deiner Wiederherstellungscodes ein. Jeder gilt nur einmal.") }}</p>
+      <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Anmelden") }}</button></div>
+    </form>
+  </div>
+  <p class="zentriert"><a href="/verwaltung/anmelden">{{ _("Zurück zur Anmeldung") }}</a></p>
+</div>
+{% endblock %}

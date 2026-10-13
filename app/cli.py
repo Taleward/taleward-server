@@ -340,8 +340,9 @@ def worker(
     logging.getLogger("httpx").setLevel(logging.WARNING)  # nicht jede Anfrage protokollieren
     import signal
 
-    if hasattr(signal, "SIGBREAK"):  # Windows: Strg+Untbr vom Server (lokaler Worker) wie Strg+C behandeln
+    if hasattr(signal, "SIGBREAK"):  # Windows: Strg+Untbr wie Strg+C behandeln
         signal.signal(signal.SIGBREAK, signal.default_int_handler)
+    _auf_stoppdatei_achten()
     _systemzertifikate()
     s = get_settings()
     server = server or s.worker_server_url
@@ -455,6 +456,33 @@ def _token_aus_datei(datei: Path | None, warten_s: float = 60.0) -> str | None:
         if time.monotonic() >= ende:
             return None
         time.sleep(2)
+
+
+def _auf_stoppdatei_achten() -> None:
+    """Lokaler Worker (vom Server gestartet): Legt der Server die Datei WORKER_STOP_DATEI an, beendet sich der Worker
+    wie bei Strg+C (Auftrag zurückmelden, aufräumen). Unter Windows gibt es ohne Konsolenfenster kein Signal dafür."""
+    import os
+    import threading
+    import time
+    import _thread
+
+    datei = os.environ.get("WORKER_STOP_DATEI")
+    if not datei:
+        return
+
+    def achten() -> None:
+        while not os.path.exists(datei):
+            time.sleep(0.5)
+        if os.name == "nt":
+            # Windows: KeyboardInterrupt im Hauptfaden, sobald der wieder Python ausführt (spätestens nach dem
+            # Warten auf Aufträge)
+            _thread.interrupt_main()
+        else:
+            import signal
+
+            os.kill(os.getpid(), signal.SIGINT)  # unterbricht auch ein laufendes Warten
+
+    threading.Thread(target=achten, name="stoppdatei", daemon=True).start()
 
 
 def _env_setzen(werte: dict[str, str], datei: Path = Path(".env")) -> None:
@@ -586,6 +614,21 @@ def admin(
     om.role = "member" if entziehen else "admin"
     db.commit()
     typer.echo(f"'{user.username}' ist jetzt {'kein ' if entziehen else ''}Verwalter von „{org.name}“.")
+
+
+@app.command("zweiter-faktor-aus")
+def zweiter_faktor_aus(username: str = typer.Option(..., "--username", "-u")):
+    """Zweiten Faktor eines Verwalters abschalten (Handy verloren, keine Wiederherstellungscodes mehr)."""
+    from app.verwaltung import zweiter_faktor
+
+    db = _db()
+    user = db.scalar(select(User).where(User.username == username.strip().lower()))
+    if user is None:
+        typer.echo(f"Benutzer '{username}' nicht gefunden.", err=True)
+        raise typer.Exit(1)
+    zweiter_faktor.ausschalten(db, user.id)
+    db.commit()
+    typer.echo(f"Zweiter Faktor für '{user.username}' ist aus. Die Anmeldung braucht jetzt nur das Passwort.")
 
 
 @app.command("modelle")
