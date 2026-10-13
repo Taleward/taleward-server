@@ -1,0 +1,254 @@
+From 7bcfb1934fb24f3ab1af49ec045358e9ecab635b Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 22:17:15 +0200
+Subject: [PATCH 104/107] Abrechnung: Pruefpunkt beim Start und Hinweise
+
+queue.claim und die Cloud-Transkription pruefen bei eingeschalteter Abrechnung das Guthaben; Hinweise in Status und Unterlagen; Grenzen fuer Charakterboegen und Laenge der Aufnahme.
+---
+ app/errors.py             | 32 ++++++++++++++++++++++++++++++++
+ app/extern.py             | 14 ++++++++++++--
+ app/queue.py              | 27 +++++++++++++++++++++++----
+ app/routers/unterlagen.py |  8 +++++++-
+ app/routers/uploads.py    | 10 ++++++++++
+ app/services.py           |  7 +++++++
+ app/unterlagen.py         | 32 ++++++++++++++++++++++++++++++++
+ app/zusammenfassung.py    |  3 ++-
+ 8 files changed, 125 insertions(+), 8 deletions(-)
+
+diff --git a/app/errors.py b/app/errors.py
+index a8e5707..aa0ede8 100644
+--- a/app/errors.py
++++ b/app/errors.py
+@@ -253,4 +253,36 @@ MESSAGES: dict[str, tuple[str, str]] = {
+     "voice_processing": ("Dein Stimmprofil wird gerade berechnet. Bitte kurz warten.",
+                          "Your voice profile is being processed. Please wait a moment."),
++    # 0.4.85: Abrechnung mit Guthaben
++    "recording_too_long": ("Die Aufnahme ist länger als {stunden} Stunden. Auf diesem Server geht je Runde höchstens "
++                           "so viel – teile die Aufnahme bitte auf.",
++                           "The recording is longer than {stunden} hours. This server accepts at most that much per "
++                           "session – please split the recording."),
++    "sheet_limit_reached": ("Du hast in dieser Kampagne schon {anzahl} Charakterbögen hochgeladen. Mehr geht nicht – "
++                            "lösch einen alten oder sprich mit deiner SL.",
++                            "You have already uploaded {anzahl} character sheets in this campaign. That is the limit – "
++                            "delete an old one or talk to your GM."),
++    "sheet_too_many_pages": ("Der Bogen hat {seiten} Seiten. In dieser Kampagne sind höchstens {max} erlaubt.",
++                             "The sheet has {seiten} pages. This campaign allows at most {max}."),
++    "status.credit_empty": ("Die Verarbeitung wartet: Das Guthaben ist aufgebraucht. Auf {adresse} siehst du, wie es "
++                            "weitergeht. Danach startet sie von selbst.",
++                            "Processing is waiting: the credit is used up. {adresse} shows how to continue. After "
++                            "that it starts by itself."),
++    "status.credit_low": ("Die Verarbeitung wartet: Das Guthaben reicht dafür voraussichtlich nicht. Auf {adresse} "
++                          "siehst du, wie es weitergeht. Danach startet sie von selbst.",
++                          "Processing is waiting: the credit is probably not enough for it. {adresse} shows how to "
++                          "continue. After that it starts by itself."),
++    "status.credit_approval": ("Die Verarbeitung kostet voraussichtlich {betrag}. Sie startet, sobald du sie auf "
++                               "{adresse} mit „Verarbeiten“ bestätigst.",
++                               "Processing will probably cost {betrag}. It starts as soon as you confirm it with "
++                               "“Process” at {adresse}."),
++    "status.credit_no_payer": ("Die Verarbeitung wartet: Für diese Kampagne zahlt gerade keine Spielleitung. Eine SL "
++                               "kann die Zahlung auf {adresse} übernehmen.",
++                               "Processing is waiting: no GM is paying for this campaign right now. A GM can take "
++                               "over payment at {adresse}."),
++    "status.credit_pot_empty": ("Die Verarbeitung wartet: Das Guthaben der Organisation reicht gerade nicht. Die "
++                                "Verwalter sehen auf {adresse}, wie es weitergeht. Danach startet sie von selbst.",
++                                "Processing is waiting: the organisation's credit is not enough right now. The "
++                                "administrators can see at {adresse} how to continue. After that it starts by "
++                                "itself."),
+     # Status-Hinweise (ProcessingStatus.message)
+     "status.no_worker": ("Zurzeit ist keine Transkription verfügbar. Die Aufnahme wird verarbeitet, sobald ein Worker bereitsteht.",
+diff --git a/app/extern.py b/app/extern.py
+index b81e78d..4347cfd 100644
+--- a/app/extern.py
++++ b/app/extern.py
+@@ -220,7 +220,17 @@ def einen_auftrag(db: Session, klient: MistralKlient | None = None) -> bool:
+     if anbieter(db) is None or kosten.erreicht(db):
+         return False
+-    for job in db.scalars(select(Job).where(Job.state == "queued", Job.type == "transcribe").order_by(Job.created_at)):
+-        if not faellig(db, job):
++    from app import abrechnung
++
++    mit_abrechnung = abrechnung.an(db)
++    if mit_abrechnung:
++        abrechnung.offene_abrechnen(db)
++    ids = list(db.scalars(select(Job.id).where(Job.state == "queued", Job.type == "transcribe")
++                          .order_by(Job.created_at)))
++    for job_id in ids:
++        job = db.get(Job, job_id)
++        if job is None or job.state != "queued" or not faellig(db, job):
+             continue
++        if mit_abrechnung and abrechnung.starten(db, job, "extern") is not None:
++            continue  # 0.4.85: wartet auf Guthaben, Freigabe oder Zahler
+         now = utcnow()
+         res = db.execute(update(Job).where(Job.id == job.id, Job.state == "queued").values(
+diff --git a/app/queue.py b/app/queue.py
+index d880bac..140a2f8 100644
+--- a/app/queue.py
++++ b/app/queue.py
+@@ -115,16 +115,29 @@ def cloud_erlaubt(db: Session, job: Job) -> bool:
+ 
+ 
+-def claim(db: Session, worker: Worker, capabilities: list[str], darf=None) -> Job | None:
++def claim(db: Session, worker: Worker, capabilities: list[str], darf=None, weg: str = "worker") -> Job | None:
+     """Ältesten passenden Auftrag vergeben. Atomar: gelingt nur einem Worker.
+-    `darf(db, job)` kann Aufträge überspringen (z. B. Kampagnen ohne Erlaubnis für die Cloud)."""
++    `darf(db, job)` kann Aufträge überspringen (z. B. Kampagnen ohne Erlaubnis für die Cloud).
++    0.4.85: Bei eingeschalteter Abrechnung ist das der eine Prüfpunkt für Guthaben (app/abrechnung.py); `weg` sagt,
++    wer rechnet (worker | zentrale)."""
++    from app import abrechnung
++
+     s = get_settings()
++    mit_abrechnung = abrechnung.an(db)
++    if mit_abrechnung:
++        abrechnung.offene_abrechnen(db)  # Beendete zuerst buchen – sonst wartet der nächste Auftrag desselben Guthabens
+     kandidaten = db.scalars(
+         select(Job.id).where(Job.state == "queued", Job.required_capability.in_(capabilities))
+-        .order_by(Job.created_at).limit(5 if darf is None else 200)
++        .order_by(Job.created_at).limit(5 if darf is None and not mit_abrechnung else 200)
+     ).all()
+     if darf is not None:
+-        kandidaten = [i for i in kandidaten if darf(db, db.get(Job, i))][:5]
++        kandidaten = [i for i in kandidaten if darf(db, db.get(Job, i))]
++    if not mit_abrechnung:
++        kandidaten = kandidaten[:5]
+     now = utcnow()
+     for job_id in kandidaten:
++        if mit_abrechnung:
++            kandidat = db.get(Job, job_id)
++            if kandidat is None or kandidat.state != "queued" or abrechnung.starten(db, kandidat, weg) is not None:
++                continue  # wartet (Guthaben, Freigabe, Zahler) – nichts verändert
+         res = db.execute(
+             update(Job).where(Job.id == job_id, Job.state == "queued").values(
+@@ -151,4 +164,6 @@ def claim(db: Session, worker: Worker, capabilities: list[str], darf=None) -> Jo
+                     db.commit()
+             return job
++        if mit_abrechnung:
++            db.rollback()  # ein anderer war schneller – vorgemerkten Kostenauftrag verwerfen
+     return None
+ 
+@@ -255,4 +270,8 @@ def sweep(db: Session) -> dict:
+     ergebnis["stimmaufnahmen"] = verwaiste_aufnahmen_loeschen(db)
+     db.commit()
++    from app import abrechnung
++
++    if abrechnung.an(db):  # 0.4.85: beendete Aufträge buchen, auch wenn gerade nichts Neues vergeben wird
++        ergebnis["abgerechnet"] = abrechnung.offene_abrechnen(db)
+     return ergebnis
+ 
+diff --git a/app/routers/unterlagen.py b/app/routers/unterlagen.py
+index 2d27bcc..f5706dc 100644
+--- a/app/routers/unterlagen.py
++++ b/app/routers/unterlagen.py
+@@ -9,5 +9,5 @@ from app.access import current_user, membership, require_gm, require_member
+ from app.db import get_db
+ from app.errors import sprache
+-from app.models import CampaignDocument, Proposal, User
++from app.models import CampaignDocument, Job, Proposal, User
+ from app.routers.pruefung import proposal_out
+ from app.services import render_status_message
+@@ -41,4 +41,10 @@ def dokument_out(db: Session, doc: CampaignDocument, lang: str) -> schemas.Campa
+             elif k.art == "api" and kosten.erreicht(db):
+                 meldung = errors.ApiError(0, "status.cost_limit").message(lang)
++    if doc.state == "queued":  # 0.4.85: wartet auf Guthaben, Freigabe oder Zahler?
++        from app import abrechnung
++
++        if abrechnung.an(db):
++            job = db.scalar(select(Job).where(Job.document_id == doc.id, Job.state == "queued").limit(1))
++            meldung = abrechnung.hinweis(db, job, lang) or meldung
+     return schemas.CampaignDocumentOut(
+         id=doc.id, campaign_id=doc.campaign_id, title=doc.title, file_name=doc.file_name, kind=doc.kind,
+diff --git a/app/routers/uploads.py b/app/routers/uploads.py
+index 63a5b8f..b2c9a1e 100644
+--- a/app/routers/uploads.py
++++ b/app/routers/uploads.py
+@@ -191,4 +191,14 @@ def complete(uploadId: str, request: Request, user: User = Depends(current_user)
+         raise errors.conflict("chunks_missing", count=anzahl)
+     check_upload_consent(db, s)  # Widerruf während des Hochladens
++    from app import abrechnung
++
++    if abrechnung.an(db):  # 0.4.85: Länge selbst messen (Schätzung der Kosten) und die feste Obergrenze je Runde
++        up.dauer_sekunden = abrechnung.aufnahme_messen(up)
++        if up.dauer_sekunden and up.dauer_sekunden > abrechnung.MAX_AUFNAHME_SEKUNDEN:
++            storage.delete_upload_files(up.id)
++            up.state = "aborted"
++            set_state(s, "created")
++            db.commit()
++            raise errors.conflict("recording_too_long", stunden=abrechnung.MAX_AUFNAHME_SEKUNDEN // 3600)
+     up.state = "completed"
+     up.completed_at = utcnow()
+diff --git a/app/services.py b/app/services.py
+index 8018263..f96090d 100644
+--- a/app/services.py
++++ b/app/services.py
+@@ -336,4 +336,11 @@ def processing_status(db: Session, s: GameSession, lang: str = "de") -> schemas.
+         elif not k.bereit:
+             message = errors.ApiError(0, "status.no_summarizer").message(lang)
++    if s.state in ("queued", "summarizing"):  # 0.4.85: wartet der Auftrag auf Guthaben, Freigabe oder Zahler?
++        from app import abrechnung
++
++        if abrechnung.an(db):
++            job = queue.current_job(db, s.id, None)
++            message = abrechnung.hinweis(db, job if job is not None and job.state == "queued" else None,
++                                         lang) or message
+     return schemas.ProcessingStatusOut(
+         state=s.state, progress=s.progress, queue_position=position,
+diff --git a/app/unterlagen.py b/app/unterlagen.py
+index bd215f9..52de867 100644
+--- a/app/unterlagen.py
++++ b/app/unterlagen.py
+@@ -194,4 +194,35 @@ def geheime_abschnitte(abschnitte: list[dict]) -> list[str]:
+ 
+ # ---------------------------------------------------------------- Hochladen und Auftrag
++def _bogen_grenzen_pruefen(db: Session, campaign_id: str, member_id: str, art: str, daten: bytes) -> None:
++    """0.4.85, nur mit eingeschalteter Abrechnung: Charakterbögen von Spielern höchstens N Seiten und M Bögen je
++    Spieler und Kampagne (die SL stellt beides auf der Seite „Guthaben“ ein). Die SL selbst ist nicht begrenzt."""
++    from sqlalchemy import func
++
++    from app import abrechnung
++    from app.models import Member
++
++    m = db.get(Member, member_id)
++    c = db.get(Campaign, campaign_id)
++    grenzen = abrechnung.bogen_grenzen(db, c) if c is not None else None
++    if grenzen is None or m is None or m.role == "gm":
++        return
++    seiten_max, anzahl_max = grenzen
++    schon = db.scalar(select(func.count()).select_from(CampaignDocument).where(
++        CampaignDocument.campaign_id == campaign_id, CampaignDocument.kind == "character_sheet",
++        CampaignDocument.uploaded_by_member_id == member_id))
++    if schon >= anzahl_max:
++        raise errors.bad_request("sheet_limit_reached", anzahl=anzahl_max)
++    if art == "pdf":
++        from pypdf import PdfReader
++
++        try:
++            seiten = len(PdfReader(io.BytesIO(daten)).pages)
++        except Exception:  # noqa: BLE001 – unlesbar: wie bisher speichern, gezählt wird dann eine Seite
++            seiten = 1
++        if seiten > seiten_max:
++            raise errors.bad_request("sheet_too_many_pages", seiten=seiten, max=seiten_max)
++
++
++
+ def hochladen(db: Session, campaign_id: str, member_id: str, dateiname: str, daten: bytes, kind: str,
+               titel: str | None) -> CampaignDocument:
+@@ -204,4 +235,5 @@ def hochladen(db: Session, campaign_id: str, member_id: str, dateiname: str, dat
+     art = art_der_datei(dateiname, daten)
+     if kind == "character_sheet":
++        _bogen_grenzen_pruefen(db, campaign_id, member_id, art, daten)
+         # 0.4.7: Charakterbogen – nur gespeichert, nie ausgelesen oder ausgewertet, fließt nie in Recaps/Vorschläge
+         name = Path(dateiname).name[:300] or "charakterbogen"
+diff --git a/app/zusammenfassung.py b/app/zusammenfassung.py
+index 1d47e97..b3faea1 100644
+--- a/app/zusammenfassung.py
++++ b/app/zusammenfassung.py
+@@ -476,5 +476,6 @@ def einen_auftrag(db: Session) -> bool:
+     from app import korrektur
+ 
+-    job = queue.claim(db, ZENTRALE, ["llm", korrektur.FAEHIGKEIT], darf=queue.cloud_erlaubt if api else None)
++    job = queue.claim(db, ZENTRALE, ["llm", korrektur.FAEHIGKEIT], darf=queue.cloud_erlaubt if api else None,
++                      weg="zentrale")
+     if job is None:
+         return False
+-- 
+2.43.0
