@@ -252,6 +252,38 @@ MESSAGES: dict[str, tuple[str, str]] = {
                         "The recording is too short ({sekunden} seconds). Please read aloud for about 20–30 seconds."),
     "voice_processing": ("Dein Stimmprofil wird gerade berechnet. Bitte kurz warten.",
                          "Your voice profile is being processed. Please wait a moment."),
+    # 0.4.85: Abrechnung mit Guthaben
+    "recording_too_long": ("Die Aufnahme ist länger als {stunden} Stunden. Auf diesem Server geht je Runde höchstens "
+                           "so viel – teile die Aufnahme bitte auf.",
+                           "The recording is longer than {stunden} hours. This server accepts at most that much per "
+                           "session – please split the recording."),
+    "sheet_limit_reached": ("Du hast in dieser Kampagne schon {anzahl} Charakterbögen hochgeladen. Mehr geht nicht – "
+                            "lösch einen alten oder sprich mit deiner SL.",
+                            "You have already uploaded {anzahl} character sheets in this campaign. That is the limit – "
+                            "delete an old one or talk to your GM."),
+    "sheet_too_many_pages": ("Der Bogen hat {seiten} Seiten. In dieser Kampagne sind höchstens {max} erlaubt.",
+                             "The sheet has {seiten} pages. This campaign allows at most {max}."),
+    "status.credit_empty": ("Die Verarbeitung wartet: Das Guthaben ist aufgebraucht. Auf {adresse} siehst du, wie es "
+                            "weitergeht. Danach startet sie von selbst.",
+                            "Processing is waiting: the credit is used up. {adresse} shows how to continue. After "
+                            "that it starts by itself."),
+    "status.credit_low": ("Die Verarbeitung wartet: Das Guthaben reicht dafür voraussichtlich nicht. Auf {adresse} "
+                          "siehst du, wie es weitergeht. Danach startet sie von selbst.",
+                          "Processing is waiting: the credit is probably not enough for it. {adresse} shows how to "
+                          "continue. After that it starts by itself."),
+    "status.credit_approval": ("Die Verarbeitung kostet voraussichtlich {betrag}. Sie startet, sobald du sie auf "
+                               "{adresse} mit „Verarbeiten“ bestätigst.",
+                               "Processing will probably cost {betrag}. It starts as soon as you confirm it with "
+                               "“Process” at {adresse}."),
+    "status.credit_no_payer": ("Die Verarbeitung wartet: Für diese Kampagne zahlt gerade keine Spielleitung. Eine SL "
+                               "kann die Zahlung auf {adresse} übernehmen.",
+                               "Processing is waiting: no GM is paying for this campaign right now. A GM can take "
+                               "over payment at {adresse}."),
+    "status.credit_pot_empty": ("Die Verarbeitung wartet: Das Guthaben der Organisation reicht gerade nicht. Die "
+                                "Verwalter sehen auf {adresse}, wie es weitergeht. Danach startet sie von selbst.",
+                                "Processing is waiting: the organisation's credit is not enough right now. The "
+                                "administrators can see at {adresse} how to continue. After that it starts by "
+                                "itself."),
     # Status-Hinweise (ProcessingStatus.message)
     "status.no_worker": ("Zurzeit ist keine Transkription verfügbar. Die Aufnahme wird verarbeitet, sobald ein Worker bereitsteht.",
                          "Transcription is not available right now. The recording will be processed as soon as a worker is ready."),

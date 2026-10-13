@@ -219,9 +219,19 @@ def einen_auftrag(db: Session, klient: MistralKlient | None = None) -> bool:
 
     if anbieter(db) is None or kosten.erreicht(db):
         return False
-    for job in db.scalars(select(Job).where(Job.state == "queued", Job.type == "transcribe").order_by(Job.created_at)):
-        if not faellig(db, job):
+    from app import abrechnung
+
+    mit_abrechnung = abrechnung.an(db)
+    if mit_abrechnung:
+        abrechnung.offene_abrechnen(db)
+    ids = list(db.scalars(select(Job.id).where(Job.state == "queued", Job.type == "transcribe")
+                          .order_by(Job.created_at)))
+    for job_id in ids:
+        job = db.get(Job, job_id)
+        if job is None or job.state != "queued" or not faellig(db, job):
             continue
+        if mit_abrechnung and abrechnung.starten(db, job, "extern") is not None:
+            continue  # 0.4.85: wartet auf Guthaben, Freigabe oder Zahler
         now = utcnow()
         res = db.execute(update(Job).where(Job.id == job.id, Job.state == "queued").values(
             state="leased", lease_worker_id=HALTER, lease_expires_at=now + timedelta(hours=3),

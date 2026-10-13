@@ -335,6 +335,13 @@ def processing_status(db: Session, s: GameSession, lang: str = "de") -> schemas.
             message = errors.ApiError(0, "status.cost_limit").message(lang)
         elif not k.bereit:
             message = errors.ApiError(0, "status.no_summarizer").message(lang)
+    if s.state in ("queued", "summarizing"):  # 0.4.85: wartet der Auftrag auf Guthaben, Freigabe oder Zahler?
+        from app import abrechnung
+
+        if abrechnung.an(db):
+            job = queue.current_job(db, s.id, None)
+            message = abrechnung.hinweis(db, job if job is not None and job.state == "queued" else None,
+                                         lang) or message
     return schemas.ProcessingStatusOut(
         state=s.state, progress=s.progress, queue_position=position,
         message=message, updated_at=s.state_updated_at, estimated_seconds=restdauer(db, s),

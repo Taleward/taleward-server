@@ -114,18 +114,31 @@ def cloud_erlaubt(db: Session, job: Job) -> bool:
     return bool(c and c.allow_cloud_summary)
 
 
-def claim(db: Session, worker: Worker, capabilities: list[str], darf=None) -> Job | None:
+def claim(db: Session, worker: Worker, capabilities: list[str], darf=None, weg: str = "worker") -> Job | None:
     """Ältesten passenden Auftrag vergeben. Atomar: gelingt nur einem Worker.
-    `darf(db, job)` kann Aufträge überspringen (z. B. Kampagnen ohne Erlaubnis für die Cloud)."""
+    `darf(db, job)` kann Aufträge überspringen (z. B. Kampagnen ohne Erlaubnis für die Cloud).
+    0.4.85: Bei eingeschalteter Abrechnung ist das der eine Prüfpunkt für Guthaben (app/abrechnung.py); `weg` sagt,
+    wer rechnet (worker | zentrale)."""
+    from app import abrechnung
+
     s = get_settings()
+    mit_abrechnung = abrechnung.an(db)
+    if mit_abrechnung:
+        abrechnung.offene_abrechnen(db)  # Beendete zuerst buchen – sonst wartet der nächste Auftrag desselben Guthabens
     kandidaten = db.scalars(
         select(Job.id).where(Job.state == "queued", Job.required_capability.in_(capabilities))
-        .order_by(Job.created_at).limit(5 if darf is None else 200)
+        .order_by(Job.created_at).limit(5 if darf is None and not mit_abrechnung else 200)
     ).all()
     if darf is not None:
-        kandidaten = [i for i in kandidaten if darf(db, db.get(Job, i))][:5]
+        kandidaten = [i for i in kandidaten if darf(db, db.get(Job, i))]
+    if not mit_abrechnung:
+        kandidaten = kandidaten[:5]
     now = utcnow()
     for job_id in kandidaten:
+        if mit_abrechnung:
+            kandidat = db.get(Job, job_id)
+            if kandidat is None or kandidat.state != "queued" or abrechnung.starten(db, kandidat, weg) is not None:
+                continue  # wartet (Guthaben, Freigabe, Zahler) – nichts verändert
         res = db.execute(
             update(Job).where(Job.id == job_id, Job.state == "queued").values(
                 state="leased", lease_worker_id=worker.id,
@@ -150,6 +163,8 @@ def claim(db: Session, worker: Worker, capabilities: list[str], darf=None) -> Jo
                     set_state(sess, "transcribing", progress=0.0)
                     db.commit()
             return job
+        if mit_abrechnung:
+            db.rollback()  # ein anderer war schneller – vorgemerkten Kostenauftrag verwerfen
     return None
 
 
@@ -254,6 +269,10 @@ def sweep(db: Session) -> dict:
 
     ergebnis["stimmaufnahmen"] = verwaiste_aufnahmen_loeschen(db)
     db.commit()
+    from app import abrechnung
+
+    if abrechnung.an(db):  # 0.4.85: beendete Aufträge buchen, auch wenn gerade nichts Neues vergeben wird
+        ergebnis["abgerechnet"] = abrechnung.offene_abrechnen(db)
     return ergebnis
 
 

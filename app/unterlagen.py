@@ -193,6 +193,37 @@ def geheime_abschnitte(abschnitte: list[dict]) -> list[str]:
 
 
 # ---------------------------------------------------------------- Hochladen und Auftrag
+def _bogen_grenzen_pruefen(db: Session, campaign_id: str, member_id: str, art: str, daten: bytes) -> None:
+    """0.4.85, nur mit eingeschalteter Abrechnung: Charakterbögen von Spielern höchstens N Seiten und M Bögen je
+    Spieler und Kampagne (die SL stellt beides auf der Seite „Guthaben“ ein). Die SL selbst ist nicht begrenzt."""
+    from sqlalchemy import func
+
+    from app import abrechnung
+    from app.models import Member
+
+    m = db.get(Member, member_id)
+    c = db.get(Campaign, campaign_id)
+    grenzen = abrechnung.bogen_grenzen(db, c) if c is not None else None
+    if grenzen is None or m is None or m.role == "gm":
+        return
+    seiten_max, anzahl_max = grenzen
+    schon = db.scalar(select(func.count()).select_from(CampaignDocument).where(
+        CampaignDocument.campaign_id == campaign_id, CampaignDocument.kind == "character_sheet",
+        CampaignDocument.uploaded_by_member_id == member_id))
+    if schon >= anzahl_max:
+        raise errors.bad_request("sheet_limit_reached", anzahl=anzahl_max)
+    if art == "pdf":
+        from pypdf import PdfReader
+
+        try:
+            seiten = len(PdfReader(io.BytesIO(daten)).pages)
+        except Exception:  # noqa: BLE001 – unlesbar: wie bisher speichern, gezählt wird dann eine Seite
+            seiten = 1
+        if seiten > seiten_max:
+            raise errors.bad_request("sheet_too_many_pages", seiten=seiten, max=seiten_max)
+
+
+
 def hochladen(db: Session, campaign_id: str, member_id: str, dateiname: str, daten: bytes, kind: str,
               titel: str | None) -> CampaignDocument:
     from app.queue import status_message
@@ -203,6 +234,7 @@ def hochladen(db: Session, campaign_id: str, member_id: str, dateiname: str, dat
         raise errors.ApiError(413, "document_too_large")
     art = art_der_datei(dateiname, daten)
     if kind == "character_sheet":
+        _bogen_grenzen_pruefen(db, campaign_id, member_id, art, daten)
         # 0.4.7: Charakterbogen – nur gespeichert, nie ausgelesen oder ausgewertet, fließt nie in Recaps/Vorschläge
         name = Path(dateiname).name[:300] or "charakterbogen"
         doc = CampaignDocument(campaign_id=campaign_id, title=(titel or "").strip()[:300] or Path(name).stem[:300],

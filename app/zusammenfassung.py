@@ -475,7 +475,8 @@ def einen_auftrag(db: Session) -> bool:
     # Über die Cloud nur Kampagnen, deren SL es erlaubt hat (0.3.10); die anderen warten
     from app import korrektur
 
-    job = queue.claim(db, ZENTRALE, ["llm", korrektur.FAEHIGKEIT], darf=queue.cloud_erlaubt if api else None)
+    job = queue.claim(db, ZENTRALE, ["llm", korrektur.FAEHIGKEIT], darf=queue.cloud_erlaubt if api else None,
+                      weg="zentrale")
     if job is None:
         return False
     if job.type == "document":  # SL-Unterlage: gleiche Einstellung, eigener Ablauf

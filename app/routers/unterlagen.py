@@ -8,7 +8,7 @@ from app import errors, schemas, unterlagen
 from app.access import current_user, membership, require_gm, require_member
 from app.db import get_db
 from app.errors import sprache
-from app.models import CampaignDocument, Proposal, User
+from app.models import CampaignDocument, Job, Proposal, User
 from app.routers.pruefung import proposal_out
 from app.services import render_status_message
 
@@ -40,6 +40,12 @@ def dokument_out(db: Session, doc: CampaignDocument, lang: str) -> schemas.Campa
                                           anbieter=cloud_anbieter_name(k)).message(lang)
             elif k.art == "api" and kosten.erreicht(db):
                 meldung = errors.ApiError(0, "status.cost_limit").message(lang)
+    if doc.state == "queued":  # 0.4.85: wartet auf Guthaben, Freigabe oder Zahler?
+        from app import abrechnung
+
+        if abrechnung.an(db):
+            job = db.scalar(select(Job).where(Job.document_id == doc.id, Job.state == "queued").limit(1))
+            meldung = abrechnung.hinweis(db, job, lang) or meldung
     return schemas.CampaignDocumentOut(
         id=doc.id, campaign_id=doc.campaign_id, title=doc.title, file_name=doc.file_name, kind=doc.kind,
         size_bytes=doc.size_bytes, page_count=doc.page_count, state=doc.state, progress=doc.progress,

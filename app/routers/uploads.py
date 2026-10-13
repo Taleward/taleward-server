@@ -190,6 +190,16 @@ def complete(uploadId: str, request: Request, user: User = Depends(current_user)
     if anzahl:
         raise errors.conflict("chunks_missing", count=anzahl)
     check_upload_consent(db, s)  # Widerruf während des Hochladens
+    from app import abrechnung
+
+    if abrechnung.an(db):  # 0.4.85: Länge selbst messen (Schätzung der Kosten) und die feste Obergrenze je Runde
+        up.dauer_sekunden = abrechnung.aufnahme_messen(up)
+        if up.dauer_sekunden and up.dauer_sekunden > abrechnung.MAX_AUFNAHME_SEKUNDEN:
+            storage.delete_upload_files(up.id)
+            up.state = "aborted"
+            set_state(s, "created")
+            db.commit()
+            raise errors.conflict("recording_too_long", stunden=abrechnung.MAX_AUFNAHME_SEKUNDEN // 3600)
     up.state = "completed"
     up.completed_at = utcnow()
     create_transcribe_job(db, s, up)
