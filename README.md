@@ -30,8 +30,8 @@ für Vereine, Läden und private Runden.
 | Teil | Aufgabe | Repository |
 |---|---|---|
 | **Server** | Konten, Kampagnen, Warteschlange, Spoilerschutz, Verwaltung im Browser | dieses |
-| **Worker** | Transkription und Sprechertrennung auf einem PC mit Grafikkarte (oder dem Prozessor) | [taleward-worker](https://github.com/Tinkerworkss/taleward-worker) |
-| **App** | Aufnehmen, Stimmen zuordnen, Recap prüfen, Chronik und Bibel lesen (Android und Browser) | [taleward-app](https://github.com/Tinkerworkss/taleward-app) |
+| **Worker** | Transkription und Sprechertrennung auf einem PC mit Grafikkarte (oder dem Prozessor) | [taleward-worker](https://github.com/Taleward/taleward-worker) |
+| **App** | Aufnehmen, Stimmen zuordnen, Recap prüfen, Chronik und Bibel lesen (Android und Browser) | [taleward-app](https://github.com/Taleward/taleward-app) |
 
 Der Server rechnet selbst nichts Aufwendiges. Worker holen sich Aufträge beim Server ab – sie brauchen keinen offenen
 Port und können irgendwo stehen, wo eine Grafikkarte ist.
@@ -41,7 +41,7 @@ Port und können irgendwo stehen, wo eine Grafikkarte ist.
 Ein Befehl auf einem Linux-Server (gemieteter Server, eigener PC, Windows 11 mit Ubuntu):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Tinkerworkss/taleward-server/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/Taleward/taleward-server/main/install.sh | sudo bash
 ```
 
 Das Skript installiert Docker, fragt nach Domain oder Heimnetz, erkennt eine Grafikkarte und zeigt am Ende den Link
@@ -62,7 +62,7 @@ fertiges Speicherkarten-Abbild für den Raspberry Pi.
 ## Schnellstart für Entwicklung
 
 ```bash
-git clone https://github.com/Tinkerworkss/taleward-server && cd taleward-server
+git clone https://github.com/Taleward/taleward-server && cd taleward-server
 uv sync                        # Python 3.11 und Abhängigkeiten
 uv run pytest                  # alle Tests, ohne Grafikkarte
 uv run chronik serve           # Server auf http://localhost:8000

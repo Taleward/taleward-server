@@ -1,7 +1,7 @@
 # Mitmachen
 
 Schön, dass du an Taleward mitarbeiten willst. Fehler, Ideen und Fragen gern als
-[Issue](https://github.com/Tinkerworkss/taleward-server/issues); Code als Pull Request.
+[Issue](https://github.com/Taleward/taleward-server/issues); Code als Pull Request.
 
 ## Bevor du loslegst
 
@@ -23,7 +23,7 @@ Schön, dass du an Taleward mitarbeiten willst. Fehler, Ideen und Fragen gern al
 ## Sicherheitslücken
 
 Bitte nicht als öffentliches Issue melden, sondern über
-[GitHub Security Advisories](https://github.com/Tinkerworkss/taleward-server/security/advisories/new).
+[GitHub Security Advisories](https://github.com/Taleward/taleward-server/security/advisories/new).
 
 ## Lizenz
 

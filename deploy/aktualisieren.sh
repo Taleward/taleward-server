@@ -16,7 +16,8 @@
 # shellcheck disable=SC1111  # deutsche Anführungszeichen sind Absicht
 set -uo pipefail
 
-REPO_NAME=Tinkerworkss/taleward-server
+REPO_NAME=Taleward/taleward-server
+REPO_ALT=Tinkerworkss/taleward-server  # Name vor dem Umzug; ältere Freigaben tragen ihn
 REPO=https://github.com/$REPO_NAME.git
 DOWNLOAD=https://github.com/$REPO_NAME/releases/download
 ROH=https://raw.githubusercontent.com/$REPO_NAME
@@ -33,7 +34,8 @@ freigabe_pruefen() {
   for feld in repo tag commit; do
     [ "$(grep -c "^$feld " "$text")" -eq 1 ] || return 1
   done
-  grep -qx "repo $REPO_NAME" "$text" && grep -qxF "tag $tag" "$text" || return 1
+  # Seit dem Umzug der Repos (13.10.2026) genau zwei Namen: neu und alt
+  grep -qxF -e "repo $REPO_NAME" -e "repo $REPO_ALT" "$text" && grep -qxF "tag $tag" "$text" || return 1
   commit=$(sed -n 's/^commit \([0-9a-f]\{40\}\)$/\1/p' "$text")
   [ -n "$commit" ] || return 1
   echo "$commit"

@@ -22,7 +22,7 @@ Voraussetzungen: Linux, macOS oder Windows mit WSL2 (Ubuntu), dazu `git`, `curl`
 ```bash
 sudo apt install -y git curl ffmpeg                  # Ubuntu/Debian/WSL
 curl -LsSf https://astral.sh/uv/install.sh | sh      # uv verwaltet Python 3.11 und alle Pakete
-git clone https://github.com/Tinkerworkss/taleward-server && cd taleward-server
+git clone https://github.com/Taleward/taleward-server && cd taleward-server
 uv sync
 cp .env.example .env                                 # optional, alle Werte haben Standards
 ```

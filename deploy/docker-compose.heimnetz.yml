@@ -45,13 +45,14 @@ x-ollama: &ollama
 services:
   server:
     build:
-      context: https://github.com/Tinkerworkss/taleward-server.git#${TALEWARD_COMMIT:-${TALEWARD_VERSION:-main}}
+      context: https://github.com/Taleward/taleward-server.git#${TALEWARD_COMMIT:-${TALEWARD_VERSION:-main}}
     image: taleward-server:${TALEWARD_VERSION:-main}
     restart: unless-stopped
     environment:
       DATA_DIR: /data
       PUBLIC_URL: ${TALEWARD_ADRESSE}
       EINGEBAUTER_WORKER: ${COMPOSE_PROFILES:-}
+      VERWALTUNG_NUR_AUS: ${VERWALTUNG_NUR_AUS:-}   # optional: Verwaltung nur aus diesen Netzen
       # Taleward-Box: Ersteinrichtung ohne Code aus dem eigenen Netz (setzt das Abbild beim ersten Start)
       EINRICHTUNG_IM_HEIMNETZ: ${TALEWARD_EINRICHTUNG_IM_HEIMNETZ:-false}
     volumes:
@@ -70,7 +71,7 @@ services:
     profiles: ["worker"]
     <<: *worker
     build:
-      context: https://github.com/Tinkerworkss/taleward-server.git#${TALEWARD_COMMIT:-${TALEWARD_VERSION:-main}}
+      context: https://github.com/Taleward/taleward-server.git#${TALEWARD_COMMIT:-${TALEWARD_VERSION:-main}}
       dockerfile: Dockerfile.worker
       args: { TORCH_BACKEND: cu128 }
     image: taleward-worker:${TALEWARD_VERSION:-main}
@@ -83,7 +84,7 @@ services:
     profiles: ["worker-cpu"]
     <<: *worker
     build:
-      context: https://github.com/Tinkerworkss/taleward-server.git#${TALEWARD_COMMIT:-${TALEWARD_VERSION:-main}}
+      context: https://github.com/Taleward/taleward-server.git#${TALEWARD_COMMIT:-${TALEWARD_VERSION:-main}}
       dockerfile: Dockerfile.worker
       args: { TORCH_BACKEND: cpu }
     image: taleward-worker:${TALEWARD_VERSION:-main}-cpu

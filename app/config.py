@@ -74,10 +74,13 @@ class Settings(BaseSettings):
     # Web-Fassung der App (ab 0.4.2): zentrale Web-App der Taleward-Website darf diesen Server nutzen (CORS, Rückweg
     # nach der Anmeldung). In der Verwaltung abschaltbar. Leer = keine zentrale Web-App.
     central_web_origin: str = "https://app.taleward.org"  # zentrale Web-App an der Wurzel (bis 0.4.50: taleward.org/app/)
+    # 0.4.84 (S4): Verwaltung nur aus diesen Netzen erreichbar, z. B. "192.168.178.0/24, 10.8.0.0/24" (VPN); sonst 404.
+    # Leer = von überall (mit Passwort und, wenn eingeschaltet, zweitem Faktor).
+    verwaltung_nur_aus: str = ""
     update_check: bool = True
-    update_app_repo: str = "Tinkerworkss/taleward-app"
-    update_server_repo: str = "Tinkerworkss/taleward-server"
-    update_worker_repo: str = "Tinkerworkss/taleward-worker"
+    update_app_repo: str = "Taleward/taleward-app"
+    update_server_repo: str = "Taleward/taleward-server"
+    update_worker_repo: str = "Taleward/taleward-worker"
     # Externe Transkription als Ersatz (Standard aus). Audio verlässt dann den eigenen Betrieb →
     # Vertrag zur Auftragsverarbeitung mit dem Anbieter und Absatz im Datenschutzhinweis nötig.
     external_transcription: str = ""  # "mistral" = freigegeben

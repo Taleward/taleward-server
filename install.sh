@@ -3,7 +3,7 @@
 # Taleward-Server einrichten – auf einem gemieteten Server (VPS), einem PC zu Hause/im Verein
 # oder unter Windows 11 mit Ubuntu (WSL).
 #
-#   curl -fsSL https://raw.githubusercontent.com/Tinkerworkss/taleward-server/main/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/Taleward/taleward-server/main/install.sh | sudo bash
 #
 # Zwei Arten, den Server zu erreichen:
 #   1) Internet mit eigener Domain und HTTPS (VPS, oder zu Hause mit Portfreigabe + DynDNS)
@@ -13,8 +13,8 @@
 set -euo pipefail
 
 ZIEL=/opt/taleward
-REPO=https://github.com/Tinkerworkss/taleward-server.git
-QUELLE="${TALEWARD_QUELLE:-https://raw.githubusercontent.com/Tinkerworkss/taleward-server/main}"
+REPO=https://github.com/Taleward/taleward-server.git
+QUELLE="${TALEWARD_QUELLE:-https://raw.githubusercontent.com/Taleward/taleward-server/main}"
 
 rot() { printf '\033[31m%s\033[0m\n' "$*"; }
 gruen() { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -74,7 +74,7 @@ So geht es weiter:
   1. Dieses Fenster schließen.
   2. In der Windows-PowerShell eingeben:   wsl --shutdown
   3. Ubuntu wieder öffnen und denselben Befehl noch einmal ausführen:
-     curl -fsSL https://raw.githubusercontent.com/Tinkerworkss/taleward-server/main/install.sh | sudo bash
+     curl -fsSL https://raw.githubusercontent.com/Taleward/taleward-server/main/install.sh | sudo bash
 TEXT
     exit 0
   fi
@@ -199,7 +199,7 @@ if [ "$NVIDIA" -eq 1 ]; then
       ubuntu-drivers install
       gruen "Treiber installiert. Der Server muss einmal neu starten."
       echo "Danach denselben Befehl noch einmal ausführen (die Fragen kommen dann noch einmal):"
-      echo "  curl -fsSL https://raw.githubusercontent.com/Tinkerworkss/taleward-server/main/install.sh | sudo bash"
+      echo "  curl -fsSL https://raw.githubusercontent.com/Taleward/taleward-server/main/install.sh | sudo bash"
       exit 0
     fi
     docker_hat_nvidia || toolkit_installieren

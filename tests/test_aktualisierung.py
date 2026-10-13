@@ -22,19 +22,19 @@ def github(releases_app, releases_worker, tags, dateien, zaehler=None, unsignier
     server = {}
     for t in tags:
         if t.startswith("v") and t not in unsigniert:
-            text, sig = freigabe("Tinkerworkss/taleward-server", t)
-            server[f"/Tinkerworkss/taleward-server/releases/download/{t}/freigabe.txt"] = text
-            server[f"/Tinkerworkss/taleward-server/releases/download/{t}/freigabe.txt.sig"] = sig.encode()
+            text, sig = freigabe("Taleward/taleward-server", t)
+            server[f"/Taleward/taleward-server/releases/download/{t}/freigabe.txt"] = text
+            server[f"/Taleward/taleward-server/releases/download/{t}/freigabe.txt.sig"] = sig.encode()
 
     def antwort(req: httpx.Request):
         if zaehler is not None:
             zaehler.append(str(req.url))
         pfad = req.url.path
-        if pfad == "/repos/Tinkerworkss/taleward-app/releases":
+        if pfad == "/repos/Taleward/taleward-app/releases":
             return httpx.Response(200, json=releases_app)
-        if pfad == "/repos/Tinkerworkss/taleward-worker/releases":
+        if pfad == "/repos/Taleward/taleward-worker/releases":
             return httpx.Response(200, json=releases_worker)
-        if pfad == "/repos/Tinkerworkss/taleward-server/tags":
+        if pfad == "/repos/Taleward/taleward-server/tags":
             return httpx.Response(200, json=[{"name": t} for t in tags])
         for quelle in (dateien, server, DOWNLOADS):
             if pfad in quelle:
@@ -52,7 +52,7 @@ def release(tag, datei=None, inhalt=b"", body="", digest=True, freigegeben=True,
         assets.append({"name": datei, "size": len(inhalt), "browser_download_url": f"https://dl.example/{tag}/{datei}",
                        **({"digest": "sha256:" + hashlib.sha256(inhalt).hexdigest()} if digest else {})})
     if freigegeben:
-        repo = repo or ("Tinkerworkss/taleward-worker" if tag.startswith("worker-v") else "Tinkerworkss/taleward-app")
+        repo = repo or ("Taleward/taleward-worker" if tag.startswith("worker-v") else "Taleward/taleward-app")
         text, sig = freigabe(repo, tag, {datei: freigabe_inhalt if freigabe_inhalt is not None else inhalt}
                              if datei else {})
         for name, wert in (("freigabe.txt", text), ("freigabe.txt.sig", sig.encode())):
