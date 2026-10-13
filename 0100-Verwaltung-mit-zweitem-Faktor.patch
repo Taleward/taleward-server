@@ -1,0 +1,642 @@
+From d30c8dc65b02f04149f7ab0be1f3163c110c7cb4 Mon Sep 17 00:00:00 2001
+From: Tinkerworkss <Tinkerworkss@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 19:12:47 +0200
+Subject: [PATCH 100/101] Verwaltung mit zweitem Faktor
+
+Zweiter Faktor (TOTP) mit Wiederherstellungscodes, optional nur aus bestimmten
+Netzen (VERWALTUNG_NUR_AUS); Befehl chronik zweiter-faktor-aus. Kopfzeilen auch
+fuer die Anmeldeseite der Dienste.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_013CssQZuRBCpCJdqrK2dJvj
+---
+ INSTALLATION.md                             |   8 +-
+ app/cli.py                                  |  45 ++++-
+ app/verwaltung/i18n.py                      |  26 +++
+ app/verwaltung/router.py                    | 191 +++++++++++++++++++-
+ app/verwaltung/static/verwaltung.css        |   3 +
+ app/verwaltung/templates/anmelden_code.html |  17 ++
+ app/verwaltung/templates/konten.html        |  35 +++-
+ app/verwaltung/zweiter_faktor.py            | 165 +++++++++++++++++
+ 8 files changed, 478 insertions(+), 12 deletions(-)
+ create mode 100644 app/verwaltung/templates/anmelden_code.html
+ create mode 100644 app/verwaltung/zweiter_faktor.py
+
+diff --git a/INSTALLATION.md b/INSTALLATION.md
+index a3a1378..c97400d 100644
+--- a/INSTALLATION.md
++++ b/INSTALLATION.md
+@@ -35,5 +35,5 @@ Im Terminal des Servers einfügen:
+ 
+ ```bash
+-curl -fsSL https://raw.githubusercontent.com/Tinkerworkss/taleward-server/main/install.sh | sudo bash
++curl -fsSL https://raw.githubusercontent.com/Taleward/taleward-server/main/install.sh | sudo bash
+ ```
+ 
+@@ -90,5 +90,5 @@ Speicherkarten-Abbild mit Raspberry Pi OS, Docker und dem Taleward-Server. Kein
+ - **Du brauchst:** einen Raspberry Pi 4 oder 5 mit 4–8 GB, eine Speicherkarte ab 16 GB (besser 32 GB) oder eine SSD,
+   ein Netzteil und ein Netzwerkkabel oder WLAN.
+-- **Abbild:** auf GitHub unter [Releases](https://github.com/Tinkerworkss/taleward-server/releases) → „Taleward-Box v…“
++- **Abbild:** auf GitHub unter [Releases](https://github.com/Taleward/taleward-server/releases) → „Taleward-Box v…“
+   → `Taleward-Box-v….img.xz`
+ 
+@@ -118,5 +118,5 @@ Gut zu wissen:
+ 
+ Auf dem PC mit Grafikkarte die **Worker-App** installieren
+-([taleward-worker](https://github.com/Tinkerworkss/taleward-worker), Windows oder Linux). In der Verwaltung
++([taleward-worker](https://github.com/Taleward/taleward-worker), Windows oder Linux). In der Verwaltung
+ **Transkription → Weiteren Worker anbinden → Kopplungscode erzeugen** und Adresse und Code in der App eintragen.
+ 
+@@ -219,4 +219,6 @@ Alle Befehle im Ordner `/opt/taleward`:
+ | Neu starten | `sudo docker compose restart` |
+ | Einrichtungscode neu | `sudo docker compose exec server chronik einrichtungscode` |
++| Zweiten Faktor eines Verwalters abschalten (Handy weg) | `sudo docker compose exec server chronik zweiter-faktor-aus -u name` |
++| Verwaltung nur aus bestimmten Netzen | in `.env` z. B. `VERWALTUNG_NUR_AUS=192.168.178.0/24, 10.8.0.0/24`, dann `sudo docker compose up -d` |
+ | Andere Domain | `install.sh` noch einmal ausführen – Daten bleiben |
+ 
+diff --git a/app/cli.py b/app/cli.py
+index b18798b..6806c3a 100644
+--- a/app/cli.py
++++ b/app/cli.py
+@@ -341,6 +341,7 @@ def worker(
+     import signal
+ 
+-    if hasattr(signal, "SIGBREAK"):  # Windows: Strg+Untbr vom Server (lokaler Worker) wie Strg+C behandeln
++    if hasattr(signal, "SIGBREAK"):  # Windows: Strg+Untbr wie Strg+C behandeln
+         signal.signal(signal.SIGBREAK, signal.default_int_handler)
++    _auf_stoppdatei_achten()
+     _systemzertifikate()
+     s = get_settings()
+@@ -458,4 +459,31 @@ def _token_aus_datei(datei: Path | None, warten_s: float = 60.0) -> str | None:
+ 
+ 
++def _auf_stoppdatei_achten() -> None:
++    """Lokaler Worker (vom Server gestartet): Legt der Server die Datei WORKER_STOP_DATEI an, beendet sich der Worker
++    wie bei Strg+C (Auftrag zurückmelden, aufräumen). Unter Windows gibt es ohne Konsolenfenster kein Signal dafür."""
++    import os
++    import threading
++    import time
++    import _thread
++
++    datei = os.environ.get("WORKER_STOP_DATEI")
++    if not datei:
++        return
++
++    def achten() -> None:
++        while not os.path.exists(datei):
++            time.sleep(0.5)
++        if os.name == "nt":
++            # Windows: KeyboardInterrupt im Hauptfaden, sobald der wieder Python ausführt (spätestens nach dem
++            # Warten auf Aufträge)
++            _thread.interrupt_main()
++        else:
++            import signal
++
++            os.kill(os.getpid(), signal.SIGINT)  # unterbricht auch ein laufendes Warten
++
++    threading.Thread(target=achten, name="stoppdatei", daemon=True).start()
++
++
+ def _env_setzen(werte: dict[str, str], datei: Path = Path(".env")) -> None:
+     """Schlüssel in der .env setzen oder ersetzen, alles andere bleibt, wie es ist."""
+@@ -589,4 +617,19 @@ def admin(
+ 
+ 
++@app.command("zweiter-faktor-aus")
++def zweiter_faktor_aus(username: str = typer.Option(..., "--username", "-u")):
++    """Zweiten Faktor eines Verwalters abschalten (Handy verloren, keine Wiederherstellungscodes mehr)."""
++    from app.verwaltung import zweiter_faktor
++
++    db = _db()
++    user = db.scalar(select(User).where(User.username == username.strip().lower()))
++    if user is None:
++        typer.echo(f"Benutzer '{username}' nicht gefunden.", err=True)
++        raise typer.Exit(1)
++    zweiter_faktor.ausschalten(db, user.id)
++    db.commit()
++    typer.echo(f"Zweiter Faktor für '{user.username}' ist aus. Die Anmeldung braucht jetzt nur das Passwort.")
++
++
+ @app.command("modelle")
+ def modelle_zeigen(
+diff --git a/app/verwaltung/i18n.py b/app/verwaltung/i18n.py
+index 08409f0..0df6b41 100644
+--- a/app/verwaltung/i18n.py
++++ b/app/verwaltung/i18n.py
+@@ -679,4 +679,30 @@ EN: dict[str, str] = {
+     "Server: {name} · {betreiber}": "Server: {name} · {betreiber}",
+     "gültig bis {zeit}": "valid until {zeit}",
++    "1. Öffne deine Authenticator-App (zum Beispiel Aegis, Google Authenticator oder Microsoft Authenticator) und scanne den QR-Code.": "1. Open your authenticator app (for example Aegis, Google Authenticator or Microsoft Authenticator) and scan the QR code.",
++    "2. Code aus der App": "2. Code from the app",
++    "Ausschalten": "Turn off",
++    "Code aus deiner Authenticator-App": "Code from your authenticator app",
++    "Code aus der App": "Code from the app",
++    "Code eingeben": "Enter code",
++    "Das Einrichten hat zu lange gedauert. Bitte neu beginnen.": "Setting up took too long. Please start again.",
++    "Das Passwort stimmt nicht.": "The password is not correct.",
++    "Dein zweiter Faktor": "Your second factor",
++    "Der Code passt nicht. Prüfe, ob die Uhr des Handys stimmt, und gib den aktuellen Code ein.": "The code doesn't match. Check that your phone's clock is right and enter the current code.",
++    "Der Code stimmt nicht oder wurde schon benutzt. Nimm den nächsten aus deiner App.": "The code is wrong or has already been used. Take the next one from your app.",
++    "Der zweite Faktor ist ausgeschaltet. Die Anmeldung braucht jetzt nur noch das Passwort.": "The second factor is off. Signing in now only needs the password.",
++    "Der zweite Faktor ist eingeschaltet. Schreib dir diese Wiederherstellungscodes auf oder drucke sie aus. Jeder gilt einmal, falls das Handy fehlt. Sie werden nur jetzt angezeigt.": "The second factor is on. Write down or print these recovery codes. Each works once in case your phone is missing. They are only shown now.",
++    "Einrichten": "Set up",
++    "Einschalten": "Turn on",
++    "Handy nicht zur Hand? Gib einen deiner Wiederherstellungscodes ein. Jeder gilt nur einmal.": "Phone not at hand? Enter one of your recovery codes. Each works only once.",
++    "Mit einem zweiten Faktor braucht die Anmeldung in der Verwaltung neben dem Passwort einen Code aus einer Authenticator-App auf dem Handy. Wer dein Passwort kennt, kommt dann trotzdem nicht hinein.": "With a second factor, signing in to the administration needs a code from an authenticator app on your phone in addition to the password. Someone who knows your password still can't get in.",
++    "Noch {n} Wiederherstellungscodes übrig.": "{n} recovery codes left.",
++    "Passwort oder Code stimmt nicht.": "Password or code is not correct.",
++    "Passwort zur Bestätigung": "Password to confirm",
++    "QR-Code für die Authenticator-App": "QR code for the authenticator app",
++    "Scannen geht nicht? Schlüssel von Hand eingeben:": "Can't scan? Enter the key by hand:",
++    "Zurück zur Anmeldung": "Back to sign-in",
++    "Zweiten Faktor ausschalten": "Turn off second factor",
++    "eingeschaltet": "on",
++    "zweiter Faktor": "second factor",
+     "Ob die Einladung noch gilt, zeigt dir die App.": "The app will tell you whether the invite is still valid.",
+     "In Taleward öffnen": "Open in Taleward",
+diff --git a/app/verwaltung/router.py b/app/verwaltung/router.py
+index 230061b..4163461 100644
+--- a/app/verwaltung/router.py
++++ b/app/verwaltung/router.py
+@@ -76,4 +76,5 @@ def tr(request: Request):
+ # Meldungen nach einer Aktion (?ok=…) – der Text ist zugleich der Übersetzungsschlüssel
+ MELDUNGEN = {
++    "faktor_aus": "Der zweite Faktor ist ausgeschaltet. Die Anmeldung braucht jetzt nur noch das Passwort.",
+     "probe_runde": "Bitte eine Runde mit Abschrift wählen.",
+     "probe_cloud": "Für diese Kampagne ist die Cloud-Zusammenfassung nicht freigegeben. Das entscheidet die Spielleitung in der App auf der Übersicht der Kampagne unter „Kampagne verwalten“ → „Cloud-Dienste“.",
+@@ -251,9 +252,15 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
+                                  name=name)
+         else:
++            from app.verwaltung import zweiter_faktor
++
+             ZAEHLER.freigeben(versuch)
+             ZAEHLER.loeschen(f"verw-name:{name}")
++            if not user.setup_account and zweiter_faktor.aktiv(db, user.id):  # S4: erst noch der Code
++                antwort = RedirectResponse("/verwaltung/anmelden/code", status_code=303)
++                antwort.set_cookie(COOKIE_CODE, _code_cookie(db, user), max_age=CODE_MINUTEN * 60, httponly=True,
++                                   samesite="strict", secure=request.url.scheme == "https", path="/verwaltung")
++                return antwort
+             antwort = _zurueck("/einrichtung" if user.setup_account else "/")
+-            antwort.set_cookie(COOKIE, _cookie_wert(db, user), max_age=SITZUNG_STUNDEN * 3600, httponly=True,
+-                               samesite="strict", secure=request.url.scheme == "https", path="/verwaltung")
++            _sitzung_setzen(antwort, request, db, user)
+             return antwort
+     antwort = _seite(request, "anmelden.html", None, db, kein_verwalter=False, fehler=fehler, ersteinrichtung=False)
+@@ -262,4 +269,158 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
+ 
+ 
++# ---------------------------------------------------------------- Zweiter Faktor (S4, 0.4.84)
++COOKIE_CODE = "tw_verwaltung_code"
++CODE_MINUTEN = 5
++
++
++def _aud_code(db: Session) -> str:
++    return f"{server_id()}:verwaltung-code"
++
++
++def _code_cookie(db: Session, user: User) -> str:
++    jetzt = utcnow()
++    return jwt.encode({"sub": user.id, "tv": user.token_version, "aud": _aud_code(db), "iat": jetzt,
++                       "exp": jetzt + timedelta(minutes=CODE_MINUTEN), "jti": secrets.token_hex(8)},
++                      get_settings().jwt_secret, algorithm="HS256")
++
++
++def _wartet_auf_code(request: Request, db: Session) -> User | None:
++    """Konto, das nach richtigem Passwort noch den Code eingeben muss (kurzlebiges Cookie), sonst None."""
++    wert = request.cookies.get(COOKIE_CODE)
++    if not wert:
++        return None
++    try:
++        daten = jwt.decode(wert, get_settings().jwt_secret, algorithms=["HS256"], audience=_aud_code(db))
++    except jwt.PyJWTError:
++        return None
++    user = db.get(User, daten.get("sub"))
++    if user is None or user.token_version != daten.get("tv") or not _ist_verwalter(db, user):
++        return None
++    return user
++
++
++def _sitzung_setzen(antwort: Response, request: Request, db: Session, user: User) -> None:
++    antwort.set_cookie(COOKIE, _cookie_wert(db, user), max_age=SITZUNG_STUNDEN * 3600, httponly=True,
++                       samesite="strict", secure=request.url.scheme == "https", path="/verwaltung")
++
++
++@router.get("/anmelden/code", response_class=HTMLResponse)
++def code_seite(request: Request, db: Session = Depends(get_db)):
++    if _wartet_auf_code(request, db) is None:
++        return RedirectResponse("/verwaltung/anmelden", status_code=303)
++    return _seite(request, "anmelden_code.html", None, db, fehler=None)
++
++
++@router.post("/anmelden/code")
++def code_pruefen(request: Request, code: str = Form(""), db: Session = Depends(get_db)):
++    from app.begrenzung import ZAEHLER
++    from app.verwaltung import zweiter_faktor
++
++    user = _wartet_auf_code(request, db)
++    if user is None:
++        return RedirectResponse("/verwaltung/anmelden", status_code=303)
++    versuch = _versuch(begrenzung.adresse(request), f"code:{user.id}")
++    if versuch is None:
++        fehler = tr(request)("Zu viele Fehlversuche. Bitte in ein paar Minuten erneut versuchen.")
++    elif zweiter_faktor.pruefen(db, user.id, code):
++        ZAEHLER.freigeben(versuch)
++        db.commit()
++        antwort = _zurueck("/")
++        _sitzung_setzen(antwort, request, db, user)
++        antwort.delete_cookie(COOKIE_CODE, path="/verwaltung")
++        return antwort
++    else:
++        fehler = tr(request)("Der Code stimmt nicht oder wurde schon benutzt. Nimm den nächsten aus deiner App.")
++    antwort = _seite(request, "anmelden_code.html", None, db, fehler=fehler)
++    antwort.status_code = 400
++    return antwort
++
++
++@router.post("/zweiter-faktor/beginnen", dependencies=[Depends(csrf_pruefen)])
++def faktor_beginnen(request: Request, password: str = Form(""), user: User = Depends(verwalter),
++                    db: Session = Depends(get_db)):
++    from app.verwaltung import zweiter_faktor
++
++    if not _passwort_stimmt(db, user, password):
++        return _konten_fehler(request, user, db, tr(request)("Das Passwort stimmt nicht."))
++    if zweiter_faktor.aktiv(db, user.id):
++        return _zurueck("/konten#zweiter-faktor")
++    geheim = zweiter_faktor.beginnen(db, user.id)
++    db.commit()
++    return _faktor_einrichten(request, user, db, geheim)
++
++
++def _faktor_einrichten(request: Request, user: User, db: Session, geheim: str, fehler: str | None = None):
++    from app.verwaltung import zweiter_faktor
++
++    adresse = zweiter_faktor.uri(geheim, user.username, angaben(db).server_name or "Taleward")
++    antwort = konten(request, user, db, fehler=fehler or "",
++                     faktor_neu={"geheim": " ".join(geheim[i:i + 4] for i in range(0, len(geheim), 4)),
++                                 "qr": qr_bild(adresse)})
++    if fehler:
++        antwort.status_code = 400
++    return antwort
++
++
++@router.post("/zweiter-faktor/bestaetigen", dependencies=[Depends(csrf_pruefen)])
++def faktor_bestaetigen(request: Request, code: str = Form(""), user: User = Depends(verwalter),
++                       db: Session = Depends(get_db)):
++    from app.verwaltung import zweiter_faktor
++
++    geheim = zweiter_faktor.angefangen(db, user.id)
++    if geheim is None:
++        return _konten_fehler(request, user, db, tr(request)("Das Einrichten hat zu lange gedauert. Bitte neu beginnen."))
++    codes = zweiter_faktor.bestaetigen(db, user.id, code)
++    if codes is None:
++        return _faktor_einrichten(request, user, db, geheim, tr(request)(
++            "Der Code passt nicht. Prüfe, ob die Uhr des Handys stimmt, und gib den aktuellen Code ein."))
++    # Andere Sitzungen dieses Kontos enden; diese bekommt ein neues Cookie
++    meta_schreiben(db, f"verwaltung.abgemeldet.{user.id}", str(int(time.time())))
++    db.commit()
++    antwort = konten(request, user, db, faktor_codes=codes)
++    _sitzung_setzen(antwort, request, db, user)
++    return antwort
++
++
++@router.post("/zweiter-faktor/aus", dependencies=[Depends(csrf_pruefen)])
++def faktor_aus(request: Request, password: str = Form(""), code: str = Form(""), user: User = Depends(verwalter),
++               db: Session = Depends(get_db)):
++    from app.verwaltung import zweiter_faktor
++
++    if not _passwort_stimmt(db, user, password) or not zweiter_faktor.pruefen(db, user.id, code):
++        db.commit()  # ein richtiger, verbrauchter Code bleibt verbraucht
++        return _konten_fehler(request, user, db, tr(request)("Passwort oder Code stimmt nicht."))
++    zweiter_faktor.ausschalten(db, user.id)
++    db.commit()
++    return _zurueck("/konten", "faktor_aus")
++
++
++def _passwort_stimmt(db: Session, user: User, passwort: str) -> bool:
++    methode = db.scalar(select(AuthMethod).where(AuthMethod.user_id == user.id, AuthMethod.kind == "password"))
++    return bool(methode and verify_password(passwort, methode.secret))
++
++
++def netz_erlaubt(host: str | None) -> bool:
++    """VERWALTUNG_NUR_AUS: Ist die Absenderadresse in einem der eingetragenen Netze? Leer = überall erlaubt."""
++    import ipaddress
++
++    netze = [n.strip() for n in get_settings().verwaltung_nur_aus.split(",") if n.strip()]
++    if not netze:
++        return True
++    try:
++        ip = ipaddress.ip_address(host or "")
++    except ValueError:
++        return False
++    if ip.version == 6 and ip.ipv4_mapped is not None:
++        ip = ip.ipv4_mapped
++    for n in netze:
++        try:
++            if ip in ipaddress.ip_network(n, strict=False):
++                return True
++        except ValueError:
++            continue
++    return False
++
++
+ @router.post("/abmelden", dependencies=[Depends(csrf_pruefen)])
+ def abmelden(user: User = Depends(sitzung), db: Session = Depends(get_db)):
+@@ -323,11 +484,21 @@ def uebersicht(request: Request, user: User = Depends(verwalter), db: Session =
+ # ---------------------------------------------------------------- Konten
+ @router.get("/konten", response_class=HTMLResponse)
+-def konten(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db), fehler: str = "",
+-           neuer_link: dict | None = None):
++def konten_seite(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db), fehler: str = ""):
++    return konten(request, user, db, fehler=fehler)
++
++
++def konten(request: Request, user: User, db: Session, fehler: str = "", neuer_link: dict | None = None,
++           faktor_neu: dict | None = None, faktor_codes: list[str] | None = None) -> HTMLResponse:
++    from app.verwaltung import zweiter_faktor
++
+     verwalter_ids = set(db.scalars(select(OrgMember.user_id).where(OrgMember.role == "admin")))
+     zuletzt = dict(db.execute(select(AuthMethod.user_id, AuthMethod.last_used_at)).all())
+     liste = [{"u": u, "verwalter": u.id in verwalter_ids, "zuletzt": zuletzt.get(u.id)}
+              for u in db.scalars(select(User).order_by(User.username))]
+-    return _seite(request, "konten.html", user, db, konten=liste, fehler=fehler, neuer_link=neuer_link)
++    for k in liste:
++        k["faktor"] = zweiter_faktor.aktiv(db, k["u"].id)
++    faktor = {"aktiv": zweiter_faktor.aktiv(db, user.id), "codes_uebrig": zweiter_faktor.restliche_codes(db, user.id),
++              "neu": faktor_neu, "codes": faktor_codes}
++    return _seite(request, "konten.html", user, db, konten=liste, fehler=fehler, neuer_link=neuer_link, faktor=faktor)
+ 
+ 
+@@ -1427,10 +1598,16 @@ def einbinden(app: FastAPI) -> None:
+     @app.middleware("http")
+     async def _kopfzeilen(request: Request, call_next):
+-        antwort: Response = await call_next(request)
+         pfad = request.url.path
++        if pfad.startswith("/verwaltung") and not netz_erlaubt(request.client.host if request.client else None):
++            antwort = Response(status_code=404)  # S4: VERWALTUNG_NUR_AUS – von außen gibt es keine Verwaltung
++            for k, v in SICHERHEITS_KOPFZEILEN.items():
++                antwort.headers.setdefault(k, v)
++            return antwort
++        antwort: Response = await call_next(request)
+         if pfad.startswith("/verwaltung/static/"):
+             antwort.headers.setdefault("Cache-Control", "public, max-age=86400")  # Stil und Logo dürfen zwischengespeichert werden
+             antwort.headers.setdefault("X-Content-Type-Options", "nosniff")
+-        elif pfad.startswith(("/verwaltung", "/einladung", "/datenschutz", "/passwort", "/konto/", "/konto-loeschen")):
++        elif pfad.startswith(("/verwaltung", "/einladung", "/datenschutz", "/passwort", "/konto/", "/konto-loeschen",
++                              "/auth/oidc/")):  # S26.1: auch die Bestätigungsseite der Anmeldung mit Diensten
+             for k, v in SICHERHEITS_KOPFZEILEN.items():
+                 antwort.headers.setdefault(k, v)
+diff --git a/app/verwaltung/static/verwaltung.css b/app/verwaltung/static/verwaltung.css
+index cb96dd0..8ce7c7f 100644
+--- a/app/verwaltung/static/verwaltung.css
++++ b/app/verwaltung/static/verwaltung.css
+@@ -217,2 +217,5 @@ article.text h2 { margin-top:var(--space-6); }
+ .aktionen form { display:inline; margin:0; }
+ input[type="range"] { width:100%; accent-color:var(--tinte); }
++
++/* Zweiter Faktor: Wiederherstellungscodes (0.4.84) */
++.codeliste { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: .5rem; }
+diff --git a/app/verwaltung/templates/anmelden_code.html b/app/verwaltung/templates/anmelden_code.html
+new file mode 100644
+index 0000000..807c7cd
+--- /dev/null
++++ b/app/verwaltung/templates/anmelden_code.html
+@@ -0,0 +1,17 @@
++{% extends "basis.html" %}
++{% block titel %}{{ _("Code eingeben") }}{% endblock %}
++{% block inhalt %}
++<div class="anmeldung">
++  {% include "_kopf_marke.html" %}
++  <p class="leise zentriert">{{ _("Verwaltung von {name} · {betreiber}", name=angaben.server_name, betreiber=angaben.server_operator) }}</p>
++  <div class="karte">
++    <form class="formular" method="post" action="/verwaltung/anmelden/code">
++      <label>{{ _("Code aus deiner Authenticator-App") }}
++        <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus maxlength="20"></label>
++      <p class="hilfe">{{ _("Handy nicht zur Hand? Gib einen deiner Wiederherstellungscodes ein. Jeder gilt nur einmal.") }}</p>
++      <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Anmelden") }}</button></div>
++    </form>
++  </div>
++  <p class="zentriert"><a href="/verwaltung/anmelden">{{ _("Zurück zur Anmeldung") }}</a></p>
++</div>
++{% endblock %}
+diff --git a/app/verwaltung/templates/konten.html b/app/verwaltung/templates/konten.html
+index 43ac97e..70e74e5 100644
+--- a/app/verwaltung/templates/konten.html
++++ b/app/verwaltung/templates/konten.html
+@@ -11,4 +11,37 @@
+ </div>
+ {% endif %}
++<div class="karte" id="zweiter-faktor">
++  <h2>{{ _("Dein zweiter Faktor") }}</h2>
++  {% if faktor.codes %}
++  <p>{{ _("Der zweite Faktor ist eingeschaltet. Schreib dir diese Wiederherstellungscodes auf oder drucke sie aus. Jeder gilt einmal, falls das Handy fehlt. Sie werden nur jetzt angezeigt.") }}</p>
++  <ul class="codeliste">{% for c in faktor.codes %}<li><code>{{ c }}</code></li>{% endfor %}</ul>
++  {% elif faktor.neu %}
++  <p>{{ _("1. Öffne deine Authenticator-App (zum Beispiel Aegis, Google Authenticator oder Microsoft Authenticator) und scanne den QR-Code.") }}</p>
++  <figure class="einladung__qr"><img src="{{ faktor.neu.qr }}" width="222" height="222" alt="{{ _('QR-Code für die Authenticator-App') }}"></figure>
++  <p class="hilfe">{{ _("Scannen geht nicht? Schlüssel von Hand eingeben:") }} <code>{{ faktor.neu.geheim }}</code></p>
++  <form class="formular formular--zeile" method="post" action="/verwaltung/zweiter-faktor/bestaetigen">
++    <input type="hidden" name="csrf" value="{{ csrf }}">
++    <label>{{ _("2. Code aus der App") }} <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required maxlength="10"></label>
++    <button class="tw-btn tw-btn--primary" type="submit">{{ _("Einschalten") }}</button>
++  </form>
++  {% elif faktor.aktiv %}
++  <p><span class="marke-status marke-status--gut">{{ _("eingeschaltet") }}</span> {{ _("Noch {n} Wiederherstellungscodes übrig.", n=faktor.codes_uebrig) }}</p>
++  <details><summary>{{ _("Zweiten Faktor ausschalten") }}</summary>
++    <form class="formular formular--zeile" method="post" action="/verwaltung/zweiter-faktor/aus">
++      <input type="hidden" name="csrf" value="{{ csrf }}">
++      <label>{{ _("Passwort") }} <input type="password" name="password" autocomplete="current-password" required></label>
++      <label>{{ _("Code aus der App") }} <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required maxlength="20"></label>
++      <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit">{{ _("Ausschalten") }}</button>
++    </form>
++  </details>
++  {% else %}
++  <p>{{ _("Mit einem zweiten Faktor braucht die Anmeldung in der Verwaltung neben dem Passwort einen Code aus einer Authenticator-App auf dem Handy. Wer dein Passwort kennt, kommt dann trotzdem nicht hinein.") }}</p>
++  <form class="formular formular--zeile" method="post" action="/verwaltung/zweiter-faktor/beginnen">
++    <input type="hidden" name="csrf" value="{{ csrf }}">
++    <label>{{ _("Passwort zur Bestätigung") }} <input type="password" name="password" autocomplete="current-password" required></label>
++    <button class="tw-btn tw-btn--primary" type="submit">{{ _("Einrichten") }}</button>
++  </form>
++  {% endif %}
++</div>
+ <div class="karte">
+   <h2>{{ _("Neues Konto") }}</h2>
+@@ -30,5 +63,5 @@
+       <tr>
+         <td data-label="{{ _('Konto') }}"><strong>{{ k.u.display_name }}</strong><br><span class="leise">{{ k.u.username }} · {{ _("seit {zeit}", zeit=zeit(k.u.created_at)) }}</span>
+-          <br><span class="leise">{{ _("Anmeldung") }}: {% for m in k.u.auth_methods %}{{ _("Passwort") if m.kind == "password" else m.kind.split(":")[-1]|capitalize }}{% if not loop.last %}, {% endif %}{% endfor %}{% if k.u.email %} · {{ _("E-Mail bestätigt") }}{% endif %}</span></td>
++          <br><span class="leise">{{ _("Anmeldung") }}: {% for m in k.u.auth_methods %}{{ _("Passwort") if m.kind == "password" else m.kind.split(":")[-1]|capitalize }}{% if not loop.last %}, {% endif %}{% endfor %}{% if k.faktor %} · {{ _("zweiter Faktor") }}{% endif %}{% if k.u.email %} · {{ _("E-Mail bestätigt") }}{% endif %}</span></td>
+         <td data-label="{{ _('Rolle') }}">{% if k.verwalter %}<span class="marke-status marke-status--gut">{{ _("Verwalter") }}</span>{% else %}<span class="leise">{{ _("Mitglied") }}</span>{% endif %}</td>
+         <td class="leise" data-label="{{ _('Zuletzt angemeldet') }}">{{ zeit(k.zuletzt) }}</td>
+diff --git a/app/verwaltung/zweiter_faktor.py b/app/verwaltung/zweiter_faktor.py
+new file mode 100644
+index 0000000..fb2734c
+--- /dev/null
++++ b/app/verwaltung/zweiter_faktor.py
+@@ -0,0 +1,165 @@
++"""Zweiter Faktor für die Verwaltung (TOTP nach RFC 6238, 0.4.84).
++
++- Jeder Verwalter kann ihn unter „Konten“ für sich einschalten: Schlüssel als QR-Code in eine Authenticator-App
++  übernehmen, mit einem Code bestätigen, dann zehn Wiederherstellungscodes notieren (werden nur einmal angezeigt).
++- Ist er an, verlangt die Anmeldung nach dem Passwort einen Code (6 Ziffern) oder einen Wiederherstellungscode. Ein
++  Code gilt nur einmal (auch nicht im nächsten Zeitfenster noch einmal); Fehlversuche zählen je Konto und Adresse.
++- Ausschalten nur mit Passwort und gültigem Code. Gerät verloren und keine Codes mehr: auf dem Server
++  `chronik zweiter-faktor-aus -u <name>`.
++
++Gespeichert in server_meta unter ``verwaltung.totp.<user_id>`` (JSON): Schlüssel (Base32), zuletzt benutztes
++Zeitfenster, Hashes der Wiederherstellungscodes, seit wann. Ein angefangenes Einrichten liegt unter
++``verwaltung.totp_neu.<user_id>`` und verfällt nach 15 Minuten.
++"""
++from __future__ import annotations
++
++import base64
++import hashlib
++import hmac
++import json
++import secrets
++import struct
++import time
++from urllib.parse import quote
++
++from sqlalchemy.orm import Session
++
++from app.einstellungen import meta_lesen, meta_schreiben
++from app.models import ServerMeta
++
++SCHRITT = 30
++STELLEN = 6
++FENSTER = 1  # ein Zeitfenster davor und danach (Uhren gehen nicht genau)
++ANZAHL_CODES = 10
++NEU_GUELTIG = 15 * 60
++_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # ohne 0/O, 1/I
++
++
++def _schluessel(user_id: str) -> str:
++    return f"verwaltung.totp.{user_id}"
++
++
++def _neu_schluessel(user_id: str) -> str:
++    return f"verwaltung.totp_neu.{user_id}"
++
++
++def code(geheim_b32: str, zeitfenster: int) -> str:
++    roh = base64.b32decode(geheim_b32 + "=" * (-len(geheim_b32) % 8), casefold=True)
++    h = hmac.new(roh, struct.pack(">Q", zeitfenster), hashlib.sha1).digest()
++    o = h[-1] & 0x0F
++    zahl = (struct.unpack(">I", h[o:o + 4])[0] & 0x7FFFFFFF) % 10 ** STELLEN
++    return f"{zahl:0{STELLEN}d}"
++
++
++def _passendes_fenster(geheim: str, eingabe: str, jetzt: float | None = None) -> int | None:
++    eingabe = "".join(eingabe.split())
++    if len(eingabe) != STELLEN or not eingabe.isdigit():
++        return None
++    t = int((time.time() if jetzt is None else jetzt) // SCHRITT)
++    for f in range(t - FENSTER, t + FENSTER + 1):
++        if hmac.compare_digest(code(geheim, f), eingabe):
++            return f
++    return None
++
++
++def _hash(wiederherstellungscode: str) -> str:
++    norm = "".join(c for c in wiederherstellungscode.upper() if c.isalnum())
++    return hashlib.sha256(b"taleward-wiederherstellung:" + norm.encode()).hexdigest()
++
++
++def _neue_codes() -> list[str]:
++    return ["-".join("".join(secrets.choice(_ALPHABET) for _ in range(5)) for _ in range(2))
++            for _ in range(ANZAHL_CODES)]
++
++
++def stand(db: Session, user_id: str) -> dict | None:
++    wert = meta_lesen(db, _schluessel(user_id))
++    try:
++        return json.loads(wert) if wert else None
++    except ValueError:
++        return None
++
++
++def aktiv(db: Session, user_id: str) -> bool:
++    return stand(db, user_id) is not None
++
++
++def restliche_codes(db: Session, user_id: str) -> int:
++    s = stand(db, user_id)
++    return len(s.get("codes") or []) if s else 0
++
++
++# ---------------------------------------------------------------- Einrichten
++def beginnen(db: Session, user_id: str) -> str:
++    """Neuen Schlüssel für das Einrichten anlegen (noch nicht aktiv). Liefert ihn als Base32."""
++    geheim = base64.b32encode(secrets.token_bytes(20)).decode().rstrip("=")
++    meta_schreiben(db, _neu_schluessel(user_id), json.dumps({"geheim": geheim, "bis": time.time() + NEU_GUELTIG}))
++    return geheim
++
++
++def angefangen(db: Session, user_id: str) -> str | None:
++    wert = meta_lesen(db, _neu_schluessel(user_id))
++    try:
++        d = json.loads(wert) if wert else None
++    except ValueError:
++        return None
++    return d["geheim"] if d and d.get("bis", 0) > time.time() else None
++
++
++def uri(geheim: str, konto: str, aussteller: str) -> str:
++    """otpauth-Adresse für den QR-Code (Authenticator-Apps)."""
++    a = aussteller.replace(":", " ").strip() or "Taleward"
++    return (f"otpauth://totp/{quote(a)}:{quote(konto)}?secret={geheim}&issuer={quote(a)}"
++            f"&algorithm=SHA1&digits={STELLEN}&period={SCHRITT}")
++
++
++def bestaetigen(db: Session, user_id: str, eingabe: str) -> list[str] | None:
++    """Einrichten abschließen, wenn der Code zum angefangenen Schlüssel passt. Liefert die Wiederherstellungscodes
++    (nur dieses eine Mal im Klartext) oder None."""
++    geheim = angefangen(db, user_id)
++    if geheim is None:
++        return None
++    fenster = _passendes_fenster(geheim, eingabe)
++    if fenster is None:
++        return None
++    codes = _neue_codes()
++    meta_schreiben(db, _schluessel(user_id), json.dumps({
++        "geheim": geheim, "zuletzt": fenster, "codes": [_hash(c) for c in codes], "seit": int(time.time())}))
++    _loeschen(db, _neu_schluessel(user_id))
++    return codes
++
++
++def ausschalten(db: Session, user_id: str) -> None:
++    _loeschen(db, _schluessel(user_id))
++    _loeschen(db, _neu_schluessel(user_id))
++
++
++def _loeschen(db: Session, schluessel: str) -> None:
++    row = db.get(ServerMeta, schluessel)
++    if row is not None:
++        db.delete(row)
++
++
++# ---------------------------------------------------------------- Prüfen
++def pruefen(db: Session, user_id: str, eingabe: str, jetzt: float | None = None) -> bool:
++    """Code oder Wiederherstellungscode prüfen und verbrauchen. False bei falschem oder schon benutztem Code."""
++    s = stand(db, user_id)
++    if s is None:
++        return False
++    eingabe = (eingabe or "").strip()
++    fenster = _passendes_fenster(s["geheim"], eingabe, jetzt)
++    if fenster is not None:
++        if fenster <= int(s.get("zuletzt") or 0):
++            return False  # derselbe (oder ein älterer) Code noch einmal: abgelehnt
++        s["zuletzt"] = fenster
++        meta_schreiben(db, _schluessel(user_id), json.dumps(s))
++        return True
++    h = _hash(eingabe)
++    codes = list(s.get("codes") or [])
++    for i, c in enumerate(codes):
++        if hmac.compare_digest(c, h):
++            del codes[i]
++            s["codes"] = codes
++            meta_schreiben(db, _schluessel(user_id), json.dumps(s))
++            return True
++    return False
+-- 
+2.43.0
