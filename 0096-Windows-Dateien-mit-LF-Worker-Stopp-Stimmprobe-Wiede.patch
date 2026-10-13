@@ -1,0 +1,434 @@
+From e4cf6dc834b2c06ed15365186ea85366dbc899a3 Mon Sep 17 00:00:00 2001
+From: Tinkerworkss <Tinkerworkss@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 16:58:53 +0200
+Subject: [PATCH] Windows: Dateien mit LF, Worker-Stopp, Stimmprobe,
+ Wiederherstellen
+
+- Vom Server geschriebene Textdateien immer mit LF (auch unter Windows).
+- Lokaler Worker: eigene Prozessgruppe und Strg+Untbr statt SIGINT unter Windows.
+- Laenge der Stimmprobe: ffprobe liest aus eigenem Ordner statt aus offener Temp-Datei.
+- Wiederherstellen: kurze Wiederholung, wenn Windows die Datei noch offen haelt.
+- Tests: Unix-Rechte nur ausserhalb von Windows pruefen.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_013CssQZuRBCpCJdqrK2dJvj
+---
+ app/aktualisierung.py            |  4 ++--
+ app/cli.py                       |  6 +++++-
+ app/config.py                    |  2 +-
+ app/kapitelprobe.py              | 34 ++++++++++++++++----------------
+ app/modellablage.py              |  4 ++--
+ app/modelle.py                   |  4 ++--
+ app/modellvergleich.py           | 26 ++++++++++++------------
+ app/probelauf.py                 |  6 +++---
+ app/routers/voice_profile.py     | 10 ++++++----
+ app/sicherung.py                 | 17 ++++++++++++++--
+ app/verwaltung/lokaler_worker.py | 18 ++++++++++-------
+ app/woerterbuch.py               |  6 +++---
+ tests/test_step1.py              |  6 +++++-
+ tests/test_verwaltung.py         |  5 ++++-
+ 14 files changed, 89 insertions(+), 59 deletions(-)
+
+diff --git a/app/aktualisierung.py b/app/aktualisierung.py
+index b5afc97..382f96f 100644
+--- a/app/aktualisierung.py
++++ b/app/aktualisierung.py
+@@ -478,10 +478,10 @@ def server_auto(db: Session | None = None) -> bool:
+ def server_auto_setzen(an: bool) -> None:
+     ablage().mkdir(parents=True, exist_ok=True)
+-    (ablage() / "server-auto.txt").write_text("an" if an else "aus", encoding="utf-8")
++    (ablage() / "server-auto.txt").write_text("an" if an else "aus", encoding="utf-8", newline="\n")
+ 
+ 
+ def server_jetzt() -> None:
+     ablage().mkdir(parents=True, exist_ok=True)
+-    (ablage() / "server-jetzt").write_text(utcnow().isoformat(), encoding="utf-8")
++    (ablage() / "server-jetzt").write_text(utcnow().isoformat(), encoding="utf-8", newline="\n")
+ 
+ 
+diff --git a/app/cli.py b/app/cli.py
+index 2aad5dd..b18798b 100644
+--- a/app/cli.py
++++ b/app/cli.py
+@@ -339,4 +339,8 @@ def worker(
+     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
+     logging.getLogger("httpx").setLevel(logging.WARNING)  # nicht jede Anfrage protokollieren
++    import signal
++
++    if hasattr(signal, "SIGBREAK"):  # Windows: Strg+Untbr vom Server (lokaler Worker) wie Strg+C behandeln
++        signal.signal(signal.SIGBREAK, signal.default_int_handler)
+     _systemzertifikate()
+     s = get_settings()
+@@ -463,5 +467,5 @@ def _env_setzen(werte: dict[str, str], datei: Path = Path(".env")) -> None:
+             zeilen[i] = f"{schluessel}={offen.pop(schluessel)}"
+     zeilen += [f"{k}={v}" for k, v in offen.items()]
+-    datei.write_text("\n".join(zeilen) + "\n", encoding="utf-8")
++    datei.write_text("\n".join(zeilen) + "\n", encoding="utf-8", newline="\n")
+ 
+ 
+diff --git a/app/config.py b/app/config.py
+index 18ee46b..bb9e41e 100644
+--- a/app/config.py
++++ b/app/config.py
+@@ -147,5 +147,5 @@ def _geheimnis(data_dir: Path) -> str:
+     data_dir.mkdir(parents=True, exist_ok=True)
+     tmp = datei.with_suffix(".tmp")
+-    tmp.write_text(wert, encoding="utf-8")
++    tmp.write_text(wert, encoding="utf-8", newline="\n")
+     tmp.chmod(0o600)
+     tmp.replace(datei)
+diff --git a/app/kapitelprobe.py b/app/kapitelprobe.py
+index a64819b..0cc556e 100644
+--- a/app/kapitelprobe.py
++++ b/app/kapitelprobe.py
+@@ -288,5 +288,5 @@ def starten(db: Session, s: GameSession, abschrift: str | None = None, dateiname
+     _speichern(p)
+     if abschrift is not None:
+-        (ordner(p.id) / "transkript.txt").write_text(abschrift, encoding="utf-8")
++        (ordner(p.id) / "transkript.txt").write_text(abschrift, encoding="utf-8", newline="\n")
+     threading.Thread(target=_rechnen, args=(p, k, recap_ein, vorschlag_ein, s.campaign_id, s.id),
+                      name=f"probelauf-{p.id[:8]}", daemon=True).start()
+@@ -392,11 +392,11 @@ def _dateien_schreiben(p: Probe) -> None:
+             if p.offene_faeden:
+                 text += "\nOffene Fäden:\n" + "\n".join(f"- {f}" for f in p.offene_faeden) + "\n"
+-            (o / "recap.txt").write_text(text, encoding="utf-8")
+-            (o / "vorschlaege.json").write_text(json.dumps(p.vorschlaege, ensure_ascii=False, indent=2), encoding="utf-8")
+-            (o / "pruefung.json").write_text(json.dumps(p.pruefung, ensure_ascii=False, indent=2), encoding="utf-8")
++            (o / "recap.txt").write_text(text, encoding="utf-8", newline="\n")
++            (o / "vorschlaege.json").write_text(json.dumps(p.vorschlaege, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
++            (o / "pruefung.json").write_text(json.dumps(p.pruefung, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+             if p.notizen:
+-                (o / "notizen.txt").write_text(p.notizen + "\n", encoding="utf-8")
++                (o / "notizen.txt").write_text(p.notizen + "\n", encoding="utf-8", newline="\n")
+             if p.stand:
+-                (o / "stand.txt").write_text("\n".join(f"- {s}" for s in p.stand) + "\n", encoding="utf-8")
++                (o / "stand.txt").write_text("\n".join(f"- {s}" for s in p.stand) + "\n", encoding="utf-8", newline="\n")
+             if p.auswahl:
+                 from app.sprachmodell import auswahl_text
+@@ -404,28 +404,28 @@ def _dateien_schreiben(p: Probe) -> None:
+                 (o / "auswahl.txt").write_text(
+                     "\n".join(f"{z} ({a['rang']})" for z, a in zip(auswahl_text(p.auswahl).split("\n"), p.auswahl))
+-                    + "\n", encoding="utf-8")
++                    + "\n", encoding="utf-8", newline="\n")
+             if p.pflicht:
+-                (o / "pflicht.json").write_text(json.dumps(p.pflicht, ensure_ascii=False, indent=2), encoding="utf-8")
++                (o / "pflicht.json").write_text(json.dumps(p.pflicht, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+             if p.entwurf:
+-                (o / "entwurf.txt").write_text(p.entwurf + "\n", encoding="utf-8")
++                (o / "entwurf.txt").write_text(p.entwurf + "\n", encoding="utf-8", newline="\n")
+             if p.lang:
+-                (o / "lang.txt").write_text(p.lang + "\n", encoding="utf-8")
++                (o / "lang.txt").write_text(p.lang + "\n", encoding="utf-8", newline="\n")
+             if p.unklar:
+-                (o / "unklar.json").write_text(json.dumps(p.unklar, ensure_ascii=False, indent=2), encoding="utf-8")
++                (o / "unklar.json").write_text(json.dumps(p.unklar, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+             if p.einschnitte:
+                 (o / "einschnitte.json").write_text(json.dumps(p.einschnitte, ensure_ascii=False, indent=2),
+-                                                    encoding="utf-8")
++                                                    encoding="utf-8", newline="\n")
+             if p.kurzer_entwurf:
+                 (o / "rohantwort.txt").write_text("\n\n".join(
+                     f"Entwurf mit {k['woerter']} Wörtern (Untergrenze {k['untergrenze']}), Antwort des Modells:\n{k['antwort']}"
+-                    for k in p.kurzer_entwurf) + "\n", encoding="utf-8")
++                    for k in p.kurzer_entwurf) + "\n", encoding="utf-8", newline="\n")
+             if p.zweiter_blick:
+                 (o / "zweiter-blick.json").write_text(json.dumps(p.zweiter_blick, ensure_ascii=False, indent=2),
+-                                                      encoding="utf-8")
++                                                      encoding="utf-8", newline="\n")
+         (o / "ergebnis.json").write_text(json.dumps({k: v for k, v in p.__dict__.items()
+                                                       if k not in ("text", "vorschlaege", "pruefung", "besitzer", "notizen", "auswahl",
+                                                                   "pflicht", "entwurf", "lang", "korrekturen", "unklar",
+                                                                   "zweiter_blick", "einschnitte", "kurzer_entwurf")},
+-                                                     ensure_ascii=False, indent=2), encoding="utf-8")
++                                                     ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+     except OSError:
+         log.warning("Probelauf %s: Dateien konnten nicht geschrieben werden", p.id)
+@@ -523,6 +523,6 @@ def _korrektur_dateien(p: Probe) -> None:
+     o = ordner(p.id)
+     try:
+-        (o / "korrektur.json").write_text(json.dumps(p.korrekturen, ensure_ascii=False, indent=2), encoding="utf-8")
+-        (o / "recap-korrigiert.txt").write_text(f"{p.titel}\n\n{aktueller_text(p)}\n", encoding="utf-8")
++        (o / "korrektur.json").write_text(json.dumps(p.korrekturen, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
++        (o / "recap-korrigiert.txt").write_text(f"{p.titel}\n\n{aktueller_text(p)}\n", encoding="utf-8", newline="\n")
+     except OSError:
+         log.warning("Probelauf %s: Korrektur-Dateien konnten nicht geschrieben werden", p.id)
+diff --git a/app/modellablage.py b/app/modellablage.py
+index 458895e..21e7546 100644
+--- a/app/modellablage.py
++++ b/app/modellablage.py
+@@ -187,7 +187,7 @@ def _ablegen(repo: str, fassung: str, quelle: str, arbeiten) -> Stand:
+         dateien = arbeiten(tmp)
+         if repo in NOTICE:
+-            (tmp / "NOTICE.txt").write_text(NOTICE[repo].format(fassung=fassung), encoding="utf-8")
++            (tmp / "NOTICE.txt").write_text(NOTICE[repo].format(fassung=fassung), encoding="utf-8", newline="\n")
+         stand = Stand(repo, fassung, sorted(dateien, key=lambda d: d["pfad"]), quelle)
+-        (tmp / "manifest.json").write_text(json.dumps(stand.manifest(), indent=2), encoding="utf-8")
++        (tmp / "manifest.json").write_text(json.dumps(stand.manifest(), indent=2), encoding="utf-8", newline="\n")
+         shutil.rmtree(ziel, ignore_errors=True)
+         tmp.rename(ziel)
+diff --git a/app/modelle.py b/app/modelle.py
+index 60321a5..759758e 100644
+--- a/app/modelle.py
++++ b/app/modelle.py
+@@ -77,5 +77,5 @@ def _merken(repo: str, fassung: str) -> None:
+     datei.parent.mkdir(parents=True, exist_ok=True)
+     tmp = datei.with_suffix(".tmp")
+-    tmp.write_text(json.dumps(daten, indent=2, sort_keys=True), encoding="utf-8")
++    tmp.write_text(json.dumps(daten, indent=2, sort_keys=True), encoding="utf-8", newline="\n")
+     tmp.replace(datei)
+ 
+@@ -240,5 +240,5 @@ def vom_server(repo: str, quelle: ServerQuelle) -> Bereit | None:
+                 if quelle.laden(repo, fassung, d["pfad"], tmp / d["pfad"]) != d["sha256"]:
+                     raise ModellFehler(f"Prüfsumme stimmt nicht: {d['pfad']} – bitte erneut versuchen.")
+-            (tmp / ".vollstaendig").write_text(fassung, encoding="utf-8")
++            (tmp / ".vollstaendig").write_text(fassung, encoding="utf-8", newline="\n")
+             shutil.rmtree(ordner, ignore_errors=True)
+             tmp.rename(ordner)
+diff --git a/app/modellvergleich.py b/app/modellvergleich.py
+index 5149607..5ab1131 100644
+--- a/app/modellvergleich.py
++++ b/app/modellvergleich.py
+@@ -529,21 +529,21 @@ def speichern(ordner: Path, info: dict, richter: str, ergebnisse: list[Ergebnis]
+         d.mkdir(exist_ok=True)
+         if e.pruefliste:
+-            (d / "pruefliste.md").write_text(pruefliste_md(e) + "\n", encoding="utf-8")
++            (d / "pruefliste.md").write_text(pruefliste_md(e) + "\n", encoding="utf-8", newline="\n")
+         if e.ok:  # jede Stufe immer, auch wenn sie gleich blieb – sonst fehlt der Vorher/Nachher-Vergleich
+-            (d / "kapitel-1.txt").write_text(f"{e.titel}\n\n{e.kapitel1 or e.text}\n", encoding="utf-8")
+-            (d / "kapitel-2.txt").write_text(f"{e.titel}\n\n{e.kapitel2 or e.kapitel1 or e.text}\n", encoding="utf-8")
+-            (d / "fehlend.json").write_text(json.dumps(e.fehlend, ensure_ascii=False, indent=2), encoding="utf-8")
++            (d / "kapitel-1.txt").write_text(f"{e.titel}\n\n{e.kapitel1 or e.text}\n", encoding="utf-8", newline="\n")
++            (d / "kapitel-2.txt").write_text(f"{e.titel}\n\n{e.kapitel2 or e.kapitel1 or e.text}\n", encoding="utf-8", newline="\n")
++            (d / "fehlend.json").write_text(json.dumps(e.fehlend, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+             (d / "pruefung.json").write_text(json.dumps({"vorher": e.pruefung_vorher, "nachher": e.pruefung_nachher,
+                                                          "richter": e.richter_absaetze}, ensure_ascii=False, indent=2),
+-                                             encoding="utf-8")
++                                             encoding="utf-8", newline="\n")
+             (d / "relationspruefung.json").write_text(json.dumps({"vorher": e.relationen_vorher,
+                                                                   "nachher": e.relationen_nachher},
+-                                                                 ensure_ascii=False, indent=2), encoding="utf-8")
+-        (d / "recap.txt").write_text(f"{e.titel}\n\n{e.text}\n" if e.ok else f"Fehler: {e.fehler}\n", encoding="utf-8")
++                                                                 ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
++        (d / "recap.txt").write_text(f"{e.titel}\n\n{e.text}\n" if e.ok else f"Fehler: {e.fehler}\n", encoding="utf-8", newline="\n")
+         for name, inhalt in (("letzte-antwort.txt", e.letzte_antwort), ("notizen.txt", e.notizen),
+                              ("verlauf.txt", e.verlauf)):
+             if inhalt:
+-                (d / name).write_text(inhalt, encoding="utf-8")
+-        (d / "vorschlaege.json").write_text(json.dumps(e.vorschlaege, ensure_ascii=False, indent=2), encoding="utf-8")
++                (d / name).write_text(inhalt, encoding="utf-8", newline="\n")
++        (d / "vorschlaege.json").write_text(json.dumps(e.vorschlaege, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+         (d / "ergebnis.json").write_text(json.dumps({**asdict(e), "letzte_antwort": None, "notizen": None, "verlauf": None,
+                                                      "pruefliste": None, "kapitel1": None, "kapitel2": None,
+@@ -556,7 +556,7 @@ def speichern(ordner: Path, info: dict, richter: str, ergebnisse: list[Ergebnis]
+                                                      "relationen_vorher": None, "relationen_nachher": None,
+                                                      "token_s": e.token_s}, ensure_ascii=False, indent=2),
+-                                         encoding="utf-8")
+-    (ordner / "bericht.md").write_text(bericht_md(info, richter, ergebnisse), encoding="utf-8")
+-    (ordner / "bericht.html").write_text(bericht_html(info, richter, ergebnisse), encoding="utf-8")
++                                         encoding="utf-8", newline="\n")
++    (ordner / "bericht.md").write_text(bericht_md(info, richter, ergebnisse), encoding="utf-8", newline="\n")
++    (ordner / "bericht.html").write_text(bericht_html(info, richter, ergebnisse), encoding="utf-8", newline="\n")
+ 
+ 
+@@ -579,5 +579,5 @@ def transkript_speichern(ordner: Path, recap_ein: dict) -> Path:
+     zeilen = [f"[{uhr(z['start'])}] {z['sprecher']}: {z['text']}" for z in recap_ein.get("transkript") or []]
+     pfad = ordner / "transkript.txt"
+-    pfad.write_text("\n".join(kopf) + "\n\n" + "\n".join(zeilen) + "\n", encoding="utf-8")
++    pfad.write_text("\n".join(kopf) + "\n\n" + "\n".join(zeilen) + "\n", encoding="utf-8", newline="\n")
+     return pfad
+ 
+diff --git a/app/probelauf.py b/app/probelauf.py
+index dbfd606..03fcc12 100644
+--- a/app/probelauf.py
++++ b/app/probelauf.py
+@@ -390,5 +390,5 @@ def sprecher_statistik(segmente: list[dict], namen: dict[str, str]) -> list[dict
+ def ausgabe_schreiben(ordner: Path, segmente: list[dict], namen: dict[str, str]) -> None:
+     absaetze = absaetze_bilden(segmente)
+-    with open(ordner / "transkript.txt", "w", encoding="utf-8") as f:
++    with open(ordner / "transkript.txt", "w", encoding="utf-8", newline="\n") as f:
+         for a in absaetze:
+             f.write(f"[{fmt_zeit(a['start'])}] {namen.get(a['speaker'], a['speaker'])}: {a['text']}\n\n")
+@@ -398,5 +398,5 @@ def ausgabe_schreiben(ordner: Path, segmente: list[dict], namen: dict[str, str])
+         for s in segmente
+     ]
+-    (ordner / "transkript.json").write_text(json.dumps(daten, ensure_ascii=False, indent=1), encoding="utf-8")
++    (ordner / "transkript.json").write_text(json.dumps(daten, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
+ 
+ 
+@@ -448,5 +448,5 @@ def bericht_schreiben(ordner: Path, *, quelle: Path, einst: dict, dauer_audio: f
+           "4. Ist eine Stimme in zwei aufgeteilt oder sind zwei Stimmen zusammengelegt?"]
+     text = "\n".join(z) + "\n"
+-    (ordner / "bericht.md").write_text(text, encoding="utf-8")
++    (ordner / "bericht.md").write_text(text, encoding="utf-8", newline="\n")
+     return text
+ 
+diff --git a/app/routers/voice_profile.py b/app/routers/voice_profile.py
+index c6fc1d7..0846bcd 100644
+--- a/app/routers/voice_profile.py
++++ b/app/routers/voice_profile.py
+@@ -7,4 +7,5 @@ import shutil
+ import subprocess
+ import tempfile
++from pathlib import Path
+ 
+ from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFile
+@@ -42,11 +43,12 @@ def _dauer(daten: bytes) -> float | None:
+     if shutil.which("ffprobe") is None:
+         return None
+-    with tempfile.NamedTemporaryFile(suffix=".audio") as f:
+-        f.write(daten)
+-        f.flush()
++    # Eigener Ordner statt NamedTemporaryFile: unter Windows darf ffprobe eine noch offene Datei nicht lesen
++    with tempfile.TemporaryDirectory() as ordner:
++        datei = Path(ordner) / "aufnahme.audio"
++        datei.write_bytes(daten)
+         from app.audio import EINGABE
+ 
+         res = subprocess.run(["ffprobe", "-v", "error", *EINGABE, "-show_entries", "format=duration", "-of", "csv=p=0",
+-                              f.name], capture_output=True, text=True, timeout=20)
++                              str(datei)], capture_output=True, text=True, timeout=20)
+     try:
+         return float(res.stdout.strip())
+diff --git a/app/sicherung.py b/app/sicherung.py
+index e21cbac..a358de5 100644
+--- a/app/sicherung.py
++++ b/app/sicherung.py
+@@ -16,4 +16,5 @@ import shutil
+ import sqlite3
+ import tempfile
++import time
+ import zipfile
+ from dataclasses import dataclass
+@@ -170,4 +171,16 @@ def pruefen(datei: Path) -> dict:
+ 
+ 
++def _beharrlich(aktion, *args, versuche: int = 20, **kwargs):
++    """Unter Windows halten Virenscanner und Indexdienst eine eben gelesene Datei oft kurz offen
++    (PermissionError). Dann ein paar Mal kurz warten statt mittendrin abzubrechen."""
++    for i in range(versuche):
++        try:
++            return aktion(*args, **kwargs)
++        except PermissionError:
++            if os.name != "nt" or i == versuche - 1:
++                raise
++            time.sleep(0.25)
++
++
+ def wiederherstellen(datei: Path) -> Path:
+     """Nur bei gestopptem Server aufrufen (chronik wiederherstellen). Vorher wird der jetzige Stand gesichert.
+@@ -180,6 +193,6 @@ def wiederherstellen(datei: Path) -> Path:
+             z.extractall(tmp)
+         for endung in ("", "-wal", "-shm"):
+-            (s.data_dir / f"chronik.db{endung}").unlink(missing_ok=True)
+-        os.replace(Path(tmp) / "chronik.db", s.data_dir / "chronik.db")
++            _beharrlich((s.data_dir / f"chronik.db{endung}").unlink, missing_ok=True)
++        _beharrlich(os.replace, Path(tmp) / "chronik.db", s.data_dir / "chronik.db")
+         for unter in ORDNER_IM_ZIP:
+             shutil.rmtree(s.data_dir / unter, ignore_errors=True)
+diff --git a/app/verwaltung/lokaler_worker.py b/app/verwaltung/lokaler_worker.py
+index ad77e11..48c9ba7 100644
+--- a/app/verwaltung/lokaler_worker.py
++++ b/app/verwaltung/lokaler_worker.py
+@@ -5,5 +5,6 @@
+ - Bei jedem Start bekommt er einen frischen Zugangsschlüssel. Das Geheimnis steht nirgends gespeichert, nur seine
+   Prüfsumme (wie bei allen Workern).
+-- Beenden per SIGINT: Der Worker meldet einen laufenden Auftrag zurück und räumt seinen Arbeitsordner auf.
++- Beenden per SIGINT (Windows: Strg+Untbr): Der Worker meldet einen laufenden Auftrag zurück und räumt seinen
++  Arbeitsordner auf.
+ - Soll er beim Serverstart mitstarten, steht das in server_meta („lokaler_worker“ = echt | attrappe | aus).
+ """
+@@ -99,12 +100,14 @@ class LokalerKnecht:
+             if self.logdatei.exists() and self.logdatei.stat().st_size > LOG_MAX:
+                 self.logdatei.unlink()
+-            log = open(self.logdatei, "a", encoding="utf-8")
++            log = open(self.logdatei, "a", encoding="utf-8", newline="\n")
+             log.write(f"\n===== {utcnow():%Y-%m-%d %H:%M} UTC – Start ({modus}) =====\n")
+             log.flush()
+             env = {**os.environ, "WORKER_TOKEN": f"wk.{w.id}.{geheim}", "PYTHONUNBUFFERED": "1",
+                    "WORKER_WORK_DIR": str(s.data_dir / "worker")}
++            # Eigene Prozessgruppe: unter Windows nur so lässt sich Strg+Untbr gezielt an den Worker schicken
++            gruppe = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" \
++                else {"start_new_session": True}
+             self._proc = subprocess.Popen(self._befehl(modus, s.worker_server_url), stdout=log,
+-                                          stderr=subprocess.STDOUT, env=env, cwd=os.getcwd(),
+-                                          start_new_session=True)
++                                          stderr=subprocess.STDOUT, env=env, cwd=os.getcwd(), **gruppe)
+             log.close()  # der Kindprozess hat seine eigene Kopie
+             self._modus, self._gestartet = modus, utcnow()
+@@ -115,7 +118,8 @@ class LokalerKnecht:
+             return
+         try:
+-            p.send_signal(signal.SIGINT)  # wie Strg+C: Auftrag zurückmelden, aufräumen
++            # wie Strg+C: Auftrag zurückmelden, aufräumen (Windows: Strg+Untbr, der Worker behandelt es gleich)
++            p.send_signal(signal.CTRL_BREAK_EVENT if os.name == "nt" else signal.SIGINT)
+             p.wait(timeout=warten)
+-        except subprocess.TimeoutExpired:
++        except (subprocess.TimeoutExpired, OSError):
+             p.kill()
+             p.wait(timeout=5)
+@@ -159,5 +163,5 @@ def eingebauten_worker_koppeln(db: Session) -> Path | None:
+     alt_umask = os.umask(0o077)
+     try:
+-        neu.write_text(f"wk.{w.id}.{geheim}\n", encoding="utf-8")
++        neu.write_text(f"wk.{w.id}.{geheim}\n", encoding="utf-8", newline="\n")
+     finally:
+         os.umask(alt_umask)
+diff --git a/app/woerterbuch.py b/app/woerterbuch.py
+index 3d25a6c..55eb230 100644
+--- a/app/woerterbuch.py
++++ b/app/woerterbuch.py
+@@ -108,5 +108,5 @@ def aktuell(sprache: str) -> bool:
+     try:
+         if FASSUNG in (ordner() / "QUELLE.txt").read_text(encoding="utf-8"):
+-            _stand_pfad(sprache).write_text(_soll(sprache), encoding="utf-8")
++            _stand_pfad(sprache).write_text(_soll(sprache), encoding="utf-8", newline="\n")
+             return True
+     except OSError:
+@@ -144,9 +144,9 @@ def herunterladen(sprache: str, klient=None) -> bool:
+         f.write("\n".join(sorted(set(behalten))))
+     neu.replace(pfad(sprache))
+-    _stand_pfad(sprache).write_text(_soll(sprache), encoding="utf-8")
++    _stand_pfad(sprache).write_text(_soll(sprache), encoding="utf-8", newline="\n")
+     (ordner() / "QUELLE.txt").write_text(
+         "Wortlisten: FrequencyWords von Hermit Dave (https://github.com/hermitdave/FrequencyWords), Fassung "
+         f"{FASSUNG}, aus OpenSubtitles 2018. Lizenz: CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). "
+-        f"Gekürzt auf Wörter mit mindestens {MIN_ANZAHL} Vorkommen, kleingeschrieben.\n", encoding="utf-8")
++        f"Gekürzt auf Wörter mit mindestens {MIN_ANZAHL} Vorkommen, kleingeschrieben.\n", encoding="utf-8", newline="\n")
+     log.info("Wortliste %s geladen: %d Wörter", sprache, len(set(behalten)))
+     return True
+diff --git a/tests/test_step1.py b/tests/test_step1.py
+index 14e1b80..7d56352 100644
+--- a/tests/test_step1.py
++++ b/tests/test_step1.py
+@@ -1,4 +1,6 @@
+ """Schritt 1: Anmeldung, Kampagnen, Sessions, Bibel, Fehlerformat, CORS.
+ Alle Antworten werden zusätzlich automatisch gegen die YAML geprüft (siehe conftest.py)."""
++import sys
++
+ import pytest
+ 
+@@ -71,5 +73,7 @@ def test_geheimnis_wird_selbst_erzeugt(monkeypatch, tmp_path):
+     erstes = config.get_settings().jwt_secret
+     check_settings()
+-    assert len(erstes) >= 32 and (tmp_path / "daten" / "geheimnis.txt").stat().st_mode & 0o777 == 0o600
++    assert len(erstes) >= 32
++    if sys.platform != "win32":  # Windows kennt keine Unix-Rechte; dort schützt der Nutzerordner
++        assert (tmp_path / "daten" / "geheimnis.txt").stat().st_mode & 0o777 == 0o600
+     config.get_settings.cache_clear()
+     assert config.get_settings().jwt_secret == erstes  # bleibt nach einem Neustart gleich
+diff --git a/tests/test_verwaltung.py b/tests/test_verwaltung.py
+index 65762a4..3de2da6 100644
+--- a/tests/test_verwaltung.py
++++ b/tests/test_verwaltung.py
+@@ -176,5 +176,8 @@ def test_eigener_worker_starten(client, dbs, admin, monkeypatch):
+     def ersatz(modus, server_url):
+         code = ("import os, signal, sys, time\n"
+-                "signal.signal(signal.SIGINT, lambda *a: (print('beendet', flush=True), sys.exit(0)))\n"
++                "ende = lambda *a: (print('beendet', flush=True), sys.exit(0))\n"
++                "signal.signal(signal.SIGINT, ende)\n"
++                "if hasattr(signal, 'SIGBREAK'):\n"
++                "    signal.signal(signal.SIGBREAK, ende)\n"
+                 f"print('start', {modus!r}, {server_url!r}, os.environ['WORKER_TOKEN'][:3], flush=True)\n"
+                 "time.sleep(60)\n")
+-- 
+2.43.0
