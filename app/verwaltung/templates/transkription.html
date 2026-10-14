@@ -19,7 +19,7 @@
   <p>{{ _("Läuft als eigener Container neben dem Server") }} ({{ _("nur Prozessor") if worker_art == "cpu" else _("Grafikkarte") }}).
     {% if k and k.online %}
       {% if k.w.paused %}<span class="marke-status marke-status--warten">{{ _("pausiert") }}</span>
-      {% elif k.job %}<span class="marke-status marke-status--gut">{{ _("arbeitet") }}</span>{% if k.sitzung %} – {{ k.kampagne.title if k.kampagne else "" }}, {{ _("Session {n}", n=k.sitzung.number) }}{% endif %}
+      {% elif k.job %}<span class="marke-status marke-status--gut">{{ _("arbeitet") }}</span>{% if k.sitzung %} – {{ k.kampagne.title if k.kampagne else "" }}, {{ _("Runde {n}", n=k.sitzung.number) }}{% endif %}
       {% else %}<span class="marke-status marke-status--gut">{{ _("bereit") }}</span>{% endif %}
     {% else %}<span class="marke-status marke-status--fehler">{{ _("nicht verbunden") }}</span>{% endif %}
   </p>
@@ -30,10 +30,10 @@
   <p class="leise">{{ _("Letzter Auftrag: {a} Minuten Aufnahme in {r} Minuten", a=(e.messung.audioSekunden / 60) | round(0) | int, r=(e.messung.rechenSekunden / 60) | round(1)) }}{% if e.messung.peakVramMb %}, {{ _("höchstens {gb} GB Grafikspeicher", gb=(e.messung.peakVramMb / 1024) | round(1)) }}{% endif %}{% if e.messung.modell %} ({{ e.messung.modell }}){% endif %}</p>
   {% endif %}
   {% if e.ollama %}
-  <p>{{ _("Lokale Recaps: Ollama läuft mit") }} ({{ _("nur Prozessor") if e.ollama == "cpu" else _("Grafikkarte") }}){% if e.llm_bereit %} · <span class="marke-status marke-status--gut">{{ _("vom Worker erkannt") }}</span>{% endif %}.
-    {% if e.llm_lokal %}{{ _("Recaps schreibt der Worker hier mit dem lokalen Sprachmodell.") }}
-    {% else %}<a href="/verwaltung/zusammenfassung">{{ _("Damit er Recaps schreibt, unter „Zusammenfassung“ „Lokales Modell“ wählen.") }}</a>{% endif %}</p>
-  <p class="hilfe">{{ _("Das Sprachmodell (etwa 5 GB) lädt der Worker beim ersten Recap. Transkription und Recap wechseln sich auf der Grafikkarte ab; reicht der Grafikspeicher nicht für beides, rechnet Ollama teilweise mit dem Prozessor – langsamer, aber es geht.") }}</p>
+  <p>{{ _("Lokale Kapitel: Ollama läuft mit") }} ({{ _("nur Prozessor") if e.ollama == "cpu" else _("Grafikkarte") }}){% if e.llm_bereit %} · <span class="marke-status marke-status--gut">{{ _("vom Worker erkannt") }}</span>{% endif %}.
+    {% if e.llm_lokal %}{{ _("Kapitel schreibt der Worker hier mit dem lokalen Sprachmodell.") }}
+    {% else %}<a href="/verwaltung/zusammenfassung">{{ _("Damit er Kapitel schreibt, unter „Zusammenfassung“ „Lokales Modell“ wählen.") }}</a>{% endif %}</p>
+  <p class="hilfe">{{ _("Das Sprachmodell (etwa 5 GB) lädt der Worker beim ersten Kapitel. Transkription und Kapitel wechseln sich auf der Grafikkarte ab; reicht der Grafikspeicher nicht für beides, rechnet Ollama teilweise mit dem Prozessor – langsamer, aber es geht.") }}</p>
   {% endif %}
   <form class="formular" method="post" action="/verwaltung/worker/eingebaut">
     <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -236,7 +236,7 @@
   {% else %}
   <p><span class="marke-status">{{ _("aus") }}</span> {{ _("Aufnahmen werden nur von eigenen Workern transkribiert.") }}</p>
   {% endif %}
-  <p>{{ _("Greift nur, wenn eine Session länger als die Wartezeit wartet, in dieser Zeit kein Worker erreichbar war und die SL es für die Kampagne erlaubt hat ({n} Kampagne(n) erlauben es). Kosten etwa {cent} Cent pro Stunde Aufnahme.", n=ext.kampagnen, cent="%.0f"|format(ext.cent * 60)) }}</p>
+  <p>{{ _("Greift nur, wenn eine Runde länger als die Wartezeit wartet, in dieser Zeit kein Worker erreichbar war und die SL es für die Kampagne erlaubt hat ({n} Kampagne(n) erlauben es). Kosten etwa {cent} Cent pro Stunde Aufnahme.", n=ext.kampagnen, cent="%.0f"|format(ext.cent * 60)) }}</p>
   <form class="formular" method="post" action="/verwaltung/transkription/extern">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label>{{ _("Anbieter") }}

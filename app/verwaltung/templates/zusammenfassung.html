@@ -2,21 +2,21 @@
 {% block titel %}{{ _("Zusammenfassung") }}{% endblock %}
 {% block inhalt %}
 <h1>{{ _("Zusammenfassung") }}</h1>
-<p class="leise">{{ _("Wer aus dem Transkript Recap und Bibel-Vorschläge schreibt. Die Spielleitung prüft beides vor dem Veröffentlichen.") }}</p>
+<p class="leise">{{ _("Wer aus der Abschrift Kapitel und Bibel-Vorschläge schreibt. Die Spielleitung prüft beides vor dem Veröffentlichen.") }}</p>
 {% set k = llm.k %}
 <div class="karte">
   <h2>{{ _("Stand") }}</h2>
   {% if k.art == "api" %}
     {% if k.api_key %}<p><span class="marke-status marke-status--gut">{{ _("Cloud-API") }}</span> {{ k.api_modell }} · {{ k.api_url }}</p>
     {% else %}<p><span class="marke-status marke-status--fehler">{{ _("nicht aktiv") }}</span> {{ _("Es fehlt der API-Schlüssel.") }}</p>{% endif %}
-    {% if llm.je_session is not none %}<p>{{ _("Kosten etwa {cent} Cent pro 4-Stunden-Session.", cent="%.0f"|format(llm.je_session) if llm.je_session >= 1 else "%.1f"|format(llm.je_session)) }}</p>{% endif %}
+    {% if llm.je_session is not none %}<p>{{ _("Kosten etwa {cent} Cent pro Runde von 4 Stunden.", cent="%.0f"|format(llm.je_session) if llm.je_session >= 1 else "%.1f"|format(llm.je_session)) }}</p>{% endif %}
   {% elif k.art == "lokal" %}
     {% if llm.worker_online %}<p><span class="marke-status marke-status--gut">{{ _("Lokales Modell") }}</span> {{ _("nach Grafikkarte") if k.lokal_modell == "auto" else k.lokal_modell }}</p>
-    {% else %}<p><span class="marke-status marke-status--warten">{{ _("Lokales Modell") }}</span> {{ _("Zurzeit ist kein Worker mit Sprachmodell verbunden – Sessions warten.") }}</p>{% endif %}
+    {% else %}<p><span class="marke-status marke-status--warten">{{ _("Lokales Modell") }}</span> {{ _("Zurzeit ist kein Worker mit Sprachmodell verbunden – Runden warten.") }}</p>{% endif %}
   {% elif k.art == "attrappe" %}
     <p><span class="marke-status marke-status--warten">{{ _("Testmodus") }}</span> {{ _("Platzhaltertext statt echter Zusammenfassung (zum Testen).") }}</p>
   {% else %}
-    <p><span class="marke-status marke-status--fehler">{{ _("aus") }}</span> {{ _("Sessions warten nach der Stimmzuordnung, bis die Zusammenfassung eingeschaltet wird.") }}</p>
+    <p><span class="marke-status marke-status--fehler">{{ _("aus") }}</span> {{ _("Runden warten nach der Stimmzuordnung, bis die Zusammenfassung eingeschaltet wird.") }}</p>
   {% endif %}
 </div>
 
@@ -93,14 +93,14 @@
       <label>{{ _("Modell in Ollama") }} <input type="text" name="lokal_modell" value="{{ k.lokal_modell }}" maxlength="100" required>
         <span class="hilfe">{{ _("Empfohlen: auto – jeder Worker wählt nach seiner Grafikkarte (unter 12 GB gemma4:e4b, ab 12 GB gemma4:12b) und lädt das Modell beim ersten Auftrag selbst herunter.") }}</span></label>
       <label>{{ _("Höchste Kontextgröße (Tokens)") }} <input type="number" name="lokal_kontext" value="{{ k.lokal_kontext }}" min="4096" max="262144" step="1024">
-        <span class="hilfe">{{ _("Nur für ein fest eingetragenes Modell. Der Kontext richtet sich nach der Länge der Session, höchstens dieser Wert.") }}</span></label>
+        <span class="hilfe">{{ _("Nur für ein fest eingetragenes Modell. Der Kontext richtet sich nach der Länge der Runde, höchstens dieser Wert.") }}</span></label>
     </fieldset>
 
     <fieldset>
       <legend>{{ _("Prüfung") }}</legend>
       <input type="hidden" name="gegenpruefen_feld" value="1">
-      <label class="haken"><input type="checkbox" name="gegenpruefen" value="1"{% if llm.gegenpruefen %} checked{% endif %}> {{ _("Recap gegenprüfen") }}</label>
-      <p class="hilfe">{{ _("Ein zweiter Durchgang des Sprachmodells prüft jeden Absatz gegen das Transkript, bessert Unbelegtes einmal nach und zeigt der Spielleitung vor der Freigabe, worauf sich jeder Absatz stützt. Kostet etwa ein Drittel mehr Rechenzeit.") }}</p>
+      <label class="haken"><input type="checkbox" name="gegenpruefen" value="1"{% if llm.gegenpruefen %} checked{% endif %}> {{ _("Kapitel gegenprüfen") }}</label>
+      <p class="hilfe">{{ _("Ein zweiter Durchgang des Sprachmodells prüft jeden Absatz gegen die Abschrift, bessert Unbelegtes einmal nach und zeigt der Spielleitung vor der Freigabe, worauf sich jeder Absatz stützt. Kostet etwa ein Drittel mehr Rechenzeit.") }}</p>
       <label class="haken"><input type="checkbox" name="zweiter_blick" value="1"{% if llm.zweiter_blick %} checked{% endif %}> {{ _("Entscheidende Ereignisse vor dem Schreiben an der Abschrift prüfen") }}</label>
       <p class="hilfe">{{ _("Gilt für den Weg „Erst Notizen“: Die wichtigsten Ereignisse werden noch einmal gegen den Wortlaut der Abschrift gehalten, bevor das Kapitel entsteht. Was dabei nicht eindeutig ist, bleibt im Kapitel vage und wird der Spielleitung gezeigt. Kostet etwa 3 Cent je Kapitel.") }}</p>
       <fieldset><legend>{{ _("Prüfansicht für die Spielleitung") }}</legend>
@@ -128,7 +128,7 @@
   </div>
   {% endif %}
   {% endif %}
-  <p class="hilfe">{{ _("Cloud-API: Das Transkript geht an den Anbieter. Dafür braucht es einen Vertrag zur Auftragsverarbeitung und einen Absatz im Datenschutzhinweis. Lokales Modell: Die Daten bleiben in eurer eigenen Infrastruktur, kleinere Modelle liefern aber schwächere Recaps.") }}</p>
+  <p class="hilfe">{{ _("Cloud-API: Die Abschrift geht an den Anbieter. Dafür braucht es einen Vertrag zur Auftragsverarbeitung und einen Absatz im Datenschutzhinweis. Lokales Modell: Die Daten bleiben in eurer eigenen Infrastruktur, kleinere Modelle liefern aber schwächere Kapitel.") }}</p>
 </div>
 
 <div class="karte">
