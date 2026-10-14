@@ -493,7 +493,8 @@ index 4c0c4a0..094919e 100644
 @@ -113,5 +113,5 @@ def test_serverfassung_beim_koppeln(client, dbs):
      dbs.commit()
      r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
-     assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.88"
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.87"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.88"
  
  
 diff --git a/uv.lock b/uv.lock
