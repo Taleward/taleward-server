@@ -66,6 +66,18 @@ MESSAGES: dict[str, tuple[str, str]] = {
                                       "Prüfung wartet.",
                                       "Proposals can only be reviewed and applied while the document is awaiting review."),
     "not_found.document": ("Die Unterlage wurde nicht gefunden.", "Document not found."),
+    # Charakterbögen und Hintergründe auswerten (0.4.18)
+    "not_found.analysis": ("Diese Auswertung wurde nicht gefunden.", "This analysis was not found."),
+    "analysis_off": ("In dieser Kampagne werden Charakterbögen und Hintergründe nicht ausgewertet. Das schaltet die SL "
+                     "unter „Kampagne verwalten“ ein.",
+                     "Character sheets and backstories are not analysed in this campaign. The GM can turn this on "
+                     "under “Manage campaign”."),
+    "backstory_empty": ("Dein Hintergrund ist noch leer. Schreib erst etwas hinein.",
+                        "Your backstory is still empty. Write something first."),
+    "analysis_pending": ("Dein Hintergrund liegt schon zur Auswertung bereit. Warte, bis sie fertig ist.",
+                         "Your backstory is already waiting to be analysed. Wait until that is done."),
+    "wrong_state.analysis": ("Über diese Auswertung ist schon entschieden.",
+                             "This analysis has already been decided."),
     # Kapitelplan (0.4.12)
     "not_found.plan": ("Der Kapitelplan wurde nicht gefunden.", "Chapter plan not found."),
     "invalid_input": ("Die Eingabe passt nicht zu dieser Kampagne.", "The input doesn't match this campaign."),

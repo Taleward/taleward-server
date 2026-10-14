@@ -97,6 +97,8 @@ class Campaign(Base):
     allow_external_transcription: Mapped[bool] = mapped_column(Boolean, default=False)
     # 0.3.10: Recap/Vorschläge (und Unterlagen) über die Cloud-API nur, wenn die SL es erlaubt
     allow_cloud_summary: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # 0.4.18: Mitglieder dürfen Charakterbogen und Hintergrund auswerten lassen (jede Auswertung mit Zustimmung der SL)
+    allow_character_analysis: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     # 0.4.6: Namenshilfe der SL als JSON {"extra": [], "entfernt": [], "ignoriert": []} (app/namenshilfe.py)
     namenshilfe: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 0.4.8: aus einer Umzugsdatei angelegt – Platzhalter-Mitglied der importierenden SL bis „Das bin ich“
@@ -408,6 +410,8 @@ class Job(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 0.4.85 (Abrechnung): Die SL hat den Auftrag über ihrem Betrag für „Verarbeiten“ freigegeben
     kosten_freigegeben_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # 0.4.18: Auswertung eines Charakterbogens bzw. Hintergrunds (Art „document“, ohne document_id)
+    analysis_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
 
 
 # ---------------------------------------------------------------- Ergebnis der Transkription
@@ -453,6 +457,7 @@ class UsageLog(Base):
     campaign_id: Mapped[str] = mapped_column(String(36), index=True)
     session_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     document_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    analysis_id: Mapped[str | None] = mapped_column(String(36), nullable=True)  # 0.4.18
     kind: Mapped[str] = mapped_column(String(16))  # transcription | summary | document
     engine: Mapped[str] = mapped_column(String(16), default="local")
     model: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -516,6 +521,8 @@ class Proposal(Base):
     origin_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     submitted_by_member_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     decided_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # 0.4.18: bei source character aus einer Auswertung (Charakterbogen oder Hintergrund); None = mitgebrachte Welt
+    analysis_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
 
 
 class GmNotice(Base):
@@ -528,6 +535,30 @@ class GmNotice(Base):
     member_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     entry_ids: Mapped[str] = mapped_column(Text, default="[]")  # JSON-Liste
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    analysis_id: Mapped[str | None] = mapped_column(String(36), nullable=True)  # 0.4.18: character_analysis_pending
+
+
+class CharacterAnalysis(Base):
+    """Auswertung eines Charakterbogens oder Hintergrunds (Schnittstelle 0.4.18, app/charakterauswertung.py).
+    Wartet zuerst auf die Zustimmung der SL. Der auszuwertende Text liegt nur bis zum Ende der Auswertung hier
+    (`abschnitte`, beim Hintergrund der Stand zum Zeitpunkt der Anfrage). Geht beim Umzug nicht mit."""
+
+    __tablename__ = "character_analyses"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    campaign_id: Mapped[str] = mapped_column(ForeignKey("campaigns.id", ondelete="CASCADE"), index=True)
+    member_id: Mapped[str] = mapped_column(String(36), index=True)
+    source: Mapped[str] = mapped_column(String(16))  # sheet | backstory
+    document_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String(300))
+    # awaiting_gm | rejected | queued | processing | done | failed
+    state: Mapped[str] = mapped_column(String(16), default="awaiting_gm", index=True)
+    uses_cloud: Mapped[bool] = mapped_column(Boolean, default=False)
+    page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pages_limited: Mapped[bool] = mapped_column(Boolean, default=False)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON-Schlüssel wie status_message
+    abschnitte: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON [{seite, text}] bis zum Ende
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    decided_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 # ---------------------------------------------------------------- Umzug (0.4.8)
@@ -726,6 +757,7 @@ class KostenAuftrag(Base):
     campaign_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     session_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     document_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    analysis_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)  # 0.4.18
     schaetzung_cent: Mapped[int] = mapped_column(Integer, default=0)
     zustand: Mapped[str] = mapped_column(String(16), default="laeuft")  # laeuft | abgerechnet
     betrag_cent: Mapped[int | None] = mapped_column(Integer, nullable=True)

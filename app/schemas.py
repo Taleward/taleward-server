@@ -258,6 +258,7 @@ class CampaignOut(CampaignSummaryOut):
     world_info: str | None
     allow_external_transcription: bool
     allow_cloud_summary: bool = False
+    allow_character_analysis: bool = False  # 0.4.18
     hotwords: list[str] | None = None  # 0.4.6: nur für die SL, für Spieler weggelassen
     links: list[Link] = []  # 0.4.13: Spieler nur shared
     gm_notices: list["GmNoticeOut"] | None = None  # 0.4.7: nur für die SL, für Spieler weggelassen
@@ -266,10 +267,34 @@ class CampaignOut(CampaignSummaryOut):
 
 class GmNoticeOut(ApiModel):
     id: str
-    code: Literal["hidden_entries_for_newcomer", "seat_claimed", "character_orphaned", "member_joined"]
+    code: Literal["hidden_entries_for_newcomer", "seat_claimed", "character_orphaned", "member_joined",
+                  "character_analysis_pending"]
+    analysis_id: str | None = None  # 0.4.18, bei character_analysis_pending
     member_id: str | None
     entry_ids: list[str]
     created_at: datetime
+
+
+class CharacterAnalysisOut(ApiModel):
+    """0.4.18: Auswertung eines Charakterbogens oder Hintergrunds. proposalCount nur für die SL."""
+    id: str
+    campaign_id: str
+    member_id: str
+    source: Literal["sheet", "backstory"]
+    document_id: str | None
+    title: str
+    state: Literal["awaiting_gm", "rejected", "queued", "processing", "done", "failed"]
+    uses_cloud: bool
+    page_count: int | None
+    pages_limited: bool
+    message: str | None
+    proposal_count: int | None
+    created_at: datetime
+    decided_at: datetime | None
+
+
+class AnalysisDecisionIn(ApiModel):
+    approve: bool
 
 
 class CharacterIn(ApiModel):
@@ -329,6 +354,7 @@ class CampaignPatch(ApiModel):
     cover_preset: CoverPreset | None = None
     allow_external_transcription: bool | None = None
     allow_cloud_summary: bool | None = None
+    allow_character_analysis: bool | None = None  # 0.4.18
     archived: bool | None = None
     hotwords: list[Annotated[str, Field(max_length=40)]] | None = Field(default=None, max_length=200)
     links: list[Link] | None = Field(default=None, max_length=20)  # 0.4.13: ganze Liste ersetzen
@@ -545,6 +571,7 @@ class ProposalOut(ApiModel):
     origin_character_id: str | None = None
     origin_entry_id: str | None = None
     submitted_by_member_id: str | None = None
+    analysis_id: str | None = None  # 0.4.18
     entry_type: EntryType
     action: Literal["create", "update", "reveal"]
     target_entry_id: str | None
@@ -709,6 +736,7 @@ class CampaignDocumentOut(ApiModel):
     open_proposal_count: int
     world_info_suggestion: str | None
     uploaded_by_member_id: str | None = None  # 0.4.7
+    analysis_id: str | None = None  # 0.4.18, nur bei character_sheet
     created_at: datetime
 
 
