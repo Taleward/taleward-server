@@ -169,6 +169,7 @@ def verarbeiten(db: Session, job: Job, klient: MistralKlient | None = None) -> N
                 wav = arbeit / f"spur-{nr}.wav"
                 audio.zusammenfuegen([pfad], wav)
                 gesamt = max(gesamt, audio.dauer(wav))
+                _laenge_pruefen(db, gesamt)
                 spur = []
                 for teil, versatz in _teile(wav, arbeit, k.max_sekunden):
                     antwort = klient.transkribieren(teil, False, hotwords)
@@ -182,6 +183,7 @@ def verarbeiten(db: Session, job: Job, klient: MistralKlient | None = None) -> N
             wav = arbeit / "gesamt.wav"
             audio.zusammenfuegen([p for _, p in dateien], wav)
             gesamt = audio.dauer(wav)
+            _laenge_pruefen(db, gesamt)
             roh = []
             for nr, (teil, versatz) in enumerate(_teile(wav, arbeit, k.max_sekunden)):
                 antwort = klient.transkribieren(teil, True, hotwords)
@@ -215,6 +217,16 @@ def verarbeiten(db: Session, job: Job, klient: MistralKlient | None = None) -> N
                      f"{type(e).__name__}: {e}"[:300], True)
     finally:
         shutil.rmtree(arbeit, ignore_errors=True)
+
+
+def _laenge_pruefen(db: Session, sekunden: float) -> None:
+    """0.4.94 (M2): Vor jedem Aufruf beim Anbieter – mit Abrechnung nie mehr als die feste Obergrenze je Runde, was auch
+    immer die Messung beim Hochladen ergeben hat."""
+    from app import abrechnung
+
+    if abrechnung.an(db) and sekunden > abrechnung.MAX_AUFNAHME_SEKUNDEN:
+        raise AudioFehler("recording_too_long", f"Die Aufnahme ist länger als "
+                          f"{abrechnung.MAX_AUFNAHME_SEKUNDEN // 3600} Stunden ({sekunden / 3600:.1f} h).")
 
 
 def _verbrauch_festhalten(db: Session, campaign_id: str, session_id: str, sekunden: float, k) -> None:

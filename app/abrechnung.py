@@ -278,7 +278,7 @@ def menge_nachtragen(db: Session, job: Job, sekunden: float | None) -> None:
     k = db.get(KostenAuftrag, job.id)
     if k is None or k.zustand != "laeuft" or k.art != "transcribe" or not sekunden or sekunden <= 0:
         return
-    k.menge = max(k.menge or 0, int(math.ceil(min(float(sekunden), 24 * 3600))))
+    k.menge = max(k.menge or 0, int(math.ceil(float(sekunden))))  # 0.4.94 (M2): ohne Kappung – zählt, was verarbeitet ist
 
 
 def menge(db: Session, job: Job) -> int:

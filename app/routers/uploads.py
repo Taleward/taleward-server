@@ -162,10 +162,11 @@ async def put_chunk(
         raise errors.bad_request("chunk_size_mismatch", index=index, got=len(data), expected=erwartet)
     if x_chunk_sha256 and hashlib.sha256(data).hexdigest() != x_chunk_sha256.strip().lower():
         raise errors.bad_request("chunk_checksum_mismatch", index=index)
-    db.refresh(up)
-    if up.state != "open":  # 0.4.91: inzwischen abgeschlossen oder in Messung – nichts mehr tauschen
-        raise errors.conflict("upload_closed")
-    storage.write_atomic(storage.chunk_path(up.id, f.id, index), data)
+    with _SCHREIBEN:  # 0.4.94: Prüfung und Schreiben zusammen, damit die Messung nie einen halben Tausch sieht
+        db.refresh(up)
+        if up.state != "open":  # 0.4.91: inzwischen abgeschlossen oder in Messung – nichts mehr tauschen
+            raise errors.conflict("upload_closed")
+        storage.write_atomic(storage.chunk_path(up.id, f.id, index), data)
     return Response(status_code=204)
 
 
@@ -186,6 +187,8 @@ def upload_status(uploadId: str, user: User = Depends(current_user), db: Session
 _LAEUFT = object()
 _IN_MESSUNG: set[str] = set()
 _MESSUNG_SPERRE = threading.Lock()
+_SCHREIBEN = threading.Lock()  # 0.4.94: Prüfen und Schreiben eines Teils und der Wechsel auf „measuring“ schließen sich aus
+_MESSPLAETZE = threading.BoundedSemaphore(2)  # höchstens zwei Messungen zugleich (Dekodieren kostet Rechenzeit)
 
 
 def _messen(db: Session, up: Upload):
@@ -199,14 +202,21 @@ def _messen(db: Session, up: Upload):
             return _LAEUFT
         _IN_MESSUNG.add(up.id)
     try:
-        up.state = "measuring"
-        db.commit()
+        with _SCHREIBEN:
+            up.state = "measuring"
+            db.commit()
+        if not _MESSPLAETZE.acquire(timeout=600):
+            up.state = "open"
+            db.commit()
+            raise errors.ApiError(429, "too_many_requests")
         try:
             return abrechnung.aufnahme_messen(up)
         except Exception:
             up.state = "open"
             db.commit()
             raise
+        finally:
+            _MESSPLAETZE.release()
     finally:
         with _MESSUNG_SPERRE:
             _IN_MESSUNG.discard(up.id)

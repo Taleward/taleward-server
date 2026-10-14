@@ -1036,6 +1036,49 @@ def nehmen(db: Session, c: Campaign, ich: Member, platz: Member) -> None:
     c.imported_by_member_id = None
 
 
+# 0.4.94 (S32): Was der Person gehört, nicht der Figur – geht beim Freigeben an ein „Ehemaliges Mitglied“
+_PRIVAT = (
+    (Comment, "author_member_id"), (Comment, "recipient_member_id"), (Proposal, "submitted_by_member_id"),
+    (CampaignDocument, "uploaded_by_member_id"), (CharacterAnalysis, "member_id"), (Entry, "origin_member_id"),
+    (DateOption, "proposed_by_member_id"),
+)
+
+
+def _privates_abloesen(db: Session, platz: Member) -> Member:
+    """Platz freigeben: Die Figur (Name, Bild, öffentliche Angaben, Anwesenheit, was sie weiß) bleibt am Platz. Was die
+    Person selbst eingebracht hat – Hintergrund, Charakterbögen und ihre Auswertungen, Kommentare (auch private), die
+    Herkunft der mitgebrachten Welt, eigene Vorschläge – hängt danach an einem „Ehemaligen Mitglied“ ohne Konto. Wer den
+    Platz einnimmt, sieht davon nichts; Geheimes, das nur die Person kannte, wird für den Platz verborgen."""
+    from app import charakterauswertung
+
+    ehemalig = Member(campaign_id=platz.campaign_id, user_id=None, role="player", joined_at=platz.joined_at,
+                      left_at=utcnow())
+    db.add(ehemalig)
+    db.flush()
+    # Geheimes, das die Person mitgebracht hat (geheime mitgebrachte Welt, Auswertungen): für den Platz verbergen
+    betroffen = []
+    for e in db.scalars(select(Entry).where(Entry.campaign_id == platz.campaign_id,
+                                            Entry.origin_member_id == platz.id, Entry.visibility == "public")):
+        if (e.hidden_member_ids or e.origin_analysis_id) and platz.id not in e.hidden_member_ids:
+            e.hidden_from.append(EntryHidden(entry_id=e.id, member_id=platz.id))
+            betroffen.append(e.id)
+    for p in db.scalars(select(Proposal).where(Proposal.campaign_id == platz.campaign_id, Proposal.decision == "open",
+                                               Proposal.submitted_by_member_id == platz.id)):
+        ids = json.loads(p.hidden_member_ids_json or "[]")
+        if (ids or p.analysis_id) and platz.id not in ids:
+            p.hidden_member_ids_json = json.dumps(sorted(set(ids) | {platz.id}))
+    for modell, feld in _PRIVAT:
+        spalte = getattr(modell, feld)
+        db.execute(update(modell).where(spalte == platz.id).values({feld: ehemalig.id}))
+    platz.character_backstory = None
+    db.flush()
+    charakterauswertung.mitglied_weg(db, ehemalig.id)  # Offenes entfällt samt Text; Laufendes endet ohne Vorschläge
+    if betroffen:
+        db.add(GmNotice(campaign_id=platz.campaign_id, code="hidden_entries_for_newcomer", member_id=platz.id,
+                        entry_ids=json.dumps(sorted(betroffen))))
+    return ehemalig
+
+
 def freigeben(db: Session, platz: Member) -> None:
     """Eingenommenen Platz wieder öffnen: Die Person verliert den Zugriff, ihre Einwilligungen enden."""
     from app.access import aktive_sl_anzahl
@@ -1047,6 +1090,7 @@ def freigeben(db: Session, platz: Member) -> None:
         raise errors.conflict("last_gm")
     set_recording_consent(db, platz, False)
     set_move_consent(db, platz, False)
+    _privates_abloesen(db, platz)  # 0.4.94 (S32)
     platz.user_id, platz.open_seat, platz.role = None, True, "player"
     platz.chronicle_seen_at = platz.bible_seen_at = None
     db.execute(SessionSeen.__table__.delete().where(SessionSeen.member_id == platz.id))

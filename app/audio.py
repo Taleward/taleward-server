@@ -58,7 +58,8 @@ EINGABE = ["-protocol_whitelist", "file,pipe", "-format_whitelist", FORMATE]
 
 def dekodieren(quelle: Path) -> bytes:
     """Eine Datei zu 16 kHz mono, 16 bit PCM (roh)."""
-    res = ffmpeg(["-hide_banner", "-loglevel", "error", *EINGABE, "-i", str(quelle),
+    # 0.4.94 (M2): immer die erste Tonspur – nie mehr, als `dauer_dekodiert` gemessen hat (die längste Spur)
+    res = ffmpeg(["-hide_banner", "-loglevel", "error", *EINGABE, "-i", str(quelle), "-map", "0:a:0",
                   "-ac", "1", "-ar", str(SAMPLE_RATE), "-f", "s16le", "-acodec", "pcm_s16le", "-"],
                  _zeitgrenze(quelle))
     if res.returncode != 0 or not res.stdout:
@@ -123,16 +124,42 @@ def dauer_datei(datei: Path, gruendlich: bool = False) -> float | None:
     return wert
 
 
-def dauer_dekodiert(datei: Path) -> float | None:
-    """Länge durch Dekodieren der ersten Tonspur (ohne Ausgabe). Langsamer, aber unabhängig von den Angaben im Kopf."""
-    try:
-        res = ffmpeg(["-hide_banner", "-loglevel", "error", *EINGABE, "-i", str(datei), "-map", "0:a:0", "-f", "null",
-                      "-progress", "pipe:1", "-"], 900)
-    except (AudioFehler, OSError):
+MAX_TONSPUREN = 8  # mehr Tonspuren in einer Datei hat keine Aufnahme – solche Dateien gelten als nicht messbar
+
+
+def _tonspuren(datei: Path) -> int | None:
+    programm = shutil.which("ffprobe")
+    if not programm:
         return None
-    zeiten = [int(z.split("=", 1)[1]) for z in res.stdout.decode(errors="replace").splitlines()
-              if z.startswith("out_time_us=") and z.split("=", 1)[1].strip().isdigit()]
-    return max(zeiten) / 1_000_000 if zeiten and max(zeiten) > 0 else None
+    extra = {"creationflags": 0x08000000} if sys.platform == "win32" else {}
+    try:
+        res = subprocess.run([programm, "-v", "error", *EINGABE, "-select_streams", "a", "-show_entries",
+                              "stream=index", "-of", "csv=p=0", str(datei)],
+                             capture_output=True, stdin=subprocess.DEVNULL, timeout=120, **extra)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    return len([z for z in res.stdout.decode(errors="replace").splitlines() if z.strip()])
+
+
+def dauer_dekodiert(datei: Path) -> float | None:
+    """Länge durch Dekodieren (ohne Ausgabe), unabhängig von den Angaben im Kopf. 0.4.94 (M2): jede Tonspur wird
+    gemessen und die längste zählt – welche Spur später verarbeitet wird, ist damit gleich (`dekodieren` nimmt die
+    erste). Ohne ffprobe nur die erste Spur."""
+    anzahl = _tonspuren(datei)
+    if anzahl is not None and (anzahl == 0 or anzahl > MAX_TONSPUREN):
+        return None
+    laengen = []
+    for nr in range(anzahl or 1):
+        try:
+            res = ffmpeg(["-hide_banner", "-loglevel", "error", *EINGABE, "-i", str(datei), "-map", f"0:a:{nr}",
+                          "-f", "null", "-progress", "pipe:1", "-"], 900)
+        except (AudioFehler, OSError):
+            return None
+        zeiten = [int(z.split("=", 1)[1]) for z in res.stdout.decode(errors="replace").splitlines()
+                  if z.startswith("out_time_us=") and z.split("=", 1)[1].strip().isdigit()]
+        if zeiten and max(zeiten) > 0:
+            laengen.append(max(zeiten) / 1_000_000)
+    return max(laengen) if laengen else None
 
 
 def hoerprobe(wav: Path, start: float, laenge: float, ziel: Path) -> bytes:
