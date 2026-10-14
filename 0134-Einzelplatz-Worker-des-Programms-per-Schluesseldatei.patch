@@ -1,0 +1,386 @@
+From 7bed4c3907d557f7420c93d6a0f391f01ce1345d Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 17:58:28 +0200
+Subject: [PATCH 134/135] Einzelplatz: Worker des Programms per
+ Schluesseldatei, geordnetes Beenden
+
+---
+ app/cli.py                                  |   3 +-
+ app/config.py                               |   6 +
+ app/einzelplatz.py                          |  39 +++++++
+ app/main.py                                 |  15 ++-
+ app/verwaltung/i18n.py                      |   4 +
+ app/verwaltung/lokaler_worker.py            |  29 ++++-
+ app/verwaltung/router.py                    |  16 ++-
+ app/verwaltung/templates/transkription.html |  16 ++-
+ docs/BETRIEB.md                             |   5 +-
+ tests/test_server_0496.py                   | 115 ++++++++++++++++++++
+ 10 files changed, 241 insertions(+), 7 deletions(-)
+ create mode 100644 tests/test_server_0496.py
+
+diff --git a/app/cli.py b/app/cli.py
+index b16a960..3e04615 100644
+--- a/app/cli.py
++++ b/app/cli.py
+@@ -1100,6 +1100,7 @@ def einzelplatz(port: int = typer.Option(8000)):
+     get_settings.cache_clear()
+     # Proxy-Kopfzeilen nie auswerten: die echte Absenderadresse entscheidet, ob eine Anfrage vom PC selbst kommt
++    # Ohne Zugriffsprotokoll: Es stünden Adressen mit Download-Schlüsseln darin, und das Programm fragt laufend nach
+     uvicorn.run("app.main:app", host="0.0.0.0", port=port, proxy_headers=False, forwarded_allow_ips="",
+-                server_header=False)
++                server_header=False, access_log=False)
+ 
+ 
+diff --git a/app/config.py b/app/config.py
+index a7c8671..b89083c 100644
+--- a/app/config.py
++++ b/app/config.py
+@@ -83,4 +83,10 @@ class Settings(BaseSettings):
+     taleward_einzelplatz: bool = False
+     einzelplatz_port: int = 8000
++    # Worker des Programms: Der Server schreibt bei jedem Start einen frischen Schlüssel in diese Datei (nur für den
++    # Windows-Nutzer lesbar) und startet selbst keinen Worker. Gesetzt vom Programm, nur im Einzelplatz wirksam.
++    einzelplatz_worker_datei: Path | None = None
++    # Liegt diese Datei, fährt der Server geordnet herunter (das Programm hat unter Windows kein Konsolenfenster, an
++    # das es Strg+C schicken könnte). Nur im Einzelplatz wirksam.
++    einzelplatz_stopp_datei: Path | None = None
+     update_check: bool = True
+     update_app_repo: str = "Taleward/taleward-app"
+diff --git a/app/einzelplatz.py b/app/einzelplatz.py
+index 17aadb4..0e3c088 100644
+--- a/app/einzelplatz.py
++++ b/app/einzelplatz.py
+@@ -65,4 +65,10 @@ def port() -> int:
+ 
+ 
++def programm_worker() -> bool:
++    """Gehört der Worker zum Programm (Schlüsseldatei), statt dass der Server selbst einen startet?"""
++    s = get_settings()
++    return s.taleward_einzelplatz and s.einzelplatz_worker_datei is not None
++
++
+ def standard_datenordner() -> Path:
+     """Datenordner im Benutzerordner: unter Windows %LOCALAPPDATA%\\Taleward\\Daten (nur für den Windows-Nutzer)."""
+@@ -226,4 +232,37 @@ async def _antwort(scope, receive, send, status: int, ort: str | None = None) ->
+ 
+ 
++# ---------------------------------------------------------------- Geordnet beenden (Programm)
++def _stopp_signal() -> None:
++    import signal
++
++    signal.raise_signal(signal.SIGINT)  # wie Strg+C: uvicorn fährt geordnet herunter
++
++
++def stopp_waechter_starten(takt: float = 1.0) -> threading.Event | None:
++    """EINZELPLATZ_STOPP_DATEI: Legt das Programm die Datei an, löscht der Server sie und beendet sich geordnet."""
++    datei = get_settings().einzelplatz_stopp_datei
++    if not an() or datei is None:
++        return None
++    try:
++        datei.unlink(missing_ok=True)  # eine alte Datei vom letzten Mal gilt nicht
++    except OSError:
++        pass
++    ende = threading.Event()
++
++    def schleife():
++        while not ende.wait(takt):
++            try:
++                if datei.exists():
++                    datei.unlink(missing_ok=True)
++                    log.info("Einzelplatz: Das Programm beendet den Server")
++                    _stopp_signal()
++                    return
++            except OSError:
++                continue
++
++    threading.Thread(target=schleife, name="einzelplatz-stopp", daemon=True).start()
++    return ende
++
++
+ # ---------------------------------------------------------------- Startschlüssel
+ _schluessel: dict = {"hash": None, "bis": 0.0}
+diff --git a/app/main.py b/app/main.py
+index 85c26d9..834f344 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -132,5 +132,18 @@ async def lifespan(_app: FastAPI):
+         except OSError:
+             log.exception("Eingebauter Worker: Schlüssel ließ sich nicht schreiben")
+-    stops = [_wartung_starten(), arbeitsprozess_starten(session_factory()), extern_starten(session_factory())]
++    stopp_waechter = None
++    if get_settings().taleward_einzelplatz:
++        from app.einzelplatz import stopp_waechter_starten
++        from app.verwaltung.lokaler_worker import programm_worker_koppeln
++
++        stopp_waechter = stopp_waechter_starten()
++        try:
++            with session_factory()() as db:
++                if programm_worker_koppeln(db):
++                    log.info("Einzelplatz: Schlüssel für den Worker des Programms geschrieben")
++        except OSError:
++            log.exception("Einzelplatz: Schlüssel für den Worker ließ sich nicht schreiben")
++    stops = [_wartung_starten(), arbeitsprozess_starten(session_factory()), extern_starten(session_factory()),
++             stopp_waechter]
+     if get_settings().local_worker_autostart:  # in Tests aus
+         from app.verwaltung.lokaler_worker import KNECHT
+diff --git a/app/verwaltung/i18n.py b/app/verwaltung/i18n.py
+index 06cd030..4dc419b 100644
+--- a/app/verwaltung/i18n.py
++++ b/app/verwaltung/i18n.py
+@@ -263,4 +263,8 @@ EN: dict[str, str] = {
+     "teils Prozessor": "partly processor",
+     "Läuft als eigener Container neben dem Server": "Runs as its own container next to the server",
++    "Worker des Taleward-Programms": "Worker of the Taleward program",
++    "Läuft im Taleward-Programm auf diesem PC.": "Runs in the Taleward program on this PC.",
++    "Grafikkarte, Modell und Pause stellst du im Taleward-Programm ein (Symbol im Infobereich → Öffnen → Einstellungen).":
++        "You set the graphics card, model and pause in the Taleward program (icon in the notification area → Open → Settings).",
+     "nur Prozessor": "processor only",
+     "Grafikkarte": "graphics card",
+diff --git a/app/verwaltung/lokaler_worker.py b/app/verwaltung/lokaler_worker.py
+index 46491c8..0e6adcf 100644
+--- a/app/verwaltung/lokaler_worker.py
++++ b/app/verwaltung/lokaler_worker.py
+@@ -142,7 +142,10 @@ class LokalerKnecht:
+     def autostart(self, db: Session) -> None:
+         from app.einstellungen import meta_lesen
++        from app.einzelplatz import programm_worker
+ 
+         if get_settings().worker_art:
+             return  # der eingebaute Worker läuft als eigener Container und nutzt denselben Eintrag
++        if programm_worker():
++            return  # Einzelplatz: den Worker startet das Programm (Schlüsseldatei)
+ 
+         # Einzelplatz: Der Worker gehört dazu und koppelt sich selbst – mit KI-Paketen echt, ohne nicht
+@@ -167,9 +170,22 @@ def eingebauten_worker_koppeln(db: Session) -> Path | None:
+     if not s.worker_art:
+         return None
++    return schluessel_datei_schreiben(db, s.eingebauter_worker_datei)
++
++
++def programm_worker_koppeln(db: Session) -> Path | None:
++    """Einzelplatz: Der Worker des Programms liest seinen Schlüssel aus EINZELPLATZ_WORKER_DATEI – bei jedem
++    Serverstart frisch, ohne Kopplungscode. Gespeichert wird nur die Prüfsumme."""
++    from app.einzelplatz import programm_worker
++
++    if not programm_worker():
++        return None
++    return schluessel_datei_schreiben(db, get_settings().einzelplatz_worker_datei)
++
++
++def schluessel_datei_schreiben(db: Session, datei: Path) -> Path:
+     geheim = secrets.token_urlsafe(32)
+     w = KNECHT._worker_zeile(db, geheim)
+     w.capabilities = "asr,llm"
+     db.commit()
+-    datei = s.eingebauter_worker_datei
+     datei.parent.mkdir(parents=True, exist_ok=True)
+     neu = datei.with_suffix(".neu")
+@@ -179,4 +195,13 @@ def eingebauten_worker_koppeln(db: Session) -> Path | None:
+     finally:
+         os.umask(alt_umask)
+-    os.replace(neu, datei)  # nie halb geschrieben lesen
++    for versuch in range(20):  # unter Windows kann der Leser die Datei gerade offen haben
++        try:
++            os.replace(neu, datei)  # nie halb geschrieben lesen
++            break
++        except PermissionError:
++            if versuch == 19:
++                raise
++            import time
++
++            time.sleep(0.1)
+     return datei
+diff --git a/app/verwaltung/router.py b/app/verwaltung/router.py
+index 35d93de..3cb4949 100644
+--- a/app/verwaltung/router.py
++++ b/app/verwaltung/router.py
+@@ -692,5 +692,15 @@ def transkription(request: Request, user: User = Depends(verwalter), db: Session
+                   neuer_name=neuer_name, fehler=fehler, lokal=KNECHT.zustand(), log=KNECHT.log_ende(),
+                   autostart=meta_lesen(db, META_KEY, "aus"), ki=ki_verfuegbar(), ext=_extern_anzeige(db),
+-                  docker=_docker(), worker_art=get_settings().worker_art, eingebaut=_eingebaut_anzeige(db))
++                  docker=_docker(), worker_art=get_settings().worker_art, eingebaut=_eingebaut_anzeige(db),
++                  programm=_programm_anzeige(db))
++
++
++def _programm_anzeige(db: Session) -> dict | None:
++    """Einzelplatz: Karte „Worker des Taleward-Programms“."""
++    from app.einzelplatz import programm_worker
++
++    if not programm_worker():
++        return None
++    return {"knecht": next((k for k in _knechte(db) if k["w"].local), None)}
+ 
+ 
+@@ -827,4 +837,8 @@ def knecht_sperren(worker_id: str, user: User = Depends(verwalter), db: Session
+ def lokal_starten(modus: str = Form("echt"), autostart: str = Form(""), user: User = Depends(verwalter),
+                   db: Session = Depends(get_db)):
++    from app.einzelplatz import programm_worker
++
++    if programm_worker():
++        raise errors.not_found()  # der Worker gehört zum Programm – ein zweiter würde seinen Schlüssel ablösen
+     if modus not in ("echt", "attrappe"):
+         raise errors.bad_request("validation_error")
+diff --git a/app/verwaltung/templates/transkription.html b/app/verwaltung/templates/transkription.html
+index 089c6ce..ad175cc 100644
+--- a/app/verwaltung/templates/transkription.html
++++ b/app/verwaltung/templates/transkription.html
+@@ -14,5 +14,19 @@
+ 
+ <div class="karte">
+-{% if worker_art %}
++{% if programm %}
++  {% set k = programm.knecht %}
++  <h2>{{ _("Worker des Taleward-Programms") }}</h2>
++  <p>{{ _("Läuft im Taleward-Programm auf diesem PC.") }}
++    {% if k and k.online %}
++      {% if k.w.paused %}<span class="marke-status marke-status--warten">{{ _("pausiert") }}</span>
++      {% elif k.job %}<span class="marke-status marke-status--gut">{{ _("arbeitet") }}</span>{% if k.sitzung %} – {{ k.kampagne.title if k.kampagne else "" }}, {{ _("Runde {n}", n=k.sitzung.number) }}{% endif %}
++      {% else %}<span class="marke-status marke-status--gut">{{ _("bereit") }}</span>{% endif %}
++    {% else %}<span class="marke-status marke-status--fehler">{{ _("nicht verbunden") }}</span>{% endif %}
++  </p>
++  {% if k and k.info %}
++  <p class="leise">{{ k.info.gpu or _("Prozessor") }}{% if k.info.modell %} · {{ _("Modell") }} {{ k.info.modell }}{% endif %}</p>
++  {% endif %}
++  <p class="hilfe">{{ _("Grafikkarte, Modell und Pause stellst du im Taleward-Programm ein (Symbol im Infobereich → Öffnen → Einstellungen).") }}</p>
++{% elif worker_art %}
+   {% set e = eingebaut %}{% set k = e.knecht %}
+   <h2>{{ _("Eingebauter Worker") }}</h2>
+diff --git a/docs/BETRIEB.md b/docs/BETRIEB.md
+index 7af260e..18e9e76 100644
+--- a/docs/BETRIEB.md
++++ b/docs/BETRIEB.md
+@@ -58,5 +58,8 @@ Windows-Programm, das Server, Worker und App zusammen startet). Dann gilt:
+   `TALEWARD_STARTSCHLUESSEL_DATEI`, mindestens 32 Byte, gilt 15 Minuten), nie über das Netz. Einen Einrichtungscode
+   gibt es nicht.
+-- Der eingebaute Worker startet von selbst, wenn die KI-Pakete installiert sind. Updates übernimmt das Programm.
++- Der eingebaute Worker startet von selbst, wenn die KI-Pakete installiert sind. Steht in `EINZELPLATZ_WORKER_DATEI`
++  ein Pfad, schreibt der Server stattdessen bei jedem Start einen frischen Worker-Schlüssel in diese Datei und startet
++  selbst keinen Worker – den startet dann das Programm. Updates übernimmt das Programm.
++- `EINZELPLATZ_STOPP_DATEI`: Legt das Programm diese Datei an, fährt der Server geordnet herunter.
+ 
+ Die Verbindung im WLAN ist nicht verschlüsselt. Einzelplatz ist für das eigene WLAN gedacht; für geteilte Netze
+diff --git a/tests/test_server_0496.py b/tests/test_server_0496.py
+new file mode 100644
+index 0000000..ea156e9
+--- /dev/null
++++ b/tests/test_server_0496.py
+@@ -0,0 +1,115 @@
++"""Server 0.4.96: Einzelplatz – der Worker des Programms koppelt sich über eine Schlüsseldatei."""
++import pytest
++
++from tests.test_server_0495 import SCHLUESSEL, _konto, _starten, _umgebung, _von
++
++
++@pytest.fixture()
++def ep(tmp_path, monkeypatch):
++    _umgebung(monkeypatch, tmp_path)
++    monkeypatch.setenv("TALEWARD_STARTSCHLUESSEL", SCHLUESSEL)
++    monkeypatch.setenv("EINZELPLATZ_WORKER_DATEI", str(tmp_path / "programm" / "worker.key"))
++    yield from _starten()
++
++
++def _token(tmp_path) -> str:
++    return (tmp_path / "programm" / "worker.key").read_text(encoding="utf-8").strip()
++
++
++def test_schluesseldatei_bei_jedem_start(ep, tmp_path):
++    token = _token(tmp_path)
++    assert token.startswith("wk.")
++    r = ep.get("/worker/v1/config", headers={"Authorization": f"Bearer {token}"})
++    assert r.status_code == 200
++    # aus dem Heimnetz gibt es die Worker-Schnittstelle nicht
++    assert _von(ep, "192.168.178.50", "GET", "/worker/v1/config",
++                headers={"Authorization": f"Bearer {token}"}).status_code == 404
++    from app.db import session_factory
++    from app.verwaltung.lokaler_worker import programm_worker_koppeln
++
++    with session_factory()() as db:  # wie ein Neustart: neuer Schlüssel, der alte gilt nicht mehr
++        programm_worker_koppeln(db)
++    neu = _token(tmp_path)
++    assert neu != token
++    assert ep.get("/worker/v1/config", headers={"Authorization": f"Bearer {token}"}).status_code == 401
++    assert ep.get("/worker/v1/config", headers={"Authorization": f"Bearer {neu}"}).status_code == 200
++
++
++def test_server_startet_keinen_eigenen_worker(ep, monkeypatch):
++    from app.db import session_factory
++    from app.verwaltung import lokaler_worker
++
++    gestartet = []
++    knecht = lokaler_worker.LokalerKnecht()
++    monkeypatch.setattr(knecht, "starten", lambda db, modus: gestartet.append(modus))
++    monkeypatch.setattr(lokaler_worker, "ki_verfuegbar", lambda: True)
++    with session_factory()() as db:
++        knecht.autostart(db)
++    assert gestartet == []
++
++
++def test_verwaltung_zeigt_den_worker_des_programms(ep):
++    from tests.test_verwaltung import csrf_von
++
++    assert _konto(ep).status_code == 201
++    assert ep.post("/verwaltung/anmelden", data={"username": "anna.muller", "password": "Lindwurm-Kessel-7"},
++                   follow_redirects=False).status_code == 303
++    seite = ep.get("/verwaltung/transkription")
++    assert seite.status_code == 200 and "Worker des Taleward-Programms" in seite.text
++    assert "/verwaltung/worker/lokal/start" not in seite.text
++    csrf = csrf_von(ep.get("/verwaltung/").text)
++    assert ep.post("/verwaltung/worker/lokal/start", data={"csrf": csrf, "modus": "echt"}).status_code == 404
++
++
++def test_ohne_datei_bleibt_es_beim_eigenen_worker(tmp_path, monkeypatch):
++    _umgebung(monkeypatch, tmp_path)
++    monkeypatch.delenv("EINZELPLATZ_WORKER_DATEI", raising=False)
++    for _c in _starten():
++        from app.einzelplatz import programm_worker
++
++        assert not programm_worker()
++        assert not (tmp_path / "programm").exists()
++
++
++def test_stoppdatei_beendet_geordnet(tmp_path, monkeypatch):
++    import time
++
++    from app import einzelplatz
++
++    _umgebung(monkeypatch, tmp_path)
++    datei = tmp_path / "programm" / "server.stopp"
++    datei.parent.mkdir(parents=True)
++    datei.write_text("alt", encoding="utf-8")  # vom letzten Mal – zählt nicht
++    monkeypatch.setenv("EINZELPLATZ_STOPP_DATEI", str(datei))
++    signale = []
++    monkeypatch.setattr(einzelplatz, "_stopp_signal", lambda: signale.append(1))
++    from app import config
++
++    config.get_settings.cache_clear()
++    ende = einzelplatz.stopp_waechter_starten(takt=0.05)
++    try:
++        assert ende is not None and not datei.exists()
++        time.sleep(0.2)
++        assert signale == []
++        datei.write_text("stopp", encoding="utf-8")
++        for _ in range(100):
++            if signale:
++                break
++            time.sleep(0.02)
++        assert signale == [1] and not datei.exists()
++    finally:
++        ende.set()
++        config.get_settings.cache_clear()
++
++
++def test_ohne_einzelplatz_kein_stoppwaechter(tmp_path, monkeypatch):
++    from app import config, einzelplatz
++
++    monkeypatch.delenv("TALEWARD_EINZELPLATZ", raising=False)
++    monkeypatch.setenv("EINZELPLATZ_STOPP_DATEI", str(tmp_path / "x"))
++    monkeypatch.setenv("DATA_DIR", str(tmp_path))
++    config.get_settings.cache_clear()
++    try:
++        assert einzelplatz.stopp_waechter_starten() is None
++    finally:
++        config.get_settings.cache_clear()
+-- 
+2.43.0
+
