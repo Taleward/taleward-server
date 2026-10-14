@@ -1,0 +1,352 @@
+From d48da1a27a319ed30ac59ca7bdff8ffef48d628f Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 00:01:29 +0200
+Subject: [PATCH 139/140] =?UTF-8?q?Server:=20Zug=C3=A4nge=20unter=20Window?=
+ =?UTF-8?q?s=20gesch=C3=BCtzt=20ablegen?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ app/config.py                    |  20 +++++-
+ app/dpapi.py                     | 108 +++++++++++++++++++++++++++++++
+ app/einstellungen.py             |  10 ++-
+ app/main.py                      |   4 ++
+ app/verwaltung/lokaler_worker.py |  10 ++-
+ tests/test_server_04100.py       | 102 +++++++++++++++++++++++++++++
+ 6 files changed, 247 insertions(+), 7 deletions(-)
+ create mode 100644 app/dpapi.py
+ create mode 100644 tests/test_server_04100.py
+
+diff --git a/app/config.py b/app/config.py
+index b89083c..370e66b 100644
+--- a/app/config.py
++++ b/app/config.py
+@@ -86,4 +86,6 @@ class Settings(BaseSettings):
+     # Windows-Nutzer lesbar) und startet selbst keinen Worker. Gesetzt vom Programm, nur im Einzelplatz wirksam.
+     einzelplatz_worker_datei: Path | None = None
++    # Das Programm kann den Schlüssel seines Workers geschützt lesen (Windows-Datenschutz); ältere Fassungen nicht
++    einzelplatz_worker_geschuetzt: bool = False
+     # Liegt diese Datei, fährt der Server geordnet herunter (das Programm hat unter Windows kein Konsolenfenster, an
+     # das es Strg+C schicken könnte). Nur im Einzelplatz wirksam.
+@@ -151,8 +153,13 @@ def _geheimnis(data_dir: Path) -> str:
+     import secrets
+ 
++    from app import dpapi
++
+     datei = data_dir / "geheimnis.txt"
+     try:
+-        wert = datei.read_text(encoding="utf-8").strip()
++        gespeichert = datei.read_text(encoding="utf-8").strip()
++        wert = dpapi.text_oeffnen(gespeichert) or ""
+         if len(wert) >= 32:
++            if dpapi.verfuegbar() and not gespeichert.startswith(dpapi.PRAEFIX):
++                _geheimnis_ablegen(datei, wert)  # aus älteren Fassungen: nachträglich schützen
+             return wert
+     except OSError:
+@@ -160,9 +167,16 @@ def _geheimnis(data_dir: Path) -> str:
+     wert = secrets.token_urlsafe(48)
+     data_dir.mkdir(parents=True, exist_ok=True)
++    _geheimnis_ablegen(datei, wert)
++    return wert
++
++
++def _geheimnis_ablegen(datei: Path, wert: str) -> None:
++    """Unter Windows mit dem Windows-Datenschutz, sonst nur für den Besitzer lesbar."""
++    from app import dpapi
++
+     tmp = datei.with_suffix(".tmp")
+-    tmp.write_text(wert, encoding="utf-8", newline="\n")
++    tmp.write_text(dpapi.text_schuetzen(wert), encoding="utf-8", newline="\n")
+     tmp.chmod(0o600)
+     tmp.replace(datei)
+-    return wert
+ 
+ 
+diff --git a/app/dpapi.py b/app/dpapi.py
+new file mode 100644
+index 0000000..0df136e
+--- /dev/null
++++ b/app/dpapi.py
+@@ -0,0 +1,108 @@
++"""Geheimnisse unter Windows mit dem Windows-Datenschutz (DPAPI, Benutzerbereich) ablegen (ab 0.4.100).
++
++Gilt für den Server auf einem Windows-PC (Taleward für Windows): Anmelde-Geheimnis (`geheimnis.txt`), Schlüssel des
++eigenen Workers (`EINZELPLATZ_WORKER_DATEI`) und die Zugänge in der Datenbank (Cloud, Hugging Face, Benachrichtigungen,
++Anmeldedienste). Lesen kann sie nur derselbe Windows-Nutzer auf demselben PC – eine kopierte Datenbank oder Sicherung
++nützt anderswo nichts (die Zugänge sind dort leer und werden neu eingetragen).
++
++Gespeichert wird als Text `dpapi:<Base64>`; ältere Klartexte werden weiter gelesen und beim nächsten Schreiben bzw.
++Start geschützt. Außerhalb von Windows ändert sich nichts.
++"""
++from __future__ import annotations
++
++import base64
++import logging
++import sys
++
++log = logging.getLogger("dpapi")
++PRAEFIX = "dpapi:"
++_ENTROPIE = b"Taleward"
++
++
++def verfuegbar() -> bool:
++    return sys.platform == "win32"
++
++
++def schuetzen(daten: bytes) -> bytes:
++    return _aufruf(daten, schuetzen=True)
++
++
++def oeffnen(daten: bytes) -> bytes:
++    return _aufruf(daten, schuetzen=False)
++
++
++def _aufruf(daten: bytes, schuetzen: bool) -> bytes:  # pragma: no cover – nur unter Windows
++    import ctypes
++    from ctypes import wintypes
++
++    class Blob(ctypes.Structure):
++        _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
++
++    puffer = []  # bis zum Ende des Aufrufs festhalten, sonst zeigte der Blob ins Leere
++
++    def blob(b: bytes) -> Blob:
++        puffer.append(ctypes.create_string_buffer(b, len(b)))
++        return Blob(len(b), ctypes.cast(puffer[-1], ctypes.POINTER(ctypes.c_char)))
++
++    crypt32, kernel32 = ctypes.windll.crypt32, ctypes.windll.kernel32  # type: ignore[attr-defined]
++    ein, entropie, aus = blob(daten), blob(_ENTROPIE), Blob()
++    funktion = crypt32.CryptProtectData if schuetzen else crypt32.CryptUnprotectData
++    # CRYPTPROTECT_UI_FORBIDDEN – nie eine Rückfrage anzeigen
++    if not funktion(ctypes.byref(ein), None, ctypes.byref(entropie), None, None, 0x1, ctypes.byref(aus)):
++        raise OSError(ctypes.GetLastError() or "DPAPI")  # type: ignore[attr-defined]
++    try:
++        return ctypes.string_at(aus.pbData, aus.cbData)
++    finally:
++        kernel32.LocalFree(aus.pbData)
++
++
++def text_schuetzen(wert: str) -> str:
++    """Nur unter Windows; sonst unverändert."""
++    if not verfuegbar() or not wert or wert.startswith(PRAEFIX):
++        return wert
++    try:
++        return PRAEFIX + base64.b64encode(schuetzen(wert.encode("utf-8"))).decode("ascii")
++    except (OSError, AttributeError, ValueError):
++        # Lieber weiter wie bisher (nur für den Nutzer lesbar) als gar nicht speichern können
++        log.warning("Windows-Datenschutz nicht verfügbar – Wert ungeschützt abgelegt")
++        return wert
++
++
++def text_oeffnen(wert: str | None) -> str | None:
++    """Klartext unverändert; geschützter Wert, der sich hier nicht öffnen lässt (anderer PC/Nutzer) → None."""
++    if not wert or not wert.startswith(PRAEFIX):
++        return wert
++    if not verfuegbar():
++        return None
++    try:
++        return oeffnen(base64.b64decode(wert[len(PRAEFIX):])).decode("utf-8")
++    except (OSError, ValueError):
++        log.warning("Ein geschützter Wert lässt sich auf diesem PC nicht öffnen (von einem anderen PC oder Nutzer?)")
++        return None
++
++
++# Zugänge in server_meta, die geschützt abgelegt werden
++GEHEIME_SCHLUESSEL = ("extern.api_key", "llm.api_key", "hf.token", "melden.ntfy_token", "melden.smtp_pass")
++
++
++def geheim(schluessel: str) -> bool:
++    return schluessel in GEHEIME_SCHLUESSEL or (
++        schluessel.startswith("oidc.") and schluessel.endswith((".client_secret", ".private_key")))
++
++
++def nachziehen(db) -> int:
++    """Beim Start (Windows): Klartext-Zugänge aus älteren Fassungen nachträglich schützen. Gibt die Anzahl zurück."""
++    if not verfuegbar():
++        return 0
++    from sqlalchemy import select
++
++    from app.models import ServerMeta
++
++    anzahl = 0
++    for zeile in db.scalars(select(ServerMeta)):
++        if geheim(zeile.key) and zeile.value and not zeile.value.startswith(PRAEFIX):
++            zeile.value = text_schuetzen(zeile.value)
++            anzahl += 1
++    if anzahl:
++        db.commit()
++    return anzahl
+diff --git a/app/einstellungen.py b/app/einstellungen.py
+index cce2414..abad624 100644
+--- a/app/einstellungen.py
++++ b/app/einstellungen.py
+@@ -92,8 +92,16 @@ def speichern(db: Session, **werte) -> None:
+ def meta_lesen(db: Session, key: str, standard: str | None = None) -> str | None:
+     row = db.get(ServerMeta, key)
+-    return row.value if row is not None else standard
++    if row is None:
++        return standard
++    from app import dpapi
++
++    return dpapi.text_oeffnen(row.value) if dpapi.geheim(key) else row.value
+ 
+ 
+ def meta_schreiben(db: Session, key: str, value: str) -> None:
++    from app import dpapi
++
++    if dpapi.geheim(key):
++        value = dpapi.text_schuetzen(value)  # unter Windows nur für diesen Nutzer lesbar
+     row = db.get(ServerMeta, key)
+     if row is None:
+diff --git a/app/main.py b/app/main.py
+index 834f344..e42352b 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -121,4 +121,8 @@ async def lifespan(_app: FastAPI):
+ 
+         festlegen(db)  # Aufbewahrung der Aufnahmen: neue Server bis zur Freigabe, bestehende wie bisher
++        from app import dpapi
++
++        if dpapi.nachziehen(db):  # nur unter Windows: Zugänge aus älteren Fassungen nachträglich schützen
++            log.info("Gespeicherte Zugänge sind jetzt mit dem Windows-Datenschutz geschützt")
+     from app.extern import arbeitsprozess_starten as extern_starten
+ 
+diff --git a/app/verwaltung/lokaler_worker.py b/app/verwaltung/lokaler_worker.py
+index f6c8d60..75ec580 100644
+--- a/app/verwaltung/lokaler_worker.py
++++ b/app/verwaltung/lokaler_worker.py
+@@ -180,8 +180,11 @@ def programm_worker_koppeln(db: Session) -> Path | None:
+     if not programm_worker():
+         return None
+-    return schluessel_datei_schreiben(db, get_settings().einzelplatz_worker_datei)
++    return schluessel_datei_schreiben(db, get_settings().einzelplatz_worker_datei,
++                                      geschuetzt=get_settings().einzelplatz_worker_geschuetzt)
+ 
+ 
+-def schluessel_datei_schreiben(db: Session, datei: Path) -> Path:
++def schluessel_datei_schreiben(db: Session, datei: Path, geschuetzt: bool = False) -> Path:
++    from app import dpapi
++
+     geheim = secrets.token_urlsafe(32)
+     w = KNECHT._worker_zeile(db, geheim)
+@@ -194,5 +197,6 @@ def schluessel_datei_schreiben(db: Session, datei: Path) -> Path:
+     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+     with os.fdopen(os.open(neu, flags, 0o600), "w", encoding="utf-8", newline="\n") as f:
+-        f.write(f"wk.{w.id}.{geheim}\n")
++        inhalt = f"wk.{w.id}.{geheim}"
++        f.write((dpapi.text_schuetzen(inhalt) if geschuetzt else inhalt) + "\n")
+     for versuch in range(20):  # unter Windows kann der Leser die Datei gerade offen haben
+         try:
+diff --git a/tests/test_server_04100.py b/tests/test_server_04100.py
+new file mode 100644
+index 0000000..26ef23a
+--- /dev/null
++++ b/tests/test_server_04100.py
+@@ -0,0 +1,102 @@
++"""Server 0.4.100: Zugänge unter Windows mit dem Windows-Datenschutz ablegen."""
++import pytest
++
++
++# ---------------------------------------------------------------- Windows-Datenschutz (nachgestellt)
++@pytest.fixture()
++def windows(monkeypatch):
++    """Stellt den Windows-Datenschutz nach: nur „dieser PC“ (Kennung DIESER) kann öffnen."""
++    from app import dpapi
++
++    def schuetzen(b: bytes) -> bytes:
++        return b"DIESER" + bytes(x ^ 0x5A for x in b)
++
++    def oeffnen(b: bytes) -> bytes:
++        if not b.startswith(b"DIESER"):
++            raise OSError("anderer PC")
++        return bytes(x ^ 0x5A for x in b[6:])
++
++    monkeypatch.setattr(dpapi, "verfuegbar", lambda: True)
++    monkeypatch.setattr(dpapi, "schuetzen", schuetzen)
++    monkeypatch.setattr(dpapi, "oeffnen", oeffnen)
++    return dpapi
++
++
++def test_zugaenge_werden_geschuetzt_abgelegt(dbs, windows):
++    from app.einstellungen import meta_lesen, meta_schreiben
++    from app.models import ServerMeta
++
++    for k in ("extern.api_key", "llm.api_key", "hf.token", "melden.ntfy_token", "melden.smtp_pass",
++              "oidc.google.client_secret", "oidc.apple.private_key"):
++        meta_schreiben(dbs, k, "geheim-123")
++        assert dbs.get(ServerMeta, k).value.startswith("dpapi:")
++        assert "geheim-123" not in dbs.get(ServerMeta, k).value
++        assert meta_lesen(dbs, k) == "geheim-123"
++    meta_schreiben(dbs, "oidc.google.client_id", "offen")  # keine Geheimnisse bleiben, wie sie sind
++    meta_schreiben(dbs, "llm.api_url", "https://beispiel.invalid")
++    assert dbs.get(ServerMeta, "oidc.google.client_id").value == "offen"
++    assert dbs.get(ServerMeta, "llm.api_url").value == "https://beispiel.invalid"
++    meta_schreiben(dbs, "hf.token", "")  # leer = entfernt
++    assert meta_lesen(dbs, "hf.token") == ""
++
++
++def test_fremder_oder_alter_wert(dbs, windows, monkeypatch):
++    from app import dpapi
++    from app.einstellungen import extern_konfig, meta_lesen
++    from app.models import ServerMeta
++
++    dbs.add(ServerMeta(key="hf.token", value="hf_klartext"))  # aus einer älteren Fassung
++    dbs.add(ServerMeta(key="extern.api_key", value="dpapi:" + "QU5ERVJFUg=="))  # von einem anderen PC
++    dbs.commit()
++    assert meta_lesen(dbs, "hf.token") == "hf_klartext"
++    assert meta_lesen(dbs, "extern.api_key") is None
++    assert not extern_konfig(dbs).api_key  # gilt als nicht eingetragen
++    assert dpapi.nachziehen(dbs) == 1
++    assert dbs.get(ServerMeta, "hf.token").value.startswith("dpapi:")
++    assert meta_lesen(dbs, "hf.token") == "hf_klartext"
++    assert dpapi.nachziehen(dbs) == 0
++
++
++def test_ohne_windows_aendert_sich_nichts(dbs):
++    from app import dpapi
++    from app.einstellungen import meta_lesen, meta_schreiben
++    from app.models import ServerMeta
++
++    assert not dpapi.verfuegbar()
++    meta_schreiben(dbs, "hf.token", "hf_x")
++    assert dbs.get(ServerMeta, "hf.token").value == "hf_x"
++    assert dpapi.nachziehen(dbs) == 0
++    dbs.get(ServerMeta, "hf.token").value = "dpapi:QUJD"  # unter Windows geschützt, hier nicht lesbar
++    assert meta_lesen(dbs, "hf.token") is None
++
++
++def test_anmeldegeheimnis(tmp_path, windows):
++    from app.config import _geheimnis
++
++    datei = tmp_path / "geheimnis.txt"
++    datei.write_text("a" * 40)  # aus einer älteren Fassung
++    assert _geheimnis(tmp_path) == "a" * 40
++    gespeichert = datei.read_text()
++    assert gespeichert.startswith("dpapi:") and "a" * 40 not in gespeichert
++    assert _geheimnis(tmp_path) == "a" * 40  # danach weiter dasselbe Geheimnis
++    datei.write_text("dpapi:QU5ERVJFUg==")  # von einem anderen PC kopiert: neu erzeugen
++    neu = _geheimnis(tmp_path)
++    assert len(neu) >= 32 and neu != "a" * 40 and datei.read_text().startswith("dpapi:")
++
++
++def test_worker_schluessel_nur_geschuetzt_wenn_das_programm_es_kann(dbs, tmp_path, windows):
++    from app.verwaltung.lokaler_worker import schluessel_datei_schreiben
++
++    datei = schluessel_datei_schreiben(dbs, tmp_path / "w" / "worker.key")
++    assert datei.read_text().startswith("wk.")  # ältere Programme lesen den Schlüssel im Klartext
++    datei = schluessel_datei_schreiben(dbs, tmp_path / "w" / "worker.key", geschuetzt=True)
++    inhalt = datei.read_text().strip()
++    assert inhalt.startswith("dpapi:") and windows.text_oeffnen(inhalt).startswith("wk.")
++
++
++def test_ohne_funktionierenden_datenschutz_wird_trotzdem_gespeichert(dbs, windows, monkeypatch):
++    from app.einstellungen import meta_lesen, meta_schreiben
++
++    monkeypatch.setattr(windows, "schuetzen", lambda b: (_ for _ in ()).throw(OSError("geht nicht")))
++    meta_schreiben(dbs, "hf.token", "hf_abc")
++    assert meta_lesen(dbs, "hf.token") == "hf_abc"
+-- 
+2.43.0
+
