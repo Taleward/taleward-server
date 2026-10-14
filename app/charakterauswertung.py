@@ -34,7 +34,8 @@ ZEICHEN_JE_SEITE = 3000  # Texte ohne Seiten (txt, md, Hintergrund): so viel gil
 LISTE_HOECHSTENS = 100
 OFFEN = ("awaiting_gm", "queued", "processing")
 HINWEIS = "character_analysis_pending"
-_LINK = re.compile(r"(?i)\b(?:https?://|www\.)\S+|\b[\w.-]+\.(?:com|org|net|de|io|gg|ly|me|info|app)/\S*")
+# Adressen mit Schema oder www., jede Domain mit Pfad („foo.xyz/x“) und E-Mail-Adressen (S31, Link-Filter)
+_LINK = re.compile(r"(?i)\b(?:[a-z][a-z0-9+.-]*://|www\.)\S+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}/\S*|[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 
 
 # ---------------------------------------------------------------- Anlegen
@@ -146,7 +147,8 @@ def entscheiden(db: Session, a: CharacterAnalysis, zustimmen: bool) -> None:
 
 
 def abgeschaltet(db: Session, c: Campaign) -> None:
-    """allowCharacterAnalysis aus: offene Anfragen (awaiting_gm) gelten als abgelehnt; laufende laufen zu Ende."""
+    """allowCharacterAnalysis aus: offene Anfragen (awaiting_gm) gelten als abgelehnt. Schon zugestimmte Auswertungen
+    (queued, processing) laufen zu Ende – so steht es in der Schnittstelle; die SL hat ihnen einzeln zugestimmt."""
     for a in db.scalars(select(CharacterAnalysis).where(CharacterAnalysis.campaign_id == c.id,
                                                        CharacterAnalysis.state == "awaiting_gm")):
         _ablehnen(db, a)
@@ -202,8 +204,17 @@ def out(db: Session, a: CharacterAnalysis, sl: bool, lang: str = "de") -> schema
     return schemas.CharacterAnalysisOut(
         id=a.id, campaign_id=a.campaign_id, member_id=a.member_id, source=a.source, document_id=a.document_id,
         title=a.title, state=a.state, uses_cloud=a.uses_cloud, page_count=a.page_count,
-        pages_limited=a.pages_limited, message=render_status_message(a.message, lang) if a.state == "failed" else None,
+        pages_limited=a.pages_limited, message=_meldung(a, sl, lang) if a.state == "failed" else None,
         proposal_count=anzahl, created_at=a.created_at, decided_at=a.decided_at)
+
+
+def _meldung(a: CharacterAnalysis, sl: bool, lang: str) -> str | None:
+    """Grund bei failed. Spieler bekommen nur feste Texte, nie die Rückmeldung von Modell oder Worker (S31)."""
+    from app.services import render_status_message
+
+    if not sl and a.message and '"doc.failed"' in a.message:
+        return errors.ApiError(0, "analysis.failed").message(lang)
+    return render_status_message(a.message, lang)
 
 
 def zu_bogen(db: Session, doc: CampaignDocument) -> str | None:
@@ -230,7 +241,7 @@ def eingabe(db: Session, a: CharacterAnalysis) -> dict:
     c = db.get(Campaign, a.campaign_id)
     bibel = [{"id": e.id, "typ": e.type, "name": e.name, "zusammenfassung": e.summary or "", "gm_notes": None,
               # teilweise verborgen = nicht allgemein bekannt → im Aufruf als geheim (wie bei Unterlagen)
-              "sichtbarkeit": "teilweise" if e.hidden_member_ids else "public"}
+              "sichtbarkeit": "public" if e.allgemein_bekannt else "teilweise"}
              for e in _sichtbar_fuer(db, a)]
     return {"sprache": c.language, "kampagne": c.title, "system": c.system, "system_name": c.system_name,
             "welt": c.world_info, "art": "handout", "quelle": "character", "titel": a.title,
@@ -249,6 +260,11 @@ def speichern(db: Session, a: CharacterAnalysis, d: dict, engine: str, worker_id
     from app.sprachmodell import dokument_pruefen
 
     me = db.get(Member, a.member_id)
+    if me is None or not me.aktiv:  # S31: inzwischen ausgetreten – keine Vorschläge aus ihrem Material
+        a.state, a.abschnitte, a.decided_at = "rejected", None, a.decided_at or utcnow()
+        proposals_d = None
+    else:
+        proposals_d = d.get("proposals") or []
     sichtbar = {e.id: e for e in _sichtbar_fuer(db, a)}
     # pc-Einträge pflegt die App – keine Vorschläge dafür, auch nicht als neuer Eintrag gleichen Namens
     spieler = {e.name.casefold() for e in db.scalars(select(Entry).where(Entry.campaign_id == a.campaign_id,
@@ -257,7 +273,7 @@ def speichern(db: Session, a: CharacterAnalysis, d: dict, engine: str, worker_id
         spieler.add(me.character_name.casefold())
     andere = sorted(m.id for m in db.scalars(select(Member).where(Member.campaign_id == a.campaign_id))
                     if m.aktiv and m.id != a.member_id and m.role != "gm")
-    vorschlaege = dokument_pruefen(d.get("proposals") or [], {i: e.name for i, e in sichtbar.items() if e.type != "pc"})
+    vorschlaege = dokument_pruefen(proposals_d or [], {i: e.name for i, e in sichtbar.items() if e.type != "pc"})
     db.execute(delete(Proposal).where(Proposal.analysis_id == a.id))
     pos = 0
     for v in vorschlaege:
@@ -282,7 +298,8 @@ def speichern(db: Session, a: CharacterAnalysis, d: dict, engine: str, worker_id
             decision="open",
         ))
         pos += 1
-    a.state, a.abschnitte = "done", None
+    if proposals_d is not None:
+        a.state, a.abschnitte = "done", None
     db.add(UsageLog(campaign_id=a.campaign_id, analysis_id=a.id, kind="document", engine=engine,
                     model=d.get("model"), worker_id=worker_id, compute_seconds=rechenzeit,
                     tokens_in=int(d.get("tokensIn") or 0), tokens_out=int(d.get("tokensOut") or 0),

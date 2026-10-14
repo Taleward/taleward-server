@@ -113,7 +113,9 @@ def neuzugang(db: Session, me: Member) -> None:
     betroffen = []
     for e in db.scalars(select(Entry).where(Entry.campaign_id == me.campaign_id)):
         ids = e.hidden_member_ids
-        if ids and me.id not in ids:
+        # 0.4.89 (S31): Geheimes aus Bogen/Hintergrund – Nachzügler immer verbergen, auch bei leerer Liste
+        aus_auswertung = bool(e.origin_analysis_id) and e.visibility == "public" and e.origin_member_id != me.id
+        if (ids or aus_auswertung) and me.id not in ids:
             e.hidden_from.append(EntryHidden(entry_id=e.id, member_id=me.id))
             betroffen.append(e.id)
     for p in db.scalars(select(Proposal).where(Proposal.campaign_id == me.campaign_id, Proposal.decision == "open")):
@@ -253,6 +255,8 @@ def entscheiden(db: Session, p: Proposal, mitglieder: set[str]) -> None:
     apply_entry_input(db, e, schemas.EntryInput(**daten))
     e.origin_character_id, e.origin_entry_id = p.origin_character_id, p.origin_entry_id
     e.origin_version, e.origin_member_id = p.origin_version, p.submitted_by_member_id
+    if p.analysis_id and p.action != "update":
+        e.origin_analysis_id = p.analysis_id  # S31: bleibt geheim für alle außer SL und Urheberin
     p.target_entry_id = e.id
 
 
@@ -316,11 +320,11 @@ def chronik(db: Session, me: Member, request) -> dict:
             # vor einzelnen verborgen hat (Ehemalige stehen in keiner Verborgen-Liste), bleibt draußen.
             if e.updated_at is None or e.updated_at > bis:
                 continue
-            if e.hidden_member_ids and e.origin_member_id != me.id:
+            if not e.allgemein_bekannt and e.origin_member_id != me.id:
                 continue
         if e.origin_member_id == me.id:
             mitgebracht.append({"originEntryId": e.origin_entry_id, "entryId": e.id, "entryType": e.type,
-                                "name": e.name, "summary": e.summary, "hidden": bool(e.hidden_member_ids),
+                                "name": e.name, "summary": e.summary, "hidden": not e.allgemein_bekannt,
                                 "updatedAt": _z(e.updated_at)})
         text = f"{e.name}\n{e.summary}".casefold()
         if namen and any(n in text for n in namen):

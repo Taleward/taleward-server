@@ -72,6 +72,8 @@ def patch_entry(
     acc = load_entry(db, entryId, user)
     require_gm(acc.member)
     apply_entry_input(db, acc.entry, body, require_public_text=True)
+    if {"visibility", "hidden_from_member_ids"} & body.model_fields_set:
+        acc.entry.origin_analysis_id = None  # S31: die SL hat selbst festgelegt, wer es weiß
     db.commit()
     db.refresh(acc.entry)
     return entry_out(acc.entry, True)

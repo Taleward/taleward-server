@@ -131,7 +131,7 @@ def eingabe_bauen(db: Session, s: GameSession) -> Eingabe:
     bibel, geheim = [], []
     for e in db.scalars(select(Entry).where(Entry.campaign_id == c.id).order_by(Entry.updated_at.desc())):
         # Teilweise verborgene Einträge („Wer weiß was“) wie gm_only behandeln – den Recap lesen alle (0.3.6)
-        if e.visibility == "public" and not e.hidden_member_ids:
+        if e.allgemein_bekannt:  # 0.4.89: auch Geheimes aus Bogen/Hintergrund (S31) nicht als bekannt
             bibel.append(BekannterEintrag(e.id, e.type, e.name, e.summary))
         else:
             geheim.append(GeheimerEintrag(e.id, e.type, e.name))
@@ -158,7 +158,7 @@ def vorschlag_eingabe(db: Session, s: GameSession, basis: Eingabe) -> dict:
         eintrag = {"id": e.id, "typ": e.type, "name": e.name, "zusammenfassung": e.summary or "",
                    "gm_notes": e.gm_notes or None}
         # Teilweise verborgene Einträge („Wer weiß was“) nicht als allgemein bekannt ausgeben
-        (bibel if e.visibility == "public" and not e.hidden_member_ids else geheim).append(eintrag)
+        (bibel if e.allgemein_bekannt else geheim).append(eintrag)
     d["bibel"], d["geheim"] = bibel, geheim
     return d
 
@@ -166,7 +166,7 @@ def vorschlag_eingabe(db: Session, s: GameSession, basis: Eingabe) -> dict:
 def geheime_bibeltexte(eintraege) -> list[str]:
     """Texte, die nicht alle Spieler kennen: gmNotes, Zusammenfassungen geheimer und teilweise verborgener Einträge."""
     return [t for e in eintraege for t in (e.gm_notes or "",
-                                           e.summary if e.visibility != "public" or e.hidden_member_ids else "") if t]
+                                           e.summary if not e.allgemein_bekannt else "") if t]
 
 
 # ---------------------------------------------------------------- Ergebnis

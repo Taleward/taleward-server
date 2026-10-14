@@ -310,7 +310,7 @@ def eingabe(db: Session, doc: CampaignDocument) -> dict:
     bibel = [{"id": e.id, "typ": e.type, "name": e.name, "zusammenfassung": e.summary or "",
               "gm_notes": e.gm_notes or None,
               # teilweise verborgen = nicht allgemein bekannt („Wer weiß was“) → im Aufruf als geheim
-              "sichtbarkeit": "teilweise" if e.visibility == "public" and e.hidden_member_ids else e.visibility}
+              "sichtbarkeit": "teilweise" if e.visibility == "public" and not e.allgemein_bekannt else e.visibility}
              for e in db.scalars(select(Entry).where(Entry.campaign_id == c.id).order_by(Entry.name))]
     return {"sprache": c.language, "kampagne": c.title, "system": c.system, "system_name": c.system_name,
             "welt": c.world_info, "art": doc.kind, "titel": doc.title, "abschnitte": text_laden(doc.id),

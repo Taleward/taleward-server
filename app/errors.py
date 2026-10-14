@@ -76,6 +76,8 @@ MESSAGES: dict[str, tuple[str, str]] = {
                         "Your backstory is still empty. Write something first."),
     "analysis_pending": ("Dein Hintergrund liegt schon zur Auswertung bereit. Warte, bis sie fertig ist.",
                          "Your backstory is already waiting to be analysed. Wait until that is done."),
+    "analysis.failed": ("Die Auswertung hat nicht geklappt. Du kannst den Bogen bzw. Hintergrund später noch einmal "
+                        "abgeben.", "The analysis did not work. You can submit the sheet or backstory again later."),
     "wrong_state.analysis": ("Über diese Auswertung ist schon entschieden.",
                              "This analysis has already been decided."),
     # Kapitelplan (0.4.12)

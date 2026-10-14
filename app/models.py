@@ -289,6 +289,9 @@ class Entry(Base):
     former_holder_member_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     # 0.4.13: Links als JSON [{id, label, url, shared}]; Spieler bekommen nur shared (app/links.py)
     links: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 0.4.89 (S31): aus einer Auswertung von Charakterbogen bzw. Hintergrund übernommen – bis die SL Sichtbarkeit oder
+    # „Wer weiß was“ selbst festlegt, wissen es nur SL und Urheberin (auch Nachzügler nicht; die KI nicht als bekannt)
+    origin_analysis_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
     mentions: Mapped[list["EntryMention"]] = relationship(cascade="all, delete-orphan")
     hidden_from: Mapped[list["EntryHidden"]] = relationship(cascade="all, delete-orphan")
@@ -296,6 +299,11 @@ class Entry(Base):
     @property
     def hidden_member_ids(self) -> set[str]:
         return {h.member_id for h in self.hidden_from}
+
+    @property
+    def allgemein_bekannt(self) -> bool:
+        """Öffentlich und von niemandem verborgen – nur solche Einträge gelten für die KI als Spielerwissen."""
+        return self.visibility == "public" and not self.hidden_from and not self.origin_analysis_id
 
 
 class EntryHidden(Base):

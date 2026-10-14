@@ -303,7 +303,8 @@ def packliste(db: Session, c: Campaign, zugestimmt: set[str]) -> tuple[dict, lis
                         "version": e.origin_version, "seat": platz.get(e.origin_member_id)}
         eintraege.append({
             "key": f"e{i + 1}", "type": e.type, "name": e.name, "summary": summary, "gmNotes": e.gm_notes,
-            "status": e.status, "holderSeat": halter, "visibility": e.visibility,
+            # S31: Geheimes aus Bogen/Hintergrund geht als SL-Wissen mit (die Herkunftsmarke reist nicht mit)
+            "status": e.status, "holderSeat": halter, "visibility": "gm_only" if e.origin_analysis_id else e.visibility,
             "hiddenFromSeats": sorted(platz[m] for m in e.hidden_member_ids if m in platz),
             "pcCharacterId": e.pc_character_id, "origin": herkunft, "links": links.lesen(e.links),
             "createdAt": _z(e.created_at), "updatedAt": _z(e.updated_at), "publicChangedAt": _z(e.public_changed_at),
