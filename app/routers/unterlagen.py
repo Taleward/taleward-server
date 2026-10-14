@@ -51,8 +51,16 @@ def dokument_out(db: Session, doc: CampaignDocument, lang: str) -> schemas.Campa
         size_bytes=doc.size_bytes, page_count=doc.page_count, state=doc.state, progress=doc.progress,
         message=meldung, proposal_count=sum(zaehlen.values()), open_proposal_count=zaehlen.get("open", 0),
         world_info_suggestion=doc.world_info_suggestion, uploaded_by_member_id=doc.uploaded_by_member_id,
-        created_at=doc.created_at,
+        analysis_id=_auswertung(db, doc), created_at=doc.created_at,
     )
+
+
+def _auswertung(db: Session, doc: CampaignDocument) -> str | None:
+    if doc.kind != "character_sheet":
+        return None
+    from app import charakterauswertung
+
+    return charakterauswertung.zu_bogen(db, doc)
 
 
 def _dokument(db: Session, document_id: str, user: User, eigener_bogen: bool = False) -> CampaignDocument:

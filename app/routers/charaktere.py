@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import charaktere, errors, schemas
-from app.access import current_user, require_member
+from app import charakterauswertung, charaktere, errors, schemas
+from app.access import current_user, membership, require_member
 from app.db import get_db
+from app.errors import sprache
 from app.models import GmNotice, Member, User
 from app.routers.pruefung import proposal_out
 from app.services import member_out
@@ -65,6 +66,39 @@ def character_proposals(campaignId: str, user: User = Depends(current_user), db:
     if me.role != "gm":
         raise errors.not_found("campaign")  # Spieler: nicht einmal die Existenz der Liste
     return [proposal_out(p) for p in charaktere.vorschlaege(db, campaignId)]
+
+
+# ---------- 0.4.18: Charakterbögen und Hintergründe auswerten (Logik in app/charakterauswertung.py)
+@router.get("/campaigns/{campaignId}/character-analyses", response_model=list[schemas.CharacterAnalysisOut])
+def character_analyses(campaignId: str, request: Request, user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    """SL alle, Spieler nur eigene (ohne proposalCount). Fremd → 404."""
+    me = require_member(db, campaignId, user)
+    sl = me.role == "gm"
+    return [charakterauswertung.out(db, a, sl, sprache(request))
+            for a in charakterauswertung.liste(db, me.campaign, me)]
+
+
+@router.post("/campaigns/{campaignId}/members/me/backstory-analysis", status_code=201,
+             response_model=schemas.CharacterAnalysisOut)
+def backstory_analysis(campaignId: str, request: Request, user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    me = require_member(db, campaignId, user)
+    a = charakterauswertung.hintergrund_abgeben(db, me)
+    db.commit()
+    return charakterauswertung.out(db, a, me.role == "gm", sprache(request))
+
+
+@router.post("/character-analyses/{analysisId}/decision", response_model=schemas.CharacterAnalysisOut)
+def analysis_decision(analysisId: str, body: schemas.AnalysisDecisionIn, request: Request,
+                      user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Nur die SL; Spieler und Fremde → 404."""
+    a, me = charakterauswertung.zu(db, analysisId, lambda cid: membership(db, cid, user))
+    if me.role != "gm":
+        raise errors.not_found("analysis")
+    charakterauswertung.entscheiden(db, a, body.approve)
+    db.commit()
+    return charakterauswertung.out(db, a, True, sprache(request))
 
 
 @router.delete("/campaigns/{campaignId}/gm-notices/{noticeId}", tags=["Kampagnen"], status_code=204)

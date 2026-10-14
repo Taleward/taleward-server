@@ -118,7 +118,8 @@ def neuzugang(db: Session, me: Member) -> None:
             betroffen.append(e.id)
     for p in db.scalars(select(Proposal).where(Proposal.campaign_id == me.campaign_id, Proposal.decision == "open")):
         ids = json.loads(p.hidden_member_ids_json or "[]")
-        if ids and me.id not in ids:
+        # 0.4.18: Vorschläge aus Bogen/Hintergrund wissen nur SL und Urheberin – auch wenn die Liste noch leer war
+        if (ids or (p.analysis_id and p.submitted_by_member_id != me.id)) and me.id not in ids:
             p.hidden_member_ids_json = json.dumps(sorted(set(ids) | {me.id}))
     if betroffen:
         db.add(GmNotice(campaign_id=me.campaign_id, code="hidden_entries_for_newcomer", member_id=me.id,
@@ -139,6 +140,7 @@ def beitritt_vergessen(db: Session, member_id: str) -> None:
 def hinweise(db: Session, c: Campaign) -> list[schemas.GmNoticeOut]:
     vorhanden = set(db.scalars(select(Entry.id).where(Entry.campaign_id == c.id)))
     return [schemas.GmNoticeOut(id=n.id, code=n.code, member_id=n.member_id, created_at=n.created_at,
+                                analysis_id=n.analysis_id,  # 0.4.18
                                 entry_ids=[i for i in json.loads(n.entry_ids or "[]") if i in vorhanden])
             for n in db.scalars(select(GmNotice).where(GmNotice.campaign_id == c.id).order_by(GmNotice.created_at))]
 
@@ -202,7 +204,8 @@ def einreichen(db: Session, me: Member, eintraege: list[schemas.WorldEntryIn]) -
 def stand(db: Session, me: Member) -> list[schemas.WorldEntryStatusOut]:
     """Stand aller je eingereichten Einträge dieses Mitglieds (jeweils der neueste Vorschlag)."""
     neueste: dict[tuple[str, str], Proposal] = {}
-    for p in db.scalars(select(Proposal).where(Proposal.source == "character", Proposal.submitted_by_member_id == me.id)
+    for p in db.scalars(select(Proposal).where(Proposal.source == "character", Proposal.submitted_by_member_id == me.id,
+                                               Proposal.analysis_id.is_(None))  # 0.4.18: Auswertungen nicht
                         .order_by(Proposal.created_at)):
         neueste[(p.origin_character_id or "", p.origin_entry_id or "")] = p
     return [_stand(p, _eintrag_zu(db, me.campaign_id, cid, oid), oid) for (cid, oid), p in neueste.items()]
@@ -229,6 +232,9 @@ def entscheiden(db: Session, p: Proposal, mitglieder: set[str]) -> None:
     p.decided_at = utcnow()
     if p.decision != "accepted":
         return
+    if p.analysis_id and p.action == "update":
+        _auswertung_ergaenzen(db, p)
+        return
     oeffentlich = p.suggested_visibility == "public"
     verborgen = [m for m in json.loads(p.hidden_member_ids_json or "[]") if m in mitglieder] if oeffentlich else []
     e = db.get(Entry, p.target_entry_id or "") if p.action == "update" else None
@@ -248,6 +254,20 @@ def entscheiden(db: Session, p: Proposal, mitglieder: set[str]) -> None:
     e.origin_character_id, e.origin_entry_id = p.origin_character_id, p.origin_entry_id
     e.origin_version, e.origin_member_id = p.origin_version, p.submitted_by_member_id
     p.target_entry_id = e.id
+
+
+def _auswertung_ergaenzen(db: Session, p: Proposal) -> None:
+    """0.4.18: Ergänzung aus einem Charakterbogen bzw. Hintergrund zu einem vorhandenen Eintrag – nur in den geheimen
+    Teil. Name, öffentlicher Text und Sichtbarkeit des Eintrags bleiben (ein Hintergrund verbirgt nichts vor anderen,
+    was sie schon wissen)."""
+    from app.services import apply_entry_input
+
+    e = db.get(Entry, p.target_entry_id or "")
+    neu = "\n\n".join(t for t in ((p.detail or "").strip(), (p.gm_notes or "").strip()) if t)
+    if e is None or e.campaign_id != p.campaign_id or not neu:
+        return
+    apply_entry_input(db, e, schemas.EntryInput(
+        gm_notes="\n\n".join(t for t in ((e.gm_notes or "").strip(), neu) if t)[:20000]))
 
 
 # ---------------------------------------------------------------- Chronik

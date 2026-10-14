@@ -40,9 +40,9 @@ from app import errors, kapitelteile, links, schemas, storage
 from app.config import get_settings
 from app.db import utcnow
 from app.models import (
-    Attendee, Campaign, CampaignDocument, ChapterPlan, CampaignExport, CampaignImport, Comment, DateOption, DateVote,
-    Entry, EntryHidden, EntryMention, GameSession, GmNote, GmNotice, Invite, Member, Proposal, Recap, SessionSeen,
-    Speaker, User,
+    Attendee, Campaign, CampaignDocument, ChapterPlan, CampaignExport, CampaignImport, CharacterAnalysis, Comment,
+    DateOption, DateVote, Entry, EntryHidden, EntryMention, GameSession, GmNote, GmNotice, Invite, Member, Proposal,
+    Recap, SessionSeen, Speaker, User,
 )
 
 log = logging.getLogger("chronik.umzug")
@@ -956,6 +956,7 @@ _VERWEISE = (
     (Attendee, "member_id"), (Comment, "author_member_id"), (Comment, "recipient_member_id"),
     (Entry, "holder_member_id"), (Entry, "origin_member_id"), (DateOption, "proposed_by_member_id"),
     (Proposal, "submitted_by_member_id"), (GmNotice, "member_id"), (CampaignDocument, "uploaded_by_member_id"),
+    (CharacterAnalysis, "member_id"),  # 0.4.18
 )
 
 

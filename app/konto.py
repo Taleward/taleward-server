@@ -204,6 +204,9 @@ def _kampagne_loeschen(db: Session, c: Campaign) -> None:
     from app.bilder import cover_ordner, loeschen, portrait_ordner
 
     abrechnung.vor_loeschen(db, campaign_id=c.id)  # 0.4.87 (N1): Gestartetes wird vor dem Löschen gebucht
+    from app import charakterauswertung
+
+    charakterauswertung.kampagne_entfernt(db, c.id)  # 0.4.18: Aufträge der Auswertungen
 
     for s in db.scalars(select(GameSession).where(GameSession.campaign_id == c.id)):
         storage.delete_samples(s.id)
@@ -259,7 +262,7 @@ def entfernen(db: Session, u: User) -> None:
         _kampagne_loeschen(db, c)
     db.flush()
     jetzt = utcnow()
-    from app import charaktere, figuren
+    from app import charaktere, charakterauswertung, figuren
 
     for m in db.scalars(select(Member).where(Member.user_id == u.id)):
         if m.left_at is None:
@@ -272,6 +275,7 @@ def entfernen(db: Session, u: User) -> None:
         m.chronicle_seen_at = m.bible_seen_at = None
         m.user_id, m.deleted_at = None, jetzt
         charaktere.beitritt_vergessen(db, m.id)  # 0.4.14
+        charakterauswertung.mitglied_weg(db, m.id)  # 0.4.18
         db.execute(SessionSeen.__table__.delete().where(SessionSeen.member_id == m.id))
         db.execute(DateVote.__table__.delete().where(DateVote.member_id == m.id))  # Kommentare bleiben stehen
     stimmprofile.loeschen(db, u.id)

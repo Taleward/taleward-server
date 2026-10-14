@@ -212,6 +212,12 @@ def patch_campaign(
         c.allow_external_transcription = body.allow_external_transcription
     if "allow_cloud_summary" in f and body.allow_cloud_summary is not None:
         c.allow_cloud_summary = body.allow_cloud_summary
+    if "allow_character_analysis" in f and body.allow_character_analysis is not None:
+        if c.allow_character_analysis and not body.allow_character_analysis:
+            from app import charakterauswertung
+
+            charakterauswertung.abgeschaltet(db, c)  # offene Anfragen gelten als abgelehnt
+        c.allow_character_analysis = body.allow_character_analysis
     if "archived" in f and body.archived is not None:
         if body.archived and c.archived_at is None:
             c.archived_at = utcnow()
@@ -328,6 +334,9 @@ def remove_member(campaignId: str, memberId: str, user: User = Depends(current_u
 
     figuren.verwaist_melden(db, target)  # 0.4.9: Hinweis an die SL, was aus der Figur wird
     charaktere.beitritt_vergessen(db, target.id)  # 0.4.14
+    from app import charakterauswertung
+
+    charakterauswertung.mitglied_weg(db, target.id)  # 0.4.18: Offenes entfällt samt Text
     db.execute(SessionSeen.__table__.delete().where(SessionSeen.member_id == target.id))
     db.execute(DateVote.__table__.delete().where(DateVote.member_id == target.id))
     db.commit()

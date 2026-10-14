@@ -203,6 +203,7 @@ def campaign_out(db: Session, c: Campaign, me: Member) -> schemas.CampaignOut:
         **_summary_fields(db, c, me), description=c.description, language=c.language, system=c.system,
         system_name=c.system_name, world_info=c.world_info,
         allow_external_transcription=c.allow_external_transcription, allow_cloud_summary=c.allow_cloud_summary,
+        allow_character_analysis=bool(c.allow_character_analysis),  # 0.4.18, für alle Mitglieder
         members=[member_out(m, me) for m in members],
         links=links.lesen(c.links, nur_geteilt=me.role != "gm"),  # 0.4.13
     )
