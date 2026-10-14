@@ -1,0 +1,256 @@
+From d4848c5c592c6e69758e5947c120dad67fcd68d6 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 06:20:42 +0200
+Subject: [PATCH 117/119] Charakterauswertung: Herkunft an uebernommenen
+ Eintraegen
+
+Eintraege aus Charakterbogen oder Hintergrund tragen ihre Herkunft, bis die SL die Sichtbarkeit selbst festlegt. Feste Meldung fuer Spieler, Linkfilter erweitert, Ausgetretene ohne Vorschlaege.
+---
+ app/charakterauswertung.py                    | 29 +++++++++++++----
+ app/charaktere.py                             | 10 ++++--
+ app/errors.py                                 |  2 ++
+ app/models.py                                 |  8 +++++
+ app/routers/entries.py                        |  2 ++
+ app/umzug.py                                  |  3 +-
+ app/unterlagen.py                             |  2 +-
+ app/zusammenfassung.py                        |  6 ++--
+ .../versions/e2b6d4f8a1c3_server_0_4_89.py    | 32 +++++++++++++++++++
+ 9 files changed, 80 insertions(+), 14 deletions(-)
+ create mode 100644 migrations/versions/e2b6d4f8a1c3_server_0_4_89.py
+
+diff --git a/app/charakterauswertung.py b/app/charakterauswertung.py
+index 2c029a4..d4b26b4 100644
+--- a/app/charakterauswertung.py
++++ b/app/charakterauswertung.py
+@@ -35,5 +35,6 @@ LISTE_HOECHSTENS = 100
+ OFFEN = ("awaiting_gm", "queued", "processing")
+ HINWEIS = "character_analysis_pending"
+-_LINK = re.compile(r"(?i)\b(?:https?://|www\.)\S+|\b[\w.-]+\.(?:com|org|net|de|io|gg|ly|me|info|app)/\S*")
++# Adressen mit Schema oder www., jede Domain mit Pfad („foo.xyz/x“) und E-Mail-Adressen (S31, Link-Filter)
++_LINK = re.compile(r"(?i)\b(?:[a-z][a-z0-9+.-]*://|www\.)\S+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}/\S*|[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+ 
+ 
+@@ -147,5 +148,6 @@ def entscheiden(db: Session, a: CharacterAnalysis, zustimmen: bool) -> None:
+ 
+ def abgeschaltet(db: Session, c: Campaign) -> None:
+-    """allowCharacterAnalysis aus: offene Anfragen (awaiting_gm) gelten als abgelehnt; laufende laufen zu Ende."""
++    """allowCharacterAnalysis aus: offene Anfragen (awaiting_gm) gelten als abgelehnt. Schon zugestimmte Auswertungen
++    (queued, processing) laufen zu Ende – so steht es in der Schnittstelle; die SL hat ihnen einzeln zugestimmt."""
+     for a in db.scalars(select(CharacterAnalysis).where(CharacterAnalysis.campaign_id == c.id,
+                                                        CharacterAnalysis.state == "awaiting_gm")):
+@@ -203,8 +205,17 @@ def out(db: Session, a: CharacterAnalysis, sl: bool, lang: str = "de") -> schema
+         id=a.id, campaign_id=a.campaign_id, member_id=a.member_id, source=a.source, document_id=a.document_id,
+         title=a.title, state=a.state, uses_cloud=a.uses_cloud, page_count=a.page_count,
+-        pages_limited=a.pages_limited, message=render_status_message(a.message, lang) if a.state == "failed" else None,
++        pages_limited=a.pages_limited, message=_meldung(a, sl, lang) if a.state == "failed" else None,
+         proposal_count=anzahl, created_at=a.created_at, decided_at=a.decided_at)
+ 
+ 
++def _meldung(a: CharacterAnalysis, sl: bool, lang: str) -> str | None:
++    """Grund bei failed. Spieler bekommen nur feste Texte, nie die Rückmeldung von Modell oder Worker (S31)."""
++    from app.services import render_status_message
++
++    if not sl and a.message and '"doc.failed"' in a.message:
++        return errors.ApiError(0, "analysis.failed").message(lang)
++    return render_status_message(a.message, lang)
++
++
+ def zu_bogen(db: Session, doc: CampaignDocument) -> str | None:
+     """CampaignDocument.analysisId: die neueste Auswertung dieses Bogens."""
+@@ -231,5 +242,5 @@ def eingabe(db: Session, a: CharacterAnalysis) -> dict:
+     bibel = [{"id": e.id, "typ": e.type, "name": e.name, "zusammenfassung": e.summary or "", "gm_notes": None,
+               # teilweise verborgen = nicht allgemein bekannt → im Aufruf als geheim (wie bei Unterlagen)
+-              "sichtbarkeit": "teilweise" if e.hidden_member_ids else "public"}
++              "sichtbarkeit": "public" if e.allgemein_bekannt else "teilweise"}
+              for e in _sichtbar_fuer(db, a)]
+     return {"sprache": c.language, "kampagne": c.title, "system": c.system, "system_name": c.system_name,
+@@ -250,4 +261,9 @@ def speichern(db: Session, a: CharacterAnalysis, d: dict, engine: str, worker_id
+ 
+     me = db.get(Member, a.member_id)
++    if me is None or not me.aktiv:  # S31: inzwischen ausgetreten – keine Vorschläge aus ihrem Material
++        a.state, a.abschnitte, a.decided_at = "rejected", None, a.decided_at or utcnow()
++        proposals_d = None
++    else:
++        proposals_d = d.get("proposals") or []
+     sichtbar = {e.id: e for e in _sichtbar_fuer(db, a)}
+     # pc-Einträge pflegt die App – keine Vorschläge dafür, auch nicht als neuer Eintrag gleichen Namens
+@@ -258,5 +274,5 @@ def speichern(db: Session, a: CharacterAnalysis, d: dict, engine: str, worker_id
+     andere = sorted(m.id for m in db.scalars(select(Member).where(Member.campaign_id == a.campaign_id))
+                     if m.aktiv and m.id != a.member_id and m.role != "gm")
+-    vorschlaege = dokument_pruefen(d.get("proposals") or [], {i: e.name for i, e in sichtbar.items() if e.type != "pc"})
++    vorschlaege = dokument_pruefen(proposals_d or [], {i: e.name for i, e in sichtbar.items() if e.type != "pc"})
+     db.execute(delete(Proposal).where(Proposal.analysis_id == a.id))
+     pos = 0
+@@ -283,5 +299,6 @@ def speichern(db: Session, a: CharacterAnalysis, d: dict, engine: str, worker_id
+         ))
+         pos += 1
+-    a.state, a.abschnitte = "done", None
++    if proposals_d is not None:
++        a.state, a.abschnitte = "done", None
+     db.add(UsageLog(campaign_id=a.campaign_id, analysis_id=a.id, kind="document", engine=engine,
+                     model=d.get("model"), worker_id=worker_id, compute_seconds=rechenzeit,
+diff --git a/app/charaktere.py b/app/charaktere.py
+index 8b8923c..6d45f6a 100644
+--- a/app/charaktere.py
++++ b/app/charaktere.py
+@@ -114,5 +114,7 @@ def neuzugang(db: Session, me: Member) -> None:
+     for e in db.scalars(select(Entry).where(Entry.campaign_id == me.campaign_id)):
+         ids = e.hidden_member_ids
+-        if ids and me.id not in ids:
++        # 0.4.89 (S31): Geheimes aus Bogen/Hintergrund – Nachzügler immer verbergen, auch bei leerer Liste
++        aus_auswertung = bool(e.origin_analysis_id) and e.visibility == "public" and e.origin_member_id != me.id
++        if (ids or aus_auswertung) and me.id not in ids:
+             e.hidden_from.append(EntryHidden(entry_id=e.id, member_id=me.id))
+             betroffen.append(e.id)
+@@ -254,4 +256,6 @@ def entscheiden(db: Session, p: Proposal, mitglieder: set[str]) -> None:
+     e.origin_character_id, e.origin_entry_id = p.origin_character_id, p.origin_entry_id
+     e.origin_version, e.origin_member_id = p.origin_version, p.submitted_by_member_id
++    if p.analysis_id and p.action != "update":
++        e.origin_analysis_id = p.analysis_id  # S31: bleibt geheim für alle außer SL und Urheberin
+     p.target_entry_id = e.id
+ 
+@@ -317,9 +321,9 @@ def chronik(db: Session, me: Member, request) -> dict:
+             if e.updated_at is None or e.updated_at > bis:
+                 continue
+-            if e.hidden_member_ids and e.origin_member_id != me.id:
++            if not e.allgemein_bekannt and e.origin_member_id != me.id:
+                 continue
+         if e.origin_member_id == me.id:
+             mitgebracht.append({"originEntryId": e.origin_entry_id, "entryId": e.id, "entryType": e.type,
+-                                "name": e.name, "summary": e.summary, "hidden": bool(e.hidden_member_ids),
++                                "name": e.name, "summary": e.summary, "hidden": not e.allgemein_bekannt,
+                                 "updatedAt": _z(e.updated_at)})
+         text = f"{e.name}\n{e.summary}".casefold()
+diff --git a/app/errors.py b/app/errors.py
+index 5e5d3be..632f919 100644
+--- a/app/errors.py
++++ b/app/errors.py
+@@ -77,4 +77,6 @@ MESSAGES: dict[str, tuple[str, str]] = {
+     "analysis_pending": ("Dein Hintergrund liegt schon zur Auswertung bereit. Warte, bis sie fertig ist.",
+                          "Your backstory is already waiting to be analysed. Wait until that is done."),
++    "analysis.failed": ("Die Auswertung hat nicht geklappt. Du kannst den Bogen bzw. Hintergrund später noch einmal "
++                        "abgeben.", "The analysis did not work. You can submit the sheet or backstory again later."),
+     "wrong_state.analysis": ("Über diese Auswertung ist schon entschieden.",
+                              "This analysis has already been decided."),
+diff --git a/app/models.py b/app/models.py
+index 2d843f0..24992b3 100644
+--- a/app/models.py
++++ b/app/models.py
+@@ -290,4 +290,7 @@ class Entry(Base):
+     # 0.4.13: Links als JSON [{id, label, url, shared}]; Spieler bekommen nur shared (app/links.py)
+     links: Mapped[str | None] = mapped_column(Text, nullable=True)
++    # 0.4.89 (S31): aus einer Auswertung von Charakterbogen bzw. Hintergrund übernommen – bis die SL Sichtbarkeit oder
++    # „Wer weiß was“ selbst festlegt, wissen es nur SL und Urheberin (auch Nachzügler nicht; die KI nicht als bekannt)
++    origin_analysis_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+ 
+     mentions: Mapped[list["EntryMention"]] = relationship(cascade="all, delete-orphan")
+@@ -298,4 +301,9 @@ class Entry(Base):
+         return {h.member_id for h in self.hidden_from}
+ 
++    @property
++    def allgemein_bekannt(self) -> bool:
++        """Öffentlich und von niemandem verborgen – nur solche Einträge gelten für die KI als Spielerwissen."""
++        return self.visibility == "public" and not self.hidden_from and not self.origin_analysis_id
++
+ 
+ class EntryHidden(Base):
+diff --git a/app/routers/entries.py b/app/routers/entries.py
+index 6fbadbd..a686aa6 100644
+--- a/app/routers/entries.py
++++ b/app/routers/entries.py
+@@ -73,4 +73,6 @@ def patch_entry(
+     require_gm(acc.member)
+     apply_entry_input(db, acc.entry, body, require_public_text=True)
++    if {"visibility", "hidden_from_member_ids"} & body.model_fields_set:
++        acc.entry.origin_analysis_id = None  # S31: die SL hat selbst festgelegt, wer es weiß
+     db.commit()
+     db.refresh(acc.entry)
+diff --git a/app/umzug.py b/app/umzug.py
+index b6767b6..1ea041f 100644
+--- a/app/umzug.py
++++ b/app/umzug.py
+@@ -304,5 +304,6 @@ def packliste(db: Session, c: Campaign, zugestimmt: set[str]) -> tuple[dict, lis
+         eintraege.append({
+             "key": f"e{i + 1}", "type": e.type, "name": e.name, "summary": summary, "gmNotes": e.gm_notes,
+-            "status": e.status, "holderSeat": halter, "visibility": e.visibility,
++            # S31: Geheimes aus Bogen/Hintergrund geht als SL-Wissen mit (die Herkunftsmarke reist nicht mit)
++            "status": e.status, "holderSeat": halter, "visibility": "gm_only" if e.origin_analysis_id else e.visibility,
+             "hiddenFromSeats": sorted(platz[m] for m in e.hidden_member_ids if m in platz),
+             "pcCharacterId": e.pc_character_id, "origin": herkunft, "links": links.lesen(e.links),
+diff --git a/app/unterlagen.py b/app/unterlagen.py
+index e6d1606..b54e97c 100644
+--- a/app/unterlagen.py
++++ b/app/unterlagen.py
+@@ -311,5 +311,5 @@ def eingabe(db: Session, doc: CampaignDocument) -> dict:
+               "gm_notes": e.gm_notes or None,
+               # teilweise verborgen = nicht allgemein bekannt („Wer weiß was“) → im Aufruf als geheim
+-              "sichtbarkeit": "teilweise" if e.visibility == "public" and e.hidden_member_ids else e.visibility}
++              "sichtbarkeit": "teilweise" if e.visibility == "public" and not e.allgemein_bekannt else e.visibility}
+              for e in db.scalars(select(Entry).where(Entry.campaign_id == c.id).order_by(Entry.name))]
+     return {"sprache": c.language, "kampagne": c.title, "system": c.system, "system_name": c.system_name,
+diff --git a/app/zusammenfassung.py b/app/zusammenfassung.py
+index b3faea1..c048086 100644
+--- a/app/zusammenfassung.py
++++ b/app/zusammenfassung.py
+@@ -132,5 +132,5 @@ def eingabe_bauen(db: Session, s: GameSession) -> Eingabe:
+     for e in db.scalars(select(Entry).where(Entry.campaign_id == c.id).order_by(Entry.updated_at.desc())):
+         # Teilweise verborgene Einträge („Wer weiß was“) wie gm_only behandeln – den Recap lesen alle (0.3.6)
+-        if e.visibility == "public" and not e.hidden_member_ids:
++        if e.allgemein_bekannt:  # 0.4.89: auch Geheimes aus Bogen/Hintergrund (S31) nicht als bekannt
+             bibel.append(BekannterEintrag(e.id, e.type, e.name, e.summary))
+         else:
+@@ -159,5 +159,5 @@ def vorschlag_eingabe(db: Session, s: GameSession, basis: Eingabe) -> dict:
+                    "gm_notes": e.gm_notes or None}
+         # Teilweise verborgene Einträge („Wer weiß was“) nicht als allgemein bekannt ausgeben
+-        (bibel if e.visibility == "public" and not e.hidden_member_ids else geheim).append(eintrag)
++        (bibel if e.allgemein_bekannt else geheim).append(eintrag)
+     d["bibel"], d["geheim"] = bibel, geheim
+     return d
+@@ -167,5 +167,5 @@ def geheime_bibeltexte(eintraege) -> list[str]:
+     """Texte, die nicht alle Spieler kennen: gmNotes, Zusammenfassungen geheimer und teilweise verborgener Einträge."""
+     return [t for e in eintraege for t in (e.gm_notes or "",
+-                                           e.summary if e.visibility != "public" or e.hidden_member_ids else "") if t]
++                                           e.summary if not e.allgemein_bekannt else "") if t]
+ 
+ 
+diff --git a/migrations/versions/e2b6d4f8a1c3_server_0_4_89.py b/migrations/versions/e2b6d4f8a1c3_server_0_4_89.py
+new file mode 100644
+index 0000000..6469262
+--- /dev/null
++++ b/migrations/versions/e2b6d4f8a1c3_server_0_4_89.py
+@@ -0,0 +1,32 @@
++"""Server 0.4.89: Herkunft von Einträgen aus einer Auswertung (S31); Kampagne an alten Kostenaufträgen nachtragen
++
++Revision ID: e2b6d4f8a1c3
++Revises: d7a3c5e9f1b2
++"""
++from typing import Sequence, Union
++
++import sqlalchemy as sa
++from alembic import op
++
++revision: str = 'e2b6d4f8a1c3'
++down_revision: Union[str, Sequence[str], None] = 'd7a3c5e9f1b2'
++branch_labels: Union[str, Sequence[str], None] = None
++depends_on: Union[str, Sequence[str], None] = None
++
++
++def upgrade() -> None:
++    # Ohne batch: Tabellen nicht neu anlegen
++    op.add_column("entries", sa.Column("origin_analysis_id", sa.String(36), nullable=True))
++    # Einträge, die schon aus einer Auswertung übernommen wurden (0.4.88), nachträglich markieren
++    op.execute("UPDATE entries SET origin_analysis_id = (SELECT p.analysis_id FROM proposals p WHERE p.target_entry_id "
++               "= entries.id AND p.analysis_id IS NOT NULL AND p.action = 'create' AND p.decision = 'accepted' "
++               "LIMIT 1) WHERE origin_analysis_id IS NULL")
++    # Kostenaufträge aus 0.4.85/0.4.86 ohne Kampagne: aus Runde bzw. Unterlage ergänzen, solange es sie gibt
++    op.execute("UPDATE kosten_auftraege SET campaign_id = COALESCE("
++               "(SELECT campaign_id FROM sessions WHERE sessions.id = kosten_auftraege.session_id), "
++               "(SELECT campaign_id FROM documents WHERE documents.id = kosten_auftraege.document_id)) "
++               "WHERE campaign_id IS NULL")
++
++
++def downgrade() -> None:
++    op.drop_column("entries", "origin_analysis_id")  # SQLite ab 3.35
+-- 
+2.43.0
