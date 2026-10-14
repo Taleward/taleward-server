@@ -1,0 +1,356 @@
+From 225fe853447d757cbd55737a81fcc3a3edd68d48 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 07:35:50 +0200
+Subject: [PATCH 121/123] Begriffe: Kapitel, Abschrift und Runde in Meldungen
+ und Verwaltung
+
+---
+ app/datenschutz.py                          |  8 ++--
+ app/errors.py                               | 41 ++++++++++++---------
+ app/verwaltung/i18n.py                      | 28 ++++++--------
+ app/verwaltung/templates/assistent.html     |  8 ++--
+ app/verwaltung/templates/einstellungen.html |  4 +-
+ app/verwaltung/templates/konten.html        |  2 +-
+ app/verwaltung/templates/uebersicht.html    |  6 +--
+ app/verwaltung/templates/warteschlange.html |  4 +-
+ app/zusammenfassung.py                      | 10 ++---
+ tests/test_aufbewahrung.py                  |  2 +-
+ 10 files changed, 57 insertions(+), 56 deletions(-)
+
+diff --git a/app/datenschutz.py b/app/datenschutz.py
+index 32d88e7..d95e083 100644
+--- a/app/datenschutz.py
++++ b/app/datenschutz.py
+@@ -41,5 +41,5 @@ def vorlage(db: Session, hosting: str = "") -> str:
+          "## Was die App macht",
+          "Taleward nimmt Pen-&-Paper-Runden auf (nur mit Zustimmung aller Anwesenden), wandelt die Aufnahme in Text um "
+-         "und erstellt daraus eine Zusammenfassung („Recap“) und Vorschläge für die Kampagnen-Bibel. Die Spielleitung "
++         "und erstellt daraus eine Zusammenfassung („Kapitel“) und Vorschläge für die Kampagnen-Bibel. Die Spielleitung "
+          "prüft alles, bevor die Runde es sieht.",
+          "## Welche Daten wir verarbeiten",
+@@ -53,5 +53,5 @@ def vorlage(db: Session, hosting: str = "") -> str:
+          "- Mitgliedschaften in Kampagnen: Rolle, Charaktername, Charakterbeschreibung und -hintergrund, "
+          "Charakterbild, Kommentare, Antworten in Terminabstimmungen.",
+-         "- Aufnahmen von Spielrunden und daraus entstehende Transkripte, Zusammenfassungen und Einträge.",
++         "- Aufnahmen von Spielrunden und daraus entstehende Abschriften, Zusammenfassungen und Einträge.",
+          "- Freiwillig: ein Stimmprofil (Stimmabdruck), mit dem die App Stimmen in Aufnahmen wiedererkennt. Das ist "
+          "ein biometrisches Merkmal; wir verarbeiten es nur mit ausdrücklicher Einwilligung (Art. 9 Abs. 2 lit. a "
+@@ -66,5 +66,5 @@ def vorlage(db: Session, hosting: str = "") -> str:
+          "## Wie lange wir Daten speichern",
+          (f"- Aufnahmen: werden in Text umgewandelt und bleiben zur Prüfung der Zusammenfassung auf dem Server, bis "
+-          f"die Spielleitung den Recap freigibt, höchstens {frist.tage} {'Tag' if frist.tage == 1 else 'Tage'}, und "
++          f"die Spielleitung das Kapitel freigibt, höchstens {frist.tage} {'Tag' if frist.tage == 1 else 'Tage'}, und "
+           "werden dann gelöscht." if frist.bis_freigabe else
+           f"- Aufnahmen: werden gelöscht, sobald sie in Text umgewandelt sind, spätestens nach {tage} Tagen.")
+@@ -104,5 +104,5 @@ def vorlage(db: Session, hosting: str = "") -> str:
+     if email:
+         empfaenger.append("- E-Mails zu deinem Konto verschicken wir über [E-Mail-Anbieter des Vereins].")
+-    empfaenger.append("- Innerhalb einer Kampagne sehen die Mitglieder, was die Spielleitung freigibt. Transkripte, "
++    empfaenger.append("- Innerhalb einer Kampagne sehen die Mitglieder, was die Spielleitung freigibt. Abschriften, "
+                       "Vorschläge und geheime Notizen sieht nur die Spielleitung.")
+     t.append("\n".join(empfaenger))
+diff --git a/app/errors.py b/app/errors.py
+index 41b3580..1a3e6a3 100644
+--- a/app/errors.py
++++ b/app/errors.py
+@@ -151,8 +151,8 @@ MESSAGES: dict[str, tuple[str, str]] = {
+     "not_found": ("Nicht gefunden.", "Not found."),
+     "not_found.campaign": ("Die Kampagne wurde nicht gefunden.", "Campaign not found."),
+-    "not_found.session": ("Die Session wurde nicht gefunden.", "Session not found."),
++    "not_found.session": ("Die Runde wurde nicht gefunden.", "Session not found."),
+     "not_found.entry": ("Der Eintrag wurde nicht gefunden.", "Entry not found."),
+     "not_found.member": ("Das Mitglied wurde nicht gefunden.", "Member not found."),
+-    "not_found.recap": ("Für diese Session gibt es noch keinen Recap.", "There is no recap for this session yet."),
++    "not_found.recap": ("Für diese Runde gibt es noch kein Kapitel.", "There is no chapter for this session yet."),
+     "not_found.image": ("Es gibt kein Bild.", "There is no image."),
+     "no_date_poll": ("Es gibt keine Terminabstimmung.", "There is no date poll."),
+@@ -182,20 +182,24 @@ MESSAGES: dict[str, tuple[str, str]] = {
+     "consent_missing": ("{name} hat der Aufnahme in der App noch nicht zugestimmt. Bitte vor Ort zustimmen lassen.",
+                         "{name} has not agreed to recordings in the app yet. Please ask for consent on site."),
+-    "consent_missing.upload": ("Nicht alle Anwesenden haben der Aufnahme zugestimmt. Ohne Zustimmung aller ist kein Upload möglich.",
++    "consent_missing.upload": ("Nicht alle Anwesenden haben der Aufnahme zugestimmt. Ohne Zustimmung aller lässt sich die Aufnahme nicht hochladen.",
+                                "Not all attendees have agreed to the recording. Uploading requires everyone's consent."),
+-    "consent_revoked": ("{name} hat die Zustimmung zu Aufnahmen inzwischen widerrufen. Ein Upload ist so nicht möglich.",
++    "consent_revoked": ("{name} hat die Zustimmung zu Aufnahmen inzwischen widerrufen. Die Aufnahme lässt sich so nicht hochladen.",
+                         "{name} has withdrawn consent to recordings. The upload is not possible."),
+-    "attendees_locked": ("Anwesende und Einwilligungen lassen sich nach dem Start des Uploads nicht mehr ändern.",
++    "attendees_locked": ("Anwesende und Einwilligungen lassen sich nicht mehr ändern, sobald die Aufnahme hochgeladen wird.",
+                          "Attendees and consent cannot be changed after the upload has started."),
+     "invalid_state": ("Nur fehlgeschlagene Verarbeitungen können neu gestartet werden.",
+                       "Only failed processing can be restarted."),
+-    "already_published": ("Diese Session ist bereits veröffentlicht.", "This session has already been published."),
+-    "not_ready": ("Die Session kann erst veröffentlicht werden, wenn Recap und Vorschläge vorliegen.",
+-                  "The session can only be published once the recap and proposals are ready."),
++    "already_published": ("Diese Runde ist bereits veröffentlicht.", "This session has already been published."),
++    "not_ready": ("Die Runde kann erst veröffentlicht werden, wenn Kapitel und Vorschläge vorliegen.",
++                  "The session can only be published once the chapter and proposals are ready."),
+     # Upload / Verarbeitung
+-    "upload_in_progress": ("Für diese Session läuft bereits ein anderer Upload.", "Another upload is already running for this session."),
+-    "invalid_state.upload": ("Für diese Session wurde bereits Audio hochgeladen.", "Audio has already been uploaded for this session."),
+-    "upload_closed": ("Dieser Upload ist bereits abgeschlossen oder wurde verworfen.", "This upload has already been completed or discarded."),
+-    "chunks_missing": ("Es fehlen noch {count} Teile. Bitte den Upload fortsetzen.", "{count} parts are still missing. Please resume the upload."),
++    "upload_in_progress": ("Für diese Runde wird bereits eine andere Aufnahme hochgeladen.",
++                           "Another upload is already running for this session."),
++    "invalid_state.upload": ("Für diese Runde wurde bereits eine Aufnahme hochgeladen.",
++                             "Audio has already been uploaded for this session."),
++    "upload_closed": ("Dieses Hochladen ist bereits abgeschlossen oder wurde verworfen.",
++                      "This upload has already been completed or discarded."),
++    "chunks_missing": ("Es fehlen noch {count} Teile. Bitte das Hochladen fortsetzen.",
++                       "{count} parts are still missing. Please resume the upload."),
+     "chunk_size_mismatch": ("Teil {index} hat die falsche Größe ({got} statt {expected} Bytes).",
+                             "Part {index} has the wrong size ({got} instead of {expected} bytes)."),
+@@ -328,15 +332,16 @@ MESSAGES: dict[str, tuple[str, str]] = {
+     "status.no_llm_worker": ("Zurzeit ist kein Sprachmodell verfügbar. Die Zusammenfassung startet, sobald ein Worker mit Sprachmodell bereitsteht.",
+                              "No language model is available right now. Summarizing will start as soon as a worker with a language model is ready."),
+-    "status.no_summarizer": ("Die Zusammenfassung ist auf diesem Server gerade abgeschaltet. Die Session wird verarbeitet, sobald sie wieder läuft.",
++    "status.no_summarizer": ("Die Zusammenfassung ist auf diesem Server gerade abgeschaltet. Die Runde wird verarbeitet, sobald sie wieder läuft.",
+                              "Summarizing is currently switched off on this server. The session will be processed once it is running again."),
+     # Stimmen, Recap, Vorschläge
+-    "invalid_state.speakers": ("Stimmen können nur zugeordnet werden, solange die Session auf „Stimmen zuordnen“ steht.",
++    "invalid_state.speakers": ("Stimmen können nur zugeordnet werden, solange die Runde auf „Stimmen zuordnen“ steht.",
+                                "Voices can only be assigned while the session is waiting for voice assignment."),
+-    "invalid_state.review": ("Recap und Vorschläge lassen sich nur bearbeiten, solange die Session auf Prüfung wartet.",
+-                             "The recap and proposals can only be edited while the session is waiting for review."),
+-    "speaker_unknown": ("Eine der Stimmen gehört nicht zu dieser Session.", "One of the voices does not belong to this session."),
++    "invalid_state.review": ("Kapitel und Vorschläge lassen sich nur bearbeiten, solange die Runde auf Prüfung wartet.",
++                             "The chapter and proposals can only be edited while the session is waiting for review."),
++    "speaker_unknown": ("Eine der Stimmen gehört nicht zu dieser Runde.",
++                        "One of the voices does not belong to this session."),
+     "speaker_duplicate": ("Eine Stimme wurde mehrfach angegeben.", "A voice was listed more than once."),
+     "member_unknown": ("Eine der zugeordneten Personen gehört nicht zur Kampagne.", "One of the assigned members is not part of this campaign."),
+-    "validation_error.recap_text": ("Der Recap darf nicht leer sein.", "The recap must not be empty."),
++    "validation_error.recap_text": ("Das Kapitel darf nicht leer sein.", "The chapter must not be empty."),
+     "validation_error.open_threads": ("Zu viele oder zu lange offene Fäden.", "Too many or too long open threads."),
+     # Bibel
+diff --git a/app/verwaltung/i18n.py b/app/verwaltung/i18n.py
+index 6ae0b02..5c6a7d0 100644
+--- a/app/verwaltung/i18n.py
++++ b/app/verwaltung/i18n.py
+@@ -208,8 +208,8 @@ EN: dict[str, str] = {
+     "Wie lange eine Aufnahme nach der Umwandlung in Text auf dem Server bleibt. Solange sie da ist, lässt sich die Zusammenfassung gegen sie prüfen und die Transkription wiederholen. Die App nennt die Frist im Einwilligungstext.": "How long a recording stays on the server after it has been turned into text. While it is there, the summary can be checked against it and the transcription repeated. The app states the period in the consent text.",
+     "Aufnahmen löschen": "Delete recordings",
+-    "Wenn die Spielleitung den Recap freigibt, spätestens nach der Frist (empfohlen)": "When the GM releases the recap, at the latest after the period (recommended)",
++    "Wenn die Spielleitung das Kapitel freigibt, spätestens nach der Frist (empfohlen)": "When the GM releases the chapter, at the latest after the period (recommended)",
+     "Sofort nach der Umwandlung in Text": "Right after transcription",
+     "Höchstens (Tage)": "At most (days)",
+-    "Gilt nur für „Wenn die Spielleitung den Recap freigibt“. Höchstens {n} Tage.": "Only applies to “When the GM releases the recap”. At most {n} days.",
++    "Gilt nur für „Wenn die Spielleitung das Kapitel freigibt“. Höchstens {n} Tage.": "Only applies to “When the GM releases the chapter”. At most {n} days.",
+     "Mir ist klar: Sollen Aufnahmen länger bleiben als bisher, müssen alle Mitglieder in der App neu zustimmen (zurzeit {n} Zustimmungen).": "I understand: if recordings are kept longer than before, all members have to consent again in the app (currently {n} consents).",
+     "Nur nötig, wenn die Aufbewahrung verlängert wird. Kürzer stellen geht jederzeit ohne neue Zustimmung. Danach den Datenschutzhinweis anpassen.": "Only needed when retention is extended. Shortening it is possible at any time without new consent. Afterwards, update the privacy notice.",
+@@ -310,8 +310,8 @@ EN: dict[str, str] = {
+     "Es gibt noch keine Sicherung.": "There is no backup yet.",
+     "Es sind noch {n} Stellen in eckigen Klammern offen. Bitte ausfüllen oder entfernen.": "There are still {n} parts in square brackets. Please fill them in or remove them.",
+-    "Etwa 80 Cent pro 4-Stunden-Session. Einrichtung: 5 Minuten.": "About 80 cents per 4-hour session. Setup: 5 minutes.",
++    "Etwa 80 Cent pro Runde von 4 Stunden. Einrichtung: 5 Minuten.": "About 80 cents per 4-hour session. Setup: 5 minutes.",
+     "Euer Verein": "Your club",
+     "Gilt für Cloud-Transkription und Cloud-Sprachmodell zusammen. Ist es erreicht, warten Aufträge bis zum nächsten Monat. 0 = ohne Limit.": "Applies to cloud transcription and cloud language model together. Once reached, jobs wait until next month. 0 = no limit.",
+-    "Gute Recaps, etwa 6 Cent pro Session.": "Good recaps, about 6 cents per session.",
++    "Gute Kapitel, etwa 6 Cent pro Runde.": "Good chapters, about 6 cents per session.",
+     "Hugging Face lehnt diesen Zugangsschlüssel ab.": "Hugging Face rejects this access token.",
+     "Ist es erreicht, warten Aufnahmen bis zum nächsten Monat. 0 = ohne Limit.": "Once reached, recordings wait until next month. 0 = no limit.",
+@@ -349,5 +349,5 @@ EN: dict[str, str] = {
+     "Offene Punkte bleiben auf der Übersicht sichtbar, bis sie erledigt sind.": "Open items stay visible on the overview until they are done.",
+     "Ohne Docker:": "Without Docker:",
+-    "Ollama auf dem lokalen Server. Nichts verlässt den Verein, kleinere Modelle schreiben aber schwächere Recaps. Ollama installieren: Anleitung Teil 11.2.": "Ollama on the local server. Nothing leaves the club, but smaller models write weaker recaps. Installing Ollama: guide part 11.2.",
++    "Ollama auf dem lokalen Server. Nichts verlässt den Verein, kleinere Modelle schreiben aber schwächere Kapitel. Ollama installieren: Anleitung Teil 11.2.": "Ollama on the local server. Nothing leaves the club, but smaller models write weaker chapters. Installing Ollama: guide part 11.2.",
+     "Prüfen und speichern": "Check and save",
+     "Prüfen und weiter": "Check and continue",
+@@ -373,5 +373,5 @@ EN: dict[str, str] = {
+     "Wartezeit bitte in Stunden zwischen 0 und 720 angeben.": "Please enter the waiting time in hours between 0 and 720.",
+     "Weiter": "Continue",
+-    "Wer schreibt Recap und Bibel-Vorschläge?": "Who writes the recap and bible proposals?",
++    "Wer schreibt Kapitel und Bibel-Vorschläge?": "Who writes the chapter and bible proposals?",
+     "Wie sollen Aufnahmen verarbeitet werden?": "How should recordings be processed?",
+     "Zugang zum Sprechermodell (Hugging Face)": "Access to the speaker model (Hugging Face)",
+@@ -408,5 +408,5 @@ EN: dict[str, str] = {
+     "Lokales Modell (Ollama auf einem Worker)": "Local model (Ollama on a worker)",
+     "Einstellungen zur Zusammenfassung gespeichert.": "Summary settings saved.",
+-    "Empfohlen: mistral-large-latest (gute Recaps, etwa 6 Cent pro Session).": "Recommended: mistral-large-latest (good recaps, about 6 cents per session).",
++    "Empfohlen: mistral-large-latest (gute Kapitel, etwa 6 Cent pro Runde).": "Recommended: mistral-large-latest (good chapters, about 6 cents per session).",
+     "Empfohlen: auto – jeder Worker wählt nach seiner Grafikkarte (unter 12 GB gemma4:e4b, ab 12 GB gemma4:12b) und lädt das Modell beim ersten Auftrag selbst herunter.": "Recommended: auto – each worker picks by its graphics card (below 12 GB gemma4:e4b, from 12 GB gemma4:12b) and downloads the model itself on the first job.",
+     "Höchste Kontextgröße (Tokens)": "Maximum context size (tokens)",
+@@ -488,5 +488,5 @@ EN: dict[str, str] = {
+     # Übersicht
+     "Worker bereit": "workers ready",
+-    "Sessions in der Warteschlange": "sessions in the queue",
++    "Runden in der Warteschlange": "sessions in the queue",
+     "in Verarbeitung": "being processed",
+     "warten auf die Spielleitung": "waiting for the GM",
+@@ -494,5 +494,5 @@ EN: dict[str, str] = {
+     "Kapitel veröffentlicht": "chapters published",
+     "Kampagnen": "campaigns",
+-    "Sessions warten, aber kein Worker ist bereit.": "Sessions are waiting, but no worker is ready.",
++    "Runden warten, aber kein Worker ist bereit.": "Sessions are waiting, but no worker is ready.",
+     "Worker starten": "Start a worker",
+     "Lokaler Worker": "Local worker",
+@@ -505,11 +505,9 @@ EN: dict[str, str] = {
+     "Datenbank {a} · Aufnahmen in Bearbeitung {b} · Hörproben {c}":
+         "Database {a} · recordings in progress {b} · voice samples {c}",
+-    "Aufnahmen bleiben bis zur Freigabe des Recaps, höchstens {n} Tage.":
+-        "Recordings stay until the recap is released, at most {n} days.",
++    "Aufnahmen bleiben bis zur Freigabe des Kapitels, höchstens {n} Tage.": "Recordings stay until the chapter is released, at most {n} days.",
+     "Aufnahmen werden gleich nach der Transkription gelöscht.": "Recordings are deleted right after transcription.",
+     "Ändern": "Change",
+     "Sicherung herunterladen": "Download backup",
+-    "Die Sicherung ist eine vollständige Kopie der Datenbank mit allen Inhalten (Konten, Kampagnen, Recaps, Transkripte, Einstellungen). Sicher aufbewahren.":
+-        "The backup is a complete copy of the database with all content (accounts, campaigns, recaps, transcripts, settings). Keep it safe.",
++    "Die Sicherung ist eine vollständige Kopie der Datenbank mit allen Inhalten (Konten, Kampagnen, Kapitel, Abschriften, Einstellungen). Sicher aufbewahren.": "The backup is a complete copy of the database with all content (accounts, campaigns, chapters, transcripts, settings). Keep it safe.",
+     "Schnittstelle": "API",
+     "Datenbank": "Database",
+@@ -541,6 +539,5 @@ EN: dict[str, str] = {
+     "Ein zweiter Durchgang des Sprachmodells prüft jeden Absatz gegen das Transkript, bessert Unbelegtes einmal nach und zeigt der Spielleitung vor der Freigabe, worauf sich jeder Absatz stützt. Kostet etwa ein Drittel mehr Rechenzeit.":
+         "A second pass of the language model checks every paragraph against the transcript, revises unsupported parts once and shows the game master what each paragraph is based on before sharing. Takes about a third more computing time.",
+-    "Löscht Konto, Anmeldungen, Charakterbilder, Hintergrund und Stimmprofil endgültig. Kommentare bleiben als „gelöschtes Konto“ stehen, Kapitel und Recaps bleiben unverändert. Ist die Person irgendwo die einzige Spielleitung, geht es erst, wenn dort jemand anderes Spielleitung ist.":
+-        "Permanently deletes the account, sign-ins, character portraits, backstory and voice profile. Comments remain as “deleted account”; chapters and recaps stay unchanged. If the person is the only game master somewhere, this only works once someone else is game master there.",
++    "Löscht Konto, Anmeldungen, Charakterbilder, Hintergrund und Stimmprofil endgültig. Kommentare bleiben als „gelöschtes Konto“ stehen, Kapitel bleiben unverändert. Ist die Person irgendwo die einzige Spielleitung, geht es erst, wenn dort jemand anderes Spielleitung ist.": "Permanently deletes the account, sign-ins, character portraits, backstory and voice profile. Comments remain as “deleted account”; chapters stay unchanged. If the person is the only game master somewhere, this only works once someone else is game master there.",
+     "Benutzername zur Bestätigung": "Username to confirm",
+     "Endgültig löschen": "Delete permanently",
+@@ -632,5 +629,4 @@ EN: dict[str, str] = {
+     # Warteschlange
+     "{n} offen · die letzten 100 Aufträge": "{n} open · the last 100 jobs",
+-    "Session": "Session",
+     "Bearbeitet von": "Processed by",
+     "Zeit": "Time",
+diff --git a/app/verwaltung/templates/assistent.html b/app/verwaltung/templates/assistent.html
+index 49f87c5..6af817c 100644
+--- a/app/verwaltung/templates/assistent.html
++++ b/app/verwaltung/templates/assistent.html
+@@ -33,5 +33,5 @@
+         <strong>{{ _("Nur Cloud") }}</strong>
+         <span>{{ _("Transkription und Zusammenfassung über Mistral (EU). Kein lokaler Server nötig.") }}</span>
+-        <span class="leise">{{ _("Etwa 80 Cent pro 4-Stunden-Session. Einrichtung: 5 Minuten.") }}</span></label>
++        <span class="leise">{{ _("Etwa 80 Cent pro Runde von 4 Stunden. Einrichtung: 5 Minuten.") }}</span></label>
+       <label class="wahl"><input type="radio" name="art" value="lokal">
+         <strong>{{ _("Lokaler Server") }}</strong>
+@@ -115,5 +115,5 @@
+ <div class="karte">
+   {% if "mistral" in hinweis or "hf" in hinweis %}<div class="meldung">{{ _("Der Schlüssel wurde gespeichert, konnte aber gerade nicht geprüft werden (Anbieter nicht erreichbar).") }}</div>{% endif %}
+-  <h2>{{ _("Wer schreibt Recap und Bibel-Vorschläge?") }}</h2>
++  <h2>{{ _("Wer schreibt Kapitel und Bibel-Vorschläge?") }}</h2>
+   <form class="formular" method="post" action="/verwaltung/assistent/zusammenfassung">
+     <input type="hidden" name="csrf" value="{{ csrf }}">
+@@ -121,9 +121,9 @@
+       <label class="wahl"><input type="radio" name="wahl" value="api" {% if llm.art == "api" or (llm.art != "lokal" and art == "cloud") %}checked{% endif %}>
+         <strong>{{ _("Cloud-API (Mistral)") }}</strong>
+-        <span>{{ _("Gute Recaps, etwa 6 Cent pro Session.") }}{% if mistral %} {{ _("Der Mistral-Schlüssel von eben wird verwendet.") }}{% endif %}</span></label>
++        <span>{{ _("Gute Kapitel, etwa 6 Cent pro Runde.") }}{% if mistral %} {{ _("Der Mistral-Schlüssel von eben wird verwendet.") }}{% endif %}</span></label>
+       {% if art in ("lokal", "beides") %}
+       <label class="wahl"><input type="radio" name="wahl" value="lokal" {% if llm.art == "lokal" %}checked{% endif %}>
+         <strong>{{ _("Lokales Modell") }}</strong>
+-        <span>{{ _("Ollama auf dem lokalen Server. Nichts verlässt den Verein, kleinere Modelle schreiben aber schwächere Recaps. Ollama installieren: Anleitung Teil 11.2.") }}</span></label>
++        <span>{{ _("Ollama auf dem lokalen Server. Nichts verlässt den Verein, kleinere Modelle schreiben aber schwächere Kapitel. Ollama installieren: Anleitung Teil 11.2.") }}</span></label>
+       {% endif %}
+     </div>
+diff --git a/app/verwaltung/templates/einstellungen.html b/app/verwaltung/templates/einstellungen.html
+index 358a2cf..bca3b74 100644
+--- a/app/verwaltung/templates/einstellungen.html
++++ b/app/verwaltung/templates/einstellungen.html
+@@ -39,9 +39,9 @@
+     <label>{{ _("Aufnahmen löschen") }}
+       <select name="audio_modus">
+-        <option value="until_release" {% if aufbewahrung.bis_freigabe %}selected{% endif %}>{{ _("Wenn die Spielleitung den Recap freigibt, spätestens nach der Frist (empfohlen)") }}</option>
++        <option value="until_release" {% if aufbewahrung.bis_freigabe %}selected{% endif %}>{{ _("Wenn die Spielleitung das Kapitel freigibt, spätestens nach der Frist (empfohlen)") }}</option>
+         <option value="immediate" {% if not aufbewahrung.bis_freigabe %}selected{% endif %}>{{ _("Sofort nach der Umwandlung in Text") }}</option>
+       </select></label>
+     <label>{{ _("Höchstens (Tage)") }} <input type="number" name="audio_tage" value="{{ aufbewahrung.tage }}" min="1" max="{{ hoechstens_tage }}">
+-      <span class="hilfe">{{ _("Gilt nur für „Wenn die Spielleitung den Recap freigibt“. Höchstens {n} Tage.", n=hoechstens_tage) }}</span></label>
++      <span class="hilfe">{{ _("Gilt nur für „Wenn die Spielleitung das Kapitel freigibt“. Höchstens {n} Tage.", n=hoechstens_tage) }}</span></label>
+     <label class="haken"><input type="checkbox" name="audio_bestaetigt" value="ja">
+       <span>{{ _("Mir ist klar: Sollen Aufnahmen länger bleiben als bisher, müssen alle Mitglieder in der App neu zustimmen (zurzeit {n} Zustimmungen).", n=zustimmungen) }}</span></label>
+diff --git a/app/verwaltung/templates/konten.html b/app/verwaltung/templates/konten.html
+index 9931b5b..4a9b3a7 100644
+--- a/app/verwaltung/templates/konten.html
++++ b/app/verwaltung/templates/konten.html
+@@ -47,5 +47,5 @@
+             <button class="tw-btn tw-btn--quiet tw-btn--klein" type="submit">{{ _("Verwalter-Recht entziehen") if k.verwalter else _("Zum Verwalter machen") }}</button></form>
+           <details><summary>{{ _("Konto löschen") }}</summary>
+-            <p class="hilfe">{{ _("Löscht Konto, Anmeldungen, Charakterbilder, Hintergrund und Stimmprofil endgültig. Kommentare bleiben als „gelöschtes Konto“ stehen, Kapitel und Recaps bleiben unverändert. Ist die Person irgendwo die einzige Spielleitung, geht es erst, wenn dort jemand anderes Spielleitung ist.") }}</p>
++            <p class="hilfe">{{ _("Löscht Konto, Anmeldungen, Charakterbilder, Hintergrund und Stimmprofil endgültig. Kommentare bleiben als „gelöschtes Konto“ stehen, Kapitel bleiben unverändert. Ist die Person irgendwo die einzige Spielleitung, geht es erst, wenn dort jemand anderes Spielleitung ist.") }}</p>
+             <form class="formular formular--zeile" method="post" action="/verwaltung/konten/{{ k.u.id }}/loeschen">
+               <input type="hidden" name="csrf" value="{{ csrf }}">
+diff --git a/app/verwaltung/templates/uebersicht.html b/app/verwaltung/templates/uebersicht.html
+index f2fa0c3..c761102 100644
+--- a/app/verwaltung/templates/uebersicht.html
++++ b/app/verwaltung/templates/uebersicht.html
+@@ -17,5 +17,5 @@
+ <div class="raster">
+   <div class="zahl"><div class="zahl__wert">{{ zahlen.knechte_online }}<span class="leise"> / {{ zahlen.knechte }}</span></div><div class="zahl__text">{{ _("Worker bereit") }}</div></div>
+-  <div class="zahl"><div class="zahl__wert">{{ zahlen.wartend }}</div><div class="zahl__text">{{ _("Sessions in der Warteschlange") }}</div></div>
++  <div class="zahl"><div class="zahl__wert">{{ zahlen.wartend }}</div><div class="zahl__text">{{ _("Runden in der Warteschlange") }}</div></div>
+   <div class="zahl"><div class="zahl__wert">{{ zahlen.in_arbeit }}</div><div class="zahl__text">{{ _("in Verarbeitung") }}</div></div>
+   <div class="zahl"><div class="zahl__wert">{{ zahlen.bei_sl }}</div><div class="zahl__text">{{ _("warten auf die Spielleitung") }}</div></div>
+@@ -26,5 +26,5 @@
+ </div>
+ {% if zahlen.wartend and not zahlen.knechte_online %}
+-<div class="meldung meldung--fehler">{{ _("Sessions warten, aber kein Worker ist bereit.") }} <a href="/verwaltung/transkription">{{ _("Worker starten") }}</a></div>
++<div class="meldung meldung--fehler">{{ _("Runden warten, aber kein Worker ist bereit.") }} <a href="/verwaltung/transkription">{{ _("Worker starten") }}</a></div>
+ {% endif %}
+ {% if eingebaut %}
+@@ -59,5 +59,5 @@
+   <h2>{{ _("Speicher") }}</h2>
+   <p>{{ _("Datenbank {a} · Bilder und Unterlagen {d} · Aufnahmen in Bearbeitung {b} · Hörproben {c}", a=groesse(speicher.datenbank), d=groesse(speicher.bilder), b=groesse(speicher.uploads), c=groesse(speicher.hoerproben)) }}</p>
+-  <p class="leise">{% if aufbewahrung.bis_freigabe %}{{ _("Aufnahmen bleiben bis zur Freigabe des Recaps, höchstens {n} Tage.", n=aufbewahrung.tage) }}{% else %}{{ _("Aufnahmen werden gleich nach der Transkription gelöscht.") }}{% endif %} <a href="/verwaltung/einstellungen#aufnahmen">{{ _("Ändern") }}</a></p>
++  <p class="leise">{% if aufbewahrung.bis_freigabe %}{{ _("Aufnahmen bleiben bis zur Freigabe des Kapitels, höchstens {n} Tage.", n=aufbewahrung.tage) }}{% else %}{{ _("Aufnahmen werden gleich nach der Transkription gelöscht.") }}{% endif %} <a href="/verwaltung/einstellungen#aufnahmen">{{ _("Ändern") }}</a></p>
+ </div>
+ <div class="karte" id="sicherung">
+diff --git a/app/verwaltung/templates/warteschlange.html b/app/verwaltung/templates/warteschlange.html
+index cdfd9bf..4be4658 100644
+--- a/app/verwaltung/templates/warteschlange.html
++++ b/app/verwaltung/templates/warteschlange.html
+@@ -6,9 +6,9 @@
+ <div class="karte tabelle-huelle">
+   <table>
+-    <thead><tr><th>{{ _("Session") }}</th><th>{{ _("Art") }}</th><th>{{ _("Zustand") }}</th><th>{{ _("Bearbeitet von") }}</th><th>{{ _("Zeit") }}</th><th></th></tr></thead>
++    <thead><tr><th>{{ _("Runde") }}</th><th>{{ _("Art") }}</th><th>{{ _("Zustand") }}</th><th>{{ _("Bearbeitet von") }}</th><th>{{ _("Zeit") }}</th><th></th></tr></thead>
+     <tbody>
+     {% for z in zeilen %}
+       <tr>
+-        <td data-label="{{ _('Session') }}">{% if z.c %}<strong>{{ z.c.title }}</strong><br><span class="leise">{% if z.s %}{{ _("Kapitel {n}", n=z.s.number) }}{% else %}{{ z.dok.title }}{% endif %}</span>{% else %}<span class="leise">–</span>{% endif %}</td>
++        <td data-label="{{ _('Runde') }}">{% if z.c %}<strong>{{ z.c.title }}</strong><br><span class="leise">{% if z.s %}{{ _("Kapitel {n}", n=z.s.number) }}{% else %}{{ z.dok.title }}{% endif %}</span>{% else %}<span class="leise">–</span>{% endif %}</td>
+         <td data-label="{{ _('Art') }}">{{ {"transcribe": _("Transkription"), "summarize": _("Zusammenfassung"), "voice_enroll": _("Stimmprofil"), "document": _("SL-Unterlage"), "revise": _("Korrektur")}.get(z.j.type, z.j.type) }}{% if z.j.engine == "external" %} <span class="leise">({{ _("extern") }})</span>{% endif %}</td>
+         <td data-label="{{ _('Zustand') }}">
+diff --git a/app/zusammenfassung.py b/app/zusammenfassung.py
+index c048086..1889214 100644
+--- a/app/zusammenfassung.py
++++ b/app/zusammenfassung.py
+@@ -246,8 +246,8 @@ def attrappe(e: Eingabe) -> Ergebnis:
+     else:
+         titel = f"Kapitel {e.session_nummer}: Platzhalter"
+-        text = (f"Platzhalter (Testmodus): Hier steht künftig der vorlesbare Recap von Kapitel {e.session_nummer}, "
++        text = (f"Platzhalter (Testmodus): Hier steht künftig das vorlesbare Kapitel {e.session_nummer}, "
+                 f"erzählt im Ton der Kampagne „{e.kampagne}“.\n\n"
+-                f"Dabei waren: {runde}. Das Transkript hat {len(e.transkript)} Zeilen aus etwa {dauer} Minuten.")
+-        faeden = ["Platzhalter: eine offene Frage aus dieser Session", "Platzhalter: ein gegebenes Versprechen"]
++                f"Dabei waren: {runde}. Die Abschrift hat {len(e.transkript)} Zeilen aus etwa {dauer} Minuten.")
++        faeden = ["Platzhalter: eine offene Frage aus dieser Runde", "Platzhalter: ein gegebenes Versprechen"]
+     v = [
+         Vorschlag("npc", "create", "Platzhalter-NSC" if not en else "Placeholder NPC",
+@@ -266,5 +266,5 @@ def attrappe(e: Eingabe) -> Ergebnis:
+         ziel = e.bibel[0]
+         v.append(Vorschlag(ziel.typ, "update", ziel.name,
+-                           "Platzhalter (Testmodus): Neues aus dieser Session." if not en
++                           "Platzhalter (Testmodus): Neues aus dieser Runde." if not en
+                            else "Placeholder (test mode): news from this session.",
+                            target_entry_id=ziel.id, suggested_visibility="public", confidence=0.6,
+@@ -282,5 +282,5 @@ def attrappe(e: Eingabe) -> Ergebnis:
+         {"index": 0, "verdict": "supported", "note": None, "evidence": belege[:1]},
+         {"index": 1, "verdict": "partial",
+-         "note": "Platzhalter: Die Dauer steht so nicht im Transkript." if not en
++         "note": "Platzhalter: Die Dauer steht so nicht in der Abschrift." if not en
+          else "Placeholder: the duration is not stated in the transcript.", "evidence": belege[1:2]},
+     ]}
+diff --git a/tests/test_aufbewahrung.py b/tests/test_aufbewahrung.py
+index 3670a98..0d13905 100644
+--- a/tests/test_aufbewahrung.py
++++ b/tests/test_aufbewahrung.py
+@@ -126,5 +126,5 @@ def test_verlaengern_setzt_zustimmungen_zurueck(client, world, dbs, admin):  # n
+     assert all(m.recording_consent_at is None for m in dbs.query(Member).all())
+     assert dbs.query(ConsentLog).filter_by(action="reset").count() == 2
+-    assert "bis die Spielleitung den Recap freigibt, höchstens 7 Tage" in vorlage(dbs)
++    assert "bis die Spielleitung das Kapitel freigibt, höchstens 7 Tage" in vorlage(dbs)
+     konto = client.get(f"{API}/campaigns/{world['cid']}", headers=world["pl"]).json()
+     assert all(m["recordingConsentAt"] is None for m in konto["members"])
+-- 
+2.43.0
+
