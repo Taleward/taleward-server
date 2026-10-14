@@ -64,6 +64,12 @@ def port() -> int:
     return get_settings().einzelplatz_port
 
 
+def programm_worker() -> bool:
+    """Gehört der Worker zum Programm (Schlüsseldatei), statt dass der Server selbst einen startet?"""
+    s = get_settings()
+    return s.taleward_einzelplatz and s.einzelplatz_worker_datei is not None
+
+
 def standard_datenordner() -> Path:
     """Datenordner im Benutzerordner: unter Windows %LOCALAPPDATA%\\Taleward\\Daten (nur für den Windows-Nutzer)."""
     basis = os.environ.get("LOCALAPPDATA")
@@ -223,6 +229,39 @@ async def _antwort(scope, receive, send, status: int, ort: str | None = None) ->
         kopf.append((b"location", ort.encode()))
     await send({"type": "http.response.start", "status": status, "headers": kopf})
     await send({"type": "http.response.body", "body": b""})
+
+
+# ---------------------------------------------------------------- Geordnet beenden (Programm)
+def _stopp_signal() -> None:
+    import signal
+
+    signal.raise_signal(signal.SIGINT)  # wie Strg+C: uvicorn fährt geordnet herunter
+
+
+def stopp_waechter_starten(takt: float = 1.0) -> threading.Event | None:
+    """EINZELPLATZ_STOPP_DATEI: Legt das Programm die Datei an, löscht der Server sie und beendet sich geordnet."""
+    datei = get_settings().einzelplatz_stopp_datei
+    if not an() or datei is None:
+        return None
+    try:
+        datei.unlink(missing_ok=True)  # eine alte Datei vom letzten Mal gilt nicht
+    except OSError:
+        pass
+    ende = threading.Event()
+
+    def schleife():
+        while not ende.wait(takt):
+            try:
+                if datei.exists():
+                    datei.unlink(missing_ok=True)
+                    log.info("Einzelplatz: Das Programm beendet den Server")
+                    _stopp_signal()
+                    return
+            except OSError:
+                continue
+
+    threading.Thread(target=schleife, name="einzelplatz-stopp", daemon=True).start()
+    return ende
 
 
 # ---------------------------------------------------------------- Startschlüssel

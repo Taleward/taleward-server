@@ -82,6 +82,12 @@ class Settings(BaseSettings):
     # Setzt das Programm über die Umgebung; dann gelten eigene Regeln für Adressen, Verwaltung und das erste Konto.
     taleward_einzelplatz: bool = False
     einzelplatz_port: int = 8000
+    # Worker des Programms: Der Server schreibt bei jedem Start einen frischen Schlüssel in diese Datei (nur für den
+    # Windows-Nutzer lesbar) und startet selbst keinen Worker. Gesetzt vom Programm, nur im Einzelplatz wirksam.
+    einzelplatz_worker_datei: Path | None = None
+    # Liegt diese Datei, fährt der Server geordnet herunter (das Programm hat unter Windows kein Konsolenfenster, an
+    # das es Strg+C schicken könnte). Nur im Einzelplatz wirksam.
+    einzelplatz_stopp_datei: Path | None = None
     update_check: bool = True
     update_app_repo: str = "Taleward/taleward-app"
     update_server_repo: str = "Taleward/taleward-server"

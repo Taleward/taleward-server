@@ -691,7 +691,17 @@ def transkription(request: Request, user: User = Depends(verwalter), db: Session
                   hf_ende=(_meta(db, "hf.token") or "")[-4:] or None, modell=_modell_anzeige(db),
                   neuer_name=neuer_name, fehler=fehler, lokal=KNECHT.zustand(), log=KNECHT.log_ende(),
                   autostart=meta_lesen(db, META_KEY, "aus"), ki=ki_verfuegbar(), ext=_extern_anzeige(db),
-                  docker=_docker(), worker_art=get_settings().worker_art, eingebaut=_eingebaut_anzeige(db))
+                  docker=_docker(), worker_art=get_settings().worker_art, eingebaut=_eingebaut_anzeige(db),
+                  programm=_programm_anzeige(db))
+
+
+def _programm_anzeige(db: Session) -> dict | None:
+    """Einzelplatz: Karte „Worker des Taleward-Programms“."""
+    from app.einzelplatz import programm_worker
+
+    if not programm_worker():
+        return None
+    return {"knecht": next((k for k in _knechte(db) if k["w"].local), None)}
 
 
 def _modell_anzeige(db: Session) -> dict:
@@ -826,6 +836,10 @@ def knecht_sperren(worker_id: str, user: User = Depends(verwalter), db: Session 
 @router.post("/worker/lokal/start", dependencies=[Depends(csrf_pruefen)])
 def lokal_starten(modus: str = Form("echt"), autostart: str = Form(""), user: User = Depends(verwalter),
                   db: Session = Depends(get_db)):
+    from app.einzelplatz import programm_worker
+
+    if programm_worker():
+        raise errors.not_found()  # der Worker gehört zum Programm – ein zweiter würde seinen Schlüssel ablösen
     if modus not in ("echt", "attrappe"):
         raise errors.bad_request("validation_error")
     meta_schreiben(db, META_KEY, modus if autostart else "aus")

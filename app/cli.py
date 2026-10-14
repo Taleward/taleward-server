@@ -1099,8 +1099,9 @@ def einzelplatz(port: int = typer.Option(8000)):
     os.environ["EINZELPLATZ_PORT"] = str(port)
     get_settings.cache_clear()
     # Proxy-Kopfzeilen nie auswerten: die echte Absenderadresse entscheidet, ob eine Anfrage vom PC selbst kommt
+    # Ohne Zugriffsprotokoll: Es stünden Adressen mit Download-Schlüsseln darin, und das Programm fragt laufend nach
     uvicorn.run("app.main:app", host="0.0.0.0", port=port, proxy_headers=False, forwarded_allow_ips="",
-                server_header=False)
+                server_header=False, access_log=False)
 
 
 if __name__ == "__main__":

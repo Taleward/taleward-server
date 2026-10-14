@@ -57,7 +57,10 @@ Windows-Programm, das Server, Worker und App zusammen startet). Dann gilt:
 - Das erste Konto legt das Programm an – mit einem einmaligen Startschlüssel (`TALEWARD_STARTSCHLUESSEL` bzw.
   `TALEWARD_STARTSCHLUESSEL_DATEI`, mindestens 32 Byte, gilt 15 Minuten), nie über das Netz. Einen Einrichtungscode
   gibt es nicht.
-- Der eingebaute Worker startet von selbst, wenn die KI-Pakete installiert sind. Updates übernimmt das Programm.
+- Der eingebaute Worker startet von selbst, wenn die KI-Pakete installiert sind. Steht in `EINZELPLATZ_WORKER_DATEI`
+  ein Pfad, schreibt der Server stattdessen bei jedem Start einen frischen Worker-Schlüssel in diese Datei und startet
+  selbst keinen Worker – den startet dann das Programm. Updates übernimmt das Programm.
+- `EINZELPLATZ_STOPP_DATEI`: Legt das Programm diese Datei an, fährt der Server geordnet herunter.
 
 Die Verbindung im WLAN ist nicht verschlüsselt. Einzelplatz ist für das eigene WLAN gedacht; für geteilte Netze
 (Vereinsheim) ist ein richtiger Server mit HTTPS die bessere Wahl.

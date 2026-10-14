@@ -141,9 +141,12 @@ class LokalerKnecht:
 
     def autostart(self, db: Session) -> None:
         from app.einstellungen import meta_lesen
+        from app.einzelplatz import programm_worker
 
         if get_settings().worker_art:
             return  # der eingebaute Worker läuft als eigener Container und nutzt denselben Eintrag
+        if programm_worker():
+            return  # Einzelplatz: den Worker startet das Programm (Schlüsseldatei)
 
         # Einzelplatz: Der Worker gehört dazu und koppelt sich selbst – mit KI-Paketen echt, ohne nicht
         standard = "echt" if get_settings().taleward_einzelplatz and ki_verfuegbar() else "aus"
@@ -166,11 +169,24 @@ def eingebauten_worker_koppeln(db: Session) -> Path | None:
     s = get_settings()
     if not s.worker_art:
         return None
+    return schluessel_datei_schreiben(db, s.eingebauter_worker_datei)
+
+
+def programm_worker_koppeln(db: Session) -> Path | None:
+    """Einzelplatz: Der Worker des Programms liest seinen Schlüssel aus EINZELPLATZ_WORKER_DATEI – bei jedem
+    Serverstart frisch, ohne Kopplungscode. Gespeichert wird nur die Prüfsumme."""
+    from app.einzelplatz import programm_worker
+
+    if not programm_worker():
+        return None
+    return schluessel_datei_schreiben(db, get_settings().einzelplatz_worker_datei)
+
+
+def schluessel_datei_schreiben(db: Session, datei: Path) -> Path:
     geheim = secrets.token_urlsafe(32)
     w = KNECHT._worker_zeile(db, geheim)
     w.capabilities = "asr,llm"
     db.commit()
-    datei = s.eingebauter_worker_datei
     datei.parent.mkdir(parents=True, exist_ok=True)
     neu = datei.with_suffix(".neu")
     alt_umask = os.umask(0o077)
@@ -178,5 +194,14 @@ def eingebauten_worker_koppeln(db: Session) -> Path | None:
         neu.write_text(f"wk.{w.id}.{geheim}\n", encoding="utf-8", newline="\n")
     finally:
         os.umask(alt_umask)
-    os.replace(neu, datei)  # nie halb geschrieben lesen
+    for versuch in range(20):  # unter Windows kann der Leser die Datei gerade offen haben
+        try:
+            os.replace(neu, datei)  # nie halb geschrieben lesen
+            break
+        except PermissionError:
+            if versuch == 19:
+                raise
+            import time
+
+            time.sleep(0.1)
     return datei

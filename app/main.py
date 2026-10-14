@@ -131,7 +131,20 @@ async def lifespan(_app: FastAPI):
             log.info("Eingebauter Worker (%s): Schlüssel liegt in %s", get_settings().worker_art, datei)
         except OSError:
             log.exception("Eingebauter Worker: Schlüssel ließ sich nicht schreiben")
-    stops = [_wartung_starten(), arbeitsprozess_starten(session_factory()), extern_starten(session_factory())]
+    stopp_waechter = None
+    if get_settings().taleward_einzelplatz:
+        from app.einzelplatz import stopp_waechter_starten
+        from app.verwaltung.lokaler_worker import programm_worker_koppeln
+
+        stopp_waechter = stopp_waechter_starten()
+        try:
+            with session_factory()() as db:
+                if programm_worker_koppeln(db):
+                    log.info("Einzelplatz: Schlüssel für den Worker des Programms geschrieben")
+        except OSError:
+            log.exception("Einzelplatz: Schlüssel für den Worker ließ sich nicht schreiben")
+    stops = [_wartung_starten(), arbeitsprozess_starten(session_factory()), extern_starten(session_factory()),
+             stopp_waechter]
     if get_settings().local_worker_autostart:  # in Tests aus
         from app.verwaltung.lokaler_worker import KNECHT
 

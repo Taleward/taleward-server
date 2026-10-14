@@ -13,7 +13,21 @@
 {% endif %}
 
 <div class="karte">
-{% if worker_art %}
+{% if programm %}
+  {% set k = programm.knecht %}
+  <h2>{{ _("Worker des Taleward-Programms") }}</h2>
+  <p>{{ _("Läuft im Taleward-Programm auf diesem PC.") }}
+    {% if k and k.online %}
+      {% if k.w.paused %}<span class="marke-status marke-status--warten">{{ _("pausiert") }}</span>
+      {% elif k.job %}<span class="marke-status marke-status--gut">{{ _("arbeitet") }}</span>{% if k.sitzung %} – {{ k.kampagne.title if k.kampagne else "" }}, {{ _("Runde {n}", n=k.sitzung.number) }}{% endif %}
+      {% else %}<span class="marke-status marke-status--gut">{{ _("bereit") }}</span>{% endif %}
+    {% else %}<span class="marke-status marke-status--fehler">{{ _("nicht verbunden") }}</span>{% endif %}
+  </p>
+  {% if k and k.info %}
+  <p class="leise">{{ k.info.gpu or _("Prozessor") }}{% if k.info.modell %} · {{ _("Modell") }} {{ k.info.modell }}{% endif %}</p>
+  {% endif %}
+  <p class="hilfe">{{ _("Grafikkarte, Modell und Pause stellst du im Taleward-Programm ein (Symbol im Infobereich → Öffnen → Einstellungen).") }}</p>
+{% elif worker_art %}
   {% set e = eingebaut %}{% set k = e.knecht %}
   <h2>{{ _("Eingebauter Worker") }}</h2>
   <p>{{ _("Läuft als eigener Container neben dem Server") }} ({{ _("nur Prozessor") if worker_art == "cpu" else _("Grafikkarte") }}).

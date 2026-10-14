@@ -262,6 +262,10 @@ EN: dict[str, str] = {
     "sehr schnell": "very fast",
     "teils Prozessor": "partly processor",
     "Läuft als eigener Container neben dem Server": "Runs as its own container next to the server",
+    "Worker des Taleward-Programms": "Worker of the Taleward program",
+    "Läuft im Taleward-Programm auf diesem PC.": "Runs in the Taleward program on this PC.",
+    "Grafikkarte, Modell und Pause stellst du im Taleward-Programm ein (Symbol im Infobereich → Öffnen → Einstellungen).":
+        "You set the graphics card, model and pause in the Taleward program (icon in the notification area → Open → Settings).",
     "nur Prozessor": "processor only",
     "Grafikkarte": "graphics card",
     "Er verbindet sich von selbst mit dem Server; seinen Zustand zeigt die Liste „Alle Worker“ unter „Lokaler Worker“.": "It connects to the server by itself; its status appears in “All workers” as “Local worker”.",
