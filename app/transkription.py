@@ -193,7 +193,7 @@ def _stimmabdruck(motor, datei: Path, arbeit: Path, fortschritt: Fortschritt, t0
 
 def _tisch(motor, sitzung, dateien, arbeit, fortschritt, sprache, hotwords) -> dict:
     wav = arbeit / "gesamt.wav"
-    audio.zusammenfuegen(dateien, wav)
+    audio.zusammenfuegen(dateien, wav, sitzung.get("maxAudioSeconds"))  # 0.4.99 (M3)
     gesamt = audio.dauer(wav)
     fortschritt(0.15)
     taetigkeit(f"Transkription läuft ({gesamt / 60:.0f} min Audio) …", schritt="transkription", audioSekunden=round(gesamt))
@@ -230,7 +230,7 @@ def _discord(motor, auftrag, dateien, arbeit, fortschritt, sprache, hotwords) ->
     for nr, (f, pfad) in enumerate(zip(spuren, dateien)):
         start = 0.05 + nr * anteil
         wav = arbeit / f"spur-{nr}.wav"
-        audio.zusammenfuegen([pfad], wav)
+        audio.zusammenfuegen([pfad], wav, auftrag["session"].get("maxAudioSeconds"))  # 0.4.99 (M3)
         laengste = max(laengste, audio.dauer(wav))
         daten = motor.audio_laden(wav)
         segs = motor.transkribieren(daten, sprache, hotwords, _bereich(fortschritt, start, start + anteil * 0.7))

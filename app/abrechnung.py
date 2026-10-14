@@ -43,6 +43,12 @@ NUTZUNG = {"transcribe": "transcription", "summarize": "summary", "revise": "rev
 MAX_AUFNAHME_SEKUNDEN = 8 * 3600  # feste Obergrenze je Runde (Entscheidung Benjamin, 13.10.2026)
 
 
+def verarbeitung_hoechstens(db: Session) -> int | None:
+    """0.4.99 (M3): So viele Sekunden Audio werden je Runde höchstens verarbeitet (Zusammenfügen bricht danach ab) –
+    mit Abrechnung die feste Obergrenze plus eine Minute Luft, sonst None (dann gilt die allgemeine Grenze in audio)."""
+    return MAX_AUFNAHME_SEKUNDEN + 60 if an(db) else None
+
+
 # ---------------------------------------------------------------- Einstellungen des Betreibers
 @dataclass
 class Preise:

@@ -199,9 +199,17 @@ def _auftrag(db: Session, job: Job) -> dict:
             "hotwords": fuer_kampagne(db, c, s.number),
             # 0.4.6: erneute Transkription – nur der Text, Stimmen sind schon zugeordnet
             "nurText": bool(s.nachtranskription),
+            # 0.4.99 (M3): mehr Audio verarbeitet der Worker nicht (nur mit Abrechnung gesetzt)
+            **({"maxAudioSeconds": m} if (m := _hoechstens(db)) else {}),
         },
         "files": files,
     }
+
+
+def _hoechstens(db: Session) -> int | None:
+    from app import abrechnung
+
+    return abrechnung.verarbeitung_hoechstens(db)
 
 
 # ---------- Endpunkte ----------

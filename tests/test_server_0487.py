@@ -160,13 +160,13 @@ def test_n3_schalter_und_preise_nur_mit_zweitem_faktor(client, dbs, admin):  # n
 
 # ---------------------------------------------------------------- N4: Länge der Aufnahme
 def test_n4_nicht_messbar_zaehlt_das_groessere(client, world, dbs, tmp_path, monkeypatch):
-    from app import abrechnung
-    from app.models import GameSession
+    from app import abrechnung, storage
+    from app.models import GameSession, Upload
 
-    _modus(dbs)
     monkeypatch.setattr(abrechnung, "aufnahme_messen", lambda up: None)
     s = neue_session(client, world)
-    hochladen(client, world["gm"], s["id"], audio_abschnitte(tmp_path, (20,)))
+    hochladen(client, world["gm"], s["id"], audio_abschnitte(tmp_path, (20,)))  # vor dem Einschalten hochgeladen
+    _modus(dbs)
     groesse = abrechnung.aufnahme_sekunden(dbs, s["id"])
     assert groesse > 0
     dbs.get(GameSession, s["id"]).duration_seconds = 1  # SL meldet zu wenig
@@ -175,12 +175,14 @@ def test_n4_nicht_messbar_zaehlt_das_groessere(client, world, dbs, tmp_path, mon
     dbs.get(GameSession, s["id"]).duration_seconds = groesse + 500
     dbs.commit()
     assert abrechnung.aufnahme_sekunden(dbs, s["id"]) == groesse + 500
-    # Nicht messbar und nach Dateigröße über 8 Stunden → abgelehnt
-    monkeypatch.setattr(abrechnung, "groesse_sekunden", lambda up: 9 * 3600)
+    # 0.4.99 (M3): Mit Abrechnung wird eine nicht messbare Aufnahme gar nicht erst angenommen
     s2 = neue_session(client, world)
     up = hochladen(client, world["gm"], s2["id"], audio_abschnitte(tmp_path, (5,)), abschliessen=False)
     r = client.post(f"{API}/uploads/{up['uploadId']}/complete", headers=world["gm"])
-    assert r.status_code == 409 and r.json()["code"] == "recording_too_long"
+    assert r.status_code == 409 and r.json()["code"] == "recording_unreadable"
+    dbs.expire_all()
+    assert dbs.get(Upload, up["uploadId"]).state == "aborted"
+    assert not storage.upload_dir(up["uploadId"]).exists()
 
 
 # ---------------------------------------------------------------- N5: ein Gutschein je Aktion in der Datenbank

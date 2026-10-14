@@ -162,12 +162,19 @@ async def put_chunk(
         raise errors.bad_request("chunk_size_mismatch", index=index, got=len(data), expected=erwartet)
     if x_chunk_sha256 and hashlib.sha256(data).hexdigest() != x_chunk_sha256.strip().lower():
         raise errors.bad_request("chunk_checksum_mismatch", index=index)
+    import anyio
+
+    # 0.4.99: Sperre, Datenbank und Schreiben in einem Faden – nicht im Ereignis-Takt
+    await anyio.to_thread.run_sync(_teil_schreiben, db, up, f.id, index, data)
+    return Response(status_code=204)
+
+
+def _teil_schreiben(db: Session, up: Upload, file_id: str, index: int, data: bytes) -> None:
     with _SCHREIBEN:  # 0.4.94: Prüfung und Schreiben zusammen, damit die Messung nie einen halben Tausch sieht
         db.refresh(up)
         if up.state != "open":  # 0.4.91: inzwischen abgeschlossen oder in Messung – nichts mehr tauschen
             raise errors.conflict("upload_closed")
-        storage.write_atomic(storage.chunk_path(up.id, f.id, index), data)
-    return Response(status_code=204)
+        storage.write_atomic(storage.chunk_path(up.id, file_id, index), data)
 
 
 def _missing(up: Upload) -> dict[str, list[int]]:
@@ -189,6 +196,7 @@ _IN_MESSUNG: set[str] = set()
 _MESSUNG_SPERRE = threading.Lock()
 _SCHREIBEN = threading.Lock()  # 0.4.94: Prüfen und Schreiben eines Teils und der Wechsel auf „measuring“ schließen sich aus
 _MESSPLAETZE = threading.BoundedSemaphore(2)  # höchstens zwei Messungen zugleich (Dekodieren kostet Rechenzeit)
+MESSPLATZ_WARTEN_S = 60  # 0.4.99: Fäden nicht lange belegen (vorher 600 s) – danach 429 wie bisher
 
 
 def _messen(db: Session, up: Upload):
@@ -205,7 +213,7 @@ def _messen(db: Session, up: Upload):
         with _SCHREIBEN:
             up.state = "measuring"
             db.commit()
-        if not _MESSPLAETZE.acquire(timeout=600):
+        if not _MESSPLAETZE.acquire(timeout=MESSPLATZ_WARTEN_S):
             up.state = "open"
             db.commit()
             raise errors.ApiError(429, "too_many_requests")
@@ -246,7 +254,13 @@ def complete(uploadId: str, request: Request, user: User = Depends(current_user)
         if dauer is _LAEUFT:  # zweiter Aufruf, während gemessen wird – harmlos, der erste schließt ab
             return processing_status(db, s, sprache(request))
         up.dauer_sekunden = dauer
-        laenge = up.dauer_sekunden or abrechnung.groesse_sekunden(up)  # N4: nicht messbar → nach Dateigröße
+        if dauer is None:  # 0.4.99 (M3): nicht messbar (kein lesbares Audio, sehr viele Tonspuren) → nicht annehmen
+            storage.delete_upload_files(up.id)
+            up.state = "aborted"
+            set_state(s, "created")
+            db.commit()
+            raise errors.conflict("recording_unreadable")
+        laenge = up.dauer_sekunden
         if laenge > abrechnung.MAX_AUFNAHME_SEKUNDEN:
             storage.delete_upload_files(up.id)
             up.state = "aborted"

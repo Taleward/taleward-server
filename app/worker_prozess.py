@@ -93,7 +93,7 @@ def verarbeite_attrappe(auftrag: dict, dateien: list[Path], arbeit: Path, fortsc
         spuren = []
         for f, pfad in zip(auftrag["files"], dateien):
             wav = arbeit / f"{f['fileId']}.wav"
-            audio.zusammenfuegen([pfad], wav)
+            audio.zusammenfuegen([pfad], wav, sitzung.get("maxAudioSeconds"))
             spuren.append((f, wav))
         gesamt = max(audio.dauer(w) for _, w in spuren)
         for nr, (f, wav) in enumerate(spuren):
@@ -111,7 +111,7 @@ def verarbeite_attrappe(auftrag: dict, dateien: list[Path], arbeit: Path, fortsc
             fortschritt(0.5 + 0.5 * (nr + 1) / len(spuren))
     else:
         wav = arbeit / "gesamt.wav"
-        audio.zusammenfuegen(dateien, wav)
+        audio.zusammenfuegen(dateien, wav, sitzung.get("maxAudioSeconds"))
         fortschritt(0.5)
         gesamt = audio.dauer(wav)
         n = max(1, min(8, int(sitzung.get("expectedSpeakers") or 2)))

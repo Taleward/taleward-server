@@ -163,11 +163,14 @@ def verarbeiten(db: Session, job: Job, klient: MistralKlient | None = None) -> N
     abgerechnet = 0.0
     try:
         dateien = _dateien_zusammensetzen(up, arbeit)
+        from app import abrechnung
+
+        hoechstens = abrechnung.verarbeitung_hoechstens(db)  # 0.4.99 (M3): nie mehr dekodieren als erlaubt
         segmente, stimmen, gesamt = [], [], 0.0
         if up.source == "discord":
             for nr, (f, pfad) in enumerate(dateien):
                 wav = arbeit / f"spur-{nr}.wav"
-                audio.zusammenfuegen([pfad], wav)
+                audio.zusammenfuegen([pfad], wav, hoechstens)
                 gesamt = max(gesamt, audio.dauer(wav))
                 _laenge_pruefen(db, gesamt)
                 spur = []
@@ -181,7 +184,7 @@ def verarbeiten(db: Session, job: Job, klient: MistralKlient | None = None) -> N
                 stimmen += b
         else:
             wav = arbeit / "gesamt.wav"
-            audio.zusammenfuegen([p for _, p in dateien], wav)
+            audio.zusammenfuegen([p for _, p in dateien], wav, hoechstens)
             gesamt = audio.dauer(wav)
             _laenge_pruefen(db, gesamt)
             roh = []

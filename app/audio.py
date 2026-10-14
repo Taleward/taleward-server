@@ -8,10 +8,15 @@ import logging
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 import wave
 from pathlib import Path
 
 SAMPLE_RATE = 16000
+# 0.4.99 (M3): Mehr verarbeitet Taleward nie, auch ohne Abrechnung – eine präparierte Datei (z. B. viele Tonspuren,
+# falscher Kopf) könnte sonst beliebig lange Audiodaten auf die Platte bzw. in den Speicher bringen.
+GRENZE_S = 24 * 3600
 log = logging.getLogger("worker")
 
 
@@ -67,8 +72,13 @@ def dekodieren(quelle: Path) -> bytes:
     return res.stdout
 
 
-def zusammenfuegen(abschnitte: list[Path], ziel: Path) -> list[float]:
-    """Abschnitte in Reihenfolge zu einer WAV-Datei. Gibt die Startzeit (s) jedes Abschnitts zurück."""
+def zusammenfuegen(abschnitte: list[Path], ziel: Path, hoechstens_s: float | None = None) -> list[float]:
+    """Abschnitte in Reihenfolge zu einer WAV-Datei. Gibt die Startzeit (s) jedes Abschnitts zurück.
+
+    0.4.99 (M3): Dekodiert wird fortlaufend in die Datei (nicht erst in den Speicher) und nie mehr als `hoechstens_s`
+    (höchstens GRENZE_S) insgesamt – wird es mehr, bricht das Zusammenfügen mit `recording_too_long` ab, egal was die
+    Messung beim Hochladen ergeben hat."""
+    grenze = min(hoechstens_s or GRENZE_S, GRENZE_S)
     starts, pos = [], 0
     log.info("Audio wird zusammengefügt (%d Datei(en)) …", len(abschnitte))
     with wave.open(str(ziel), "wb") as w:
@@ -76,14 +86,58 @@ def zusammenfuegen(abschnitte: list[Path], ziel: Path) -> list[float]:
         w.setsampwidth(2)
         w.setframerate(SAMPLE_RATE)
         for nr, datei in enumerate(abschnitte, start=1):
-            try:
-                pcm = dekodieren(datei)
-            except AudioFehler as e:
-                raise AudioFehler("audio_unreadable", f"Abschnitt {nr} ({datei.name}) ist nicht lesbar: {e}") from e
             starts.append(pos / SAMPLE_RATE)
-            w.writeframes(pcm)
-            pos += len(pcm) // 2
+            rest_s = grenze - pos / SAMPLE_RATE
+            try:
+                pos += _dekodieren_in(datei, w, rest_s)
+            except AudioFehler as e:
+                if e.code == "recording_too_long":
+                    raise
+                raise AudioFehler("audio_unreadable", f"Abschnitt {nr} ({datei.name}) ist nicht lesbar: {e}") from e
     return starts
+
+
+def _dekodieren_in(quelle: Path, w, rest_s: float) -> int:
+    """Eine Datei als 16 kHz mono PCM direkt in die offene WAV-Datei schreiben, höchstens `rest_s` Sekunden (ffmpeg hört
+    eine Sekunde danach auf). Gibt die Zahl der Samples zurück."""
+    if rest_s <= 0:
+        raise AudioFehler("recording_too_long", f"Die Aufnahme ist länger als {GRENZE_S // 3600} Stunden.")
+    extra = {"creationflags": 0x08000000} if sys.platform == "win32" else {}
+    befehl = [_ffmpeg(), "-nostdin", "-hide_banner", "-loglevel", "error", *EINGABE, "-i", str(quelle),
+              "-map", "0:a:0", "-ac", "1", "-ar", str(SAMPLE_RATE), "-t", f"{rest_s + 1:.3f}",
+              "-f", "s16le", "-acodec", "pcm_s16le", "-"]
+    ende = time.monotonic() + _zeitgrenze(quelle)
+    geschrieben = 0
+    rest = b""
+    with tempfile.TemporaryFile() as fehler:
+        p = subprocess.Popen(befehl, stdout=subprocess.PIPE, stderr=fehler, stdin=subprocess.DEVNULL, **extra)
+        try:
+            while True:
+                if time.monotonic() > ende:
+                    raise AudioFehler("audio_timeout", "ffmpeg hat zu lange gebraucht.", True)
+                block = p.stdout.read(1 << 20)
+                if not block:
+                    break
+                block = rest + block
+                gerade = len(block) - len(block) % 2
+                w.writeframes(block[:gerade])
+                rest = block[gerade:]
+                geschrieben += gerade // 2
+            code = p.wait(timeout=max(1.0, ende - time.monotonic()))
+        except subprocess.TimeoutExpired as e:
+            raise AudioFehler("audio_timeout", "ffmpeg hat zu lange gebraucht.", True) from e
+        finally:
+            if p.poll() is None:
+                p.kill()
+                p.wait()
+            p.stdout.close()
+        if code != 0 or geschrieben == 0:
+            fehler.seek(0)
+            text = fehler.read()[-2000:].decode(errors="replace").strip()
+            raise AudioFehler("audio_unreadable", text[-300:] or "keine Audiodaten")
+    if geschrieben / SAMPLE_RATE > rest_s:
+        raise AudioFehler("recording_too_long", "Die Aufnahme ist länger als erlaubt.")
+    return geschrieben
 
 
 def dauer(wav: Path) -> float:
