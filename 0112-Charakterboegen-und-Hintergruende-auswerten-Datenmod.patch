@@ -531,16 +531,16 @@ index 0000000..9dfcc5e
 +        op.add_column(tabelle, sa.Column("analysis_id", sa.String(36), nullable=True))
 +        if index:
 +            op.create_index(f"ix_{tabelle}_analysis_id", tabelle, ["analysis_id"])
-
-
-def downgrade() -> None:
-    for tabelle, index in reversed(_SPALTEN):
-        if index:
-            op.drop_index(f"ix_{tabelle}_analysis_id", table_name=tabelle)
-        op.drop_column(tabelle, "analysis_id")  # SQLite ab 3.35
-    op.drop_column("campaigns", "allow_character_analysis")
-    for spalte in ("state", "document_id", "member_id", "campaign_id"):
-        op.drop_index(f"ix_character_analyses_{spalte}", table_name="character_analyses")
-    op.drop_table("character_analyses")
++
++
++def downgrade() -> None:
++    for tabelle, index in reversed(_SPALTEN):
++        if index:
++            op.drop_index(f"ix_{tabelle}_analysis_id", table_name=tabelle)
++        op.drop_column(tabelle, "analysis_id")  # SQLite ab 3.35
++    op.drop_column("campaigns", "allow_character_analysis")
++    for spalte in ("state", "document_id", "member_id", "campaign_id"):
++        op.drop_index(f"ix_character_analyses_{spalte}", table_name="character_analyses")
++    op.drop_table("character_analyses")
 -- 
 2.43.0
