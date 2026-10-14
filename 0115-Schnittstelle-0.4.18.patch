@@ -1,0 +1,342 @@
+From 2e85b16a8d95cf2a58d001240a0a78550b081f5f Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 02:13:29 +0200
+Subject: [PATCH 115/116] Schnittstelle 0.4.18
+
+Charakterboegen und Hintergruende auswerten (Vertrag aus dem App-Repo unveraendert uebernommen).
+---
+ app/routers/auth.py               |   2 +-
+ contract/session-chronik-api.yaml | 158 ++++++++++++++++++++++++++++--
+ tests/test_schnittstelle_0410.py  |   2 +-
+ tests/test_server_0464.py         |   4 +-
+ tests/test_server_0484.py         |   2 +-
+ tests/test_step1b.py              |   2 +-
+ tests/test_umzug_048.py           |   2 +-
+ tests/test_verwaltung2.py         |   2 +-
+ tests/test_webapp.py              |   2 +-
+ 9 files changed, 161 insertions(+), 15 deletions(-)
+
+diff --git a/app/routers/auth.py b/app/routers/auth.py
+index 073c41f..aa7d09a 100644
+--- a/app/routers/auth.py
++++ b/app/routers/auth.py
+@@ -14,5 +14,5 @@ from app.security import create_token, verify_password
+ from app.services import user_out
+ 
+-API_VERSION = "0.4.17"
++API_VERSION = "0.4.18"
+ 
+ router = APIRouter(tags=["Auth"])
+diff --git a/contract/session-chronik-api.yaml b/contract/session-chronik-api.yaml
+index 2b70ec8..62b69b4 100644
+--- a/contract/session-chronik-api.yaml
++++ b/contract/session-chronik-api.yaml
+@@ -2,5 +2,5 @@ openapi: 3.1.0
+ info:
+   title: Taleward API
+-  version: 0.4.17
++  version: 0.4.18
+   description: |
+     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
+@@ -191,4 +191,11 @@ info:
+     Teil die Überschrift und den ersten Absatz. Absatz-Indizes in Prüfteil und Korrektur zählen weiter über das ganze
+     Kapitel. PUT /sessions/{id}/recap nimmt `parts` mit. Ältere Apps ignorieren das Feld und zeigen alles am Stück.
++    Änderungen in 0.4.18 (Charakterbögen und Hintergründe auswerten): Campaign.allowCharacterAnalysis (nur SL ändert,
++    Standard aus). Ist es an, kann eine Spielerin ihren Charakterbogen (Unterlage character_sheet) bzw. ihren Hintergrund
++    (POST …/members/me/backstory-analysis) auswerten lassen. Jede Auswertung wartet erst auf die Zustimmung der SL
++    (CharacterAnalysis, GET /campaigns/{id}/character-analyses, POST /character-analyses/{id}/decision, GmNotice
++    character_analysis_pending). Ergebnis sind Vorschläge mit source character wie bei der mitgebrachten Welt
++    (Proposal.analysisId); die Spielerin sieht nur den Stand, nie die Vorschläge. Höchstens 3 Charakterbögen je Mitglied,
++    ausgewertet werden höchstens 20 Seiten.
+ 
+ servers:
+@@ -802,4 +809,9 @@ paths:
+                 allowExternalTranscription: { type: boolean }
+                 allowCloudSummary: { type: boolean }
++                allowCharacterAnalysis:
++                  type: boolean
++                  description: |
++                    Ab 0.4.18, siehe Campaign.allowCharacterAnalysis. Ausschalten lehnt offene Anfragen (awaiting_gm) ab;
++                    laufende Auswertungen laufen zu Ende.
+                 hotwords:
+                   type: array
+@@ -1034,4 +1046,70 @@ paths:
+         "404": { $ref: "#/components/responses/NotFound" }
+ 
++  /campaigns/{campaignId}/character-analyses:
++    parameters: [{ $ref: "#/components/parameters/campaignId" }]
++    get:
++      tags: [Charaktere]
++      summary: Auswertungen von Charakterbögen und Hintergründen (ab 0.4.18; SL alle, Spieler nur eigene)
++      description: |
++        Neueste zuerst, höchstens 100. Spieler bekommen nur ihre eigenen, ohne proposalCount (Vorschläge bleiben bei der
++        SL). Fremde Kampagne → 404.
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema: { type: array, items: { $ref: "#/components/schemas/CharacterAnalysis" } }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++
++  /campaigns/{campaignId}/members/me/backstory-analysis:
++    parameters: [{ $ref: "#/components/parameters/campaignId" }]
++    post:
++      tags: [Charaktere]
++      summary: Eigenen Hintergrund der SL zur Auswertung geben (ab 0.4.18)
++      description: |
++        Nur das Mitglied selbst, nur mit allowCharacterAnalysis (sonst 409 `analysis_off`) und nicht leerem
++        characterBackstory (sonst 409 `backstory_empty`). Ausgewertet wird der Hintergrund zum Zeitpunkt dieser Anfrage.
++        Gibt es schon eine offene Hintergrund-Auswertung dieses Mitglieds (awaiting_gm, queued, processing), 409
++        `analysis_pending`. Legt eine CharacterAnalysis (source backstory, awaiting_gm) an und gibt der SL den Hinweis
++        character_analysis_pending.
++      responses:
++        "201":
++          description: Angelegt, wartet auf die SL
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/CharacterAnalysis" }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "409": { $ref: "#/components/responses/Conflict" }
++
++  /character-analyses/{analysisId}/decision:
++    parameters: [{ $ref: "#/components/parameters/analysisId" }]
++    post:
++      tags: [Charaktere]
++      summary: Auswertung zulassen oder ablehnen (nur SL, ab 0.4.18)
++      description: |
++        Nur im Zustand awaiting_gm (sonst 409 `wrong_state`). approve true → queued, die Auswertung läuft wie bei
++        Unterlagen der SL und kostet wie diese (Usage, zahlt die SL bzw. Organisation). approve false → rejected; nichts
++        wird ausgelesen. Spieler und Fremde → 404.
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [approve]
++              properties:
++                approve: { type: boolean }
++      responses:
++        "200":
++          description: Neuer Stand
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/CharacterAnalysis" }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "409": { $ref: "#/components/responses/Conflict" }
++
+   /campaigns/{campaignId}/gm-notices/{noticeId}:
+     parameters:
+@@ -2484,6 +2562,10 @@ paths:
+       description: |
+         Ab 0.4.7 darf jedes aktive Mitglied kind character_sheet hochladen (Charakterbogen). Sichtbar nur für die SL und
+-        die hochladende Person (GET-Liste für Spieler: nur eigene character_sheet; alle anderen 404). Wird nie
+-        ausgewertet und fließt nie in Recaps oder Vorschläge.
++        die hochladende Person (GET-Liste für Spieler: nur eigene character_sheet; alle anderen 404). Ohne
++        allowCharacterAnalysis wird er nie ausgewertet und fließt nie in Recaps oder Vorschläge.
++        Ab 0.4.18: höchstens 3 character_sheet je Mitglied (sonst 409 `sheet_limit`; löschen per DELETE /documents/{id}
++        darf auch die Urheberin). Ist allowCharacterAnalysis an, legt der Server zum Bogen eine CharacterAnalysis im
++        Zustand awaiting_gm an (CampaignDocument.analysisId) und gibt der SL den Hinweis character_analysis_pending.
++        Ausgelesen wird erst nach ihrer Zustimmung, siehe CharacterAnalysis.
+ 
+         PDF, Word (.docx), .txt oder .md bis 50 MB (sonst 400 `unsupported_document` bzw. 413 `document_too_large`).
+@@ -2543,4 +2625,7 @@ paths:
+       tags: [Unterlagen]
+       summary: Unterlage samt Datei und offenen Vorschlägen löschen (übernommene Bibeleinträge bleiben)
++      description: |
++        Nur SL; einen character_sheet darf ab 0.4.18 auch die Urheberin löschen (sonst 404). Eine noch nicht
++        entschiedene Auswertung des Bogens entfällt dabei.
+       responses:
+         "204": { description: Gelöscht }
+@@ -2900,4 +2985,5 @@ components:
+     documentId: { name: documentId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
+     planId: { name: planId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
++    analysisId: { name: analysisId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
+ 
+   responses:
+@@ -3062,6 +3148,6 @@ components:
+       description: |
+         handout = Spielerhandout (öffentlich), gm = SL-Unterlage (alles geheim), mixed = gemischt (geheim mit
+-        Freigabe-Vorschlägen), character_sheet = Charakterbogen eines Mitglieds (ab 0.4.7; nur SL und Urheberin, keine
+-        Auswertung)
++        Freigabe-Vorschlägen), character_sheet = Charakterbogen eines Mitglieds (ab 0.4.7; nur SL und Urheberin;
++        ausgewertet nur mit allowCharacterAnalysis und Zustimmung der SL, ab 0.4.18)
+ 
+     CampaignDocument:
+@@ -3082,4 +3168,10 @@ components:
+         worldInfoSuggestion: { type: [string, "null"] }
+         uploadedByMemberId: { type: [string, "null"], description: "Ab 0.4.7; bei character_sheet die Urheberin" }
++        analysisId:
++          type: [string, "null"]
++          description: |
++            Ab 0.4.18, nur bei character_sheet: die zugehörige CharacterAnalysis (null = nicht zur Auswertung gegeben,
++            z. B. weil allowCharacterAnalysis beim Hochladen aus war). Bei character_sheet gelten state, progress,
++            proposalCount und worldInfoSuggestion nicht; maßgeblich ist der Stand der CharacterAnalysis.
+         createdAt: { type: string, format: date-time }
+ 
+@@ -3377,4 +3469,13 @@ components:
+                 (PATCH). Standard false; in der Betriebsart „Nur Cloud“ setzt der Server neue Kampagnen auf true.
+                 false und kein lokales Modell verfügbar: Session bleibt in summarizing mit passender message.
++            allowCharacterAnalysis:
++              type: boolean
++              default: false
++              description: |
++                Ab 0.4.18. Dürfen Mitglieder ihren Charakterbogen und ihren Hintergrund auswerten lassen (Vorschläge für
++                die Bibel)? Nur die SL ändert das (PATCH), Standard false; für alle Mitglieder sichtbar. Ausgewertet wird
++                mit demselben Modell wie die Unterlagen der SL: über die Cloud-API nur bei allowCloudSummary, sonst lokal.
++                Jede einzelne Auswertung braucht zusätzlich die Zustimmung der SL (CharacterAnalysis). Fehlt bei
++                älteren Servern (= aus).
+             allowExternalTranscription:
+               type: boolean
+@@ -3522,4 +3623,9 @@ components:
+         originEntryId: { type: [string, "null"], description: "Ab 0.4.7, nur bei source character" }
+         submittedByMemberId: { type: [string, "null"], description: "Ab 0.4.7, bei source character die Urheberin" }
++        analysisId:
++          type: [string, "null"]
++          description: |
++            Ab 0.4.18, bei source character: aus welcher Auswertung (Charakterbogen oder Hintergrund) der Vorschlag stammt;
++            null = aus der mitgebrachten Welt.
+         entryType: { $ref: "#/components/schemas/EntryType" }
+         action:
+@@ -3973,4 +4079,39 @@ components:
+             Schnittstelle als der Server kann); sonst Klartext.
+ 
++    CharacterAnalysis:
++      type: object
++      description: |
++        Ab 0.4.18. Auswertung eines Charakterbogens oder Hintergrunds. Verbindlich:
++        - Eingabe ist nur dieses eine Dokument bzw. dieser Hintergrund, als Daten (nie als Anweisung); dazu als Kontext
++          nur Bibel-Einträge, die dieses Mitglied sehen darf. Nie Daten anderer Mitglieder.
++        - Ergebnis sind Vorschläge (source character, analysisId, submittedByMemberId) in
++          GET /campaigns/{id}/character-proposals; entschieden wird dort wie bei der mitgebrachten Welt. Vorschlag-Sichtbarkeit:
++          suggestedVisibility public mit hiddenFromMemberIds = alle anderen aktiven Mitglieder (wissen nur SL und
++          Urheberin), bis die SL es anders festlegt. Geprüft wie Vorschläge aus Unterlagen (Längen, Arten, keine Links).
++        - Hintergrund und Bogen selbst fließen nie in Recaps; Vorschläge erst, wenn die SL sie übernommen hat.
++        - Cloud nur bei allowCloudSummary der Kampagne (usesCloud). Ausgewertet werden höchstens die ersten 20 Seiten
++          (pagesLimited).
++        - Zustände: awaiting_gm (wartet auf die SL) → queued → processing → done | failed; oder rejected (SL lehnt ab,
++          Auswertung abgeschaltet oder Mitglied weg). Geht beim Umzug nicht mit.
++      properties:
++        id: { type: string }
++        campaignId: { type: string }
++        memberId: { type: string }
++        source: { type: string, enum: [sheet, backstory] }
++        documentId: { type: [string, "null"], description: "Bei sheet der Charakterbogen" }
++        title: { type: string, description: "Bei sheet der Titel des Bogens, bei backstory der Charaktername" }
++        state: { type: string, enum: [awaiting_gm, rejected, queued, processing, done, failed] }
++        usesCloud:
++          type: boolean
++          description: Ob die Auswertung über die Cloud-API läuft (nach allowCloudSummary zum Zeitpunkt der Anfrage)
++        pageCount: { type: [integer, "null"], description: "Bei sheet, sobald bekannt" }
++        pagesLimited: { type: boolean, description: "true = nur die ersten 20 Seiten ausgewertet" }
++        message: { type: [string, "null"], description: "Bei failed der Grund, für Menschen lesbar" }
++        proposalCount:
++          type: [integer, "null"]
++          description: Nur für die SL (für Spieler null), sobald done
++        createdAt: { type: string, format: date-time }
++        decidedAt: { type: [string, "null"], format: date-time }
++
+     GmNotice:
+       type: object
+@@ -3979,5 +4120,5 @@ components:
+         code:
+           type: string
+-          enum: [hidden_entries_for_newcomer, seat_claimed, character_orphaned, member_joined]
++          enum: [hidden_entries_for_newcomer, seat_claimed, character_orphaned, member_joined, character_analysis_pending]
+           description: |
+             hidden_entries_for_newcomer (ab 0.4.7): Neuzugang wurde in teilweise verborgene Einträge aufgenommen.
+@@ -3994,4 +4135,9 @@ components:
+             (DELETE …/members/{memberId}, mit Rückfrage). Der Server löscht den Hinweis selbst, wenn die Person die
+             Kampagne verlässt, entfernt wird, ihr Konto löscht oder ihr Platz freigegeben wird.
++            character_analysis_pending (ab 0.4.18): Ein Mitglied (memberId) möchte seinen Charakterbogen oder Hintergrund
++            auswerten lassen (analysisId). Die App zeigt der SL „Auswerten“ und „Ablehnen“
++            (POST /character-analyses/{id}/decision). Der Server löscht den Hinweis selbst, sobald entschieden ist oder
++            die Anfrage entfällt (Bogen gelöscht, Mitglied weg, Auswertung abgeschaltet).
++        analysisId: { type: [string, "null"], description: "Ab 0.4.18, bei character_analysis_pending" }
+         memberId: { type: [string, "null"], description: "Betroffenes Mitglied" }
+         entryIds: { type: array, items: { type: string }, description: "Betroffene Einträge" }
+diff --git a/tests/test_schnittstelle_0410.py b/tests/test_schnittstelle_0410.py
+index 358739c..a3c7aa9 100644
+--- a/tests/test_schnittstelle_0410.py
++++ b/tests/test_schnittstelle_0410.py
+@@ -191,3 +191,3 @@ def test_stimmen_vor_bestaetigung_ohne_zuordnung(client, world, dbs, tmp_path):
+ 
+ def test_info_meldet_schnittstelle_0411(client):
+-    assert client.get(f"{API}/info").json()["apiVersion"] == "0.4.17"
++    assert client.get(f"{API}/info").json()["apiVersion"] == "0.4.18"
+diff --git a/tests/test_server_0464.py b/tests/test_server_0464.py
+index c6ec47c..72d5878 100644
+--- a/tests/test_server_0464.py
++++ b/tests/test_server_0464.py
+@@ -56,7 +56,7 @@ def test_schnittstelle_0414(client):
+     from app.verwaltung.router import MELDUNGEN
+ 
+-    assert API_VERSION == "0.4.17"
++    assert API_VERSION == "0.4.18"
+     vertrag = Path(__file__).resolve().parents[1] / "contract" / "session-chronik-api.yaml"
+-    assert "version: 0.4.17" in vertrag.read_text(encoding="utf-8")
++    assert "version: 0.4.18" in vertrag.read_text(encoding="utf-8")
+     assert "„Kampagne verwalten“ → „Cloud-Dienste“" in MELDUNGEN["probe_cloud"]
+ 
+diff --git a/tests/test_server_0484.py b/tests/test_server_0484.py
+index d95a437..880f6fc 100644
+--- a/tests/test_server_0484.py
++++ b/tests/test_server_0484.py
+@@ -78,5 +78,5 @@ def test_info_mit_public_url_und_server_id(client, dbs):
+ 
+     i = client.get(f"{API}/info").json()
+-    assert i["apiVersion"] == "0.4.17" and i["serverId"] == server_id() and i["publicUrl"] is None
++    assert i["apiVersion"] == "0.4.18" and i["serverId"] == server_id() and i["publicUrl"] is None
+     meta_schreiben(dbs, "angabe.public_url", "https://taleward.example.org/pfad/")
+     dbs.commit()
+diff --git a/tests/test_step1b.py b/tests/test_step1b.py
+index 27462a0..4e42d04 100644
+--- a/tests/test_step1b.py
++++ b/tests/test_step1b.py
+@@ -23,5 +23,5 @@ def test_info_ist_oeffentlich(client):
+     assert r.status_code == 200
+     i = r.json()
+-    assert i["apiVersion"] == "0.4.17" and i["externalTranscription"] is None and i["authMethods"] == ["password"] and i["registration"] == "invite_only"
++    assert i["apiVersion"] == "0.4.18" and i["externalTranscription"] is None and i["authMethods"] == ["password"] and i["registration"] == "invite_only"
+ 
+ 
+diff --git a/tests/test_umzug_048.py b/tests/test_umzug_048.py
+index 4c19f8a..08f64b2 100644
+--- a/tests/test_umzug_048.py
++++ b/tests/test_umzug_048.py
+@@ -151,5 +151,5 @@ def test_export_inhalt_und_zugang(client, world, dbs, make_user, login):
+     alles = b"".join(z.read(n) for n in namen)
+     k = json.loads(z.read("kampagne.json"))
+-    assert k["format"] == "taleward-kampagne/1" and k["apiVersion"] == "0.4.17"
++    assert k["format"] == "taleward-kampagne/1" and k["apiVersion"] == "0.4.18"
+     # nie in der Datei
+     for verboten in (GEHEIM, PRUEF, "Anna", "Ben", "Dora", "anna", "HINTERGRUND-DORIN", "DORA-BOGEN",
+diff --git a/tests/test_verwaltung2.py b/tests/test_verwaltung2.py
+index d9396aa..335773b 100644
+--- a/tests/test_verwaltung2.py
++++ b/tests/test_verwaltung2.py
+@@ -177,5 +177,5 @@ def test_mindestversion(client, world, admin):  # noqa: F811
+     info = client.get(f"{API}/info").json()  # /info bleibt immer erreichbar
+     assert info["minAppVersion"] == "0.9.0" and info["latestAppVersion"] == "0.9.1"
+-    assert info["releaseNotes"] == "Neue Einladungen." and info["apiVersion"] == "0.4.17"
++    assert info["releaseNotes"] == "Neue Einladungen." and info["apiVersion"] == "0.4.18"
+     url = f"{API}/campaigns"
+     r = client.get(url, headers=world["gm"])
+diff --git a/tests/test_webapp.py b/tests/test_webapp.py
+index 01afd59..9e9781b 100644
+--- a/tests/test_webapp.py
++++ b/tests/test_webapp.py
+@@ -107,5 +107,5 @@ def test_info_mit_pruefsumme(client, dbs):
+     info = client.get(f"{API}/info").json()
+     assert info["appDownloadSha256"] == hashlib.sha256(APK).hexdigest() and info["appDownloadSizeBytes"] == len(APK)
+-    assert info["apiVersion"] == "0.4.17"
++    assert info["apiVersion"] == "0.4.18"
+ 
+ 
+-- 
+2.43.0
