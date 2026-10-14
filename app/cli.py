@@ -1079,8 +1079,28 @@ def serve(
 
     uvicorn.run(
         "app.main:app", host=host, port=port, reload=reload,
-        proxy_headers=True, forwarded_allow_ips=get_settings().forwarded_allow_ips,
+        proxy_headers=not get_settings().taleward_einzelplatz, forwarded_allow_ips=get_settings().forwarded_allow_ips,
     )
+
+
+@app.command("einzelplatz")
+def einzelplatz(port: int = typer.Option(8000)):
+    """Server als Einzelplatz starten (Taleward für Windows): im Heimnetz erreichbar, Verwaltung nur auf diesem PC.
+
+    Den Startschlüssel für das erste Konto übergibt das Programm über TALEWARD_STARTSCHLUESSEL bzw.
+    TALEWARD_STARTSCHLUESSEL_DATEI – nie als Argument."""
+    import os
+
+    import uvicorn
+
+    from app.config import get_settings
+
+    os.environ["TALEWARD_EINZELPLATZ"] = "1"
+    os.environ["EINZELPLATZ_PORT"] = str(port)
+    get_settings.cache_clear()
+    # Proxy-Kopfzeilen nie auswerten: die echte Absenderadresse entscheidet, ob eine Anfrage vom PC selbst kommt
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, proxy_headers=False, forwarded_allow_ips="",
+                server_header=False)
 
 
 if __name__ == "__main__":

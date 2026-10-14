@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     # Leer = von überall (mit Passwort und, wenn eingeschaltet, zweitem Faktor). Nur hinter Caddy (docker-compose.yml)
     # sinnvoll; im Heimnetz-Paket sieht der Server wegen der Port-Weiterleitung nur die Docker-Adresse (S30.1).
     verwaltung_nur_aus: str = ""
+    # Einzelplatz (Windows-Programm: Server, Worker und App auf einem PC im Heimnetz, app/einzelplatz.py).
+    # Setzt das Programm über die Umgebung; dann gelten eigene Regeln für Adressen, Verwaltung und das erste Konto.
+    taleward_einzelplatz: bool = False
+    einzelplatz_port: int = 8000
     update_check: bool = True
     update_app_repo: str = "Taleward/taleward-app"
     update_server_repo: str = "Taleward/taleward-server"
@@ -156,9 +160,27 @@ def _geheimnis(data_dir: Path) -> str:
     return wert
 
 
+def _einzelplatz(s: Settings) -> None:
+    """Einzelplatz: Daten im Benutzerordner, keine Proxy-Kopfzeilen, Worker und Ollama nur über diesen PC."""
+    from urllib.parse import urlsplit
+
+    from app.einzelplatz import standard_datenordner
+
+    if "data_dir" not in s.model_fields_set:
+        s.data_dir = standard_datenordner().resolve()
+    s.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    s.forwarded_allow_ips = ""
+    s.einrichtung_im_heimnetz = False
+    s.worker_server_url = f"http://127.0.0.1:{s.einzelplatz_port}"
+    if (urlsplit(s.worker_llm_url).hostname or "") not in ("localhost", "127.0.0.1", "::1"):
+        s.worker_llm_url = "http://127.0.0.1:11434"  # Ollama hat keine Anmeldung – nie über das Netz
+
+
 @lru_cache
 def get_settings() -> Settings:
     s = Settings()
+    if s.taleward_einzelplatz:
+        _einzelplatz(s)
     if s.jwt_secret == STANDARD_GEHEIMNIS or len(s.jwt_secret) < 32:
         s.jwt_secret = _geheimnis(s.data_dir)
     return s
