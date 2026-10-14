@@ -531,6 +531,7 @@ class Proposal(Base):
     decided_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     # 0.4.18: bei source character aus einer Auswertung (Charakterbogen oder Hintergrund); None = mitgebrachte Welt
     analysis_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    relation: Mapped[str | None] = mapped_column(String(120), nullable=True)  # 0.4.19, mitgebrachte Welt (nur Anzeige)
 
 
 class GmNotice(Base):

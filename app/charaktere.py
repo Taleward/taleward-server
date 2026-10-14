@@ -201,6 +201,7 @@ def einreichen(db: Session, me: Member, eintraege: list[schemas.WorldEntryIn]) -
             target_entry_id=e.id if e is not None else None, title=w.name.strip()[:300], detail=w.summary.strip(),
             suggested_visibility="public", hidden_member_ids_json=json.dumps(andere if w.secret else []),
             confidence=1.0, flags="[]", evidence="[]", decision="open",
+            relation=(w.relation or "").strip()[:120] or None,  # 0.4.19: unverändert, nur Anzeige
         )
         db.add(p)
         db.flush()

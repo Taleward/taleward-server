@@ -153,7 +153,8 @@ def proposal_out(p: Proposal) -> schemas.ProposalOut:
     return schemas.ProposalOut(
         id=p.id, session_id=p.session_id, document_id=p.document_id, source=quelle,
         origin_character_id=p.origin_character_id, origin_entry_id=p.origin_entry_id,
-        submitted_by_member_id=p.submitted_by_member_id, analysis_id=p.analysis_id, entry_type=p.entry_type,
+        submitted_by_member_id=p.submitted_by_member_id, analysis_id=p.analysis_id, relation=p.relation,
+        entry_type=p.entry_type,
         action=p.action,
         target_entry_id=p.target_entry_id, title=p.title, detail=p.detail, gm_notes=p.gm_notes,
         suggested_visibility=p.suggested_visibility,

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Taleward API
-  version: 0.4.18
+  version: 0.4.19
   description: |
     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
 
@@ -197,6 +197,12 @@ info:
     character_analysis_pending). Ergebnis sind Vorschläge mit source character wie bei der mitgebrachten Welt
     (Proposal.analysisId); die Spielerin sieht nur den Stand, nie die Vorschläge. Höchstens 3 Charakterbögen je Mitglied,
     ausgewertet werden höchstens 20 Seiten.
+    Änderungen in 0.4.19 (Beziehung bei der mitgebrachten Welt): WorldEntryIn.relation – wie der Eintrag zum Charakter
+    steht („Schwester von Litha“, „alter Lehrmeister“), optional, nur Anzeige. Der Server übernimmt es unverändert in
+    Proposal.relation; in Bibeleinträge geht es nicht von selbst (die SL kann es in den Text übernehmen). Die App schickt
+    das Feld erst an Server ab 0.4.19; ältere Apps lassen es weg. Außerdem Campaign.characterSheetLimits – die geltenden
+    Grenzen für Charakterbögen (Bögen je Mitglied, ausgewertete Seiten), damit die App keine festen Zahlen nennt; 409
+    `sheet_limit` richtet sich nach maxSheets.
 
 servers:
   - url: https://taleward.example.org/api/v1
@@ -3478,6 +3484,17 @@ components:
                 mit demselben Modell wie die Unterlagen der SL: über die Cloud-API nur bei allowCloudSummary, sonst lokal.
                 Jede einzelne Auswertung braucht zusätzlich die Zustimmung der SL (CharacterAnalysis). Fehlt bei
                 älteren Servern (= aus).
+            characterSheetLimits:
+              type: [object, "null"]
+              description: |
+                Ab 0.4.19, für alle Mitglieder: die Grenzen, die für Charakterbögen in dieser Kampagne gelten (Quelle der
+                Wahrheit ist der Server, z. B. von der SL auf der Seite Guthaben eingestellt). maxSheets = Bögen je
+                Mitglied (0 = keine Abgabe), maxPages = ausgewertete Seiten je Bogen. Fehlt das Feld (ältere Server),
+                gelten 3 Bögen und 20 Seiten wie in 0.4.18; die App nennt dann keine Zahlen.
+              required: [maxSheets, maxPages]
+              properties:
+                maxSheets: { type: integer, minimum: 0, maximum: 50 }
+                maxPages: { type: integer, minimum: 1 }
             allowExternalTranscription:
               type: boolean
               default: false
@@ -3628,6 +3645,11 @@ components:
           description: |
             Ab 0.4.18, bei source character: aus welcher Auswertung (Charakterbogen oder Hintergrund) der Vorschlag stammt;
             null = aus der mitgebrachten Welt.
+        relation:
+          type: [string, "null"]
+          description: |
+            Ab 0.4.19, nur bei source character aus der mitgebrachten Welt: WorldEntryIn.relation unverändert, sonst null.
+            Sichtbar wie der Vorschlag selbst (SL); geht nicht von selbst in den Eintrag.
         entryType: { $ref: "#/components/schemas/EntryType" }
         action:
           type: string
@@ -3944,6 +3966,12 @@ components:
         name: { type: string, minLength: 1, maxLength: 200 }
         summary: { type: string, minLength: 1, maxLength: 4000 }
         secret: { type: boolean, description: "Nur SL und Urheberin sollen es wissen" }
+        relation:
+          type: [string, "null"]
+          maxLength: 120
+          description: |
+            Ab 0.4.19, optional: wie der Eintrag zum Charakter steht, z. B. „Schwester von Litha“. Nur Anzeige. Leer oder
+            nur Leerzeichen = null. Eine Änderung zählt wie jede andere Änderung (version steigt, Vorschlag update).
 
     WorldEntryStatus:
       type: object

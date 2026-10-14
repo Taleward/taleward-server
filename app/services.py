@@ -197,6 +197,19 @@ def campaign_summary(db: Session, c: Campaign, me: Member) -> schemas.CampaignSu
     return schemas.CampaignSummaryOut(**_summary_fields(db, c, me))
 
 
+def _bogen_grenzen(db: Session, c: Campaign) -> schemas.SheetLimitsOut:
+    """0.4.19: die Grenzen, die für Charakterbögen von Spielern gelten (wie in `unterlagen._bogen_grenzen_pruefen`):
+    höchstens 3 Bögen, mit eingeschalteter Abrechnung die ggf. kleinere Zahl der SL; ausgewertet werden höchstens
+    20 Seiten, mit Abrechnung höchstens so viele, wie ein Bogen haben darf."""
+    from app import abrechnung
+    from app.charakterauswertung import MAX_BOEGEN, MAX_SEITEN
+
+    grenzen = abrechnung.bogen_grenzen(db, c)
+    if grenzen is None:
+        return schemas.SheetLimitsOut(max_sheets=MAX_BOEGEN, max_pages=MAX_SEITEN)
+    return schemas.SheetLimitsOut(max_sheets=min(MAX_BOEGEN, grenzen[1]), max_pages=min(MAX_SEITEN, grenzen[0]))
+
+
 def campaign_out(db: Session, c: Campaign, me: Member) -> schemas.CampaignOut:
     members = sorted(c.members, key=lambda m: (m.role != "gm", m.joined_at))
     out = schemas.CampaignOut(
@@ -204,6 +217,7 @@ def campaign_out(db: Session, c: Campaign, me: Member) -> schemas.CampaignOut:
         system_name=c.system_name, world_info=c.world_info,
         allow_external_transcription=c.allow_external_transcription, allow_cloud_summary=c.allow_cloud_summary,
         allow_character_analysis=bool(c.allow_character_analysis),  # 0.4.18, für alle Mitglieder
+        character_sheet_limits=_bogen_grenzen(db, c),  # 0.4.19
         members=[member_out(m, me) for m in members],
         links=links.lesen(c.links, nur_geteilt=me.role != "gm"),  # 0.4.13
     )

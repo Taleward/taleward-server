@@ -259,10 +259,16 @@ class CampaignOut(CampaignSummaryOut):
     allow_external_transcription: bool
     allow_cloud_summary: bool = False
     allow_character_analysis: bool = False  # 0.4.18
+    character_sheet_limits: "SheetLimitsOut | None" = None  # 0.4.19, für alle Mitglieder
     hotwords: list[str] | None = None  # 0.4.6: nur für die SL, für Spieler weggelassen
     links: list[Link] = []  # 0.4.13: Spieler nur shared
     gm_notices: list["GmNoticeOut"] | None = None  # 0.4.7: nur für die SL, für Spieler weggelassen
     members: list[MemberOut]
+
+
+class SheetLimitsOut(ApiModel):
+    max_sheets: int
+    max_pages: int
 
 
 class GmNoticeOut(ApiModel):
@@ -317,6 +323,7 @@ class WorldEntryIn(ApiModel):
     name: str = Field(min_length=1, max_length=200)
     summary: str = Field(min_length=1, max_length=4000)
     secret: bool
+    relation: str | None = Field(default=None, max_length=120)  # 0.4.19: „Schwester von Litha“, nur Anzeige
 
 
 class WorldIn(ApiModel):
@@ -572,6 +579,7 @@ class ProposalOut(ApiModel):
     origin_entry_id: str | None = None
     submitted_by_member_id: str | None = None
     analysis_id: str | None = None  # 0.4.18
+    relation: str | None = None  # 0.4.19
     entry_type: EntryType
     action: Literal["create", "update", "reveal"]
     target_entry_id: str | None
