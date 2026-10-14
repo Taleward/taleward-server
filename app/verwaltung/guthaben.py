@@ -74,6 +74,12 @@ def _person(request: Request, db: Session) -> User | None:
     user = db.get(User, daten.get("sub"))
     if user is None or user.token_version != daten.get("tv") or user.setup_account:
         return None
+    from app.einstellungen import meta_lesen
+
+    # 0.4.89: Wer den zweiten Faktor einschaltet (bzw. sich überall abmeldet), beendet auch Sitzungen hier
+    abgemeldet = meta_lesen(db, f"verwaltung.abgemeldet.{user.id}")
+    if abgemeldet and abgemeldet.isdigit() and int(daten.get("iat") or 0) < int(abgemeldet):
+        return None
     request.state.csrf = _csrf(wert)
     return user
 

@@ -87,22 +87,27 @@ als_container() {  # Befehl mit den Rechten des Containers (uid 1000) ausführen
 
 # Der Ordner gehört dem Container. Was root dort ändert, könnte ein Verweis woandershin lenken (zwischen Prüfen und
 # Schreiben, S21.5) – darum schreibt und löscht dort der Benutzer des Containers.
+ordner_ohne_container() {  # root darf dort nur schreiben, wo der Container nichts anlegen kann (Ordner gehört root)
+  [ -d "$ORDNER" ] && [ ! -L "$ORDNER" ] \
+    && { ! command -v setpriv >/dev/null 2>&1 || [ "$(stat -c %u "$ORDNER" 2>/dev/null)" = 0 ]; }
+}
+
 als_container rm -f "$ORDNER/server-jetzt" 2>/dev/null \
-  || { [ -d "$ORDNER" ] && [ ! -L "$ORDNER" ] && rm -f "$ORDNER/server-jetzt"; }
+  || { ordner_ohne_container && rm -f "$ORDNER/server-jetzt"; } || true
 
 melden() {  # ergebnis, von, nach, meldung
   local inhalt tmp
   inhalt=$(printf '{"zeit": "%s", "ergebnis": "%s", "von": "%s", "nach": "%s", "meldung": "%s"}' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$3" "${4//\"/\'}")
   # shellcheck disable=SC2016  # $1 wird erst in der inneren Shell ausgewertet
-  if ! printf '%s\n' "$inhalt" | als_container sh -c 'umask 022; cat > "$1.neu" && mv -f "$1.neu" "$1"' _ "$STATUS" \
-      2>/dev/null; then
-    # Ohne setpriv (sehr alte Systeme): wie bisher über eine Datei im Ordner von root
+  if ! printf '%s\n' "$inhalt" | als_container sh -c 'umask 022; cat > "$1.neu" && mv -fT "$1.neu" "$1"' _ "$STATUS" \
+      2>/dev/null && ordner_ohne_container; then
+    # Als root nur ohne setpriv (sehr alte Systeme) oder wenn der Ordner root gehört – sonst bleibt die Statusdatei alt
     tmp=$(mktemp "$ZIEL/.server-status.XXXXXX") || return 0
     printf '%s\n' "$inhalt" > "$tmp"
     chmod 644 "$tmp"
     chown 1000:1000 "$tmp" 2>/dev/null || true
-    if [ -d "$ORDNER" ] && [ ! -L "$ORDNER" ]; then mv -f "$tmp" "$STATUS"; else rm -f "$tmp"; fi
+    if [ -d "$ORDNER" ] && [ ! -L "$ORDNER" ]; then mv -fT "$tmp" "$STATUS"; else rm -f "$tmp"; fi
   fi
   echo "[taleward] $1: $2 → $3 $4"
 }

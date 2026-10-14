@@ -326,6 +326,9 @@ def ergebnis_uebernehmen(db: Session, job: Job, body: ResultIn, engine: str, wor
     s = db.get(GameSession, job.session_id)
     up = db.get(Upload, job.upload_id)
     discord = up.source == "discord"
+    from app import abrechnung
+
+    abrechnung.menge_nachtragen(db, job, body.audio_seconds)  # 0.4.89 (M2): mindestens die tatsächliche Audiolänge
     if s.nachtranskription:
         return _nachtranskription_uebernehmen(db, s, job, body, engine, worker_id, kosten_cent, discord)
     # Ergebnis eines früheren Versuchs verwerfen

@@ -90,8 +90,14 @@ def dauer(wav: Path) -> float:
         return w.getnframes() / w.getframerate()
 
 
+# Mehr Bytes je Sekunde hat keine übliche Aufnahme (48 kHz, Stereo, 16 bit ≈ 192 kB/s). Meldet der Kopf einer Datei
+# eine Länge, die dazu nicht passt, wird sie durch Dekodieren gemessen (0.4.89, M2: präparierter Kopf).
+PLAUSIBEL_BYTES_JE_S = 200_000
+
+
 def dauer_datei(datei: Path) -> float | None:
-    """Länge einer hochgeladenen Audiodatei laut ffprobe (Sekunden), ohne sie zu dekodieren. None = nicht messbar."""
+    """Länge einer hochgeladenen Audiodatei in Sekunden. Zuerst laut Kopf (ffprobe, schnell); passt die Länge nicht
+    zur Dateigröße, durch Dekodieren gemessen. None = nicht messbar."""
     programm = shutil.which("ffprobe")
     if not programm:
         return None
@@ -102,8 +108,27 @@ def dauer_datei(datei: Path) -> float | None:
                              capture_output=True, stdin=subprocess.DEVNULL, timeout=120, **extra)
         wert = float(res.stdout.decode(errors="replace").strip())
     except (subprocess.TimeoutExpired, ValueError, OSError):
+        wert = 0.0
+    try:
+        groesse = datei.stat().st_size
+    except OSError:
+        groesse = 0
+    if wert <= 0 or groesse / wert > PLAUSIBEL_BYTES_JE_S:
+        gemessen = dauer_dekodiert(datei)
+        return gemessen if gemessen else (wert if wert > 0 else None)
+    return wert
+
+
+def dauer_dekodiert(datei: Path) -> float | None:
+    """Länge durch Dekodieren der ersten Tonspur (ohne Ausgabe). Langsamer, aber unabhängig von den Angaben im Kopf."""
+    try:
+        res = ffmpeg(["-hide_banner", "-loglevel", "error", *EINGABE, "-i", str(datei), "-map", "0:a:0", "-f", "null",
+                      "-progress", "pipe:1", "-"], 900)
+    except (AudioFehler, OSError):
         return None
-    return wert if wert > 0 else None
+    zeiten = [int(z.split("=", 1)[1]) for z in res.stdout.decode(errors="replace").splitlines()
+              if z.startswith("out_time_us=") and z.split("=", 1)[1].strip().isdigit()]
+    return max(zeiten) / 1_000_000 if zeiten and max(zeiten) > 0 else None
 
 
 def hoerprobe(wav: Path, start: float, laenge: float, ziel: Path) -> bytes:

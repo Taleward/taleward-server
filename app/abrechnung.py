@@ -27,9 +27,10 @@ import secrets
 from dataclasses import asdict, dataclass, fields
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.db import utcnow
 from app.einstellungen import meta_lesen, meta_schreiben
@@ -270,6 +271,15 @@ def aufnahme_sekunden(db: Session, session_id: str | None) -> int:
     return max(gemeldet, groesse_sekunden(up) if up is not None else 0)
 
 
+def menge_nachtragen(db: Session, job: Job, sekunden: float | None) -> None:
+    """Transkription fertig: Ist die tatsächlich verarbeitete Audiolänge größer als beim Start gemessen (z. B. ein
+    präparierter Datei-Kopf), zählt die größere – nie weniger als gemessen (0.4.89, M2)."""
+    k = db.get(KostenAuftrag, job.id)
+    if k is None or k.zustand != "laeuft" or k.art != "transcribe" or not sekunden or sekunden <= 0:
+        return
+    k.menge = max(k.menge or 0, int(math.ceil(min(float(sekunden), 24 * 3600))))
+
+
 def menge(db: Session, job: Job) -> int:
     if job.type in ("transcribe", "summarize"):
         return aufnahme_sekunden(db, job.session_id)
@@ -420,14 +430,29 @@ def abrechnen(db: Session, k: KostenAuftrag, _schreiben: bool = True) -> int:
     Worker: endgültig gescheitert kostet nichts. Fertig – oder gelöscht, bevor er fertig war (Runde, Unterlage oder
     Kampagne weg) – kostet den vollen Betrag; die Arbeit ist dann getan bzw. begonnen (N1)."""
     job = db.get(Job, k.job_id)
+    # 0.4.89 (L1): „superseded“ (neu transkribiert, abgelöst) ist kein Scheitern – die Arbeit war begonnen
+    gescheitert = job is not None and job.state == "failed" and job.error_code != "superseded"
     if k.weg == "worker":
-        betrag = 0 if job is not None and job.state == "failed" else betrag_fuer(db, k.art, "worker", k.menge)
+        betrag = 0 if gescheitert else betrag_fuer(db, k.art, "worker", k.menge)
     else:  # Cloud: tatsächliche Kosten (auch bei Fehlschlag, soweit angefallen); Testmodus kostet nichts
         betrag = _mit_aufschlag(db, _cloud_kosten(db, k, job))
+        if betrag == 0 and (job is None or job.state == "failed"):
+            # 0.4.89 (M1): gelöscht, abgelöst oder gescheitert, ehe ein Verbrauch protokolliert war – mindestens die
+            # Schätzung vom Start (der Anbieter hat ggf. schon gerechnet)
+            betrag = max(0, k.schaetzung_cent or 0)
+    jetzt = utcnow()
+    # 0.4.89 (L2): nur einmal buchen – auch wenn zwei Prozesse denselben Kostenauftrag zugleich abrechnen
+    res = db.execute(update(KostenAuftrag).where(KostenAuftrag.job_id == k.job_id, KostenAuftrag.zustand == "laeuft")
+                     .values(zustand="abgerechnet", betrag_cent=betrag, abgerechnet_at=jetzt)
+                     .execution_options(synchronize_session=False))
+    for feld, wert in (("zustand", "abgerechnet"), ("betrag_cent", betrag if res.rowcount == 1 else k.betrag_cent),
+                       ("abgerechnet_at", jetzt if res.rowcount == 1 else k.abgerechnet_at)):
+        set_committed_value(k, feld, wert)
+    if res.rowcount != 1:
+        return 0
     g = db.get(Guthaben, k.guthaben_id)
     if betrag > 0:
         buchen(db, g, "verbrauch", -betrag, job_id=k.job_id, _schreiben=_schreiben)
-    k.zustand, k.betrag_cent, k.abgerechnet_at = "abgerechnet", betrag, utcnow()
     return betrag
 
 

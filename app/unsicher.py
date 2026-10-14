@@ -188,10 +188,15 @@ def ersetzen(db: Session, s: GameSession, paare: list[tuple[str, str]]) -> None:
         seg.text = _ersetzen(seg.text, ersetzungen)
     r = db.get(Recap, s.id)
     if r is not None:
+        vorher = (r.title, r.text, r.open_threads)
         r.title = _ersetzen(r.title, ersetzungen)[:300]
         r.text = _ersetzen(r.text, ersetzungen)
         r.open_threads = json.dumps([_ersetzen(f, ersetzungen) for f in json.loads(r.open_threads or "[]")],
                                     ensure_ascii=False)
+        if (r.title, r.text, r.open_threads) != vorher:
+            from app.db import utcnow
+
+            r.edited_at = utcnow()  # S21.4: auch Wort-Korrekturen zählen als Bearbeitung (Chronik Ehemaliger)
         pruefung = pruefteil.lesen(r.review)
         for p in pruefung.get("paragraphs") or []:
             p["note"] = _ersetzen(p.get("note"), ersetzungen)

@@ -1145,6 +1145,15 @@ def zusammenfassung_speichern(request: Request, art: str = Form("aus"), anbieter
             return fehler(_("Preise bitte als Zahl in Cent angeben."))
     if bool(preise[0]) != bool(preise[1]):
         return fehler(_("Bitte beide Preise angeben oder beide leer lassen."))
+    from app import abrechnung
+    from app.verwaltung import zweiter_faktor
+
+    bisher = (meta_lesen(db, "llm.cent_ein") or "", meta_lesen(db, "llm.cent_aus") or "")
+    if abrechnung.an(db) and (preise[0], preise[1]) != bisher and not zweiter_faktor.aktiv(db, user.id):
+        # 0.4.89 (N3-Rest): Token-Preise fließen in die Abrechnung – ändern wie dort nur mit zweitem Faktor
+        antwort = fehler(_("Das geht nur mit eingeschaltetem zweiten Faktor (Anmeldung → Dein zweiter Faktor)."))
+        antwort.status_code = 403
+        return antwort
     key = api_key.strip()
     if key and (len(key) < 16 or len(key) > 300 or any(c.isspace() for c in key)):
         return fehler(_("Der API-Schlüssel sieht nicht vollständig aus."))

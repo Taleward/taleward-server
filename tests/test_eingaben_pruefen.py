@@ -194,7 +194,7 @@ def w_pl(client):
 def test_einladungscode_lang_genug(client, world):
     w = world
     code = client.post(f"{API}/campaigns/{w['cid']}/invites", headers=w["gm"]).json()["code"]
-    assert re.fullmatch(r"[A-Z]+-\d{8}", code)
+    assert re.fullmatch(r"[A-Z]+-\d{12}", code)  # S29 (0.4.89)
 
 
 def test_falsche_einladungscodes_werden_gebremst(client, world):

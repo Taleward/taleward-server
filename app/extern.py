@@ -32,7 +32,7 @@ from app import audio, storage
 from app.audio import AudioFehler
 from app.config import get_settings
 from app.db import utcnow
-from app.models import Campaign, GameSession, Job, Upload, Worker
+from app.models import Campaign, GameSession, Job, Upload, UsageLog, Worker
 
 log = logging.getLogger("extern")
 HALTER = "extern"  # lease_worker_id für Aufträge, die ein externer Anbieter bearbeitet
@@ -148,7 +148,6 @@ def _segmente(antwort: dict, versatz: float, label) -> list[dict]:
 
 def verarbeiten(db: Session, job: Job, klient: MistralKlient | None = None) -> None:
     """Einen reservierten Auftrag extern transkribieren und wie ein Worker-Ergebnis übernehmen."""
-    from app import queue
     from app.namenshilfe import fuer_kampagne
     from app.routers.worker import ResultIn, ergebnis_uebernehmen
     from app.transkription import _bereinigen, halluzinationen_entfernen, sprecher_auswerten
@@ -160,9 +159,11 @@ def verarbeiten(db: Session, job: Job, klient: MistralKlient | None = None) -> N
     hotwords = fuer_kampagne(db, db.get(Campaign, sitzung.campaign_id), sitzung.number)
     arbeit = Path(tempfile.mkdtemp(prefix="extern-", dir=str(storage.uploads_root().parent)))
     t0 = time.monotonic()
+    job_id, campaign_id, session_id = job.id, sitzung.campaign_id, sitzung.id
+    abgerechnet = 0.0
     try:
         dateien = _dateien_zusammensetzen(up, arbeit)
-        segmente, stimmen, gesamt, abgerechnet = [], [], 0.0, 0.0
+        segmente, stimmen, gesamt = [], [], 0.0
         if up.source == "discord":
             for nr, (f, pfad) in enumerate(dateien):
                 wav = arbeit / f"spur-{nr}.wav"
@@ -194,23 +195,45 @@ def verarbeiten(db: Session, job: Job, klient: MistralKlient | None = None) -> N
                                         "computeSeconds": round(time.monotonic() - t0, 1),
                                         "model": f"mistral/{klient.modell}", "segments": segmente,
                                         "speakers": stimmen})
-        db.refresh(job)
-        if job.state != "leased" or job.lease_worker_id != HALTER:
-            return  # inzwischen anders erledigt
+        db.expire_all()
+        job = db.get(Job, job_id)
+        if job is None or job.state != "leased" or job.lease_worker_id != HALTER:
+            # inzwischen anders erledigt oder die Runde ist gelöscht – der Verbrauch beim Anbieter bleibt festgehalten
+            _verbrauch_festhalten(db, campaign_id, session_id, abgerechnet, k)
+            db.commit()
+            return
         ergebnis_uebernehmen(db, job, body, engine="external", worker_id=None,
                              kosten_cent=math.ceil(minuten * k.cent_pro_minute))
         db.commit()
     except AudioFehler as e:
         db.rollback()
-        queue.fail_job(db, db.get(Job, job.id), e.code, str(e), e.retryable)
-        db.commit()
+        _gescheitert(db, job_id, campaign_id, session_id, abgerechnet, k, e.code, str(e), e.retryable)
     except Exception as e:  # Netz weg, unerwartete Antwort …
         db.rollback()
         log.exception("Externe Transkription fehlgeschlagen")
-        queue.fail_job(db, db.get(Job, job.id), "external_error", f"{type(e).__name__}: {e}"[:300], True)
-        db.commit()
+        _gescheitert(db, job_id, campaign_id, session_id, abgerechnet, k, "external_error",
+                     f"{type(e).__name__}: {e}"[:300], True)
     finally:
         shutil.rmtree(arbeit, ignore_errors=True)
+
+
+def _verbrauch_festhalten(db: Session, campaign_id: str, session_id: str, sekunden: float, k) -> None:
+    """Was der Anbieter bis hierhin abgerechnet hat, auch ohne Ergebnis protokollieren (0.4.89, M1) – die Abrechnung
+    findet es über die Runde, auch wenn es sie nicht mehr gibt."""
+    if sekunden > 0:
+        db.add(UsageLog(campaign_id=campaign_id, session_id=session_id, kind="transcription", engine="external",
+                        audio_seconds=round(sekunden, 1), cost_cents=math.ceil(sekunden / 60 * k.cent_pro_minute)))
+
+
+def _gescheitert(db: Session, job_id: str, campaign_id: str, session_id: str, sekunden: float, k, code: str,
+                 meldung: str, erneut: bool) -> None:
+    from app import queue
+
+    _verbrauch_festhalten(db, campaign_id, session_id, sekunden, k)
+    job = db.get(Job, job_id)
+    if job is not None:
+        queue.fail_job(db, job, code, meldung, erneut)
+    db.commit()
 
 
 def einen_auftrag(db: Session, klient: MistralKlient | None = None) -> bool:
