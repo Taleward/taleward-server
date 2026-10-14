@@ -39,8 +39,8 @@
     <tbody>
     {% for w in t.wartend %}
       <tr>
-        <td data-label="{{ _('Kampagne') }}"><strong>{{ w.kampagne.title if w.kampagne else "–" }}</strong>{% if w.runde %}<br><span class="leise">{{ _("Kapitel {n}", n=w.runde.number) }}</span>{% elif w.unterlage %}<br><span class="leise">{{ w.unterlage.title }}</span>{% endif %}</td>
-        <td data-label="{{ _('Art') }}">{{ auftragsarten.get(w.job.type, w.job.type) }}</td>
+        <td data-label="{{ _('Kampagne') }}"><strong>{{ w.kampagne.title if w.kampagne else "–" }}</strong>{% if w.runde %}<br><span class="leise">{{ _("Kapitel {n}", n=w.runde.number) }}</span>{% elif w.unterlage %}<br><span class="leise">{{ w.unterlage.title }}</span>{% elif w.auswertung %}<br><span class="leise">{{ w.auswertung.title }}</span>{% endif %}</td>
+        <td data-label="{{ _('Art') }}">{{ _("Charakterbogen oder Hintergrund") if w.auswertung else auftragsarten.get(w.job.type, w.job.type) }}</td>
         <td data-label="{{ _('Kostet etwa') }}">{{ euro(w.schaetzung) }}</td>
         <td data-label="{{ _('Zustand') }}">{{ gruende.get(w.grund, _("Wartet, bis es an der Reihe ist.")) }}</td>
         <td>{% if w.grund == "freigabe" %}<form method="post" action="/guthaben/auftraege/{{ w.job.id }}/verarbeiten"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit">{{ _("Verarbeiten") }}</button></form>{% endif %}</td>

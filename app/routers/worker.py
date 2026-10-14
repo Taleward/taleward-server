@@ -166,15 +166,17 @@ def _auftrag(db: Session, job: Job) -> dict:
     if job.type == "summarize":
         return _zusammenfassungs_auftrag(db, job)
     if job.type == "document":
+        from app import charakterauswertung
         from app.einstellungen import llm_konfig
         from app.models import CampaignDocument
         from app.unterlagen import eingabe
 
         k = llm_konfig(db)
+        a = charakterauswertung.fuer_auftrag(db, job)  # 0.4.18: gleiche Form, ältere Worker verstehen es
+        ein = charakterauswertung.eingabe(db, a) if a is not None else eingabe(db, db.get(CampaignDocument,
+                                                                                         job.document_id))
         return {"jobId": job.id, "type": job.type, "leaseSeconds": get_settings().lease_seconds,
-                "attempt": job.attempts, "files": [],
-                "document": {"input": eingabe(db, db.get(CampaignDocument, job.document_id)),
-                             **_modell_angabe(k)}}
+                "attempt": job.attempts, "files": [], "document": {"input": ein, **_modell_angabe(k)}}
     s = db.get(GameSession, job.session_id)
     c = db.get(Campaign, s.campaign_id)
     up = db.get(Upload, job.upload_id)
@@ -537,16 +539,21 @@ def document_result(jobId: str, body: DocumentResultIn, worker: Worker = Depends
                     db: Session = Depends(get_db)):
     """Ergebnis eines Workers mit Sprachmodell für eine SL-Unterlage. Die Regeln zur Trennung von SL- und
     Spielerwissen setzt der Server beim Speichern selbst durch."""
+    from app import charakterauswertung
     from app.models import CampaignDocument
     from app.unterlagen import speichern
 
     job = _job_for(db, jobId, worker)
+    a = charakterauswertung.fuer_auftrag(db, job)
     doc = db.get(CampaignDocument, job.document_id or "")
-    if job.type != "document" or doc is None:
+    if job.type != "document" or (doc is None and a is None):
         raise errors.not_found()
-    speichern(db, doc, {"proposals": body.proposals, "worldInfoSuggestion": body.world_info_suggestion,
-                        "model": body.model, "tokensIn": body.tokens_in, "tokensOut": body.tokens_out},
-              "local", worker.id, body.compute_seconds)
+    d = {"proposals": body.proposals, "worldInfoSuggestion": body.world_info_suggestion, "model": body.model,
+         "tokensIn": body.tokens_in, "tokensOut": body.tokens_out}
+    if a is not None:  # 0.4.18: Charakterbogen bzw. Hintergrund – ohne Welt-Vorschlag
+        charakterauswertung.speichern(db, a, d, "local", worker.id, body.compute_seconds)
+    else:
+        speichern(db, doc, d, "local", worker.id, body.compute_seconds)
     job.state, job.finished_at, job.progress, job.lease_expires_at = "done", utcnow(), 1.0, None
     db.commit()
     return Response(status_code=204)

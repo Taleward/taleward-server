@@ -201,17 +201,22 @@ def _bogen_grenzen_pruefen(db: Session, campaign_id: str, member_id: str, art: s
     from app import abrechnung
     from app.models import Member
 
+    from app.charakterauswertung import MAX_BOEGEN
+
     m = db.get(Member, member_id)
     c = db.get(Campaign, campaign_id)
-    grenzen = abrechnung.bogen_grenzen(db, c) if c is not None else None
-    if grenzen is None or m is None or m.role == "gm":
-        return
-    seiten_max, anzahl_max = grenzen
     schon = db.scalar(select(func.count()).select_from(CampaignDocument).where(
         CampaignDocument.campaign_id == campaign_id, CampaignDocument.kind == "character_sheet",
         CampaignDocument.uploaded_by_member_id == member_id))
+    grenzen = abrechnung.bogen_grenzen(db, c) if c is not None else None
+    spieler = m is not None and m.role != "gm"
+    # 0.4.18: höchstens 3 Bögen je Mitglied; mit Abrechnung für Spieler die (ggf. kleinere) Grenze der SL
+    anzahl_max = min(MAX_BOEGEN, grenzen[1]) if grenzen is not None and spieler else MAX_BOEGEN
     if schon >= anzahl_max:
-        raise errors.bad_request("sheet_limit_reached", anzahl=anzahl_max)
+        raise errors.conflict("sheet_limit", "sheet_limit_reached", anzahl=anzahl_max)
+    if grenzen is None or not spieler:
+        return
+    seiten_max = grenzen[0]
     if art == "pdf":
         from pypdf import PdfReader
 
@@ -235,7 +240,8 @@ def hochladen(db: Session, campaign_id: str, member_id: str, dateiname: str, dat
     art = art_der_datei(dateiname, daten)
     if kind == "character_sheet":
         _bogen_grenzen_pruefen(db, campaign_id, member_id, art, daten)
-        # 0.4.7: Charakterbogen – nur gespeichert, nie ausgelesen oder ausgewertet, fließt nie in Recaps/Vorschläge
+        # 0.4.7: Charakterbogen – nur gespeichert. Ausgewertet (0.4.18) nur mit allowCharacterAnalysis und Zustimmung
+        # der SL, über app/charakterauswertung.py; der Bogen selbst fließt nie in Recaps
         name = Path(dateiname).name[:300] or "charakterbogen"
         doc = CampaignDocument(campaign_id=campaign_id, title=(titel or "").strip()[:300] or Path(name).stem[:300],
                                file_name=name, kind=kind, size_bytes=len(daten), page_count=None,
@@ -243,6 +249,12 @@ def hochladen(db: Session, campaign_id: str, member_id: str, dateiname: str, dat
         db.add(doc)
         db.flush()
         storage.write_atomic(ordner(doc.id) / f"datei{Path(name).suffix.lower()}", daten)
+        from app import charakterauswertung
+        from app.models import Member
+
+        m = db.get(Member, member_id)
+        if m is not None:  # 0.4.18: mit eingeschalteter Auswertung eine Anfrage an die SL (gelesen wird erst danach)
+            charakterauswertung.bogen_hochgeladen(db, doc, m)
         return doc
     x = auslesen(art, daten)
     name = Path(dateiname).name[:300] or "unterlage"
@@ -270,6 +282,10 @@ def loeschen(db: Session, doc: CampaignDocument) -> None:
     from app import abrechnung
 
     abrechnung.vor_loeschen(db, document_id=doc.id)  # 0.4.87 (N1): Gestartetes wird vor dem Löschen gebucht
+    if doc.kind == "character_sheet":
+        from app import charakterauswertung
+
+        charakterauswertung.bogen_geloescht(db, doc)  # 0.4.18: offene Anfrage entfällt
     db.execute(delete(Proposal).where(Proposal.document_id == doc.id))
     db.execute(delete(Job).where(Job.document_id == doc.id))
     shutil.rmtree(ordner(doc.id), ignore_errors=True)
@@ -381,44 +397,50 @@ def speichern(db: Session, doc: CampaignDocument, d: dict, engine: str, worker_i
 
 
 def verarbeiter(db: Session):
-    """Was die Zentrale selbst ausführt (Testmodus oder API): fn(db, doc) → (Ergebnis, engine, kosten). None, wenn
+    """Was die Zentrale selbst ausführt (Testmodus oder API): fn(db, eingabe) → (Ergebnis, engine, kosten). None, wenn
     ein Worker mit Sprachmodell zuständig ist oder nichts eingestellt ist."""
     from app.einstellungen import llm_konfig
 
     k = llm_konfig(db)
     if k.art == "attrappe":
-        return lambda db_, doc: (attrappe(eingabe(db_, doc)), "local", 0)
+        return lambda db_, ein: (attrappe(ein), "local", 0)
     if k.art == "api" and k.api_key:
         from app.sprachmodell import DokumentAblauf
         from app.zusammenfassung import api_klient
 
-        def ueber_api(db_, doc):
+        def ueber_api(db_, ein):
             klient = api_klient(k)
-            d = DokumentAblauf(klient).ausfuehren(eingabe(db_, doc))
+            d = DokumentAblauf(klient).ausfuehren(ein)
             return d, "external", klient.kosten_cent(d["tokensIn"], d["tokensOut"])
         return ueber_api
     return None
 
 
 def auftrag_ausfuehren(db: Session, job: Job, holder) -> None:
-    """In der Zentrale: einen „document“-Auftrag bearbeiten (Lease hält `holder`)."""
-    from app import queue
+    """In der Zentrale: einen „document“-Auftrag bearbeiten (Lease hält `holder`) – SL-Unterlage oder (0.4.18)
+    Auswertung eines Charakterbogens bzw. Hintergrunds."""
+    from app import charakterauswertung, queue
     from app.sprachmodell import SprachmodellFehler
 
-    doc = db.get(CampaignDocument, job.document_id)
+    a = charakterauswertung.fuer_auftrag(db, job)
+    doc = db.get(CampaignDocument, job.document_id) if job.document_id else None
     fn = verarbeiter(db)
-    if doc is None or fn is None:
-        queue.fail_job(db, job, "document_gone" if doc is None else "no_llm", "–", retryable=doc is not None)
+    if (doc is None and a is None) or fn is None:
+        weg = doc is None and a is None
+        queue.fail_job(db, job, "document_gone" if weg else "no_llm", "–", retryable=not weg)
         db.commit()
         return
     t0 = time.monotonic()
     try:
-        d, engine, kosten = fn(db, doc)
+        d, engine, kosten = fn(db, charakterauswertung.eingabe(db, a) if a is not None else eingabe(db, doc))
         db.refresh(job)
         if not queue.holds_lease(job, holder):
             db.rollback()
             return
-        speichern(db, doc, d, engine, holder.id, time.monotonic() - t0, kosten)
+        if a is not None:
+            charakterauswertung.speichern(db, a, d, engine, holder.id, time.monotonic() - t0, kosten)
+        else:
+            speichern(db, doc, d, engine, holder.id, time.monotonic() - t0, kosten)
         job.state, job.finished_at, job.progress, job.lease_expires_at = "done", utcnow(), 1.0, None
         db.commit()
     except Exception as e:

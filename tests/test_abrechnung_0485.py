@@ -325,7 +325,7 @@ def test_grenzen_fuer_charakterboegen(client, world, dbs):
     assert bogen(world["pl"], _pdf(20)).status_code == 201
     assert bogen(world["pl"], _pdf(1)).status_code == 201
     r = bogen(world["pl"], _pdf(1))  # schon 3 Bögen (einer von vorher)
-    assert r.status_code == 400 and r.json()["code"] == "sheet_limit_reached"
+    assert r.status_code == 409 and r.json()["code"] == "sheet_limit"  # 0.4.18: Code aus der Schnittstelle
     assert bogen(world["gm"], _pdf(30)).status_code == 201  # die SL ist nicht begrenzt
 
 

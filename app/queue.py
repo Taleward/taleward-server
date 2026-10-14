@@ -105,12 +105,24 @@ def kampagne_von(db: Session, job: Job):
     if job.document_id:
         d = db.get(CampaignDocument, job.document_id)
         return db.get(Campaign, d.campaign_id) if d else None
+    if job.analysis_id:  # 0.4.18
+        from app.models import CharacterAnalysis
+
+        a = db.get(CharacterAnalysis, job.analysis_id)
+        return db.get(Campaign, a.campaign_id) if a else None
     return None
 
 
 def cloud_erlaubt(db: Session, job: Job) -> bool:
-    """0.3.10: Recap/Vorschläge bzw. Unterlage dieser Kampagne dürfen an die Cloud-API."""
+    """0.3.10: Recap/Vorschläge bzw. Unterlage dieser Kampagne dürfen an die Cloud-API. 0.4.18: Auswertungen von
+    Charakterbögen und Hintergründen nur, wenn das schon beim Anlegen der Anfrage galt (die Spielerin hat es so
+    gesehen) und noch gilt."""
     c = kampagne_von(db, job)
+    if job.analysis_id:
+        from app.models import CharacterAnalysis
+
+        a = db.get(CharacterAnalysis, job.analysis_id)
+        return bool(c and c.allow_cloud_summary and a is not None and a.uses_cloud)
     return bool(c and c.allow_cloud_summary)
 
 
@@ -157,6 +169,11 @@ def claim(db: Session, worker: Worker, capabilities: list[str], darf=None, weg: 
                 if doc is not None:
                     doc.state, doc.progress = "processing", 0.0
                     db.commit()
+            if job.analysis_id:
+                from app import charakterauswertung
+
+                charakterauswertung.zustand(db, job, "processing")
+                db.commit()
             if job.session_id:
                 sess = db.get(GameSession, job.session_id)
                 if job.type == "transcribe":
@@ -235,6 +252,11 @@ def fail_job(db: Session, job: Job, code: str, message: str, retryable: bool) ->
 def _dokument_zustand(db: Session, job: Job, zustand: str, meldung: str | None) -> None:
     from app.models import CampaignDocument
 
+    if job.analysis_id:  # 0.4.18: Auswertung eines Charakterbogens bzw. Hintergrunds
+        from app import charakterauswertung
+
+        charakterauswertung.zustand(db, job, zustand, meldung)
+        return
     doc = db.get(CampaignDocument, job.document_id or "")
     if doc is not None:
         doc.state, doc.progress = zustand, None

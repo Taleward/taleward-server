@@ -35,7 +35,10 @@ OPTIONAL_FIELDS = {"characterBackstory", "gmNotes", "hiddenFromMemberIds", "memb
                    "user"}
 
 # Statuscodes, die in der YAML fehlen, aber fachlich nötig sind – für den nächsten Änderungswunsch notiert.
-BEKANNTE_LUECKEN: set[tuple[str, str, int]] = set()
+BEKANNTE_LUECKEN: set[tuple[str, str, int]] = {
+    # 0.4.18: Beschreibung nennt 409 `sheet_limit`, die Antwortliste noch nicht
+    ("POST", "/campaigns/{campaignId}/documents", 409),
+}
 
 
 def _require_all(node):

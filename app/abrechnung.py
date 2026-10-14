@@ -273,6 +273,11 @@ def aufnahme_sekunden(db: Session, session_id: str | None) -> int:
 def menge(db: Session, job: Job) -> int:
     if job.type in ("transcribe", "summarize"):
         return aufnahme_sekunden(db, job.session_id)
+    if job.type == "document" and job.analysis_id:  # 0.4.18: Charakterbogen bzw. Hintergrund, höchstens 20 Seiten
+        from app.charakterauswertung import fuer_auftrag, seiten
+
+        a = fuer_auftrag(db, job)
+        return seiten(a) if a is not None else 1
     if job.type == "document":
         doc = db.get(CampaignDocument, job.document_id or "")
         return max(1, (doc.page_count or 1) if doc else 1)
@@ -373,7 +378,7 @@ def starten(db: Session, job: Job, weg: str) -> str | None:
     # innerhalb dieser Transaktion lesen – ein zweiter Start für dasselbe Guthaben scheitert am Index.
     db.add(KostenAuftrag(job_id=job.id, guthaben_id=g.id, weg=weg, art=job.type, menge=m,
                          schaetzung_cent=geschaetzt, zustand="laeuft", campaign_id=c.id if c else None,
-                         session_id=job.session_id, document_id=job.document_id))
+                         session_id=job.session_id, document_id=job.document_id, analysis_id=job.analysis_id))
     try:
         db.flush()
     except IntegrityError:
@@ -395,11 +400,14 @@ def _cloud_kosten(db: Session, k: KostenAuftrag, job: Job | None) -> int:
     Unterlage erhalten; der Bezug steht seit 0.4.87 am Kostenauftrag selbst (N1)."""
     document_id = k.document_id or (job.document_id if job is not None else None)
     session_id = k.session_id or (job.session_id if job is not None else None)
-    if not document_id and not session_id:
+    analysis_id = k.analysis_id or (job.analysis_id if job is not None else None)
+    if not document_id and not session_id and not analysis_id:
         return 0
     q = select(func.coalesce(func.sum(UsageLog.cost_cents), 0)).where(
         UsageLog.engine == "external", UsageLog.kind == NUTZUNG[k.art], UsageLog.created_at >= k.angelegt)
-    if document_id:
+    if analysis_id:  # 0.4.18
+        q = q.where(UsageLog.analysis_id == analysis_id)
+    elif document_id:
         q = q.where(UsageLog.document_id == document_id)
     else:
         q = q.where(UsageLog.session_id == session_id)
@@ -582,8 +590,10 @@ def wartende_auftraege(db: Session, g: Guthaben) -> list[dict]:
             continue
         s = db.get(GameSession, job.session_id) if job.session_id else None
         doc = db.get(CampaignDocument, job.document_id) if job.document_id else None
-        aus.append({"job": job, "kampagne": c, "runde": s, "unterlage": doc, "schaetzung": schaetzung(db, job),
-                    "grund": warte_grund(db, job)})
+        from app.charakterauswertung import fuer_auftrag
+
+        aus.append({"job": job, "kampagne": c, "runde": s, "unterlage": doc, "auswertung": fuer_auftrag(db, job),
+                    "schaetzung": schaetzung(db, job), "grund": warte_grund(db, job)})
     return aus
 
 
