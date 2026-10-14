@@ -49,6 +49,7 @@
     {% for name, text, ist_euro in preisfelder %}
     <label>{{ _(text) }} <input type="text" name="{{ name }}" value="{{ euro_feld(werte[name]) if ist_euro else werte[name] }}" inputmode="decimal" required maxlength="12"></label>
     {% endfor %}
+    <p class="hilfe">{{ _("Automatisch geschätzt (bei 0): Transkription {t} je Stunde, Kapitel {k} je Stunde, Korrektur {r}, SL-Unterlage {u} je Seite. Grundlage sind die bisherigen Cloud-Läufe, solange es keine gibt die Preise des Anbieters.", t=automatisch.transcribe, k=automatisch.summarize, r=automatisch.revise, u=automatisch.document) }}</p>
     <div><button class="tw-btn tw-btn--secondary" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Speichern") }}</button></div>
   </form>
 </div>

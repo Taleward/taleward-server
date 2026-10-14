@@ -221,9 +221,11 @@ def test_n5_gleichzeitige_einloesung_endet_als_aktion(client, world, dbs, monkey
 
 
 # ---------------------------------------------------------------- N6: Hinweis ohne Cloud-Schätzwerte
-def test_n6_hinweis_ohne_cloud_schaetzwerte(client, dbs, admin):  # noqa: F811
+def test_n6_hinweis_ohne_cloud_schaetzwerte(client, dbs, admin, monkeypatch):  # noqa: F811
     from app import abrechnung
 
+    # 0.4.93: ohne Läufe schätzt der Server aus den Preisen des Anbieters – hier ein Anbieter ohne bekannte Preise
+    monkeypatch.setattr(abrechnung, "preis_aus_anbieter", lambda db, art: 0.0)
     seite = client.get("/verwaltung/abrechnung").text
     assert "Für die Cloud fehlen noch Schätzwerte" in seite and "Transkription" in seite
     p = abrechnung.preise(dbs)

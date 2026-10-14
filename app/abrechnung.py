@@ -47,7 +47,8 @@ MAX_AUFNAHME_SEKUNDEN = 8 * 3600  # feste Obergrenze je Runde (Entscheidung Benj
 @dataclass
 class Preise:
     """Alle Werte in Cent. Worker-Preise legt der Betreiber fest; die Cloud-Werte sind nur Schätzungen für den Start
-    (0 = Mittelwert der bisherigen Läufe), abgerechnet werden dort die tatsächlichen Kosten."""
+    (0 = automatisch: Mittelwert der bisherigen Läufe, sonst aus den Preisen des Anbieters), abgerechnet werden dort
+    die tatsächlichen Kosten."""
 
     aufschlag_prozent: int = 0
     worker_transkription_h: int = 0  # je Stunde Aufnahme
@@ -315,6 +316,42 @@ def _mittelwert_cloud(db: Session, art: str) -> float:
     return kosten * 3600 / sek if sek > 0 else 0.0
 
 
+# 0.4.93: Tokens für die Schätzung aus den Preisen des Anbieters, solange es keine eigenen Läufe gibt. Gemessen an der
+# Nostria-Runde (158 min, 08.10.): mit Mistral 211k Tokens ein / 10k aus für Kapitel, Vorschläge und Gegenprüfung
+# (≈ 80k / 3,8k je Stunde) – aufgerundet. Korrektur: Hinweis, Kapitel und bis 40.000 Zeichen Abschrift. Unterlage:
+# eine Seite (≈ 3.000 Zeichen) plus Bibel und Vorschläge.
+TOKENS_SCHAETZUNG = {"summarize": (85_000, 4_500), "revise": (20_000, 3_000), "document": (2_000, 500)}
+
+
+def _token_preis(db: Session) -> tuple[float, float] | None:
+    """Cent je 1 Mio. Tokens (ein, aus) des Cloud-Sprachmodells – eigene Preise aus der Verwaltung, sonst der teuerste
+    der eingestellten Modelle laut Preistabelle. None = unbekannt (fremdes Modell ohne eigene Preise)."""
+    from app.einstellungen import llm_konfig
+    from app.sprachmodell import PREISE
+
+    k = llm_konfig(db)
+    if k.cent_ein is not None and k.cent_aus is not None:
+        return float(k.cent_ein), float(k.cent_aus)
+    modelle = {m for m in (k.api_modell, k.api_modell_vorschlaege, k.api_modell_notizen) if m}
+    preise_ = [PREISE.get(m) for m in modelle]
+    if not preise_ or any(p is None for p in preise_):
+        return None
+    return float(max(p[0] for p in preise_)), float(max(p[1] for p in preise_))
+
+
+def preis_aus_anbieter(db: Session, art: str) -> float:
+    """Schätzung aus den Preisen des Anbieters (Cent je Stunde Aufnahme, je Stück bzw. je Seite); 0 = unbekannt."""
+    if art == "transcribe":
+        from app.einstellungen import extern_konfig
+
+        return max(0.0, float(extern_konfig(db).cent_pro_minute or 0)) * 60
+    preis = _token_preis(db)
+    if preis is None:
+        return 0.0
+    ein, aus = TOKENS_SCHAETZUNG[art]
+    return (ein * preis[0] + aus * preis[1]) / 1_000_000
+
+
 def preis_je_einheit(db: Session, art: str, weg: str) -> float:
     """Cent je Stunde Aufnahme (Transkription, Kapitel), je Seite (Unterlage) bzw. je Stück (Korrektur)."""
     p = preise(db)
@@ -323,7 +360,7 @@ def preis_je_einheit(db: Session, art: str, weg: str) -> float:
             "document": "unterlage_seite"}[art]
     wert = getattr(p, ("worker_" if worker else "cloud_") + feld)
     if not worker and wert == 0:
-        return _mittelwert_cloud(db, art)
+        return _mittelwert_cloud(db, art) or preis_aus_anbieter(db, art)
     return float(wert)
 
 
@@ -648,6 +685,14 @@ def bogen_grenzen(db: Session, c: Campaign) -> tuple[int, int] | None:
         return None
     g = zahler(db, c)
     return (g.bogen_seiten, g.boegen_je_spieler) if g is not None else (20, 3)
+
+
+def euro_genau(cent: float) -> str:
+    """Kleine Schätzwerte (unter einem Cent je Seite) lesbar: drei Nachkommastellen unter 1 €, sonst zwei."""
+    if cent <= 0:
+        return "–"
+    euro_ = cent / 100
+    return (f"{euro_:.3f}" if euro_ < 1 else f"{euro_:.2f}").replace(".", ",") + " €"
 
 
 def euro(cent: int) -> str:

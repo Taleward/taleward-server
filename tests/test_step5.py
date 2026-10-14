@@ -346,7 +346,7 @@ def test_verwaltung_zusammenfassung(client, dbs, admin):  # noqa: F811
     k = llm_konfig(dbs)
     assert (k.art, k.api_key, k.api_url) == ("api", "sk-abcdefghijklmnop1234", "https://api.mistral.ai/v1")
     seite = client.get("/verwaltung/zusammenfassung").text
-    assert "sk-abcdefghijklmnop1234" not in seite and "…1234" in seite and "Kosten etwa 6 Cent" in seite
+    assert "sk-abcdefghijklmnop1234" not in seite and "…1234" in seite and "Kosten etwa 20 Cent" in seite  # 0.4.93: Tokens wie gemessen (Nostria)
     client.post(url, data={**basis, "art": "lokal", "lokal_modell": "qwen3:8b"})
     dbs.expire_all()
     assert llm_konfig(dbs).art == "lokal" and llm_konfig(dbs).lokal_modell == "qwen3:8b"

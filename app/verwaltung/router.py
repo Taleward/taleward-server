@@ -30,6 +30,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import begrenzung, errors, queue
+from app.abrechnung import TOKENS_SCHAETZUNG
 from app.config import get_settings
 from app.db import get_db, server_id, utcnow
 from app.einstellungen import angaben, meta_lesen, meta_schreiben, speichern
@@ -881,7 +882,8 @@ def extern_speichern(request: Request, anbieter: str = Form(""), api_key: str = 
 
 
 # ---------------------------------------------------------------- Zusammenfassung (Sprachmodell)
-TOKENS_JE_SESSION = (110_000, 5_000)  # 4 Stunden Spiel: Recap- und Vorschlags-Aufruf zusammen
+# 4 Stunden Spiel, alle Aufrufe zusammen – gleiche Grundlage wie die Schätzung der Abrechnung (0.4.93)
+TOKENS_JE_SESSION = tuple(4 * t for t in TOKENS_SCHAETZUNG["summarize"])
 
 
 def _llm_anzeige(db: Session) -> dict:

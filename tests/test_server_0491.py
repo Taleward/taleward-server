@@ -8,6 +8,7 @@ from sqlalchemy import select
 from tests.test_abrechnung_0485 import _modus
 from tests.test_server_0489 import _auswerten_und_annehmen, _namen
 from tests.test_unterlagen import api  # noqa: F401 (Fixture)
+from tests.test_verwaltung import admin  # noqa: F401 (Fixture)
 
 API = "/api/v1"
 
@@ -239,3 +240,40 @@ def test_grenzen_fuer_charakterboegen(client, world, dbs):
         r = client.post(f"{API}/campaigns/{w['cid']}/documents", headers=w["pl"], data={"kind": "character_sheet"},
                         files={"file": (f"bogen{i}.txt", f"Name: Tharvok {i}".encode(), "text/plain")})
         assert r.status_code == 201, r.text
+
+
+# ---------------------------------------------------------------- 0.4.93: Cloud-Schätzung aus den Preisen des Anbieters
+def test_cloud_schaetzung_aus_anbieterpreisen(client, dbs, admin, monkeypatch):  # noqa: F811
+    from app import abrechnung
+    from app.einstellungen import meta_schreiben
+
+    # Voreinstellung Mistral: Kapitel mit mistral-medium-latest (150 / 750 Cent je 1 Mio. Tokens)
+    meta_schreiben(dbs, "llm.api_modell", "mistral-medium-latest")
+    dbs.commit()
+    kapitel = abrechnung.preis_je_einheit(dbs, "summarize", "cloud")
+    assert kapitel == (85_000 * 150 + 4_500 * 750) / 1_000_000  # ≈ 16 Cent je Stunde, Nostria gemessen ≈ 15
+    assert abrechnung.preis_je_einheit(dbs, "revise", "cloud") > 0
+    assert abrechnung.preis_je_einheit(dbs, "document", "cloud") > 0
+    assert abrechnung.preis_je_einheit(dbs, "transcribe", "cloud") > 0  # aus cent_pro_minute
+    # das teurere Modell zählt, wenn Vorschläge ein anderes nutzen
+    meta_schreiben(dbs, "llm.api_modell", "mistral-large-latest")
+    meta_schreiben(dbs, "llm.api_modell_vorschlaege", "mistral-medium-latest")
+    dbs.commit()
+    assert abrechnung.preis_je_einheit(dbs, "summarize", "cloud") == kapitel
+    # eigene Preise aus der Verwaltung gehen vor, unbekanntes Modell ohne eigene Preise = keine Schätzung
+    meta_schreiben(dbs, "llm.api_modell", "eigenes-modell")
+    meta_schreiben(dbs, "llm.api_modell_vorschlaege", "")
+    dbs.commit()
+    assert abrechnung.preis_aus_anbieter(dbs, "summarize") == 0
+    meta_schreiben(dbs, "llm.cent_ein", "100")
+    meta_schreiben(dbs, "llm.cent_aus", "200")
+    dbs.commit()
+    assert abrechnung.preis_aus_anbieter(dbs, "summarize") == (85_000 * 100 + 4_500 * 200) / 1_000_000
+    # ein eigener Wert des Betreibers geht immer vor
+    p = abrechnung.preise(dbs)
+    p.cloud_kapitel_h = 77
+    abrechnung.preise_schreiben(dbs, p, "test")
+    dbs.commit()
+    assert abrechnung.preis_je_einheit(dbs, "summarize", "cloud") == 77
+    seite = client.get("/verwaltung/abrechnung").text
+    assert "Automatisch geschätzt (bei 0)" in seite and "0 = automatisch" in seite

@@ -26,10 +26,10 @@ PREISFELDER = [
     ("worker_kapitel_h", "Worker: Kapitel je Stunde Aufnahme (Euro)", True),
     ("worker_korrektur", "Worker: Korrektur per Hinweis (Euro)", True),
     ("worker_unterlage_seite", "Worker: SL-Unterlage je Seite (Euro)", True),
-    ("cloud_transkription_h", "Cloud, nur Schätzung: Transkription je Stunde Aufnahme (Euro, 0 = Mittelwert)", True),
-    ("cloud_kapitel_h", "Cloud, nur Schätzung: Kapitel je Stunde Aufnahme (Euro, 0 = Mittelwert)", True),
-    ("cloud_korrektur", "Cloud, nur Schätzung: Korrektur per Hinweis (Euro, 0 = Mittelwert)", True),
-    ("cloud_unterlage_seite", "Cloud, nur Schätzung: SL-Unterlage je Seite (Euro, 0 = Mittelwert)", True),
+    ("cloud_transkription_h", "Cloud, nur Schätzung: Transkription je Stunde Aufnahme (Euro, 0 = automatisch)", True),
+    ("cloud_kapitel_h", "Cloud, nur Schätzung: Kapitel je Stunde Aufnahme (Euro, 0 = automatisch)", True),
+    ("cloud_korrektur", "Cloud, nur Schätzung: Korrektur per Hinweis (Euro, 0 = automatisch)", True),
+    ("cloud_unterlage_seite", "Cloud, nur Schätzung: SL-Unterlage je Seite (Euro, 0 = automatisch)", True),
     ("deckel", "So weit darf ein Auftrag laut Schätzung ins Minus führen (Euro)", True),
     ("warnung_ab", "„Guthaben knapp“ unter (Euro)", True),
     ("freigabe_standard", "Neue Guthaben: Aufträge darüber warten auf „Verarbeiten“ (Euro)", True),
@@ -98,7 +98,11 @@ def _seite_abrechnung(request: Request, user: User, db: Session, status: int = 2
     namen = {"transcribe": tr(request)("Transkription"), "summarize": tr(request)("Kapitel"),
              "revise": tr(request)("Korrektur per Hinweis"), "document": tr(request)("SL-Unterlage")}
     ohne = [namen[a] for a in abrechnung.KOSTENPFLICHTIG if abrechnung.preis_je_einheit(db, a, "cloud") <= 0]
-    daten = {"bestaetigen": None, "codes": None, "cloud_ohne_schaetzung": ", ".join(ohne), **ctx}
+    # 0.4.93: was „0 = automatisch“ gerade bedeutet (Mittelwert der Läufe, sonst aus den Preisen des Anbieters)
+    automatisch = {a: abrechnung.euro_genau(abrechnung._mittelwert_cloud(db, a) or abrechnung.preis_aus_anbieter(db, a))
+                   for a in abrechnung.KOSTENPFLICHTIG}
+    daten = {"bestaetigen": None, "codes": None, "cloud_ohne_schaetzung": ", ".join(ohne), "automatisch": automatisch,
+             **ctx}
     antwort = _seite(request, "abrechnung.html", user, db, modus=abrechnung.modus(db), preisfelder=PREISFELDER,
                      werte=werte, euro_feld=_euro_feld, euro=abrechnung.euro, konten=konten, aktionen=aktionen,
                      gutschriften=gutschriften, protokoll=protokoll, faktor=_faktor(db, user), orgs=orgs,

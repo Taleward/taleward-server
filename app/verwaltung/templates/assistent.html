@@ -120,7 +120,7 @@
     <div class="karten-wahl">
       <label class="wahl"><input type="radio" name="wahl" value="api" {% if llm.art == "api" or (llm.art != "lokal" and art == "cloud") %}checked{% endif %}>
         <strong>{{ _("Cloud-API (Mistral)") }}</strong>
-        <span>{{ _("Gute Kapitel, etwa 6 Cent pro Runde.") }}{% if mistral %} {{ _("Der Mistral-Schlüssel von eben wird verwendet.") }}{% endif %}</span></label>
+        <span>{{ _("Gute Kapitel, je nach Modell etwa 20 bis 70 Cent pro Runde von 4 Stunden.") }}{% if mistral %} {{ _("Der Mistral-Schlüssel von eben wird verwendet.") }}{% endif %}</span></label>
       {% if art in ("lokal", "beides") %}
       <label class="wahl"><input type="radio" name="wahl" value="lokal" {% if llm.art == "lokal" %}checked{% endif %}>
         <strong>{{ _("Lokales Modell") }}</strong>
