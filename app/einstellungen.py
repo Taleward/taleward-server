@@ -91,10 +91,18 @@ def speichern(db: Session, **werte) -> None:
 
 def meta_lesen(db: Session, key: str, standard: str | None = None) -> str | None:
     row = db.get(ServerMeta, key)
-    return row.value if row is not None else standard
+    if row is None:
+        return standard
+    from app import dpapi
+
+    return dpapi.text_oeffnen(row.value) if dpapi.geheim(key) else row.value
 
 
 def meta_schreiben(db: Session, key: str, value: str) -> None:
+    from app import dpapi
+
+    if dpapi.geheim(key):
+        value = dpapi.text_schuetzen(value)  # unter Windows nur für diesen Nutzer lesbar
     row = db.get(ServerMeta, key)
     if row is None:
         db.add(ServerMeta(key=key, value=value))

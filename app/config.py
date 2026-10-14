@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     # Worker des Programms: Der Server schreibt bei jedem Start einen frischen Schlüssel in diese Datei (nur für den
     # Windows-Nutzer lesbar) und startet selbst keinen Worker. Gesetzt vom Programm, nur im Einzelplatz wirksam.
     einzelplatz_worker_datei: Path | None = None
+    # Das Programm kann den Schlüssel seines Workers geschützt lesen (Windows-Datenschutz); ältere Fassungen nicht
+    einzelplatz_worker_geschuetzt: bool = False
     # Liegt diese Datei, fährt der Server geordnet herunter (das Programm hat unter Windows kein Konsolenfenster, an
     # das es Strg+C schicken könnte). Nur im Einzelplatz wirksam.
     einzelplatz_stopp_datei: Path | None = None
@@ -150,20 +152,32 @@ def _geheimnis(data_dir: Path) -> str:
     Datenordner (nur für den Besitzer lesbar). So muss bei der Installation niemand ein Geheimnis erzeugen."""
     import secrets
 
+    from app import dpapi
+
     datei = data_dir / "geheimnis.txt"
     try:
-        wert = datei.read_text(encoding="utf-8").strip()
+        gespeichert = datei.read_text(encoding="utf-8").strip()
+        wert = dpapi.text_oeffnen(gespeichert) or ""
         if len(wert) >= 32:
+            if dpapi.verfuegbar() and not gespeichert.startswith(dpapi.PRAEFIX):
+                _geheimnis_ablegen(datei, wert)  # aus älteren Fassungen: nachträglich schützen
             return wert
     except OSError:
         pass
     wert = secrets.token_urlsafe(48)
     data_dir.mkdir(parents=True, exist_ok=True)
+    _geheimnis_ablegen(datei, wert)
+    return wert
+
+
+def _geheimnis_ablegen(datei: Path, wert: str) -> None:
+    """Unter Windows mit dem Windows-Datenschutz, sonst nur für den Besitzer lesbar."""
+    from app import dpapi
+
     tmp = datei.with_suffix(".tmp")
-    tmp.write_text(wert, encoding="utf-8", newline="\n")
+    tmp.write_text(dpapi.text_schuetzen(wert), encoding="utf-8", newline="\n")
     tmp.chmod(0o600)
     tmp.replace(datei)
-    return wert
 
 
 def _einzelplatz(s: Settings) -> None:

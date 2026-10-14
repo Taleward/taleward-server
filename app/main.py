@@ -120,6 +120,10 @@ async def lifespan(_app: FastAPI):
         from app.aufbewahrung import festlegen
 
         festlegen(db)  # Aufbewahrung der Aufnahmen: neue Server bis zur Freigabe, bestehende wie bisher
+        from app import dpapi
+
+        if dpapi.nachziehen(db):  # nur unter Windows: Zugänge aus älteren Fassungen nachträglich schützen
+            log.info("Gespeicherte Zugänge sind jetzt mit dem Windows-Datenschutz geschützt")
     from app.extern import arbeitsprozess_starten as extern_starten
 
     if get_settings().worker_art:

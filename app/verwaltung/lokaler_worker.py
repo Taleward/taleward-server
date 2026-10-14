@@ -179,10 +179,13 @@ def programm_worker_koppeln(db: Session) -> Path | None:
 
     if not programm_worker():
         return None
-    return schluessel_datei_schreiben(db, get_settings().einzelplatz_worker_datei)
+    return schluessel_datei_schreiben(db, get_settings().einzelplatz_worker_datei,
+                                      geschuetzt=get_settings().einzelplatz_worker_geschuetzt)
 
 
-def schluessel_datei_schreiben(db: Session, datei: Path) -> Path:
+def schluessel_datei_schreiben(db: Session, datei: Path, geschuetzt: bool = False) -> Path:
+    from app import dpapi
+
     geheim = secrets.token_urlsafe(32)
     w = KNECHT._worker_zeile(db, geheim)
     w.capabilities = "asr,llm"
@@ -193,7 +196,8 @@ def schluessel_datei_schreiben(db: Session, datei: Path) -> Path:
     neu.unlink(missing_ok=True)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
     with os.fdopen(os.open(neu, flags, 0o600), "w", encoding="utf-8", newline="\n") as f:
-        f.write(f"wk.{w.id}.{geheim}\n")
+        inhalt = f"wk.{w.id}.{geheim}"
+        f.write((dpapi.text_schuetzen(inhalt) if geschuetzt else inhalt) + "\n")
     for versuch in range(20):  # unter Windows kann der Leser die Datei gerade offen haben
         try:
             os.replace(neu, datei)  # nie halb geschrieben lesen
