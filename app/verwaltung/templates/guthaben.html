@@ -58,7 +58,8 @@
     <label>{{ _("Charakterbögen von Spielern: höchstens Seiten je Bogen") }}
       <input type="number" name="bogen_seiten" value="{{ t.g.bogen_seiten }}" min="1" max="2000" required></label>
     <label>{{ _("Charakterbögen je Spieler und Kampagne") }}
-      <input type="number" name="boegen_je_spieler" value="{{ t.g.boegen_je_spieler }}" min="0" max="50" required></label>
+      <input type="number" name="boegen_je_spieler" value="{{ t.g.boegen_je_spieler }}" min="0" max="50" required>
+      <span class="hilfe">{{ _("Voreinstellung 3, höchstens 50. 0 = keine Abgabe.") }}</span></label>
     <p class="hilfe">{{ _("Jede Änderung wird festgehalten.") }}</p>
     <div><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
   </form>

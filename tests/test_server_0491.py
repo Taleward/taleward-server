@@ -230,3 +230,12 @@ def test_grenzen_fuer_charakterboegen(client, world, dbs):
     dbs.commit()
     c = client.get(f"{API}/campaigns/{w['cid']}", headers=w["pl"]).json()
     assert c["characterSheetLimits"] == {"maxSheets": 1, "maxPages": 5}
+    # 0.4.92 (Benjamin 14.10.): die SL darf bis zu 50 Bögen erlauben
+    abrechnung.einstellungen_aendern(dbs, g, "test", g.freigabe_ab_cent, 30, 10)
+    dbs.commit()
+    c = client.get(f"{API}/campaigns/{w['cid']}", headers=w["pl"]).json()
+    assert c["characterSheetLimits"] == {"maxSheets": 10, "maxPages": 20}
+    for i in range(4):  # mehr als die früheren 3
+        r = client.post(f"{API}/campaigns/{w['cid']}/documents", headers=w["pl"], data={"kind": "character_sheet"},
+                        files={"file": (f"bogen{i}.txt", f"Name: Tharvok {i}".encode(), "text/plain")})
+        assert r.status_code == 201, r.text

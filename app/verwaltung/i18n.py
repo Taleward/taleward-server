@@ -207,6 +207,7 @@ EN: dict[str, str] = {
     "in der App pausiert": "paused in the app",
     "Wie lange eine Aufnahme nach der Umwandlung in Text auf dem Server bleibt. Solange sie da ist, lässt sich die Zusammenfassung gegen sie prüfen und die Transkription wiederholen. Die App nennt die Frist im Einwilligungstext.": "How long a recording stays on the server after it has been turned into text. While it is there, the summary can be checked against it and the transcription repeated. The app states the period in the consent text.",
     "Aufnahmen löschen": "Delete recordings",
+    "Voreinstellung 3, höchstens 50. 0 = keine Abgabe.": "Default 3, at most 50. 0 = no submissions.",
     "Wenn die Spielleitung das Kapitel freigibt, spätestens nach der Frist (empfohlen)": "When the GM releases the chapter, at the latest after the period (recommended)",
     "Sofort nach der Umwandlung in Text": "Right after transcription",
     "Höchstens (Tage)": "At most (days)",

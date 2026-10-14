@@ -210,8 +210,8 @@ def _bogen_grenzen_pruefen(db: Session, campaign_id: str, member_id: str, art: s
         CampaignDocument.uploaded_by_member_id == member_id))
     grenzen = abrechnung.bogen_grenzen(db, c) if c is not None else None
     spieler = m is not None and m.role != "gm"
-    # 0.4.18: höchstens 3 Bögen je Mitglied; mit Abrechnung für Spieler die (ggf. kleinere) Grenze der SL
-    anzahl_max = min(MAX_BOEGEN, grenzen[1]) if grenzen is not None and spieler else MAX_BOEGEN
+    # 0.4.18: 3 Bögen je Mitglied; mit Abrechnung gilt für Spieler die Zahl der SL (0–50, Voreinstellung 3; Benjamin 14.10.)
+    anzahl_max = grenzen[1] if grenzen is not None and spieler else MAX_BOEGEN
     if schon >= anzahl_max:
         raise errors.conflict("sheet_limit", "sheet_limit_reached", anzahl=anzahl_max)
     if grenzen is None or not spieler:
