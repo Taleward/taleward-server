@@ -87,9 +87,10 @@ als_container() {  # Befehl mit den Rechten des Containers (uid 1000) ausführen
 
 # Der Ordner gehört dem Container. Was root dort ändert, könnte ein Verweis woandershin lenken (zwischen Prüfen und
 # Schreiben, S21.5) – darum schreibt und löscht dort der Benutzer des Containers.
-ordner_ohne_container() {  # root darf dort nur schreiben, wo der Container nichts anlegen kann (Ordner gehört root)
-  [ -d "$ORDNER" ] && [ ! -L "$ORDNER" ] \
-    && { ! command -v setpriv >/dev/null 2>&1 || [ "$(stat -c %u "$ORDNER" 2>/dev/null)" = 0 ]; }
+ordner_ohne_container() {  # Rückfall ohne setpriv-Umweg: ohne root-Rechte (kein Rechtesprung), ohne setpriv (sehr
+  # alte Systeme) oder in einem Ordner, der root gehört (dort kann der Container nichts anlegen) – sonst nie als root
+  [ -d "$ORDNER" ] && [ ! -L "$ORDNER" ] && { [ "$(id -u)" != 0 ] || ! command -v setpriv >/dev/null 2>&1 \
+    || [ "$(stat -c %u "$ORDNER" 2>/dev/null)" = 0 ]; }
 }
 
 als_container rm -f "$ORDNER/server-jetzt" 2>/dev/null \
@@ -102,7 +103,7 @@ melden() {  # ergebnis, von, nach, meldung
   # shellcheck disable=SC2016  # $1 wird erst in der inneren Shell ausgewertet
   if ! printf '%s\n' "$inhalt" | als_container sh -c 'umask 022; cat > "$1.neu" && mv -fT "$1.neu" "$1"' _ "$STATUS" \
       2>/dev/null && ordner_ohne_container; then
-    # Als root nur ohne setpriv (sehr alte Systeme) oder wenn der Ordner root gehört – sonst bleibt die Statusdatei alt
+    # Als root nur ohne setpriv oder wenn der Ordner root gehört – in einem Ordner des Containers bleibt sie dann alt
     tmp=$(mktemp "$ZIEL/.server-status.XXXXXX") || return 0
     printf '%s\n' "$inhalt" > "$tmp"
     chmod 644 "$tmp"
