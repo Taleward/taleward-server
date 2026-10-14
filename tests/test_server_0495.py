@@ -291,3 +291,18 @@ def test_eingebauter_worker_startet_von_selbst(ep, monkeypatch):
         monkeypatch.setattr(lokaler_worker, "ki_verfuegbar", lambda: False)
         knecht.autostart(db)
         assert gestartet == ["echt"]  # ohne KI-Pakete nicht
+
+
+def test_updates_nur_ueber_das_programm(ep):
+    from tests.test_verwaltung import csrf_von
+
+    assert _konto(ep).status_code == 201
+    r = ep.post("/verwaltung/anmelden", data={"username": "anna.muller", "password": "Lindwurm-Kessel-7"},
+                follow_redirects=False)
+    assert r.status_code == 303
+    seite = ep.get("/verwaltung/updates")
+    assert seite.status_code == 200 and "aktualisiert das Taleward-Programm selbst" in seite.text
+    assert "server-jetzt" not in seite.text
+    csrf = csrf_von(ep.get("/verwaltung/").text)
+    assert ep.post("/verwaltung/updates/server-jetzt", data={"csrf": csrf}).status_code == 404
+    assert ep.post("/verwaltung/updates/server-auto", data={"csrf": csrf, "an": "an"}).status_code == 404

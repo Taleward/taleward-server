@@ -177,6 +177,8 @@ EN: dict[str, str] = {
     "aktuell": "up to date",
     "Hier läuft die Fassung {jetzt}.": "This server runs version {jetzt}.",
     "Eine neue Server-Fassung meldet der Server auch per Benachrichtigung (Einstellungen → Benachrichtigungen).": "The server also announces a new server version via notification (Settings → Notifications).",
+    "Taleward auf diesem PC aktualisiert das Taleward-Programm selbst – Server und Worker gemeinsam, mit Rückweg auf die alte Fassung. Hier ist dafür nichts zu tun.":
+        "On this PC, the Taleward program updates Taleward itself – server and worker together, with a way back to the previous version. Nothing to do here.",
     "App und Worker": "App and worker",
     "Der Server lädt neue Fassungen einmal am Tag von GitHub und bietet sie selbst an. Handys und Worker fragen nur diesen Server – nie GitHub. Die App nimmt immer die neueste Fassung, die einer ihrer Server anbietet.": "Once a day the server downloads new versions from GitHub and offers them itself. Phones and workers only ask this server – never GitHub. The app always takes the newest version offered by any of its servers.",
     "Automatisch freigeben": "Release automatically",

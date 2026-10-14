@@ -12,7 +12,9 @@
   {% else %}
   <p><span class="marke-status marke-status--gut">{{ _("aktuell") }}</span> {{ _("Hier läuft die Fassung {jetzt}.", jetzt=eigene) }}</p>
   {% endif %}
-  {% if docker %}
+  {% if einzelplatz %}
+  <p class="hilfe">{{ _("Taleward auf diesem PC aktualisiert das Taleward-Programm selbst – Server und Worker gemeinsam, mit Rückweg auf die alte Fassung. Hier ist dafür nichts zu tun.") }}</p>
+  {% elif docker %}
   <form method="post" action="/verwaltung/updates/server-auto" class="formular">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label class="haken"><input type="checkbox" name="an" value="an" {% if server_auto %}checked{% endif %}>

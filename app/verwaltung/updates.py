@@ -24,6 +24,7 @@ def seite(request: Request, user: User = Depends(verwalter), db: Session = Depen
     return _seite(request, "updates.html", user, db,
                   eigene=aktualisierung.eigene_fassung(), server_neu=aktualisierung.server_update(db),
                   server_stand=aktualisierung.stand(db, "server"), docker=bool(os.environ.get("TALEWARD_DOCKER")),
+                  einzelplatz=get_settings().taleward_einzelplatz,
                   modus=aktualisierung.modus(db), zeilen=aktualisierung.uebersicht(db),
                   geprueft=_zeitpunkt(meta_lesen(db, "update.geprueft")), fehler_pruefung=meta_lesen(db, "update.fehler"),
                   pruefung_an=get_settings().update_check,
@@ -48,14 +49,24 @@ def pruefen(user: User = Depends(verwalter), db: Session = Depends(get_db)):
     return _zurueck("/updates", "updates_geprueft")
 
 
-@router.post("/updates/server-auto", dependencies=[Depends(csrf_pruefen)])
+def _nicht_im_einzelplatz() -> None:
+    """Einzelplatz: Server und Worker aktualisiert das Programm selbst (gemeinsam, mit Rückweg) – nie diese Seite."""
+    from fastapi import HTTPException
+
+    from app.config import get_settings
+
+    if get_settings().taleward_einzelplatz:
+        raise HTTPException(404)
+
+
+@router.post("/updates/server-auto", dependencies=[Depends(csrf_pruefen), Depends(_nicht_im_einzelplatz)])
 async def server_auto(request: Request, user: User = Depends(verwalter)):
     form = await request.form()
     aktualisierung.server_auto_setzen(form.get("an") == "an")
     return _zurueck("/updates", "gespeichert")
 
 
-@router.post("/updates/server-jetzt", dependencies=[Depends(csrf_pruefen)])
+@router.post("/updates/server-jetzt", dependencies=[Depends(csrf_pruefen), Depends(_nicht_im_einzelplatz)])
 def server_jetzt(user: User = Depends(verwalter)):
     aktualisierung.server_jetzt()
     return _zurueck("/updates", "server_jetzt")

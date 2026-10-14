@@ -44,6 +44,24 @@ Danach führt ein **Assistent** durch die Einrichtung:
 
 Jeder Schritt lässt sich überspringen; offene Punkte zeigt die Übersicht als Checkliste.
 
+### Einzelplatz (alles auf einem PC)
+
+`chronik einzelplatz` startet den Server für den Betrieb auf einem einzelnen PC im Heimnetz (gedacht für das
+Windows-Programm, das Server, Worker und App zusammen startet). Dann gilt:
+
+- Daten im Benutzerordner (unter Windows `%LOCALAPPDATA%\Taleward\Daten`), sofern `DATA_DIR` nicht gesetzt ist.
+- Handys im WLAN erreichen nur die App-Schnittstelle, Einladungen, die Web-App und Downloads. Verwaltung und
+  Worker-Anschluss gibt es nur auf dem PC selbst; Anfragen aus dem Internet und mit fremdem Host-Namen werden
+  abgewiesen.
+- Einladungen und QR-Codes nennen immer die aktuelle Heimnetz-Adresse des PCs.
+- Das erste Konto legt das Programm an – mit einem einmaligen Startschlüssel (`TALEWARD_STARTSCHLUESSEL` bzw.
+  `TALEWARD_STARTSCHLUESSEL_DATEI`, mindestens 32 Byte, gilt 15 Minuten), nie über das Netz. Einen Einrichtungscode
+  gibt es nicht.
+- Der eingebaute Worker startet von selbst, wenn die KI-Pakete installiert sind. Updates übernimmt das Programm.
+
+Die Verbindung im WLAN ist nicht verschlüsselt. Einzelplatz ist für das eigene WLAN gedacht; für geteilte Netze
+(Vereinsheim) ist ein richtiger Server mit HTTPS die bessere Wahl.
+
 ## Die Seiten der Verwaltung
 
 | Seite | Was du dort findest |
