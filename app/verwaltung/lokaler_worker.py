@@ -145,7 +145,9 @@ class LokalerKnecht:
         if get_settings().worker_art:
             return  # der eingebaute Worker läuft als eigener Container und nutzt denselben Eintrag
 
-        modus = meta_lesen(db, META_KEY, "aus")
+        # Einzelplatz: Der Worker gehört dazu und koppelt sich selbst – mit KI-Paketen echt, ohne nicht
+        standard = "echt" if get_settings().taleward_einzelplatz and ki_verfuegbar() else "aus"
+        modus = meta_lesen(db, META_KEY, standard)
         if modus in ("echt", "attrappe") and not self.laeuft():
             self.starten(db, modus)
 

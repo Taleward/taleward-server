@@ -68,6 +68,12 @@ def angaben(db: Session) -> Angaben:
     werte["min_age"] = int(werte["min_age"] or 16)
     werte["server_name"] = werte["server_name"] or s.server_name
     werte["server_operator"] = werte["server_operator"] or s.server_operator
+    if s.taleward_einzelplatz:  # immer die aktuelle Heimnetz-Adresse des PCs (Einladungen, QR-Code, publicUrl)
+        from app.einzelplatz import eigener_datenschutz, oeffentliche_url
+
+        werte["public_url"] = oeffentliche_url()
+        if eigener_datenschutz(werte["privacy_policy_url"]):  # eigene Seite: mit der aktuellen Adresse
+            werte["privacy_policy_url"] = werte["public_url"] + "/datenschutz"
     return Angaben(**werte)
 
 

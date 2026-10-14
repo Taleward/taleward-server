@@ -103,6 +103,11 @@ def _wartung_starten() -> threading.Event | None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     check_settings()
+    if get_settings().taleward_einzelplatz:
+        from app import einzelplatz
+
+        einzelplatz.schluessel_laden()  # vor allem anderen: aus der Umgebung entfernen, bevor ein Worker startet
+        log.info("Einzelplatz: im WLAN erreichbar unter %s", einzelplatz.oeffentliche_url())
     run_migrations()
     log.info("Datenbank bereit unter %s", get_settings().data_dir)
     from app.db import session_factory
@@ -209,6 +214,11 @@ def create_app() -> FastAPI:
     from app.verwaltung.router import einbinden
 
     einbinden(app)
+    if settings.taleward_einzelplatz:
+        from app import einzelplatz
+
+        app.include_router(einzelplatz.router)
+        app.add_middleware(einzelplatz.Pforte)  # zuletzt hinzugefügt = ganz außen, vor allem anderen
     return app
 
 

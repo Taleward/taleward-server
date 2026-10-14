@@ -40,6 +40,10 @@ def code_erzeugen(db: Session, neu: bool = False) -> str:
 
 
 def code_pruefen(db: Session, code: str) -> bool:
+    from app.config import get_settings
+
+    if get_settings().taleward_einzelplatz:
+        return False  # Einzelplatz: das erste Konto legt nur das Programm mit seinem Startschlüssel an
     soll = meta_lesen(db, "einrichtung.code")
     ist = (code or "").strip().upper().replace(" ", "")
     return bool(soll) and braucht_einrichtung(db) and hmac.compare_digest(soll.replace("-", ""), ist.replace("-", ""))
@@ -83,6 +87,12 @@ def beim_start(db: Session) -> str | None:
         return None
     if meta_lesen(db, ERSTER_START) is None:  # S6/S21.3: Frist läuft ab dem ersten Start, nicht ab jedem Neustart
         meta_schreiben(db, ERSTER_START, str(time.time()))
+    from app.config import get_settings
+
+    if get_settings().taleward_einzelplatz:
+        db.commit()
+        log.warning("Einzelplatz: Das erste Konto legt das Programm an (ohne Einrichtungscode).")
+        return None
     code = code_erzeugen(db)
     from app.einstellungen import angaben
 
