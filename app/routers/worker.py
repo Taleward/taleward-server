@@ -596,6 +596,15 @@ def config(worker: Worker = Depends(current_worker), db: Session = Depends(get_d
     return antwort
 
 
+@router.get("/busy")
+def busy(worker: Worker = Depends(current_worker), db: Session = Depends(get_db)):
+    """0.4.97: Würde ein Neustart gerade etwas unterbrechen? Das Taleward-Programm fragt vor einem Update."""
+    from app import ruhe
+
+    grund = ruhe.grund(db)
+    return {"busy": grund is not None, "reason": grund}
+
+
 @router.get("/app-update")
 def app_update(request: Request, system: str = "windows", worker: Worker = Depends(current_worker),
                db: Session = Depends(get_db)):

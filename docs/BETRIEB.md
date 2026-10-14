@@ -59,7 +59,9 @@ Windows-Programm, das Server, Worker und App zusammen startet). Dann gilt:
   gibt es nicht.
 - Der eingebaute Worker startet von selbst, wenn die KI-Pakete installiert sind. Steht in `EINZELPLATZ_WORKER_DATEI`
   ein Pfad, schreibt der Server stattdessen bei jedem Start einen frischen Worker-Schlüssel in diese Datei und startet
-  selbst keinen Worker – den startet dann das Programm. Updates übernimmt das Programm.
+  selbst keinen Worker – den startet dann das Programm. Updates übernimmt das Programm: Es fragt vorher
+  `GET /worker/v1/busy` (mit dem Worker-Schlüssel), ob gerade ein Auftrag, ein Hochladen oder eine Verarbeitung läuft,
+  sichert mit `chronik sicherung` und spielt bei einem Fehlschlag mit `chronik wiederherstellen` zurück.
 - `EINZELPLATZ_STOPP_DATEI`: Legt das Programm diese Datei an, fährt der Server geordnet herunter.
 
 Die Verbindung im WLAN ist nicht verschlüsselt. Einzelplatz ist für das eigene WLAN gedacht; für geteilte Netze
