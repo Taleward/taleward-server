@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Taleward API
-  version: 0.4.17
+  version: 0.4.18
   description: |
     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
 
@@ -190,6 +190,13 @@ info:
     gegliedert sein (nur bei einem natürlichen Einschnitt). Der Text bleibt eine Folge von Absätzen; `parts` nennt je
     Teil die Überschrift und den ersten Absatz. Absatz-Indizes in Prüfteil und Korrektur zählen weiter über das ganze
     Kapitel. PUT /sessions/{id}/recap nimmt `parts` mit. Ältere Apps ignorieren das Feld und zeigen alles am Stück.
+    Änderungen in 0.4.18 (Charakterbögen und Hintergründe auswerten): Campaign.allowCharacterAnalysis (nur SL ändert,
+    Standard aus). Ist es an, kann eine Spielerin ihren Charakterbogen (Unterlage character_sheet) bzw. ihren Hintergrund
+    (POST …/members/me/backstory-analysis) auswerten lassen. Jede Auswertung wartet erst auf die Zustimmung der SL
+    (CharacterAnalysis, GET /campaigns/{id}/character-analyses, POST /character-analyses/{id}/decision, GmNotice
+    character_analysis_pending). Ergebnis sind Vorschläge mit source character wie bei der mitgebrachten Welt
+    (Proposal.analysisId); die Spielerin sieht nur den Stand, nie die Vorschläge. Höchstens 3 Charakterbögen je Mitglied,
+    ausgewertet werden höchstens 20 Seiten.
 
 servers:
   - url: https://taleward.example.org/api/v1
@@ -801,6 +808,11 @@ paths:
                 language: { $ref: "#/components/schemas/ContentLanguage" }
                 allowExternalTranscription: { type: boolean }
                 allowCloudSummary: { type: boolean }
+                allowCharacterAnalysis:
+                  type: boolean
+                  description: |
+                    Ab 0.4.18, siehe Campaign.allowCharacterAnalysis. Ausschalten lehnt offene Anfragen (awaiting_gm) ab;
+                    laufende Auswertungen laufen zu Ende.
                 hotwords:
                   type: array
                   maxItems: 200
@@ -1032,6 +1044,72 @@ paths:
               schema: { type: array, items: { $ref: "#/components/schemas/Proposal" } }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /campaigns/{campaignId}/character-analyses:
+    parameters: [{ $ref: "#/components/parameters/campaignId" }]
+    get:
+      tags: [Charaktere]
+      summary: Auswertungen von Charakterbögen und Hintergründen (ab 0.4.18; SL alle, Spieler nur eigene)
+      description: |
+        Neueste zuerst, höchstens 100. Spieler bekommen nur ihre eigenen, ohne proposalCount (Vorschläge bleiben bei der
+        SL). Fremde Kampagne → 404.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/CharacterAnalysis" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /campaigns/{campaignId}/members/me/backstory-analysis:
+    parameters: [{ $ref: "#/components/parameters/campaignId" }]
+    post:
+      tags: [Charaktere]
+      summary: Eigenen Hintergrund der SL zur Auswertung geben (ab 0.4.18)
+      description: |
+        Nur das Mitglied selbst, nur mit allowCharacterAnalysis (sonst 409 `analysis_off`) und nicht leerem
+        characterBackstory (sonst 409 `backstory_empty`). Ausgewertet wird der Hintergrund zum Zeitpunkt dieser Anfrage.
+        Gibt es schon eine offene Hintergrund-Auswertung dieses Mitglieds (awaiting_gm, queued, processing), 409
+        `analysis_pending`. Legt eine CharacterAnalysis (source backstory, awaiting_gm) an und gibt der SL den Hinweis
+        character_analysis_pending.
+      responses:
+        "201":
+          description: Angelegt, wartet auf die SL
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CharacterAnalysis" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /character-analyses/{analysisId}/decision:
+    parameters: [{ $ref: "#/components/parameters/analysisId" }]
+    post:
+      tags: [Charaktere]
+      summary: Auswertung zulassen oder ablehnen (nur SL, ab 0.4.18)
+      description: |
+        Nur im Zustand awaiting_gm (sonst 409 `wrong_state`). approve true → queued, die Auswertung läuft wie bei
+        Unterlagen der SL und kostet wie diese (Usage, zahlt die SL bzw. Organisation). approve false → rejected; nichts
+        wird ausgelesen. Spieler und Fremde → 404.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approve]
+              properties:
+                approve: { type: boolean }
+      responses:
+        "200":
+          description: Neuer Stand
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CharacterAnalysis" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
 
   /campaigns/{campaignId}/gm-notices/{noticeId}:
     parameters:
@@ -2483,8 +2561,12 @@ paths:
       summary: Unterlage hochladen und Auswertung einreihen (nur SL; character_sheet jedes aktive Mitglied)
       description: |
         Ab 0.4.7 darf jedes aktive Mitglied kind character_sheet hochladen (Charakterbogen). Sichtbar nur für die SL und
-        die hochladende Person (GET-Liste für Spieler: nur eigene character_sheet; alle anderen 404). Wird nie
-        ausgewertet und fließt nie in Recaps oder Vorschläge.
+        die hochladende Person (GET-Liste für Spieler: nur eigene character_sheet; alle anderen 404). Ohne
+        allowCharacterAnalysis wird er nie ausgewertet und fließt nie in Recaps oder Vorschläge.
+        Ab 0.4.18: höchstens 3 character_sheet je Mitglied (sonst 409 `sheet_limit`; löschen per DELETE /documents/{id}
+        darf auch die Urheberin). Ist allowCharacterAnalysis an, legt der Server zum Bogen eine CharacterAnalysis im
+        Zustand awaiting_gm an (CampaignDocument.analysisId) und gibt der SL den Hinweis character_analysis_pending.
+        Ausgelesen wird erst nach ihrer Zustimmung, siehe CharacterAnalysis.
 
         PDF, Word (.docx), .txt oder .md bis 50 MB (sonst 400 `unsupported_document` bzw. 413 `document_too_large`).
         Der Server extrahiert den Text (Seitenzahlen merken), zerlegt ihn in Abschnitte und lässt das Sprachmodell
@@ -2542,6 +2624,9 @@ paths:
     delete:
       tags: [Unterlagen]
       summary: Unterlage samt Datei und offenen Vorschlägen löschen (übernommene Bibeleinträge bleiben)
+      description: |
+        Nur SL; einen character_sheet darf ab 0.4.18 auch die Urheberin löschen (sonst 404). Eine noch nicht
+        entschiedene Auswertung des Bogens entfällt dabei.
       responses:
         "204": { description: Gelöscht }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -2899,6 +2984,7 @@ components:
     pollId: { name: pollId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
     documentId: { name: documentId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
     planId: { name: planId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
+    analysisId: { name: analysisId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
 
   responses:
     Unauthorized:
@@ -3061,8 +3147,8 @@ components:
       enum: [handout, gm, mixed, character_sheet]
       description: |
         handout = Spielerhandout (öffentlich), gm = SL-Unterlage (alles geheim), mixed = gemischt (geheim mit
-        Freigabe-Vorschlägen), character_sheet = Charakterbogen eines Mitglieds (ab 0.4.7; nur SL und Urheberin, keine
-        Auswertung)
+        Freigabe-Vorschlägen), character_sheet = Charakterbogen eines Mitglieds (ab 0.4.7; nur SL und Urheberin;
+        ausgewertet nur mit allowCharacterAnalysis und Zustimmung der SL, ab 0.4.18)
 
     CampaignDocument:
       type: object
@@ -3081,6 +3167,12 @@ components:
         openProposalCount: { type: integer }
         worldInfoSuggestion: { type: [string, "null"] }
         uploadedByMemberId: { type: [string, "null"], description: "Ab 0.4.7; bei character_sheet die Urheberin" }
+        analysisId:
+          type: [string, "null"]
+          description: |
+            Ab 0.4.18, nur bei character_sheet: die zugehörige CharacterAnalysis (null = nicht zur Auswertung gegeben,
+            z. B. weil allowCharacterAnalysis beim Hochladen aus war). Bei character_sheet gelten state, progress,
+            proposalCount und worldInfoSuggestion nicht; maßgeblich ist der Stand der CharacterAnalysis.
         createdAt: { type: string, format: date-time }
 
     ChapterPlanInput:
@@ -3376,6 +3468,15 @@ components:
                 Dabei geht der Text der Session (Namen, Gespräche – keine Stimmen) an den Anbieter. Nur die SL ändert das
                 (PATCH). Standard false; in der Betriebsart „Nur Cloud“ setzt der Server neue Kampagnen auf true.
                 false und kein lokales Modell verfügbar: Session bleibt in summarizing mit passender message.
+            allowCharacterAnalysis:
+              type: boolean
+              default: false
+              description: |
+                Ab 0.4.18. Dürfen Mitglieder ihren Charakterbogen und ihren Hintergrund auswerten lassen (Vorschläge für
+                die Bibel)? Nur die SL ändert das (PATCH), Standard false; für alle Mitglieder sichtbar. Ausgewertet wird
+                mit demselben Modell wie die Unterlagen der SL: über die Cloud-API nur bei allowCloudSummary, sonst lokal.
+                Jede einzelne Auswertung braucht zusätzlich die Zustimmung der SL (CharacterAnalysis). Fehlt bei
+                älteren Servern (= aus).
             allowExternalTranscription:
               type: boolean
               default: false
@@ -3521,6 +3622,11 @@ components:
         originCharacterId: { type: [string, "null"], description: "Ab 0.4.7, nur bei source character" }
         originEntryId: { type: [string, "null"], description: "Ab 0.4.7, nur bei source character" }
         submittedByMemberId: { type: [string, "null"], description: "Ab 0.4.7, bei source character die Urheberin" }
+        analysisId:
+          type: [string, "null"]
+          description: |
+            Ab 0.4.18, bei source character: aus welcher Auswertung (Charakterbogen oder Hintergrund) der Vorschlag stammt;
+            null = aus der mitgebrachten Welt.
         entryType: { $ref: "#/components/schemas/EntryType" }
         action:
           type: string
@@ -3972,13 +4078,48 @@ components:
             import_unsafe (unzulässige Pfade oder zu große entpackte Größe), import_version (Datei von einer neueren
             Schnittstelle als der Server kann); sonst Klartext.
 
+    CharacterAnalysis:
+      type: object
+      description: |
+        Ab 0.4.18. Auswertung eines Charakterbogens oder Hintergrunds. Verbindlich:
+        - Eingabe ist nur dieses eine Dokument bzw. dieser Hintergrund, als Daten (nie als Anweisung); dazu als Kontext
+          nur Bibel-Einträge, die dieses Mitglied sehen darf. Nie Daten anderer Mitglieder.
+        - Ergebnis sind Vorschläge (source character, analysisId, submittedByMemberId) in
+          GET /campaigns/{id}/character-proposals; entschieden wird dort wie bei der mitgebrachten Welt. Vorschlag-Sichtbarkeit:
+          suggestedVisibility public mit hiddenFromMemberIds = alle anderen aktiven Mitglieder (wissen nur SL und
+          Urheberin), bis die SL es anders festlegt. Geprüft wie Vorschläge aus Unterlagen (Längen, Arten, keine Links).
+        - Hintergrund und Bogen selbst fließen nie in Recaps; Vorschläge erst, wenn die SL sie übernommen hat.
+        - Cloud nur bei allowCloudSummary der Kampagne (usesCloud). Ausgewertet werden höchstens die ersten 20 Seiten
+          (pagesLimited).
+        - Zustände: awaiting_gm (wartet auf die SL) → queued → processing → done | failed; oder rejected (SL lehnt ab,
+          Auswertung abgeschaltet oder Mitglied weg). Geht beim Umzug nicht mit.
+      properties:
+        id: { type: string }
+        campaignId: { type: string }
+        memberId: { type: string }
+        source: { type: string, enum: [sheet, backstory] }
+        documentId: { type: [string, "null"], description: "Bei sheet der Charakterbogen" }
+        title: { type: string, description: "Bei sheet der Titel des Bogens, bei backstory der Charaktername" }
+        state: { type: string, enum: [awaiting_gm, rejected, queued, processing, done, failed] }
+        usesCloud:
+          type: boolean
+          description: Ob die Auswertung über die Cloud-API läuft (nach allowCloudSummary zum Zeitpunkt der Anfrage)
+        pageCount: { type: [integer, "null"], description: "Bei sheet, sobald bekannt" }
+        pagesLimited: { type: boolean, description: "true = nur die ersten 20 Seiten ausgewertet" }
+        message: { type: [string, "null"], description: "Bei failed der Grund, für Menschen lesbar" }
+        proposalCount:
+          type: [integer, "null"]
+          description: Nur für die SL (für Spieler null), sobald done
+        createdAt: { type: string, format: date-time }
+        decidedAt: { type: [string, "null"], format: date-time }
+
     GmNotice:
       type: object
       properties:
         id: { type: string }
         code:
           type: string
-          enum: [hidden_entries_for_newcomer, seat_claimed, character_orphaned, member_joined]
+          enum: [hidden_entries_for_newcomer, seat_claimed, character_orphaned, member_joined, character_analysis_pending]
           description: |
             hidden_entries_for_newcomer (ab 0.4.7): Neuzugang wurde in teilweise verborgene Einträge aufgenommen.
             seat_claimed (ab 0.4.8): Jemand hat per Beitritt mit Charakter einen offenen Platz eingenommen (memberId);
@@ -3993,6 +4134,11 @@ components:
             „<Name> ist der Kampagne beigetreten“ mit „Passt“ (DELETE …/gm-notices/{id}) und „Entfernen“
             (DELETE …/members/{memberId}, mit Rückfrage). Der Server löscht den Hinweis selbst, wenn die Person die
             Kampagne verlässt, entfernt wird, ihr Konto löscht oder ihr Platz freigegeben wird.
+            character_analysis_pending (ab 0.4.18): Ein Mitglied (memberId) möchte seinen Charakterbogen oder Hintergrund
+            auswerten lassen (analysisId). Die App zeigt der SL „Auswerten“ und „Ablehnen“
+            (POST /character-analyses/{id}/decision). Der Server löscht den Hinweis selbst, sobald entschieden ist oder
+            die Anfrage entfällt (Bogen gelöscht, Mitglied weg, Auswertung abgeschaltet).
+        analysisId: { type: [string, "null"], description: "Ab 0.4.18, bei character_analysis_pending" }
         memberId: { type: [string, "null"], description: "Betroffenes Mitglied" }
         entryIds: { type: array, items: { type: string }, description: "Betroffene Einträge" }
         createdAt: { type: string, format: date-time }
