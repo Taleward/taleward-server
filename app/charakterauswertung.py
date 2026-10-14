@@ -196,8 +196,6 @@ def liste(db: Session, c: Campaign, me: Member) -> list[CharacterAnalysis]:
 
 
 def out(db: Session, a: CharacterAnalysis, sl: bool, lang: str = "de") -> schemas.CharacterAnalysisOut:
-    from app.services import render_status_message
-
     anzahl = None
     if sl and a.state == "done":
         anzahl = db.scalar(select(func.count()).select_from(Proposal).where(Proposal.analysis_id == a.id)) or 0
