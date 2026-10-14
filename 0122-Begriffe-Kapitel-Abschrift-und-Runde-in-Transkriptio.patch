@@ -1,0 +1,179 @@
+From 5178531238da8435659c4dca77966a54b1c2502b Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 07:38:27 +0200
+Subject: [PATCH 122/123] Begriffe: Kapitel, Abschrift und Runde in
+ Transkription und Zusammenfassung
+
+---
+ app/verwaltung/i18n.py                        | 30 +++++++++----------
+ app/verwaltung/templates/transkription.html   | 12 ++++----
+ app/verwaltung/templates/zusammenfassung.html | 16 +++++-----
+ 3 files changed, 28 insertions(+), 30 deletions(-)
+
+diff --git a/app/verwaltung/i18n.py b/app/verwaltung/i18n.py
+index 5c6a7d0..95d0d23 100644
+--- a/app/verwaltung/i18n.py
++++ b/app/verwaltung/i18n.py
+@@ -230,9 +230,9 @@ EN: dict[str, str] = {
+     "Für Windows herunterladen": "Download for Windows",
+     "Eingebauter Worker": "Built-in worker",
+-    "Lokale Recaps: Ollama läuft mit": "Local recaps: Ollama runs alongside",
++    "Lokale Kapitel: Ollama läuft mit": "Local chapters: Ollama runs alongside",
+     "vom Worker erkannt": "detected by the worker",
+-    "Recaps schreibt der Worker hier mit dem lokalen Sprachmodell.": "The worker writes recaps here with the local language model.",
+-    "Damit er Recaps schreibt, unter „Zusammenfassung“ „Lokales Modell“ wählen.": "For it to write recaps, choose “Local model” under “Summary”.",
+-    "Das Sprachmodell (etwa 5 GB) lädt der Worker beim ersten Recap. Transkription und Recap wechseln sich auf der Grafikkarte ab; reicht der Grafikspeicher nicht für beides, rechnet Ollama teilweise mit dem Prozessor – langsamer, aber es geht.": "The worker downloads the language model (about 5 GB) with the first recap. Transcription and recap take turns on the graphics card; if graphics memory is not enough for both, Ollama partly uses the processor – slower, but it works.",
++    "Kapitel schreibt der Worker hier mit dem lokalen Sprachmodell.": "The worker writes chapters here with the local language model.",
++    "Damit er Kapitel schreibt, unter „Zusammenfassung“ „Lokales Modell“ wählen.": "For it to write chapters, choose “Local model” under “Summary”.",
++    "Das Sprachmodell (etwa 5 GB) lädt der Worker beim ersten Kapitel. Transkription und Kapitel wechseln sich auf der Grafikkarte ab; reicht der Grafikspeicher nicht für beides, rechnet Ollama teilweise mit dem Prozessor – langsamer, aber es geht.": "The worker downloads the language model (about 5 GB) with the first chapter. Transcription and chapter take turns on the graphics card; if graphics memory is not enough for both, Ollama partly uses the processor – slower, but it works.",
+     "Modell für die Transkription": "Transcription model",
+     "0 = ganze Grafikkarte. Der Rest bleibt z. B. fürs Spielen frei; das Modell passt sich an.": "0 = whole graphics card. The rest stays free, e.g. for gaming; the model adapts.",
+@@ -251,5 +251,5 @@ EN: dict[str, str] = {
+     "Prozessor": "Processor",
+     "Rechenkerne für die Transkription (0 = automatisch)": "Processor cores for transcription (0 = automatic)",
+-    "Session {n}": "Session {n}",
++    "Runde {n}": "Session {n}",
+     "Wie viele Kerne der Container überhaupt bekommt, steht in der .env (TALEWARD_WORKER_CPUS).": "How many cores the container gets at all is set in the .env (TALEWARD_WORKER_CPUS).",
+     "arbeitet": "working",
+@@ -399,5 +399,5 @@ EN: dict[str, str] = {
+     "Cloud-API": "Cloud API",
+     "Cloud-API (externer Anbieter)": "Cloud API (external provider)",
+-    "Cloud-API: Das Transkript geht an den Anbieter. Dafür braucht es einen Vertrag zur Auftragsverarbeitung und einen Absatz im Datenschutzhinweis. Lokales Modell: Die Daten bleiben in eurer eigenen Infrastruktur, kleinere Modelle liefern aber schwächere Recaps.": "Cloud API: the transcript is sent to the provider. This requires a data processing agreement and a paragraph in the privacy notice. Local model: the data stays within your own infrastructure, but smaller models produce weaker recaps.",
++    "Cloud-API: Die Abschrift geht an den Anbieter. Dafür braucht es einen Vertrag zur Auftragsverarbeitung und einen Absatz im Datenschutzhinweis. Lokales Modell: Die Daten bleiben in eurer eigenen Infrastruktur, kleinere Modelle liefern aber schwächere Kapitel.": "Cloud API: the transcript is sent to the provider. This requires a data processing agreement and a paragraph in the privacy notice. Local model: the data stays within your own infrastructure, but smaller models produce weaker chapters.",
+     "Adresse (nur bei „Anderer“)": "Address (only for “Other”)",
+     "Anderer (OpenAI-kompatible Schnittstelle)": "Other (OpenAI-compatible interface)",
+@@ -411,9 +411,9 @@ EN: dict[str, str] = {
+     "Empfohlen: auto – jeder Worker wählt nach seiner Grafikkarte (unter 12 GB gemma4:e4b, ab 12 GB gemma4:12b) und lädt das Modell beim ersten Auftrag selbst herunter.": "Recommended: auto – each worker picks by its graphics card (below 12 GB gemma4:e4b, from 12 GB gemma4:12b) and downloads the model itself on the first job.",
+     "Höchste Kontextgröße (Tokens)": "Maximum context size (tokens)",
+-    "Nur für ein fest eingetragenes Modell. Der Kontext richtet sich nach der Länge der Session, höchstens dieser Wert.": "Only for a fixed model. The context follows the length of the session, at most this value.",
++    "Nur für ein fest eingetragenes Modell. Der Kontext richtet sich nach der Länge der Runde, höchstens dieser Wert.": "Only for a fixed model. The context follows the length of the session, at most this value.",
+     "nach Grafikkarte": "by graphics card",
+     "Für die API bitte einen API-Schlüssel eintragen.": "Please enter an API key to use the API.",
+     "Kontextgröße bitte als Zahl zwischen 4096 und 262144 angeben.": "Please enter the context size as a number between 4096 and 262144.",
+-    "Kosten etwa {cent} Cent pro 4-Stunden-Session.": "Costs about {cent} cents per 4-hour session.",
++    "Kosten etwa {cent} Cent pro Runde von 4 Stunden.": "Costs about {cent} cents per 4-hour session.",
+     "Leer lassen: Es gilt der Mistral-Schlüssel der externen Transkription.": "Leave empty: the Mistral key of the external transcription is used.",
+     "Modell": "Model",
+@@ -426,11 +426,11 @@ EN: dict[str, str] = {
+     "Preise bitte als Zahl in Cent angeben.": "Please enter prices as a number in cents.",
+     "Worker mit Sprachmodell": "Workers with a language model",
+-    "Sessions warten nach der Stimmzuordnung, bis die Zusammenfassung eingeschaltet wird.": "Sessions wait after voice assignment until summarizing is switched on.",
++    "Runden warten nach der Stimmzuordnung, bis die Zusammenfassung eingeschaltet wird.": "Sessions wait after voice assignment until summarizing is switched on.",
+     "Sprachmodell": "Language model",
+     "Stand": "Status",
+     "Unbekannte Auswahl.": "Unknown selection.",
+-    "Wer aus dem Transkript Recap und Bibel-Vorschläge schreibt. Die Spielleitung prüft beides vor dem Veröffentlichen.": "Who writes the recap and bible proposals from the transcript. The game master reviews both before publishing.",
++    "Wer aus der Abschrift Kapitel und Bibel-Vorschläge schreibt. Die Spielleitung prüft beides vor dem Veröffentlichen.": "Who writes the chapter and bible proposals from the transcript. The game master reviews both before publishing.",
+     "Wer fasst zusammen?": "Who summarizes?",
+-    "Zurzeit ist kein Worker mit Sprachmodell verbunden – Sessions warten.": "No worker with a language model is connected right now – sessions are waiting.",
++    "Zurzeit ist kein Worker mit Sprachmodell verbunden – Runden warten.": "No worker with a language model is connected right now – sessions are waiting.",
+     "Übersicht": "Overview",
+     "Transkription": "Transcription",
+@@ -529,5 +529,5 @@ EN: dict[str, str] = {
+     "Konto löschen": "Delete account",
+     "Prüfung": "Review",
+-    "Recap gegenprüfen": "Cross-check the recap",
++    "Kapitel gegenprüfen": "Cross-check the chapter",
+     "Wortlisten für unsicher erkannte Namen:": "Word lists for uncertain names:",
+     "Deutsch": "German",
+@@ -537,6 +537,5 @@ EN: dict[str, str] = {
+     "Dazu kommen die Texte der Kampagne (Bibel, Notizen, Unterlagen, Charaktere) und was in früheren Kapiteln sicher erkannt wurde.":
+         "Plus the campaign's own texts (bible, notes, documents, characters) and what was recognised reliably in earlier chapters.",
+-    "Ein zweiter Durchgang des Sprachmodells prüft jeden Absatz gegen das Transkript, bessert Unbelegtes einmal nach und zeigt der Spielleitung vor der Freigabe, worauf sich jeder Absatz stützt. Kostet etwa ein Drittel mehr Rechenzeit.":
+-        "A second pass of the language model checks every paragraph against the transcript, revises unsupported parts once and shows the game master what each paragraph is based on before sharing. Takes about a third more computing time.",
++    "Ein zweiter Durchgang des Sprachmodells prüft jeden Absatz gegen die Abschrift, bessert Unbelegtes einmal nach und zeigt der Spielleitung vor der Freigabe, worauf sich jeder Absatz stützt. Kostet etwa ein Drittel mehr Rechenzeit.": "A second pass of the language model checks every paragraph against the transcript, revises unsupported parts once and shows the game master what each paragraph is based on before sharing. Takes about a third more computing time.",
+     "Löscht Konto, Anmeldungen, Charakterbilder, Hintergrund und Stimmprofil endgültig. Kommentare bleiben als „gelöschtes Konto“ stehen, Kapitel bleiben unverändert. Ist die Person irgendwo die einzige Spielleitung, geht es erst, wenn dort jemand anderes Spielleitung ist.": "Permanently deletes the account, sign-ins, character portraits, backstory and voice profile. Comments remain as “deleted account”; chapters stay unchanged. If the person is the only game master somewhere, this only works once someone else is game master there.",
+     "Benutzername zur Bestätigung": "Username to confirm",
+@@ -605,6 +604,5 @@ EN: dict[str, str] = {
+     "Es fehlt der API-Schlüssel.": "The API key is missing.",
+     "Aufnahmen werden nur von eigenen Workern transkribiert.": "Recordings are only transcribed by your own workers.",
+-    "Greift nur, wenn eine Session länger als die Wartezeit wartet, in dieser Zeit kein Worker erreichbar war und die SL es für die Kampagne erlaubt hat ({n} Kampagne(n) erlauben es). Kosten etwa {cent} Cent pro Stunde Aufnahme.":
+-        "Only applies when a session waits longer than the waiting time, no worker was reachable during that time and the GM has allowed it for the campaign ({n} campaign(s) allow it). Costs about {cent} cents per hour of recording.",
++    "Greift nur, wenn eine Runde länger als die Wartezeit wartet, in dieser Zeit kein Worker erreichbar war und die SL es für die Kampagne erlaubt hat ({n} Kampagne(n) erlauben es). Kosten etwa {cent} Cent pro Stunde Aufnahme.": "Only applies when a session waits longer than the waiting time, no worker was reachable during that time and the GM has allowed it for the campaign ({n} campaign(s) allow it). Costs about {cent} cents per hour of recording.",
+     "Anbieter": "Provider",
+     "Aus": "Off",
+diff --git a/app/verwaltung/templates/transkription.html b/app/verwaltung/templates/transkription.html
+index 85bbc2a..089c6ce 100644
+--- a/app/verwaltung/templates/transkription.html
++++ b/app/verwaltung/templates/transkription.html
+@@ -20,5 +20,5 @@
+     {% if k and k.online %}
+       {% if k.w.paused %}<span class="marke-status marke-status--warten">{{ _("pausiert") }}</span>
+-      {% elif k.job %}<span class="marke-status marke-status--gut">{{ _("arbeitet") }}</span>{% if k.sitzung %} – {{ k.kampagne.title if k.kampagne else "" }}, {{ _("Session {n}", n=k.sitzung.number) }}{% endif %}
++      {% elif k.job %}<span class="marke-status marke-status--gut">{{ _("arbeitet") }}</span>{% if k.sitzung %} – {{ k.kampagne.title if k.kampagne else "" }}, {{ _("Runde {n}", n=k.sitzung.number) }}{% endif %}
+       {% else %}<span class="marke-status marke-status--gut">{{ _("bereit") }}</span>{% endif %}
+     {% else %}<span class="marke-status marke-status--fehler">{{ _("nicht verbunden") }}</span>{% endif %}
+@@ -31,8 +31,8 @@
+   {% endif %}
+   {% if e.ollama %}
+-  <p>{{ _("Lokale Recaps: Ollama läuft mit") }} ({{ _("nur Prozessor") if e.ollama == "cpu" else _("Grafikkarte") }}){% if e.llm_bereit %} · <span class="marke-status marke-status--gut">{{ _("vom Worker erkannt") }}</span>{% endif %}.
+-    {% if e.llm_lokal %}{{ _("Recaps schreibt der Worker hier mit dem lokalen Sprachmodell.") }}
+-    {% else %}<a href="/verwaltung/zusammenfassung">{{ _("Damit er Recaps schreibt, unter „Zusammenfassung“ „Lokales Modell“ wählen.") }}</a>{% endif %}</p>
+-  <p class="hilfe">{{ _("Das Sprachmodell (etwa 5 GB) lädt der Worker beim ersten Recap. Transkription und Recap wechseln sich auf der Grafikkarte ab; reicht der Grafikspeicher nicht für beides, rechnet Ollama teilweise mit dem Prozessor – langsamer, aber es geht.") }}</p>
++  <p>{{ _("Lokale Kapitel: Ollama läuft mit") }} ({{ _("nur Prozessor") if e.ollama == "cpu" else _("Grafikkarte") }}){% if e.llm_bereit %} · <span class="marke-status marke-status--gut">{{ _("vom Worker erkannt") }}</span>{% endif %}.
++    {% if e.llm_lokal %}{{ _("Kapitel schreibt der Worker hier mit dem lokalen Sprachmodell.") }}
++    {% else %}<a href="/verwaltung/zusammenfassung">{{ _("Damit er Kapitel schreibt, unter „Zusammenfassung“ „Lokales Modell“ wählen.") }}</a>{% endif %}</p>
++  <p class="hilfe">{{ _("Das Sprachmodell (etwa 5 GB) lädt der Worker beim ersten Kapitel. Transkription und Kapitel wechseln sich auf der Grafikkarte ab; reicht der Grafikspeicher nicht für beides, rechnet Ollama teilweise mit dem Prozessor – langsamer, aber es geht.") }}</p>
+   {% endif %}
+   <form class="formular" method="post" action="/verwaltung/worker/eingebaut">
+@@ -237,5 +237,5 @@
+   <p><span class="marke-status">{{ _("aus") }}</span> {{ _("Aufnahmen werden nur von eigenen Workern transkribiert.") }}</p>
+   {% endif %}
+-  <p>{{ _("Greift nur, wenn eine Session länger als die Wartezeit wartet, in dieser Zeit kein Worker erreichbar war und die SL es für die Kampagne erlaubt hat ({n} Kampagne(n) erlauben es). Kosten etwa {cent} Cent pro Stunde Aufnahme.", n=ext.kampagnen, cent="%.0f"|format(ext.cent * 60)) }}</p>
++  <p>{{ _("Greift nur, wenn eine Runde länger als die Wartezeit wartet, in dieser Zeit kein Worker erreichbar war und die SL es für die Kampagne erlaubt hat ({n} Kampagne(n) erlauben es). Kosten etwa {cent} Cent pro Stunde Aufnahme.", n=ext.kampagnen, cent="%.0f"|format(ext.cent * 60)) }}</p>
+   <form class="formular" method="post" action="/verwaltung/transkription/extern">
+     <input type="hidden" name="csrf" value="{{ csrf }}">
+diff --git a/app/verwaltung/templates/zusammenfassung.html b/app/verwaltung/templates/zusammenfassung.html
+index 29a4c4d..a94cdac 100644
+--- a/app/verwaltung/templates/zusammenfassung.html
++++ b/app/verwaltung/templates/zusammenfassung.html
+@@ -3,5 +3,5 @@
+ {% block inhalt %}
+ <h1>{{ _("Zusammenfassung") }}</h1>
+-<p class="leise">{{ _("Wer aus dem Transkript Recap und Bibel-Vorschläge schreibt. Die Spielleitung prüft beides vor dem Veröffentlichen.") }}</p>
++<p class="leise">{{ _("Wer aus der Abschrift Kapitel und Bibel-Vorschläge schreibt. Die Spielleitung prüft beides vor dem Veröffentlichen.") }}</p>
+ {% set k = llm.k %}
+ <div class="karte">
+@@ -10,12 +10,12 @@
+     {% if k.api_key %}<p><span class="marke-status marke-status--gut">{{ _("Cloud-API") }}</span> {{ k.api_modell }} · {{ k.api_url }}</p>
+     {% else %}<p><span class="marke-status marke-status--fehler">{{ _("nicht aktiv") }}</span> {{ _("Es fehlt der API-Schlüssel.") }}</p>{% endif %}
+-    {% if llm.je_session is not none %}<p>{{ _("Kosten etwa {cent} Cent pro 4-Stunden-Session.", cent="%.0f"|format(llm.je_session) if llm.je_session >= 1 else "%.1f"|format(llm.je_session)) }}</p>{% endif %}
++    {% if llm.je_session is not none %}<p>{{ _("Kosten etwa {cent} Cent pro Runde von 4 Stunden.", cent="%.0f"|format(llm.je_session) if llm.je_session >= 1 else "%.1f"|format(llm.je_session)) }}</p>{% endif %}
+   {% elif k.art == "lokal" %}
+     {% if llm.worker_online %}<p><span class="marke-status marke-status--gut">{{ _("Lokales Modell") }}</span> {{ _("nach Grafikkarte") if k.lokal_modell == "auto" else k.lokal_modell }}</p>
+-    {% else %}<p><span class="marke-status marke-status--warten">{{ _("Lokales Modell") }}</span> {{ _("Zurzeit ist kein Worker mit Sprachmodell verbunden – Sessions warten.") }}</p>{% endif %}
++    {% else %}<p><span class="marke-status marke-status--warten">{{ _("Lokales Modell") }}</span> {{ _("Zurzeit ist kein Worker mit Sprachmodell verbunden – Runden warten.") }}</p>{% endif %}
+   {% elif k.art == "attrappe" %}
+     <p><span class="marke-status marke-status--warten">{{ _("Testmodus") }}</span> {{ _("Platzhaltertext statt echter Zusammenfassung (zum Testen).") }}</p>
+   {% else %}
+-    <p><span class="marke-status marke-status--fehler">{{ _("aus") }}</span> {{ _("Sessions warten nach der Stimmzuordnung, bis die Zusammenfassung eingeschaltet wird.") }}</p>
++    <p><span class="marke-status marke-status--fehler">{{ _("aus") }}</span> {{ _("Runden warten nach der Stimmzuordnung, bis die Zusammenfassung eingeschaltet wird.") }}</p>
+   {% endif %}
+ </div>
+@@ -94,5 +94,5 @@
+         <span class="hilfe">{{ _("Empfohlen: auto – jeder Worker wählt nach seiner Grafikkarte (unter 12 GB gemma4:e4b, ab 12 GB gemma4:12b) und lädt das Modell beim ersten Auftrag selbst herunter.") }}</span></label>
+       <label>{{ _("Höchste Kontextgröße (Tokens)") }} <input type="number" name="lokal_kontext" value="{{ k.lokal_kontext }}" min="4096" max="262144" step="1024">
+-        <span class="hilfe">{{ _("Nur für ein fest eingetragenes Modell. Der Kontext richtet sich nach der Länge der Session, höchstens dieser Wert.") }}</span></label>
++        <span class="hilfe">{{ _("Nur für ein fest eingetragenes Modell. Der Kontext richtet sich nach der Länge der Runde, höchstens dieser Wert.") }}</span></label>
+     </fieldset>
+ 
+@@ -100,6 +100,6 @@
+       <legend>{{ _("Prüfung") }}</legend>
+       <input type="hidden" name="gegenpruefen_feld" value="1">
+-      <label class="haken"><input type="checkbox" name="gegenpruefen" value="1"{% if llm.gegenpruefen %} checked{% endif %}> {{ _("Recap gegenprüfen") }}</label>
+-      <p class="hilfe">{{ _("Ein zweiter Durchgang des Sprachmodells prüft jeden Absatz gegen das Transkript, bessert Unbelegtes einmal nach und zeigt der Spielleitung vor der Freigabe, worauf sich jeder Absatz stützt. Kostet etwa ein Drittel mehr Rechenzeit.") }}</p>
++      <label class="haken"><input type="checkbox" name="gegenpruefen" value="1"{% if llm.gegenpruefen %} checked{% endif %}> {{ _("Kapitel gegenprüfen") }}</label>
++      <p class="hilfe">{{ _("Ein zweiter Durchgang des Sprachmodells prüft jeden Absatz gegen die Abschrift, bessert Unbelegtes einmal nach und zeigt der Spielleitung vor der Freigabe, worauf sich jeder Absatz stützt. Kostet etwa ein Drittel mehr Rechenzeit.") }}</p>
+       <label class="haken"><input type="checkbox" name="zweiter_blick" value="1"{% if llm.zweiter_blick %} checked{% endif %}> {{ _("Entscheidende Ereignisse vor dem Schreiben an der Abschrift prüfen") }}</label>
+       <p class="hilfe">{{ _("Gilt für den Weg „Erst Notizen“: Die wichtigsten Ereignisse werden noch einmal gegen den Wortlaut der Abschrift gehalten, bevor das Kapitel entsteht. Was dabei nicht eindeutig ist, bleibt im Kapitel vage und wird der Spielleitung gezeigt. Kostet etwa 3 Cent je Kapitel.") }}</p>
+@@ -129,5 +129,5 @@
+   {% endif %}
+   {% endif %}
+-  <p class="hilfe">{{ _("Cloud-API: Das Transkript geht an den Anbieter. Dafür braucht es einen Vertrag zur Auftragsverarbeitung und einen Absatz im Datenschutzhinweis. Lokales Modell: Die Daten bleiben in eurer eigenen Infrastruktur, kleinere Modelle liefern aber schwächere Recaps.") }}</p>
++  <p class="hilfe">{{ _("Cloud-API: Die Abschrift geht an den Anbieter. Dafür braucht es einen Vertrag zur Auftragsverarbeitung und einen Absatz im Datenschutzhinweis. Lokales Modell: Die Daten bleiben in eurer eigenen Infrastruktur, kleinere Modelle liefern aber schwächere Kapitel.") }}</p>
+ </div>
+ 
+-- 
+2.43.0
+
