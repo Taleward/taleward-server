@@ -1,0 +1,292 @@
+From c4d410efa0e9de8ac05c06bb744fa6b6658ab3f4 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 20:41:15 +0200
+Subject: [PATCH] Server 0.4.97
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Einzelplatz: Das Taleward-Programm fragt vor einem Update, ob gerade ein
+Auftrag, ein Hochladen oder eine Verarbeitung läuft (GET /worker/v1/busy,
+mit dem Worker-Schlüssel).
+---
+ app/routers/worker.py        |  9 ++++
+ app/ruhe.py                  | 55 ++++++++++++++++++++
+ docs/BETRIEB.md              |  4 +-
+ pyproject.toml               |  2 +-
+ tests/test_aktualisierung.py |  2 +-
+ tests/test_assistent.py      |  2 +-
+ tests/test_modellablage.py   |  2 +-
+ tests/test_server_0497.py    | 98 ++++++++++++++++++++++++++++++++++++
+ tests/test_worker_app.py     |  2 +-
+ uv.lock                      |  2 +-
+ 10 files changed, 171 insertions(+), 7 deletions(-)
+ create mode 100644 app/ruhe.py
+ create mode 100644 tests/test_server_0497.py
+
+diff --git a/app/routers/worker.py b/app/routers/worker.py
+index b1e2dbf..a14840a 100644
+--- a/app/routers/worker.py
++++ b/app/routers/worker.py
+@@ -597,4 +597,13 @@ def config(worker: Worker = Depends(current_worker), db: Session = Depends(get_d
+ 
+ 
++@router.get("/busy")
++def busy(worker: Worker = Depends(current_worker), db: Session = Depends(get_db)):
++    """0.4.97: Würde ein Neustart gerade etwas unterbrechen? Das Taleward-Programm fragt vor einem Update."""
++    from app import ruhe
++
++    grund = ruhe.grund(db)
++    return {"busy": grund is not None, "reason": grund}
++
++
+ @router.get("/app-update")
+ def app_update(request: Request, system: str = "windows", worker: Worker = Depends(current_worker),
+diff --git a/app/ruhe.py b/app/ruhe.py
+new file mode 100644
+index 0000000..ed818be
+--- /dev/null
++++ b/app/ruhe.py
+@@ -0,0 +1,55 @@
++"""Läuft gerade etwas, das ein Neustart unterbrechen würde? (Updates im Einzelplatz-Betrieb, ab 0.4.97)
++
++Das Taleward-Programm hält den Server für ein Update kurz an. Vorher fragt es hier nach (`GET /worker/v1/busy`, mit
++dem Schlüssel seines Workers). Gezählt wird nur, was ein Neustart wirklich stört:
++- ein Auftrag in Arbeit (Worker oder Cloud), dessen Frist noch läuft;
++- ein Hochladen, an dem sich in der letzten halben Stunde etwas getan hat (verlassene Uploads blockieren nicht);
++- eine Runde mitten in der Verarbeitung (Stand höchstens drei Stunden alt – hängengebliebene zählen nicht).
++Wartende Aufträge stören nicht: Sie liegen in der Datenbank und werden nach dem Neustart abgeholt.
++"""
++from __future__ import annotations
++
++from datetime import datetime, timedelta, timezone
++
++from sqlalchemy import select
++from sqlalchemy.orm import Session
++
++from app import storage
++from app.db import utcnow
++from app.models import GameSession, Job, Upload
++
++HOCHLADEN_RUHIG_NACH = timedelta(minutes=30)
++VERARBEITUNG_HOECHSTENS = timedelta(hours=3)
++IN_ARBEIT = ("transcribing", "summarizing", "processing")
++
++
++def _utc(t: datetime | None) -> datetime | None:
++    if t is None:
++        return None
++    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
++
++
++def _zuletzt(up: Upload) -> datetime:
++    """Letzte Bewegung eines Uploads: das jüngste Teil auf der Platte, sonst der Beginn."""
++    letzte = _utc(up.created_at) or utcnow()
++    try:
++        for datei in storage.upload_dir(up.id).rglob("*"):
++            if datei.is_file():
++                letzte = max(letzte, datetime.fromtimestamp(datei.stat().st_mtime, timezone.utc))
++    except OSError:
++        pass
++    return letzte
++
++
++def grund(db: Session) -> str | None:
++    """None, wenn ein Neustart niemanden stört; sonst "job", "upload" oder "processing"."""
++    jetzt = utcnow()
++    if db.scalar(select(Job.id).where(Job.state == "leased", Job.lease_expires_at > jetzt).limit(1)):
++        return "job"
++    for up in db.scalars(select(Upload).where(Upload.state.in_(("open", "measuring")))):
++        if jetzt - _zuletzt(up) < HOCHLADEN_RUHIG_NACH:
++            return "upload"
++    if db.scalar(select(GameSession.id).where(GameSession.state.in_(IN_ARBEIT),
++                                              GameSession.state_updated_at > jetzt - VERARBEITUNG_HOECHSTENS).limit(1)):
++        return "processing"
++    return None
+diff --git a/docs/BETRIEB.md b/docs/BETRIEB.md
+index 18e9e76..b9e2f83 100644
+--- a/docs/BETRIEB.md
++++ b/docs/BETRIEB.md
+@@ -60,5 +60,7 @@ Windows-Programm, das Server, Worker und App zusammen startet). Dann gilt:
+ - Der eingebaute Worker startet von selbst, wenn die KI-Pakete installiert sind. Steht in `EINZELPLATZ_WORKER_DATEI`
+   ein Pfad, schreibt der Server stattdessen bei jedem Start einen frischen Worker-Schlüssel in diese Datei und startet
+-  selbst keinen Worker – den startet dann das Programm. Updates übernimmt das Programm.
++  selbst keinen Worker – den startet dann das Programm. Updates übernimmt das Programm: Es fragt vorher
++  `GET /worker/v1/busy` (mit dem Worker-Schlüssel), ob gerade ein Auftrag, ein Hochladen oder eine Verarbeitung läuft,
++  sichert mit `chronik sicherung` und spielt bei einem Fehlschlag mit `chronik wiederherstellen` zurück.
+ - `EINZELPLATZ_STOPP_DATEI`: Legt das Programm diese Datei an, fährt der Server geordnet herunter.
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 480a7f1..2b770f4 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.96"
++version = "0.4.97"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index d262344..c31a667 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -154,5 +154,5 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.96"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.97"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index a62719c..2ed3f0d 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -135,5 +135,5 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.96"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.97"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index efd5b84..266821e 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -84,5 +84,5 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.96"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.97"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+diff --git a/tests/test_server_0497.py b/tests/test_server_0497.py
+new file mode 100644
+index 0000000..31fc5cd
+--- /dev/null
++++ b/tests/test_server_0497.py
+@@ -0,0 +1,98 @@
++"""Server 0.4.97: Das Taleward-Programm fragt vor einem Update, ob gerade etwas läuft (GET /worker/v1/busy)."""
++import os
++import time
++from datetime import timedelta
++
++from tests.test_server_0496 import _token, ep  # noqa: F401 – Fixture
++
++
++def _busy(ep, tmp_path) -> dict:  # noqa: F811
++    r = ep.get("/worker/v1/busy", headers={"Authorization": f"Bearer {_token(tmp_path)}"})
++    assert r.status_code == 200
++    return r.json()
++
++
++def _runde(db):
++    from app.db import utcnow
++    from app.models import Campaign, GameSession
++
++    k = Campaign(title="Kampagne")
++    db.add(k)
++    db.flush()
++    s = GameSession(campaign_id=k.id, number=1, played_at=utcnow())
++    db.add(s)
++    db.flush()
++    return s
++
++
++def test_ruhig_ohne_arbeit_und_nur_mit_worker_schluessel(ep, tmp_path):  # noqa: F811
++    assert _busy(ep, tmp_path) == {"busy": False, "reason": None}
++    assert ep.get("/worker/v1/busy").status_code == 401
++
++
++def test_auftrag_in_arbeit(ep, tmp_path):  # noqa: F811
++    from app.db import session_factory, utcnow
++    from app.models import Job
++
++    with session_factory()() as db:
++        s = _runde(db)
++        j = Job(type="transcribe", session_id=s.id, required_capability="asr", state="queued")
++        db.add(j)
++        db.commit()
++        jid = j.id
++    assert _busy(ep, tmp_path)["busy"] is False  # wartende Aufträge stören einen Neustart nicht
++    with session_factory()() as db:
++        j = db.get(Job, jid)
++        j.state, j.lease_expires_at = "leased", utcnow() + timedelta(minutes=5)
++        db.commit()
++    assert _busy(ep, tmp_path) == {"busy": True, "reason": "job"}
++    with session_factory()() as db:
++        db.get(Job, jid).lease_expires_at = utcnow() - timedelta(minutes=1)  # Frist abgelaufen
++        db.commit()
++    assert _busy(ep, tmp_path)["busy"] is False
++
++
++def test_hochladen_nur_solange_sich_etwas_tut(ep, tmp_path):  # noqa: F811
++    from app import storage
++    from app.db import session_factory, utcnow
++    from app.models import Upload
++
++    with session_factory()() as db:
++        s = _runde(db)
++        up = Upload(session_id=s.id, source="table", chunk_size=1024, created_at=utcnow() - timedelta(hours=5))
++        db.add(up)
++        db.commit()
++        uid = up.id
++    assert _busy(ep, tmp_path)["busy"] is False  # verlassen: blockiert nicht
++    ordner = storage.upload_dir(uid)
++    ordner.mkdir(parents=True, exist_ok=True)
++    teil = ordner / "0.part"
++    teil.write_bytes(b"x")
++    assert _busy(ep, tmp_path) == {"busy": True, "reason": "upload"}
++    alt = time.time() - 3600
++    os.utime(teil, (alt, alt))
++    assert _busy(ep, tmp_path)["busy"] is False
++    with session_factory()() as db:
++        db.get(Upload, uid).created_at = utcnow()  # eben begonnen, noch kein Teil
++        db.commit()
++    assert _busy(ep, tmp_path)["reason"] == "upload"
++    with session_factory()() as db:
++        db.get(Upload, uid).state = "completed"
++        db.commit()
++    assert _busy(ep, tmp_path)["busy"] is False
++
++
++def test_runde_in_verarbeitung_aber_nicht_haengengeblieben(ep, tmp_path):  # noqa: F811
++    from app.db import session_factory, utcnow
++    from app.models import GameSession
++
++    with session_factory()() as db:
++        s = _runde(db)
++        s.state, s.state_updated_at = "transcribing", utcnow()
++        db.commit()
++        sid = s.id
++    assert _busy(ep, tmp_path) == {"busy": True, "reason": "processing"}
++    with session_factory()() as db:
++        db.get(GameSession, sid).state_updated_at = utcnow() - timedelta(hours=5)
++        db.commit()
++    assert _busy(ep, tmp_path)["busy"] is False
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index 727e3d1..230926f 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -113,5 +113,5 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.96"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.97"
+ 
+ 
+diff --git a/uv.lock b/uv.lock
+index 34d5409..98651af 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -1987,5 +1987,5 @@ wheels = [
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.96"
++version = "0.4.97"
+ source = { editable = "." }
+ dependencies = [
+-- 
+2.43.0
+
