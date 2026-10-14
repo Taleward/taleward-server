@@ -948,6 +948,54 @@ def wiederherstellen(datei: Path = typer.Argument(..., help="Sicherung (ZIP) aus
     typer.echo("Wiederhergestellt. Jetzt den Server starten.")
 
 
+def _passwort_lesen() -> str:
+    """Passwort aus der Standardeingabe (eine Zeile) – nie als Argument, sonst stünde es in der Prozessliste."""
+    import sys
+
+    if sys.stdin.isatty():
+        return typer.prompt("Passwort", hide_input=True)
+    return sys.stdin.readline().rstrip("\r\n")
+
+
+@app.command("sicherung-export")
+def sicherung_export(ziel: Path = typer.Argument(..., help="Zieldatei (.taleward), z. B. auf einem USB-Stick")):
+    """Vollständige Sicherung mit Passwort zum Mitnehmen anlegen. Passwort über die Standardeingabe."""
+    from app import sicherung_passwort
+
+    passwort = _passwort_lesen()
+    try:
+        p = sicherung_passwort.exportieren(ziel, passwort)
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Sicherung gespeichert: {p}")
+
+
+@app.command("sicherung-import")
+def sicherung_import(datei: Path = typer.Argument(..., help="Sicherung mit Passwort (.taleward)"),
+                     ja: bool = typer.Option(False, "--ja", help="Ohne Rückfrage")):
+    """Sicherung mit Passwort zurückspielen. Vorher den Server beenden! Der jetzige Stand wird vorher gesichert.
+    Rückgabe 2: Passwort falsch oder Datei beschädigt."""
+    from app import sicherung, sicherung_passwort
+
+    passwort = _passwort_lesen()
+    if not ja and not typer.confirm("Den jetzigen Stand ersetzen? (Er wird vorher gesichert.)"):
+        raise typer.Exit(1)
+    try:
+        info, vorher = sicherung_passwort.importieren(datei, passwort)
+    except sicherung_passwort.PasswortFehler as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(2)
+    except (sicherung_passwort.FormatFehler, sicherung.SicherungFehler, OSError) as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Sicherung vom {info.get('erstellt', '?')} mit {info.get('dateien', 0)} Dateien.")
+    if vorher:
+        typer.echo(f"Bisheriger Stand gesichert: {vorher}")
+    run_migrations()
+    typer.echo("Wiederhergestellt. Jetzt den Server starten.")
+
+
 @app.command("einrichtungscode")
 def einrichtungscode(neu: bool = typer.Option(False, "--neu", help="Einen neuen Code erzeugen (der alte gilt nicht mehr)")):
     """Link für die Ersteinrichtung anzeigen (nur, solange es noch keinen Verwalter gibt)."""

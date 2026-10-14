@@ -68,13 +68,14 @@ def einstellungen(db) -> dict:
             "ordner": meta_lesen(db, "sicherung.ordner") or None}
 
 
-def erstellen(grund: str = "", zusatz_ordner: str | None = None, tage: int = STANDARD_TAGE) -> Path:
+def erstellen(grund: str = "", zusatz_ordner: str | None = None, tage: int = STANDARD_TAGE,
+              ordner: Path | None = None) -> Path:
     """Sicherung anlegen. Die Datenbank wird mit der SQLite-Sicherungsfunktion kopiert – konsistent, auch
-    während der Server läuft."""
+    während der Server läuft. Mit `ordner` nur dort ablegen (ohne Aufräumen und Kopie), etwa zum Verschlüsseln."""
     from app.routers.auth import API_VERSION
 
     s = get_settings()
-    ziel_ordner = ablage()
+    ziel_ordner = ordner or ablage()
     ziel_ordner.mkdir(parents=True, exist_ok=True)
     jetzt = datetime.now(BERLIN)
     name = f"taleward-sicherung-{jetzt:%Y%m%d-%H%M%S}{'-' + grund if grund else ''}.zip"
@@ -108,6 +109,8 @@ def erstellen(grund: str = "", zusatz_ordner: str | None = None, tage: int = STA
             }, indent=2))
         endgueltig = ziel_ordner / name
         teil.replace(endgueltig)
+    if ordner:
+        return endgueltig
     if zusatz_ordner:
         try:
             shutil.copy2(endgueltig, Path(zusatz_ordner) / name)

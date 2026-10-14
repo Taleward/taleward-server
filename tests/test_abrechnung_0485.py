@@ -2,7 +2,6 @@
 import io
 import re
 import threading
-import time
 
 import pytest
 from sqlalchemy import select, text

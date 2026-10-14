@@ -63,6 +63,13 @@ Windows-Programm, das Server, Worker und App zusammen startet). Dann gilt:
   `GET /worker/v1/busy` (mit dem Worker-Schlüssel), ob gerade ein Auftrag, ein Hochladen oder eine Verarbeitung läuft,
   sichert mit `chronik sicherung` und spielt bei einem Fehlschlag mit `chronik wiederherstellen` zurück.
 - `EINZELPLATZ_STOPP_DATEI`: Legt das Programm diese Datei an, fährt der Server geordnet herunter.
+- Unter Windows legt der Server Geheimnisse mit dem Windows-Datenschutz (DPAPI) ab: das Anmelde-Geheimnis
+  (`geheimnis.txt`) und die Zugänge in der Datenbank (Cloud, Hugging Face, Benachrichtigungen, Anmeldedienste); mit
+  `EINZELPLATZ_WORKER_GESCHUETZT=true` auch den Worker-Schlüssel. Lesen kann sie nur derselbe Windows-Nutzer auf
+  demselben PC; auf einem anderen PC gelten sie als nicht eingetragen.
+- Sicherung zum Mitnehmen: `chronik sicherung-export ZIEL` legt eine vollständige Sicherung an und verschlüsselt sie
+  mit einem Passwort (Argon2id, AES-256-GCM); `chronik sicherung-import DATEI --ja` spielt sie bei gestopptem Server
+  zurück (Rückgabe 2: Passwort falsch oder Datei beschädigt). Das Passwort kommt über die Standardeingabe.
 - Der Server belegt seinen Anschluss unter Windows exklusiv (kein anderes Programm kann sich davorschalten). Die
   Beschreibung der Schnittstelle (`/api/v1/docs`) gibt es in dieser Betriebsart nicht.
 

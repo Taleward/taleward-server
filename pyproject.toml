@@ -1,6 +1,6 @@
 [project]
 name = "taleward-server"
-version = "0.4.99"
+version = "0.4.100"
 description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
 license = "AGPL-3.0-only"
 license-files = ["LICENSE"]
@@ -28,6 +28,7 @@ dependencies = [
 ki = [
     "whisperx==3.8.6",
     "truststore>=0.10",  # Zertifikate aus dem Windows-/macOS-Speicher (Virenscanner, Firmen-Proxy)
+    "imageio-ffmpeg==0.6.0",  # ffmpeg für die Worker-App (bisher ohne feste Fassung nachinstalliert)
 ]
 
 [project.scripts]
