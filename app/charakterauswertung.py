@@ -208,13 +208,19 @@ def out(db: Session, a: CharacterAnalysis, sl: bool, lang: str = "de") -> schema
         proposal_count=anzahl, created_at=a.created_at, decided_at=a.decided_at)
 
 
-def _meldung(a: CharacterAnalysis, sl: bool, lang: str) -> str | None:
-    """Grund bei failed. Spieler bekommen nur feste Texte, nie die Rückmeldung von Modell oder Worker (S31)."""
-    from app.services import render_status_message
+FESTE_GRUENDE = ("doc.no_text",)  # Meldungen ohne Platzhalter – alles andere wird zum festen Satz
 
-    if not sl and a.message and '"doc.failed"' in a.message:
-        return errors.ApiError(0, "analysis.failed").message(lang)
-    return render_status_message(a.message, lang)
+
+def _meldung(a: CharacterAnalysis, sl: bool, lang: str) -> str | None:
+    """Grund bei failed: nur ein fester Satz des Servers, nie Inhalte aus Bogen, Hintergrund, Vorschlägen, Bibel oder
+    die Rückmeldung von Modell bzw. Worker (YAML 0.4.18, `CharacterAnalysis.message`; S31)."""
+    try:
+        schluessel = json.loads(a.message or "{}").get("key")
+    except (ValueError, AttributeError):
+        schluessel = None
+    if schluessel not in FESTE_GRUENDE:
+        schluessel = "analysis.failed_sl" if sl else "analysis.failed"
+    return errors.ApiError(0, schluessel).message(lang)
 
 
 def zu_bogen(db: Session, doc: CampaignDocument) -> str | None:

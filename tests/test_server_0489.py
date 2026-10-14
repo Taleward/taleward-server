@@ -141,7 +141,8 @@ def test_s31_fehlermeldung_und_links(client, world, dbs):
     dbs.commit()
     spieler = client.get(f"{API}/campaigns/{w['cid']}/character-analyses", headers=w["pl"]).json()[0]["message"]
     sl = client.get(f"{API}/campaigns/{w['cid']}/character-analyses", headers=w["gm"]).json()[0]["message"]
-    assert "Traceback" not in spieler and "noch einmal abgeben" in spieler and "Traceback" in sl
+    assert "Traceback" not in spieler and "noch einmal abgeben" in spieler
+    assert "Traceback" not in sl and "Die Spielerin kann" in sl  # YAML 0.4.18 (Nachtrag): nur feste Sätze, auch für die SL
     text = "Siehe foo.xyz/x, mail@example.test, ftp://a.b/c und www.c.de sowie Grauwacht.Dort bleibt."
     rein = charakterauswertung._ohne_links(text)
     assert not re.search(r"foo\.xyz|@|ftp|www", rein) and "Grauwacht.Dort" in rein

@@ -2606,6 +2606,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
         "413": { $ref: "#/components/responses/PayloadTooLarge" }
 
   /documents/{documentId}:
@@ -4106,7 +4107,11 @@ components:
           description: Ob die Auswertung über die Cloud-API läuft (nach allowCloudSummary zum Zeitpunkt der Anfrage)
         pageCount: { type: [integer, "null"], description: "Bei sheet, sobald bekannt" }
         pagesLimited: { type: boolean, description: "true = nur die ersten 20 Seiten ausgewertet" }
-        message: { type: [string, "null"], description: "Bei failed der Grund, für Menschen lesbar" }
+        message:
+          type: [string, "null"]
+          description: |
+            Bei failed der Grund, für Menschen lesbar – nur ein fester Satz des Servers (z. B. „Text konnte nicht gelesen
+            werden.“), nie Inhalte aus dem Bogen, dem Hintergrund, den Vorschlägen oder der Bibel (Spieler sehen ihn).
         proposalCount:
           type: [integer, "null"]
           description: Nur für die SL (für Spieler null), sobald done
