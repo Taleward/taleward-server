@@ -1,0 +1,310 @@
+From a590cbb825f627b7369f363f68fad667d871a6ee Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 09:46:14 +0200
+Subject: [PATCH 125/126] Schnittstelle 0.4.19: Beziehung bei der mitgebrachten
+ Welt, Grenzen fuer Charakterboegen
+
+---
+ app/charaktere.py                             |  1 +
+ app/models.py                                 |  1 +
+ app/routers/auth.py                           |  2 +-
+ app/routers/pruefung.py                       |  3 +-
+ app/schemas.py                                |  8 +++++
+ app/services.py                               | 14 +++++++++
+ contract/session-chronik-api.yaml             | 30 ++++++++++++++++++-
+ .../f3c7e9a1b5d2_schnittstelle_0_4_19.py      | 23 ++++++++++++++
+ tests/test_schnittstelle_0410.py              |  2 +-
+ tests/test_server_0464.py                     |  4 +--
+ tests/test_server_0484.py                     |  2 +-
+ tests/test_server_0490.py                     |  2 +-
+ tests/test_step1b.py                          |  2 +-
+ tests/test_umzug_048.py                       |  2 +-
+ tests/test_verwaltung2.py                     |  2 +-
+ tests/test_webapp.py                          |  2 +-
+ 16 files changed, 88 insertions(+), 12 deletions(-)
+ create mode 100644 migrations/versions/f3c7e9a1b5d2_schnittstelle_0_4_19.py
+
+diff --git a/app/charaktere.py b/app/charaktere.py
+index 369cbe9..21729f0 100644
+--- a/app/charaktere.py
++++ b/app/charaktere.py
+@@ -202,4 +202,5 @@ def einreichen(db: Session, me: Member, eintraege: list[schemas.WorldEntryIn]) -
+             suggested_visibility="public", hidden_member_ids_json=json.dumps(andere if w.secret else []),
+             confidence=1.0, flags="[]", evidence="[]", decision="open",
++            relation=(w.relation or "").strip()[:120] or None,  # 0.4.19: unverändert, nur Anzeige
+         )
+         db.add(p)
+diff --git a/app/models.py b/app/models.py
+index 24992b3..16f2c9a 100644
+--- a/app/models.py
++++ b/app/models.py
+@@ -532,4 +532,5 @@ class Proposal(Base):
+     # 0.4.18: bei source character aus einer Auswertung (Charakterbogen oder Hintergrund); None = mitgebrachte Welt
+     analysis_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
++    relation: Mapped[str | None] = mapped_column(String(120), nullable=True)  # 0.4.19, mitgebrachte Welt (nur Anzeige)
+ 
+ 
+diff --git a/app/routers/auth.py b/app/routers/auth.py
+index aa7d09a..40e5c45 100644
+--- a/app/routers/auth.py
++++ b/app/routers/auth.py
+@@ -14,5 +14,5 @@ from app.security import create_token, verify_password
+ from app.services import user_out
+ 
+-API_VERSION = "0.4.18"
++API_VERSION = "0.4.19"
+ 
+ router = APIRouter(tags=["Auth"])
+diff --git a/app/routers/pruefung.py b/app/routers/pruefung.py
+index c716291..24142ae 100644
+--- a/app/routers/pruefung.py
++++ b/app/routers/pruefung.py
+@@ -154,5 +154,6 @@ def proposal_out(p: Proposal) -> schemas.ProposalOut:
+         id=p.id, session_id=p.session_id, document_id=p.document_id, source=quelle,
+         origin_character_id=p.origin_character_id, origin_entry_id=p.origin_entry_id,
+-        submitted_by_member_id=p.submitted_by_member_id, analysis_id=p.analysis_id, entry_type=p.entry_type,
++        submitted_by_member_id=p.submitted_by_member_id, analysis_id=p.analysis_id, relation=p.relation,
++        entry_type=p.entry_type,
+         action=p.action,
+         target_entry_id=p.target_entry_id, title=p.title, detail=p.detail, gm_notes=p.gm_notes,
+diff --git a/app/schemas.py b/app/schemas.py
+index 82e933e..69b6304 100644
+--- a/app/schemas.py
++++ b/app/schemas.py
+@@ -260,4 +260,5 @@ class CampaignOut(CampaignSummaryOut):
+     allow_cloud_summary: bool = False
+     allow_character_analysis: bool = False  # 0.4.18
++    character_sheet_limits: "SheetLimitsOut | None" = None  # 0.4.19, für alle Mitglieder
+     hotwords: list[str] | None = None  # 0.4.6: nur für die SL, für Spieler weggelassen
+     links: list[Link] = []  # 0.4.13: Spieler nur shared
+@@ -266,4 +267,9 @@ class CampaignOut(CampaignSummaryOut):
+ 
+ 
++class SheetLimitsOut(ApiModel):
++    max_sheets: int
++    max_pages: int
++
++
+ class GmNoticeOut(ApiModel):
+     id: str
+@@ -318,4 +324,5 @@ class WorldEntryIn(ApiModel):
+     summary: str = Field(min_length=1, max_length=4000)
+     secret: bool
++    relation: str | None = Field(default=None, max_length=120)  # 0.4.19: „Schwester von Litha“, nur Anzeige
+ 
+ 
+@@ -573,4 +580,5 @@ class ProposalOut(ApiModel):
+     submitted_by_member_id: str | None = None
+     analysis_id: str | None = None  # 0.4.18
++    relation: str | None = None  # 0.4.19
+     entry_type: EntryType
+     action: Literal["create", "update", "reveal"]
+diff --git a/app/services.py b/app/services.py
+index a09e5c5..00516f4 100644
+--- a/app/services.py
++++ b/app/services.py
+@@ -198,4 +198,17 @@ def campaign_summary(db: Session, c: Campaign, me: Member) -> schemas.CampaignSu
+ 
+ 
++def _bogen_grenzen(db: Session, c: Campaign) -> schemas.SheetLimitsOut:
++    """0.4.19: die Grenzen, die für Charakterbögen von Spielern gelten (wie in `unterlagen._bogen_grenzen_pruefen`):
++    höchstens 3 Bögen, mit eingeschalteter Abrechnung die ggf. kleinere Zahl der SL; ausgewertet werden höchstens
++    20 Seiten, mit Abrechnung höchstens so viele, wie ein Bogen haben darf."""
++    from app import abrechnung
++    from app.charakterauswertung import MAX_BOEGEN, MAX_SEITEN
++
++    grenzen = abrechnung.bogen_grenzen(db, c)
++    if grenzen is None:
++        return schemas.SheetLimitsOut(max_sheets=MAX_BOEGEN, max_pages=MAX_SEITEN)
++    return schemas.SheetLimitsOut(max_sheets=min(MAX_BOEGEN, grenzen[1]), max_pages=min(MAX_SEITEN, grenzen[0]))
++
++
+ def campaign_out(db: Session, c: Campaign, me: Member) -> schemas.CampaignOut:
+     members = sorted(c.members, key=lambda m: (m.role != "gm", m.joined_at))
+@@ -205,4 +218,5 @@ def campaign_out(db: Session, c: Campaign, me: Member) -> schemas.CampaignOut:
+         allow_external_transcription=c.allow_external_transcription, allow_cloud_summary=c.allow_cloud_summary,
+         allow_character_analysis=bool(c.allow_character_analysis),  # 0.4.18, für alle Mitglieder
++        character_sheet_limits=_bogen_grenzen(db, c),  # 0.4.19
+         members=[member_out(m, me) for m in members],
+         links=links.lesen(c.links, nur_geteilt=me.role != "gm"),  # 0.4.13
+diff --git a/contract/session-chronik-api.yaml b/contract/session-chronik-api.yaml
+index 1040d04..e04f0d5 100644
+--- a/contract/session-chronik-api.yaml
++++ b/contract/session-chronik-api.yaml
+@@ -2,5 +2,5 @@ openapi: 3.1.0
+ info:
+   title: Taleward API
+-  version: 0.4.18
++  version: 0.4.19
+   description: |
+     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
+@@ -198,4 +198,10 @@ info:
+     (Proposal.analysisId); die Spielerin sieht nur den Stand, nie die Vorschläge. Höchstens 3 Charakterbögen je Mitglied,
+     ausgewertet werden höchstens 20 Seiten.
++    Änderungen in 0.4.19 (Beziehung bei der mitgebrachten Welt): WorldEntryIn.relation – wie der Eintrag zum Charakter
++    steht („Schwester von Litha“, „alter Lehrmeister“), optional, nur Anzeige. Der Server übernimmt es unverändert in
++    Proposal.relation; in Bibeleinträge geht es nicht von selbst (die SL kann es in den Text übernehmen). Die App schickt
++    das Feld erst an Server ab 0.4.19; ältere Apps lassen es weg. Außerdem Campaign.characterSheetLimits – die geltenden
++    Grenzen für Charakterbögen (Bögen je Mitglied, ausgewertete Seiten), damit die App keine festen Zahlen nennt; 409
++    `sheet_limit` richtet sich nach maxSheets.
+ 
+ servers:
+@@ -3479,4 +3485,15 @@ components:
+                 Jede einzelne Auswertung braucht zusätzlich die Zustimmung der SL (CharacterAnalysis). Fehlt bei
+                 älteren Servern (= aus).
++            characterSheetLimits:
++              type: [object, "null"]
++              description: |
++                Ab 0.4.19, für alle Mitglieder: die Grenzen, die für Charakterbögen in dieser Kampagne gelten (Quelle der
++                Wahrheit ist der Server, z. B. von der SL auf der Seite Guthaben eingestellt). maxSheets = Bögen je
++                Mitglied (0 = keine Abgabe), maxPages = ausgewertete Seiten je Bogen. Fehlt das Feld (ältere Server),
++                gelten 3 Bögen und 20 Seiten wie in 0.4.18; die App nennt dann keine Zahlen.
++              required: [maxSheets, maxPages]
++              properties:
++                maxSheets: { type: integer, minimum: 0, maximum: 50 }
++                maxPages: { type: integer, minimum: 1 }
+             allowExternalTranscription:
+               type: boolean
+@@ -3629,4 +3646,9 @@ components:
+             Ab 0.4.18, bei source character: aus welcher Auswertung (Charakterbogen oder Hintergrund) der Vorschlag stammt;
+             null = aus der mitgebrachten Welt.
++        relation:
++          type: [string, "null"]
++          description: |
++            Ab 0.4.19, nur bei source character aus der mitgebrachten Welt: WorldEntryIn.relation unverändert, sonst null.
++            Sichtbar wie der Vorschlag selbst (SL); geht nicht von selbst in den Eintrag.
+         entryType: { $ref: "#/components/schemas/EntryType" }
+         action:
+@@ -3945,4 +3967,10 @@ components:
+         summary: { type: string, minLength: 1, maxLength: 4000 }
+         secret: { type: boolean, description: "Nur SL und Urheberin sollen es wissen" }
++        relation:
++          type: [string, "null"]
++          maxLength: 120
++          description: |
++            Ab 0.4.19, optional: wie der Eintrag zum Charakter steht, z. B. „Schwester von Litha“. Nur Anzeige. Leer oder
++            nur Leerzeichen = null. Eine Änderung zählt wie jede andere Änderung (version steigt, Vorschlag update).
+ 
+     WorldEntryStatus:
+diff --git a/migrations/versions/f3c7e9a1b5d2_schnittstelle_0_4_19.py b/migrations/versions/f3c7e9a1b5d2_schnittstelle_0_4_19.py
+new file mode 100644
+index 0000000..5766043
+--- /dev/null
++++ b/migrations/versions/f3c7e9a1b5d2_schnittstelle_0_4_19.py
+@@ -0,0 +1,23 @@
++"""Schnittstelle 0.4.19: Beziehung bei Vorschlägen aus der mitgebrachten Welt
++
++Revision ID: f3c7e9a1b5d2
++Revises: e2b6d4f8a1c3
++"""
++from typing import Sequence, Union
++
++import sqlalchemy as sa
++from alembic import op
++
++revision: str = 'f3c7e9a1b5d2'
++down_revision: Union[str, Sequence[str], None] = 'e2b6d4f8a1c3'
++branch_labels: Union[str, Sequence[str], None] = None
++depends_on: Union[str, Sequence[str], None] = None
++
++
++def upgrade() -> None:
++    # Ohne batch: Tabelle nicht neu anlegen
++    op.add_column("proposals", sa.Column("relation", sa.String(120), nullable=True))
++
++
++def downgrade() -> None:
++    op.drop_column("proposals", "relation")  # SQLite ab 3.35
+diff --git a/tests/test_schnittstelle_0410.py b/tests/test_schnittstelle_0410.py
+index a3c7aa9..fcebdb7 100644
+--- a/tests/test_schnittstelle_0410.py
++++ b/tests/test_schnittstelle_0410.py
+@@ -191,3 +191,3 @@ def test_stimmen_vor_bestaetigung_ohne_zuordnung(client, world, dbs, tmp_path):
+ 
+ def test_info_meldet_schnittstelle_0411(client):
+-    assert client.get(f"{API}/info").json()["apiVersion"] == "0.4.18"
++    assert client.get(f"{API}/info").json()["apiVersion"] == "0.4.19"
+diff --git a/tests/test_server_0464.py b/tests/test_server_0464.py
+index 72d5878..940b7a6 100644
+--- a/tests/test_server_0464.py
++++ b/tests/test_server_0464.py
+@@ -56,7 +56,7 @@ def test_schnittstelle_0414(client):
+     from app.verwaltung.router import MELDUNGEN
+ 
+-    assert API_VERSION == "0.4.18"
++    assert API_VERSION == "0.4.19"
+     vertrag = Path(__file__).resolve().parents[1] / "contract" / "session-chronik-api.yaml"
+-    assert "version: 0.4.18" in vertrag.read_text(encoding="utf-8")
++    assert "version: 0.4.19" in vertrag.read_text(encoding="utf-8")
+     assert "„Kampagne verwalten“ → „Cloud-Dienste“" in MELDUNGEN["probe_cloud"]
+ 
+diff --git a/tests/test_server_0484.py b/tests/test_server_0484.py
+index 5023e22..5312175 100644
+--- a/tests/test_server_0484.py
++++ b/tests/test_server_0484.py
+@@ -78,5 +78,5 @@ def test_info_mit_public_url_und_server_id(client, dbs):
+ 
+     i = client.get(f"{API}/info").json()
+-    assert i["apiVersion"] == "0.4.18" and i["serverId"] == server_id() and i["publicUrl"] is None
++    assert i["apiVersion"] == "0.4.19" and i["serverId"] == server_id() and i["publicUrl"] is None
+     meta_schreiben(dbs, "angabe.public_url", "https://taleward.example.org/pfad/")
+     dbs.commit()
+diff --git a/tests/test_server_0490.py b/tests/test_server_0490.py
+index c8fa24d..1b71379 100644
+--- a/tests/test_server_0490.py
++++ b/tests/test_server_0490.py
+@@ -24,5 +24,5 @@ def _ohne_ausnahmen(text: str) -> str:
+ def test_yaml_nennt_409_bei_unterlagen():
+     spec = yaml.safe_load((WURZEL / "contract" / "session-chronik-api.yaml").read_text(encoding="utf-8"))
+-    assert spec["info"]["version"] == "0.4.18"
++    assert spec["info"]["version"] == "0.4.19"
+     assert "409" in spec["paths"]["/campaigns/{campaignId}/documents"]["post"]["responses"]
+     from tests.contract import BEKANNTE_LUECKEN
+diff --git a/tests/test_step1b.py b/tests/test_step1b.py
+index 4e42d04..bb166a8 100644
+--- a/tests/test_step1b.py
++++ b/tests/test_step1b.py
+@@ -23,5 +23,5 @@ def test_info_ist_oeffentlich(client):
+     assert r.status_code == 200
+     i = r.json()
+-    assert i["apiVersion"] == "0.4.18" and i["externalTranscription"] is None and i["authMethods"] == ["password"] and i["registration"] == "invite_only"
++    assert i["apiVersion"] == "0.4.19" and i["externalTranscription"] is None and i["authMethods"] == ["password"] and i["registration"] == "invite_only"
+ 
+ 
+diff --git a/tests/test_umzug_048.py b/tests/test_umzug_048.py
+index 08f64b2..d3f64a2 100644
+--- a/tests/test_umzug_048.py
++++ b/tests/test_umzug_048.py
+@@ -151,5 +151,5 @@ def test_export_inhalt_und_zugang(client, world, dbs, make_user, login):
+     alles = b"".join(z.read(n) for n in namen)
+     k = json.loads(z.read("kampagne.json"))
+-    assert k["format"] == "taleward-kampagne/1" and k["apiVersion"] == "0.4.18"
++    assert k["format"] == "taleward-kampagne/1" and k["apiVersion"] == "0.4.19"
+     # nie in der Datei
+     for verboten in (GEHEIM, PRUEF, "Anna", "Ben", "Dora", "anna", "HINTERGRUND-DORIN", "DORA-BOGEN",
+diff --git a/tests/test_verwaltung2.py b/tests/test_verwaltung2.py
+index 335773b..d91966f 100644
+--- a/tests/test_verwaltung2.py
++++ b/tests/test_verwaltung2.py
+@@ -177,5 +177,5 @@ def test_mindestversion(client, world, admin):  # noqa: F811
+     info = client.get(f"{API}/info").json()  # /info bleibt immer erreichbar
+     assert info["minAppVersion"] == "0.9.0" and info["latestAppVersion"] == "0.9.1"
+-    assert info["releaseNotes"] == "Neue Einladungen." and info["apiVersion"] == "0.4.18"
++    assert info["releaseNotes"] == "Neue Einladungen." and info["apiVersion"] == "0.4.19"
+     url = f"{API}/campaigns"
+     r = client.get(url, headers=world["gm"])
+diff --git a/tests/test_webapp.py b/tests/test_webapp.py
+index 9e9781b..4f4ba3a 100644
+--- a/tests/test_webapp.py
++++ b/tests/test_webapp.py
+@@ -107,5 +107,5 @@ def test_info_mit_pruefsumme(client, dbs):
+     info = client.get(f"{API}/info").json()
+     assert info["appDownloadSha256"] == hashlib.sha256(APK).hexdigest() and info["appDownloadSizeBytes"] == len(APK)
+-    assert info["apiVersion"] == "0.4.18"
++    assert info["apiVersion"] == "0.4.19"
+ 
+ 
+-- 
+2.43.0
+
