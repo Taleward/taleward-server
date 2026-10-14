@@ -1,0 +1,215 @@
+From e35abae827617608adff8b22593033f10bb67c7e Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 09:46:14 +0200
+Subject: [PATCH 124/126] Offene Plaetze, Eintraege und Messung der
+ Aufnahmelaenge
+
+---
+ app/abrechnung.py          |  2 +-
+ app/audio.py               | 12 +++++++----
+ app/charakterauswertung.py |  3 ++-
+ app/charaktere.py          | 15 ++++++++-----
+ app/routers/entries.py     |  6 ++++--
+ app/routers/uploads.py     | 44 +++++++++++++++++++++++++++++++++++++-
+ app/umzug.py               |  4 ++++
+ 7 files changed, 72 insertions(+), 14 deletions(-)
+
+diff --git a/app/abrechnung.py b/app/abrechnung.py
+index 88549a4..25c7060 100644
+--- a/app/abrechnung.py
++++ b/app/abrechnung.py
+@@ -242,5 +242,5 @@ def aufnahme_messen(up: Upload) -> float | None:
+                     with open(storage.chunk_path(up.id, f.id, i), "rb") as ein:
+                         shutil.copyfileobj(ein, aus)
+-            d = audio.dauer_datei(ziel)
++            d = audio.dauer_datei(ziel, gruendlich=True)  # 0.4.91 (M2): Kosten hängen dran – immer dekodieren
+             ziel.unlink(missing_ok=True)
+             if d is None:
+diff --git a/app/audio.py b/app/audio.py
+index 49d4000..9deea67 100644
+--- a/app/audio.py
++++ b/app/audio.py
+@@ -96,7 +96,12 @@ PLAUSIBEL_BYTES_JE_S = 200_000
+ 
+ 
+-def dauer_datei(datei: Path) -> float | None:
++def dauer_datei(datei: Path, gruendlich: bool = False) -> float | None:
+     """Länge einer hochgeladenen Audiodatei in Sekunden. Zuerst laut Kopf (ffprobe, schnell); passt die Länge nicht
+-    zur Dateigröße, durch Dekodieren gemessen. None = nicht messbar."""
++    zur Dateigröße, durch Dekodieren gemessen. None = nicht messbar.
++
++    gruendlich (0.4.91, M2): immer dekodieren – der Kopf lässt sich beliebig setzen, auch passend zur Dateigröße (z. B.
++    niedrige Bitrate). Gilt, sobald die Länge Geld kostet. Scheitert das Dekodieren, None (nie die Kopf-Länge)."""
++    if gruendlich:
++        return dauer_dekodiert(datei)
+     programm = shutil.which("ffprobe")
+     if not programm:
+@@ -115,6 +120,5 @@ def dauer_datei(datei: Path) -> float | None:
+         groesse = 0
+     if wert <= 0 or groesse / wert > PLAUSIBEL_BYTES_JE_S:
+-        gemessen = dauer_dekodiert(datei)
+-        return gemessen if gemessen else (wert if wert > 0 else None)
++        return dauer_dekodiert(datei)  # 0.4.91 (M2): unplausibler Kopf und nicht dekodierbar → nicht messbar
+     return wert
+ 
+diff --git a/app/charakterauswertung.py b/app/charakterauswertung.py
+index 2ad6e00..c42d36d 100644
+--- a/app/charakterauswertung.py
++++ b/app/charakterauswertung.py
+@@ -276,6 +276,7 @@ def speichern(db: Session, a: CharacterAnalysis, d: dict, engine: str, worker_id
+     if me is not None and me.character_name:
+         spieler.add(me.character_name.casefold())
++    # 0.4.91 (S31): offene Plätze zählen mit – wer einen Platz einnimmt, durchläuft den Neuzugang nicht
+     andere = sorted(m.id for m in db.scalars(select(Member).where(Member.campaign_id == a.campaign_id))
+-                    if m.aktiv and m.id != a.member_id and m.role != "gm")
++                    if (m.aktiv or m.open_seat) and m.id != a.member_id and m.role != "gm")
+     vorschlaege = dokument_pruefen(proposals_d or [], {i: e.name for i, e in sichtbar.items() if e.type != "pc"})
+     db.execute(delete(Proposal).where(Proposal.analysis_id == a.id))
+diff --git a/app/charaktere.py b/app/charaktere.py
+index 6d45f6a..369cbe9 100644
+--- a/app/charaktere.py
++++ b/app/charaktere.py
+@@ -107,8 +107,11 @@ def loesen(db: Session, me: Member) -> None:
+ 
+ # ---------------------------------------------------------------- Neuzugang
+-def neuzugang(db: Session, me: Member) -> None:
++def neuzugang(db: Session, me: Member, nur_auswertungen: bool = False) -> None:
+     """Regel 0.4.7: Wer neu dazukommt, wird in alle nicht-leeren Verborgen-Listen aufgenommen (Einträge und offene
+     Vorschläge) – wer etwas nicht miterlebt hat, soll es nicht plötzlich wissen. Die SL bekommt einen Hinweis und
+-    gibt einzeln frei."""
++    gibt einzeln frei.
++
++    nur_auswertungen (0.4.91, S31): beim Einnehmen eines offenen Platzes – dessen Verborgen-Listen stammen aus dem Umzug,
++    es fehlt nur Geheimes aus Bögen und Hintergründen, das erst danach entstanden ist."""
+     betroffen = []
+     for e in db.scalars(select(Entry).where(Entry.campaign_id == me.campaign_id)):
+@@ -116,5 +119,5 @@ def neuzugang(db: Session, me: Member) -> None:
+         # 0.4.89 (S31): Geheimes aus Bogen/Hintergrund – Nachzügler immer verbergen, auch bei leerer Liste
+         aus_auswertung = bool(e.origin_analysis_id) and e.visibility == "public" and e.origin_member_id != me.id
+-        if (ids or aus_auswertung) and me.id not in ids:
++        if ((ids and not nur_auswertungen) or aus_auswertung) and me.id not in ids:
+             e.hidden_from.append(EntryHidden(entry_id=e.id, member_id=me.id))
+             betroffen.append(e.id)
+@@ -122,5 +125,6 @@ def neuzugang(db: Session, me: Member) -> None:
+         ids = json.loads(p.hidden_member_ids_json or "[]")
+         # 0.4.18: Vorschläge aus Bogen/Hintergrund wissen nur SL und Urheberin – auch wenn die Liste noch leer war
+-        if (ids or (p.analysis_id and p.submitted_by_member_id != me.id)) and me.id not in ids:
++        aus_auswertung = bool(p.analysis_id) and p.submitted_by_member_id != me.id
++        if ((ids and not nur_auswertungen) or aus_auswertung) and me.id not in ids:
+             p.hidden_member_ids_json = json.dumps(sorted(set(ids) | {me.id}))
+     if betroffen:
+@@ -171,6 +175,7 @@ def einreichen(db: Session, me: Member, eintraege: list[schemas.WorldEntryIn]) -
+     if not 1 <= len(eintraege) <= MAX_WELT:
+         raise errors.bad_request("world_too_many")
++    # 0.4.91 (S31): offene Plätze zählen mit – wer einen Platz einnimmt, durchläuft den Neuzugang nicht
+     andere = sorted(m.id for m in db.scalars(select(Member).where(Member.campaign_id == me.campaign_id))
+-                    if m.aktiv and m.id != me.id and m.role != "gm")
++                    if (m.aktiv or m.open_seat) and m.id != me.id and m.role != "gm")
+     aus = []
+     for pos, w in enumerate(eintraege):
+diff --git a/app/routers/entries.py b/app/routers/entries.py
+index a686aa6..10370b4 100644
+--- a/app/routers/entries.py
++++ b/app/routers/entries.py
+@@ -72,7 +72,9 @@ def patch_entry(
+     acc = load_entry(db, entryId, user)
+     require_gm(acc.member)
++    vorher = (acc.entry.visibility, sorted(acc.entry.hidden_member_ids))
+     apply_entry_input(db, acc.entry, body, require_public_text=True)
+-    if {"visibility", "hidden_from_member_ids"} & body.model_fields_set:
+-        acc.entry.origin_analysis_id = None  # S31: die SL hat selbst festgelegt, wer es weiß
++    if (acc.entry.visibility, sorted(acc.entry.hidden_member_ids)) != vorher:
++        # S31: die SL hat selbst festgelegt, wer es weiß – nur bei echter Änderung (die App schickt das ganze Formular)
++        acc.entry.origin_analysis_id = None
+     db.commit()
+     db.refresh(acc.entry)
+diff --git a/app/routers/uploads.py b/app/routers/uploads.py
+index 5aa67ce..14a9354 100644
+--- a/app/routers/uploads.py
++++ b/app/routers/uploads.py
+@@ -2,4 +2,5 @@
+ import hashlib
+ import math
++import threading
+ 
+ from typing import Literal
+@@ -162,4 +163,7 @@ async def put_chunk(
+     if x_chunk_sha256 and hashlib.sha256(data).hexdigest() != x_chunk_sha256.strip().lower():
+         raise errors.bad_request("chunk_checksum_mismatch", index=index)
++    db.refresh(up)
++    if up.state != "open":  # 0.4.91: inzwischen abgeschlossen oder in Messung – nichts mehr tauschen
++        raise errors.conflict("upload_closed")
+     storage.write_atomic(storage.chunk_path(up.id, f.id, index), data)
+     return Response(status_code=204)
+@@ -180,4 +184,33 @@ def upload_status(uploadId: str, user: User = Depends(current_user), db: Session
+ 
+ 
++_LAEUFT = object()
++_IN_MESSUNG: set[str] = set()
++_MESSUNG_SPERRE = threading.Lock()
++
++
++def _messen(db: Session, up: Upload):
++    """0.4.91 (M2): Das Dekodieren dauert (etwa 12 s je Stunde). Solange gemessen wird, steht der Upload auf
++    „measuring“: keine Teile mehr (sonst ließe sich nach der Messung tauschen) und kein zweites Messen. Ein Stand
++    „measuring“ ohne laufende Messung in diesem Prozess (Neustart mittendrin) gilt wieder als offen."""
++    from app import abrechnung
++
++    with _MESSUNG_SPERRE:
++        if up.id in _IN_MESSUNG:
++            return _LAEUFT
++        _IN_MESSUNG.add(up.id)
++    try:
++        up.state = "measuring"
++        db.commit()
++        try:
++            return abrechnung.aufnahme_messen(up)
++        except Exception:
++            up.state = "open"
++            db.commit()
++            raise
++    finally:
++        with _MESSUNG_SPERRE:
++            _IN_MESSUNG.discard(up.id)
++
++
+ @router.post("/uploads/{uploadId}/complete", status_code=202, response_model=schemas.ProcessingStatusOut)
+ def complete(uploadId: str, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+@@ -185,4 +218,10 @@ def complete(uploadId: str, request: Request, user: User = Depends(current_user)
+     if up.state == "completed":
+         return processing_status(db, s, sprache(request))  # doppelt abgeschickt – harmlos
++    if up.state == "measuring":
++        with _MESSUNG_SPERRE:
++            laeuft = up.id in _IN_MESSUNG
++        if laeuft:
++            return processing_status(db, s, sprache(request))
++        up.state = "open"  # Messung durch einen Neustart abgebrochen: noch einmal
+     if up.state != "open":
+         raise errors.conflict("upload_closed")
+@@ -194,5 +233,8 @@ def complete(uploadId: str, request: Request, user: User = Depends(current_user)
+ 
+     if abrechnung.an(db):  # 0.4.85: Länge selbst messen (Schätzung der Kosten) und die feste Obergrenze je Runde
+-        up.dauer_sekunden = abrechnung.aufnahme_messen(up)
++        dauer = _messen(db, up)
++        if dauer is _LAEUFT:  # zweiter Aufruf, während gemessen wird – harmlos, der erste schließt ab
++            return processing_status(db, s, sprache(request))
++        up.dauer_sekunden = dauer
+         laenge = up.dauer_sekunden or abrechnung.groesse_sekunden(up)  # N4: nicht messbar → nach Dateigröße
+         if laenge > abrechnung.MAX_AUFNAHME_SEKUNDEN:
+diff --git a/app/umzug.py b/app/umzug.py
+index 1ea041f..50e42ce 100644
+--- a/app/umzug.py
++++ b/app/umzug.py
+@@ -997,4 +997,8 @@ def platz_einnehmen(db: Session, platz: Member, user: User, rolle: str, frueher:
+     platz.chronicle_seen_at = platz.bible_seen_at = None
+     db.flush()
++    if rolle != "gm":  # 0.4.91 (S31): Geheimes aus Bögen/Hintergründen, das nach dem Umzug entstanden ist
++        from app.charaktere import neuzugang
++
++        neuzugang(db, platz, nur_auswertungen=True)
+ 
+ 
+-- 
+2.43.0
+
