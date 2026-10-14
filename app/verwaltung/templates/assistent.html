@@ -32,7 +32,7 @@
       <label class="wahl"><input type="radio" name="art" value="cloud" required>
         <strong>{{ _("Nur Cloud") }}</strong>
         <span>{{ _("Transkription und Zusammenfassung über Mistral (EU). Kein lokaler Server nötig.") }}</span>
-        <span class="leise">{{ _("Etwa 80 Cent pro 4-Stunden-Session. Einrichtung: 5 Minuten.") }}</span></label>
+        <span class="leise">{{ _("Etwa 80 Cent pro Runde von 4 Stunden. Einrichtung: 5 Minuten.") }}</span></label>
       <label class="wahl"><input type="radio" name="art" value="lokal">
         <strong>{{ _("Lokaler Server") }}</strong>
         <span>{{ _("Ein lokaler Server mit NVIDIA-Grafikkarte (mind. 8 GB) im Verein oder bei einem Mitglied verarbeitet alles. Nichts verlässt euren Verein.") }}</span>
@@ -114,17 +114,17 @@
 {% elif schritt == "zusammenfassung" %}
 <div class="karte">
   {% if "mistral" in hinweis or "hf" in hinweis %}<div class="meldung">{{ _("Der Schlüssel wurde gespeichert, konnte aber gerade nicht geprüft werden (Anbieter nicht erreichbar).") }}</div>{% endif %}
-  <h2>{{ _("Wer schreibt Recap und Bibel-Vorschläge?") }}</h2>
+  <h2>{{ _("Wer schreibt Kapitel und Bibel-Vorschläge?") }}</h2>
   <form class="formular" method="post" action="/verwaltung/assistent/zusammenfassung">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="karten-wahl">
       <label class="wahl"><input type="radio" name="wahl" value="api" {% if llm.art == "api" or (llm.art != "lokal" and art == "cloud") %}checked{% endif %}>
         <strong>{{ _("Cloud-API (Mistral)") }}</strong>
-        <span>{{ _("Gute Recaps, etwa 6 Cent pro Session.") }}{% if mistral %} {{ _("Der Mistral-Schlüssel von eben wird verwendet.") }}{% endif %}</span></label>
+        <span>{{ _("Gute Kapitel, etwa 6 Cent pro Runde.") }}{% if mistral %} {{ _("Der Mistral-Schlüssel von eben wird verwendet.") }}{% endif %}</span></label>
       {% if art in ("lokal", "beides") %}
       <label class="wahl"><input type="radio" name="wahl" value="lokal" {% if llm.art == "lokal" %}checked{% endif %}>
         <strong>{{ _("Lokales Modell") }}</strong>
-        <span>{{ _("Ollama auf dem lokalen Server. Nichts verlässt den Verein, kleinere Modelle schreiben aber schwächere Recaps. Ollama installieren: Anleitung Teil 11.2.") }}</span></label>
+        <span>{{ _("Ollama auf dem lokalen Server. Nichts verlässt den Verein, kleinere Modelle schreiben aber schwächere Kapitel. Ollama installieren: Anleitung Teil 11.2.") }}</span></label>
       {% endif %}
     </div>
     {% if not mistral %}

@@ -16,7 +16,7 @@
 {% endif %}
 <div class="raster">
   <div class="zahl"><div class="zahl__wert">{{ zahlen.knechte_online }}<span class="leise"> / {{ zahlen.knechte }}</span></div><div class="zahl__text">{{ _("Worker bereit") }}</div></div>
-  <div class="zahl"><div class="zahl__wert">{{ zahlen.wartend }}</div><div class="zahl__text">{{ _("Sessions in der Warteschlange") }}</div></div>
+  <div class="zahl"><div class="zahl__wert">{{ zahlen.wartend }}</div><div class="zahl__text">{{ _("Runden in der Warteschlange") }}</div></div>
   <div class="zahl"><div class="zahl__wert">{{ zahlen.in_arbeit }}</div><div class="zahl__text">{{ _("in Verarbeitung") }}</div></div>
   <div class="zahl"><div class="zahl__wert">{{ zahlen.bei_sl }}</div><div class="zahl__text">{{ _("warten auf die Spielleitung") }}</div></div>
   <div class="zahl {% if zahlen.fehlgeschlagen %}zahl--warnung{% endif %}"><div class="zahl__wert">{{ zahlen.fehlgeschlagen }}</div><div class="zahl__text">{{ _("fehlgeschlagen") }}</div></div>
@@ -25,7 +25,7 @@
   <div class="zahl"><div class="zahl__wert">{{ zahlen.konten }}</div><div class="zahl__text">{{ _("Konten") }}</div></div>
 </div>
 {% if zahlen.wartend and not zahlen.knechte_online %}
-<div class="meldung meldung--fehler">{{ _("Sessions warten, aber kein Worker ist bereit.") }} <a href="/verwaltung/transkription">{{ _("Worker starten") }}</a></div>
+<div class="meldung meldung--fehler">{{ _("Runden warten, aber kein Worker ist bereit.") }} <a href="/verwaltung/transkription">{{ _("Worker starten") }}</a></div>
 {% endif %}
 {% if eingebaut %}
 <div class="karte">
@@ -58,7 +58,7 @@
 <div class="karte">
   <h2>{{ _("Speicher") }}</h2>
   <p>{{ _("Datenbank {a} · Bilder und Unterlagen {d} · Aufnahmen in Bearbeitung {b} · Hörproben {c}", a=groesse(speicher.datenbank), d=groesse(speicher.bilder), b=groesse(speicher.uploads), c=groesse(speicher.hoerproben)) }}</p>
-  <p class="leise">{% if aufbewahrung.bis_freigabe %}{{ _("Aufnahmen bleiben bis zur Freigabe des Recaps, höchstens {n} Tage.", n=aufbewahrung.tage) }}{% else %}{{ _("Aufnahmen werden gleich nach der Transkription gelöscht.") }}{% endif %} <a href="/verwaltung/einstellungen#aufnahmen">{{ _("Ändern") }}</a></p>
+  <p class="leise">{% if aufbewahrung.bis_freigabe %}{{ _("Aufnahmen bleiben bis zur Freigabe des Kapitels, höchstens {n} Tage.", n=aufbewahrung.tage) }}{% else %}{{ _("Aufnahmen werden gleich nach der Transkription gelöscht.") }}{% endif %} <a href="/verwaltung/einstellungen#aufnahmen">{{ _("Ändern") }}</a></p>
 </div>
 <div class="karte" id="sicherung">
   <h2>{{ _("Sicherung") }}</h2>

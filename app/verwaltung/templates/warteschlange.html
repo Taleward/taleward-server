@@ -5,11 +5,11 @@
 <p class="leise">{{ _("{n} offen · die letzten 100 Aufträge", n=offen) }} · <a href="/verwaltung/warteschlange">{{ _("Aktualisieren") }}</a></p>
 <div class="karte tabelle-huelle">
   <table>
-    <thead><tr><th>{{ _("Session") }}</th><th>{{ _("Art") }}</th><th>{{ _("Zustand") }}</th><th>{{ _("Bearbeitet von") }}</th><th>{{ _("Zeit") }}</th><th></th></tr></thead>
+    <thead><tr><th>{{ _("Runde") }}</th><th>{{ _("Art") }}</th><th>{{ _("Zustand") }}</th><th>{{ _("Bearbeitet von") }}</th><th>{{ _("Zeit") }}</th><th></th></tr></thead>
     <tbody>
     {% for z in zeilen %}
       <tr>
-        <td data-label="{{ _('Session') }}">{% if z.c %}<strong>{{ z.c.title }}</strong><br><span class="leise">{% if z.s %}{{ _("Kapitel {n}", n=z.s.number) }}{% else %}{{ z.dok.title }}{% endif %}</span>{% else %}<span class="leise">–</span>{% endif %}</td>
+        <td data-label="{{ _('Runde') }}">{% if z.c %}<strong>{{ z.c.title }}</strong><br><span class="leise">{% if z.s %}{{ _("Kapitel {n}", n=z.s.number) }}{% else %}{{ z.dok.title }}{% endif %}</span>{% else %}<span class="leise">–</span>{% endif %}</td>
         <td data-label="{{ _('Art') }}">{{ {"transcribe": _("Transkription"), "summarize": _("Zusammenfassung"), "voice_enroll": _("Stimmprofil"), "document": _("SL-Unterlage"), "revise": _("Korrektur")}.get(z.j.type, z.j.type) }}{% if z.j.engine == "external" %} <span class="leise">({{ _("extern") }})</span>{% endif %}</td>
         <td data-label="{{ _('Zustand') }}">
           {% if z.j.state == "done" %}<span class="marke-status marke-status--gut">{{ _("fertig") }}</span>

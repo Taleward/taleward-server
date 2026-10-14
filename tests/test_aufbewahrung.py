@@ -125,7 +125,7 @@ def test_verlaengern_setzt_zustimmungen_zurueck(client, world, dbs, admin):  # n
     dbs.expire_all()
     assert all(m.recording_consent_at is None for m in dbs.query(Member).all())
     assert dbs.query(ConsentLog).filter_by(action="reset").count() == 2
-    assert "bis die Spielleitung den Recap freigibt, höchstens 7 Tage" in vorlage(dbs)
+    assert "bis die Spielleitung das Kapitel freigibt, höchstens 7 Tage" in vorlage(dbs)
     konto = client.get(f"{API}/campaigns/{world['cid']}", headers=world["pl"]).json()
     assert all(m["recordingConsentAt"] is None for m in konto["members"])
 

@@ -40,7 +40,7 @@ def vorlage(db: Session, hosting: str = "") -> str:
          f"{a.server_operator}\n[Anschrift]\n{kontakt}",
          "## Was die App macht",
          "Taleward nimmt Pen-&-Paper-Runden auf (nur mit Zustimmung aller Anwesenden), wandelt die Aufnahme in Text um "
-         "und erstellt daraus eine Zusammenfassung („Recap“) und Vorschläge für die Kampagnen-Bibel. Die Spielleitung "
+         "und erstellt daraus eine Zusammenfassung („Kapitel“) und Vorschläge für die Kampagnen-Bibel. Die Spielleitung "
          "prüft alles, bevor die Runde es sieht.",
          "## Welche Daten wir verarbeiten",
          "- Konto: Benutzername, Anzeigename, Passwort (nur als Prüfwert gespeichert), Zeitpunkt der Zustimmung zu "
@@ -52,7 +52,7 @@ def vorlage(db: Session, hosting: str = "") -> str:
             "wir nicht."] if dienst_namen else []),
          "- Mitgliedschaften in Kampagnen: Rolle, Charaktername, Charakterbeschreibung und -hintergrund, "
          "Charakterbild, Kommentare, Antworten in Terminabstimmungen.",
-         "- Aufnahmen von Spielrunden und daraus entstehende Transkripte, Zusammenfassungen und Einträge.",
+         "- Aufnahmen von Spielrunden und daraus entstehende Abschriften, Zusammenfassungen und Einträge.",
          "- Freiwillig: ein Stimmprofil (Stimmabdruck), mit dem die App Stimmen in Aufnahmen wiedererkennt. Das ist "
          "ein biometrisches Merkmal; wir verarbeiten es nur mit ausdrücklicher Einwilligung (Art. 9 Abs. 2 lit. a "
          "DSGVO), die jederzeit in der App widerrufen werden kann.",
@@ -65,7 +65,7 @@ def vorlage(db: Session, hosting: str = "") -> str:
          "wenn alle Anwesenden zugestimmt haben; die Zustimmung lässt sich in der App jederzeit widerrufen.",
          "## Wie lange wir Daten speichern",
          (f"- Aufnahmen: werden in Text umgewandelt und bleiben zur Prüfung der Zusammenfassung auf dem Server, bis "
-          f"die Spielleitung den Recap freigibt, höchstens {frist.tage} {'Tag' if frist.tage == 1 else 'Tage'}, und "
+          f"die Spielleitung das Kapitel freigibt, höchstens {frist.tage} {'Tag' if frist.tage == 1 else 'Tage'}, und "
           "werden dann gelöscht." if frist.bis_freigabe else
           f"- Aufnahmen: werden gelöscht, sobald sie in Text umgewandelt sind, spätestens nach {tage} Tagen.")
          + " Kurze Hörproben je Stimme bleiben nur, bis die Spielleitung die Stimmen zugeordnet hat.",
@@ -103,7 +103,7 @@ def vorlage(db: Session, hosting: str = "") -> str:
                           "Datenschutzerklärung. [Übermittlung außerhalb der EU laut Dienst prüfen.]")
     if email:
         empfaenger.append("- E-Mails zu deinem Konto verschicken wir über [E-Mail-Anbieter des Vereins].")
-    empfaenger.append("- Innerhalb einer Kampagne sehen die Mitglieder, was die Spielleitung freigibt. Transkripte, "
+    empfaenger.append("- Innerhalb einer Kampagne sehen die Mitglieder, was die Spielleitung freigibt. Abschriften, "
                       "Vorschläge und geheime Notizen sieht nur die Spielleitung.")
     t.append("\n".join(empfaenger))
     t += ["## Deine Rechte",

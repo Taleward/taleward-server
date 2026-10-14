@@ -245,10 +245,10 @@ def attrappe(e: Eingabe) -> Ergebnis:
         faeden = ["Placeholder: an unresolved question from this session", "Placeholder: a promise to keep"]
     else:
         titel = f"Kapitel {e.session_nummer}: Platzhalter"
-        text = (f"Platzhalter (Testmodus): Hier steht künftig der vorlesbare Recap von Kapitel {e.session_nummer}, "
+        text = (f"Platzhalter (Testmodus): Hier steht künftig das vorlesbare Kapitel {e.session_nummer}, "
                 f"erzählt im Ton der Kampagne „{e.kampagne}“.\n\n"
-                f"Dabei waren: {runde}. Das Transkript hat {len(e.transkript)} Zeilen aus etwa {dauer} Minuten.")
-        faeden = ["Platzhalter: eine offene Frage aus dieser Session", "Platzhalter: ein gegebenes Versprechen"]
+                f"Dabei waren: {runde}. Die Abschrift hat {len(e.transkript)} Zeilen aus etwa {dauer} Minuten.")
+        faeden = ["Platzhalter: eine offene Frage aus dieser Runde", "Platzhalter: ein gegebenes Versprechen"]
     v = [
         Vorschlag("npc", "create", "Platzhalter-NSC" if not en else "Placeholder NPC",
                   "Platzhalter (Testmodus): Wer ist das, was weiß die Gruppe über ihn?" if not en
@@ -265,7 +265,7 @@ def attrappe(e: Eingabe) -> Ergebnis:
     if e.bibel:
         ziel = e.bibel[0]
         v.append(Vorschlag(ziel.typ, "update", ziel.name,
-                           "Platzhalter (Testmodus): Neues aus dieser Session." if not en
+                           "Platzhalter (Testmodus): Neues aus dieser Runde." if not en
                            else "Placeholder (test mode): news from this session.",
                            target_entry_id=ziel.id, suggested_visibility="public", confidence=0.6,
                            evidence=belege[2:3]))
@@ -281,7 +281,7 @@ def attrappe(e: Eingabe) -> Ergebnis:
     pruefung = {"model": "attrappe", "revised": False, "paragraphs": [
         {"index": 0, "verdict": "supported", "note": None, "evidence": belege[:1]},
         {"index": 1, "verdict": "partial",
-         "note": "Platzhalter: Die Dauer steht so nicht im Transkript." if not en
+         "note": "Platzhalter: Die Dauer steht so nicht in der Abschrift." if not en
          else "Placeholder: the duration is not stated in the transcript.", "evidence": belege[1:2]},
     ]}
     return Ergebnis(titel, text, faeden, v, modell="attrappe", pruefung=pruefung)
