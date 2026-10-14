@@ -95,9 +95,14 @@ def dauer(wav: Path) -> float:
 PLAUSIBEL_BYTES_JE_S = 200_000
 
 
-def dauer_datei(datei: Path) -> float | None:
+def dauer_datei(datei: Path, gruendlich: bool = False) -> float | None:
     """Länge einer hochgeladenen Audiodatei in Sekunden. Zuerst laut Kopf (ffprobe, schnell); passt die Länge nicht
-    zur Dateigröße, durch Dekodieren gemessen. None = nicht messbar."""
+    zur Dateigröße, durch Dekodieren gemessen. None = nicht messbar.
+
+    gruendlich (0.4.91, M2): immer dekodieren – der Kopf lässt sich beliebig setzen, auch passend zur Dateigröße (z. B.
+    niedrige Bitrate). Gilt, sobald die Länge Geld kostet. Scheitert das Dekodieren, None (nie die Kopf-Länge)."""
+    if gruendlich:
+        return dauer_dekodiert(datei)
     programm = shutil.which("ffprobe")
     if not programm:
         return None
@@ -114,8 +119,7 @@ def dauer_datei(datei: Path) -> float | None:
     except OSError:
         groesse = 0
     if wert <= 0 or groesse / wert > PLAUSIBEL_BYTES_JE_S:
-        gemessen = dauer_dekodiert(datei)
-        return gemessen if gemessen else (wert if wert > 0 else None)
+        return dauer_dekodiert(datei)  # 0.4.91 (M2): unplausibler Kopf und nicht dekodierbar → nicht messbar
     return wert
 
 

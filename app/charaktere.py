@@ -106,22 +106,26 @@ def loesen(db: Session, me: Member) -> None:
 
 
 # ---------------------------------------------------------------- Neuzugang
-def neuzugang(db: Session, me: Member) -> None:
+def neuzugang(db: Session, me: Member, nur_auswertungen: bool = False) -> None:
     """Regel 0.4.7: Wer neu dazukommt, wird in alle nicht-leeren Verborgen-Listen aufgenommen (Einträge und offene
     Vorschläge) – wer etwas nicht miterlebt hat, soll es nicht plötzlich wissen. Die SL bekommt einen Hinweis und
-    gibt einzeln frei."""
+    gibt einzeln frei.
+
+    nur_auswertungen (0.4.91, S31): beim Einnehmen eines offenen Platzes – dessen Verborgen-Listen stammen aus dem Umzug,
+    es fehlt nur Geheimes aus Bögen und Hintergründen, das erst danach entstanden ist."""
     betroffen = []
     for e in db.scalars(select(Entry).where(Entry.campaign_id == me.campaign_id)):
         ids = e.hidden_member_ids
         # 0.4.89 (S31): Geheimes aus Bogen/Hintergrund – Nachzügler immer verbergen, auch bei leerer Liste
         aus_auswertung = bool(e.origin_analysis_id) and e.visibility == "public" and e.origin_member_id != me.id
-        if (ids or aus_auswertung) and me.id not in ids:
+        if ((ids and not nur_auswertungen) or aus_auswertung) and me.id not in ids:
             e.hidden_from.append(EntryHidden(entry_id=e.id, member_id=me.id))
             betroffen.append(e.id)
     for p in db.scalars(select(Proposal).where(Proposal.campaign_id == me.campaign_id, Proposal.decision == "open")):
         ids = json.loads(p.hidden_member_ids_json or "[]")
         # 0.4.18: Vorschläge aus Bogen/Hintergrund wissen nur SL und Urheberin – auch wenn die Liste noch leer war
-        if (ids or (p.analysis_id and p.submitted_by_member_id != me.id)) and me.id not in ids:
+        aus_auswertung = bool(p.analysis_id) and p.submitted_by_member_id != me.id
+        if ((ids and not nur_auswertungen) or aus_auswertung) and me.id not in ids:
             p.hidden_member_ids_json = json.dumps(sorted(set(ids) | {me.id}))
     if betroffen:
         db.add(GmNotice(campaign_id=me.campaign_id, code="hidden_entries_for_newcomer", member_id=me.id,
@@ -170,8 +174,9 @@ def einreichen(db: Session, me: Member, eintraege: list[schemas.WorldEntryIn]) -
         raise errors.conflict("no_character")
     if not 1 <= len(eintraege) <= MAX_WELT:
         raise errors.bad_request("world_too_many")
+    # 0.4.91 (S31): offene Plätze zählen mit – wer einen Platz einnimmt, durchläuft den Neuzugang nicht
     andere = sorted(m.id for m in db.scalars(select(Member).where(Member.campaign_id == me.campaign_id))
-                    if m.aktiv and m.id != me.id and m.role != "gm")
+                    if (m.aktiv or m.open_seat) and m.id != me.id and m.role != "gm")
     aus = []
     for pos, w in enumerate(eintraege):
         kennung = w.id.lower()

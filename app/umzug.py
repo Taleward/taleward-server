@@ -996,6 +996,10 @@ def platz_einnehmen(db: Session, platz: Member, user: User, rolle: str, frueher:
     platz.left_at, platz.deleted_at, platz.joined_at = None, None, utcnow()
     platz.chronicle_seen_at = platz.bible_seen_at = None
     db.flush()
+    if rolle != "gm":  # 0.4.91 (S31): Geheimes aus Bögen/Hintergründen, das nach dem Umzug entstanden ist
+        from app.charaktere import neuzugang
+
+        neuzugang(db, platz, nur_auswertungen=True)
 
 
 def offener_platz_zu(db: Session, campaign_id: str, character_id: str) -> Member | None:

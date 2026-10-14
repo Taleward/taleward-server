@@ -1,6 +1,7 @@
 """Stückweiser Upload der Aufnahme: starten, Teile senden (idempotent), fehlende Teile abfragen, abschließen."""
 import hashlib
 import math
+import threading
 
 from typing import Literal
 
@@ -161,6 +162,9 @@ async def put_chunk(
         raise errors.bad_request("chunk_size_mismatch", index=index, got=len(data), expected=erwartet)
     if x_chunk_sha256 and hashlib.sha256(data).hexdigest() != x_chunk_sha256.strip().lower():
         raise errors.bad_request("chunk_checksum_mismatch", index=index)
+    db.refresh(up)
+    if up.state != "open":  # 0.4.91: inzwischen abgeschlossen oder in Messung – nichts mehr tauschen
+        raise errors.conflict("upload_closed")
     storage.write_atomic(storage.chunk_path(up.id, f.id, index), data)
     return Response(status_code=204)
 
@@ -179,11 +183,46 @@ def upload_status(uploadId: str, user: User = Depends(current_user), db: Session
     return UploadStatusOut(files=[MissingOut(file_id=k, missing_chunks=v) for k, v in fehlend.items()])
 
 
+_LAEUFT = object()
+_IN_MESSUNG: set[str] = set()
+_MESSUNG_SPERRE = threading.Lock()
+
+
+def _messen(db: Session, up: Upload):
+    """0.4.91 (M2): Das Dekodieren dauert (etwa 12 s je Stunde). Solange gemessen wird, steht der Upload auf
+    „measuring“: keine Teile mehr (sonst ließe sich nach der Messung tauschen) und kein zweites Messen. Ein Stand
+    „measuring“ ohne laufende Messung in diesem Prozess (Neustart mittendrin) gilt wieder als offen."""
+    from app import abrechnung
+
+    with _MESSUNG_SPERRE:
+        if up.id in _IN_MESSUNG:
+            return _LAEUFT
+        _IN_MESSUNG.add(up.id)
+    try:
+        up.state = "measuring"
+        db.commit()
+        try:
+            return abrechnung.aufnahme_messen(up)
+        except Exception:
+            up.state = "open"
+            db.commit()
+            raise
+    finally:
+        with _MESSUNG_SPERRE:
+            _IN_MESSUNG.discard(up.id)
+
+
 @router.post("/uploads/{uploadId}/complete", status_code=202, response_model=schemas.ProcessingStatusOut)
 def complete(uploadId: str, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
     up, s = _load_upload(db, uploadId, user)
     if up.state == "completed":
         return processing_status(db, s, sprache(request))  # doppelt abgeschickt – harmlos
+    if up.state == "measuring":
+        with _MESSUNG_SPERRE:
+            laeuft = up.id in _IN_MESSUNG
+        if laeuft:
+            return processing_status(db, s, sprache(request))
+        up.state = "open"  # Messung durch einen Neustart abgebrochen: noch einmal
     if up.state != "open":
         raise errors.conflict("upload_closed")
     anzahl = sum(len(v) for v in _missing(up).values())
@@ -193,7 +232,10 @@ def complete(uploadId: str, request: Request, user: User = Depends(current_user)
     from app import abrechnung
 
     if abrechnung.an(db):  # 0.4.85: Länge selbst messen (Schätzung der Kosten) und die feste Obergrenze je Runde
-        up.dauer_sekunden = abrechnung.aufnahme_messen(up)
+        dauer = _messen(db, up)
+        if dauer is _LAEUFT:  # zweiter Aufruf, während gemessen wird – harmlos, der erste schließt ab
+            return processing_status(db, s, sprache(request))
+        up.dauer_sekunden = dauer
         laenge = up.dauer_sekunden or abrechnung.groesse_sekunden(up)  # N4: nicht messbar → nach Dateigröße
         if laenge > abrechnung.MAX_AUFNAHME_SEKUNDEN:
             storage.delete_upload_files(up.id)

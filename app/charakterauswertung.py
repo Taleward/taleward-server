@@ -275,8 +275,9 @@ def speichern(db: Session, a: CharacterAnalysis, d: dict, engine: str, worker_id
                                                                          Entry.type == "pc"))}
     if me is not None and me.character_name:
         spieler.add(me.character_name.casefold())
+    # 0.4.91 (S31): offene Plätze zählen mit – wer einen Platz einnimmt, durchläuft den Neuzugang nicht
     andere = sorted(m.id for m in db.scalars(select(Member).where(Member.campaign_id == a.campaign_id))
-                    if m.aktiv and m.id != a.member_id and m.role != "gm")
+                    if (m.aktiv or m.open_seat) and m.id != a.member_id and m.role != "gm")
     vorschlaege = dokument_pruefen(proposals_d or [], {i: e.name for i, e in sichtbar.items() if e.type != "pc"})
     db.execute(delete(Proposal).where(Proposal.analysis_id == a.id))
     pos = 0

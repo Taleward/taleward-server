@@ -241,7 +241,7 @@ def aufnahme_messen(up: Upload) -> float | None:
                 for i in range(f.chunk_count):
                     with open(storage.chunk_path(up.id, f.id, i), "rb") as ein:
                         shutil.copyfileobj(ein, aus)
-            d = audio.dauer_datei(ziel)
+            d = audio.dauer_datei(ziel, gruendlich=True)  # 0.4.91 (M2): Kosten hängen dran – immer dekodieren
             ziel.unlink(missing_ok=True)
             if d is None:
                 return None
