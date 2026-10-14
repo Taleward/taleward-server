@@ -1,0 +1,342 @@
+From 53e1a2667ebbbb28c9b8b75f6afa2b29867efc23 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 12:46:53 +0200
+Subject: [PATCH] Server 0.4.93
+
+Cloud-Schaetzung aus den Preisen des Anbieters, solange es keine eigenen Laeufe gibt. Fassung 0.4.93.
+---
+ app/abrechnung.py                        | 49 +++++++++++++++++++++++-
+ app/verwaltung/abrechnung_seite.py       | 14 ++++---
+ app/verwaltung/i18n.py                   | 13 ++++---
+ app/verwaltung/router.py                 |  4 +-
+ app/verwaltung/templates/abrechnung.html |  1 +
+ app/verwaltung/templates/assistent.html  |  2 +-
+ pyproject.toml                           |  2 +-
+ tests/test_aktualisierung.py             |  2 +-
+ tests/test_assistent.py                  |  2 +-
+ tests/test_modellablage.py               |  2 +-
+ tests/test_server_0487.py                |  4 +-
+ tests/test_server_0491.py                | 38 ++++++++++++++++++
+ tests/test_step5.py                      |  2 +-
+ tests/test_worker_app.py                 |  2 +-
+ uv.lock                                  |  2 +-
+ 15 files changed, 116 insertions(+), 23 deletions(-)
+
+diff --git a/app/abrechnung.py b/app/abrechnung.py
+index 25c7060..229d19f 100644
+--- a/app/abrechnung.py
++++ b/app/abrechnung.py
+@@ -48,5 +48,6 @@ MAX_AUFNAHME_SEKUNDEN = 8 * 3600  # feste Obergrenze je Runde (Entscheidung Benj
+ class Preise:
+     """Alle Werte in Cent. Worker-Preise legt der Betreiber fest; die Cloud-Werte sind nur Schätzungen für den Start
+-    (0 = Mittelwert der bisherigen Läufe), abgerechnet werden dort die tatsächlichen Kosten."""
++    (0 = automatisch: Mittelwert der bisherigen Läufe, sonst aus den Preisen des Anbieters), abgerechnet werden dort
++    die tatsächlichen Kosten."""
+ 
+     aufschlag_prozent: int = 0
+@@ -316,4 +317,40 @@ def _mittelwert_cloud(db: Session, art: str) -> float:
+ 
+ 
++# 0.4.93: Tokens für die Schätzung aus den Preisen des Anbieters, solange es keine eigenen Läufe gibt. Gemessen an der
++# Nostria-Runde (158 min, 08.10.): mit Mistral 211k Tokens ein / 10k aus für Kapitel, Vorschläge und Gegenprüfung
++# (≈ 80k / 3,8k je Stunde) – aufgerundet. Korrektur: Hinweis, Kapitel und bis 40.000 Zeichen Abschrift. Unterlage:
++# eine Seite (≈ 3.000 Zeichen) plus Bibel und Vorschläge.
++TOKENS_SCHAETZUNG = {"summarize": (85_000, 4_500), "revise": (20_000, 3_000), "document": (2_000, 500)}
++
++
++def _token_preis(db: Session) -> tuple[float, float] | None:
++    """Cent je 1 Mio. Tokens (ein, aus) des Cloud-Sprachmodells – eigene Preise aus der Verwaltung, sonst der teuerste
++    der eingestellten Modelle laut Preistabelle. None = unbekannt (fremdes Modell ohne eigene Preise)."""
++    from app.einstellungen import llm_konfig
++    from app.sprachmodell import PREISE
++
++    k = llm_konfig(db)
++    if k.cent_ein is not None and k.cent_aus is not None:
++        return float(k.cent_ein), float(k.cent_aus)
++    modelle = {m for m in (k.api_modell, k.api_modell_vorschlaege, k.api_modell_notizen) if m}
++    preise_ = [PREISE.get(m) for m in modelle]
++    if not preise_ or any(p is None for p in preise_):
++        return None
++    return float(max(p[0] for p in preise_)), float(max(p[1] for p in preise_))
++
++
++def preis_aus_anbieter(db: Session, art: str) -> float:
++    """Schätzung aus den Preisen des Anbieters (Cent je Stunde Aufnahme, je Stück bzw. je Seite); 0 = unbekannt."""
++    if art == "transcribe":
++        from app.einstellungen import extern_konfig
++
++        return max(0.0, float(extern_konfig(db).cent_pro_minute or 0)) * 60
++    preis = _token_preis(db)
++    if preis is None:
++        return 0.0
++    ein, aus = TOKENS_SCHAETZUNG[art]
++    return (ein * preis[0] + aus * preis[1]) / 1_000_000
++
++
+ def preis_je_einheit(db: Session, art: str, weg: str) -> float:
+     """Cent je Stunde Aufnahme (Transkription, Kapitel), je Seite (Unterlage) bzw. je Stück (Korrektur)."""
+@@ -324,5 +361,5 @@ def preis_je_einheit(db: Session, art: str, weg: str) -> float:
+     wert = getattr(p, ("worker_" if worker else "cloud_") + feld)
+     if not worker and wert == 0:
+-        return _mittelwert_cloud(db, art)
++        return _mittelwert_cloud(db, art) or preis_aus_anbieter(db, art)
+     return float(wert)
+ 
+@@ -651,4 +688,12 @@ def bogen_grenzen(db: Session, c: Campaign) -> tuple[int, int] | None:
+ 
+ 
++def euro_genau(cent: float) -> str:
++    """Kleine Schätzwerte (unter einem Cent je Seite) lesbar: drei Nachkommastellen unter 1 €, sonst zwei."""
++    if cent <= 0:
++        return "–"
++    euro_ = cent / 100
++    return (f"{euro_:.3f}" if euro_ < 1 else f"{euro_:.2f}").replace(".", ",") + " €"
++
++
+ def euro(cent: int) -> str:
+     vorzeichen = "−" if cent < 0 else ""
+diff --git a/app/verwaltung/abrechnung_seite.py b/app/verwaltung/abrechnung_seite.py
+index ed5e17b..dea76bf 100644
+--- a/app/verwaltung/abrechnung_seite.py
++++ b/app/verwaltung/abrechnung_seite.py
+@@ -27,8 +27,8 @@ PREISFELDER = [
+     ("worker_korrektur", "Worker: Korrektur per Hinweis (Euro)", True),
+     ("worker_unterlage_seite", "Worker: SL-Unterlage je Seite (Euro)", True),
+-    ("cloud_transkription_h", "Cloud, nur Schätzung: Transkription je Stunde Aufnahme (Euro, 0 = Mittelwert)", True),
+-    ("cloud_kapitel_h", "Cloud, nur Schätzung: Kapitel je Stunde Aufnahme (Euro, 0 = Mittelwert)", True),
+-    ("cloud_korrektur", "Cloud, nur Schätzung: Korrektur per Hinweis (Euro, 0 = Mittelwert)", True),
+-    ("cloud_unterlage_seite", "Cloud, nur Schätzung: SL-Unterlage je Seite (Euro, 0 = Mittelwert)", True),
++    ("cloud_transkription_h", "Cloud, nur Schätzung: Transkription je Stunde Aufnahme (Euro, 0 = automatisch)", True),
++    ("cloud_kapitel_h", "Cloud, nur Schätzung: Kapitel je Stunde Aufnahme (Euro, 0 = automatisch)", True),
++    ("cloud_korrektur", "Cloud, nur Schätzung: Korrektur per Hinweis (Euro, 0 = automatisch)", True),
++    ("cloud_unterlage_seite", "Cloud, nur Schätzung: SL-Unterlage je Seite (Euro, 0 = automatisch)", True),
+     ("deckel", "So weit darf ein Auftrag laut Schätzung ins Minus führen (Euro)", True),
+     ("warnung_ab", "„Guthaben knapp“ unter (Euro)", True),
+@@ -99,5 +99,9 @@ def _seite_abrechnung(request: Request, user: User, db: Session, status: int = 2
+              "revise": tr(request)("Korrektur per Hinweis"), "document": tr(request)("SL-Unterlage")}
+     ohne = [namen[a] for a in abrechnung.KOSTENPFLICHTIG if abrechnung.preis_je_einheit(db, a, "cloud") <= 0]
+-    daten = {"bestaetigen": None, "codes": None, "cloud_ohne_schaetzung": ", ".join(ohne), **ctx}
++    # 0.4.93: was „0 = automatisch“ gerade bedeutet (Mittelwert der Läufe, sonst aus den Preisen des Anbieters)
++    automatisch = {a: abrechnung.euro_genau(abrechnung._mittelwert_cloud(db, a) or abrechnung.preis_aus_anbieter(db, a))
++                   for a in abrechnung.KOSTENPFLICHTIG}
++    daten = {"bestaetigen": None, "codes": None, "cloud_ohne_schaetzung": ", ".join(ohne), "automatisch": automatisch,
++             **ctx}
+     antwort = _seite(request, "abrechnung.html", user, db, modus=abrechnung.modus(db), preisfelder=PREISFELDER,
+                      werte=werte, euro_feld=_euro_feld, euro=abrechnung.euro, konten=konten, aktionen=aktionen,
+diff --git a/app/verwaltung/i18n.py b/app/verwaltung/i18n.py
+index d0d7a62..974dda1 100644
+--- a/app/verwaltung/i18n.py
++++ b/app/verwaltung/i18n.py
+@@ -314,5 +314,5 @@ EN: dict[str, str] = {
+     "Euer Verein": "Your club",
+     "Gilt für Cloud-Transkription und Cloud-Sprachmodell zusammen. Ist es erreicht, warten Aufträge bis zum nächsten Monat. 0 = ohne Limit.": "Applies to cloud transcription and cloud language model together. Once reached, jobs wait until next month. 0 = no limit.",
+-    "Gute Kapitel, etwa 6 Cent pro Runde.": "Good chapters, about 6 cents per session.",
++    "Gute Kapitel, je nach Modell etwa 20 bis 70 Cent pro Runde von 4 Stunden.": "Good chapters, about 20 to 70 cents per 4-hour session depending on the model.",
+     "Hugging Face lehnt diesen Zugangsschlüssel ab.": "Hugging Face rejects this access token.",
+     "Ist es erreicht, warten Aufnahmen bis zum nächsten Monat. 0 = ohne Limit.": "Once reached, recordings wait until next month. 0 = no limit.",
+@@ -409,5 +409,5 @@ EN: dict[str, str] = {
+     "Lokales Modell (Ollama auf einem Worker)": "Local model (Ollama on a worker)",
+     "Einstellungen zur Zusammenfassung gespeichert.": "Summary settings saved.",
+-    "Empfohlen: mistral-large-latest (gute Kapitel, etwa 6 Cent pro Runde).": "Recommended: mistral-large-latest (good chapters, about 6 cents per session).",
++    "Empfohlen: mistral-large-latest (gute Kapitel, etwa 20 Cent pro Runde von 4 Stunden).": "Recommended: mistral-large-latest (good chapters, about 20 cents per 4-hour session).",
+     "Empfohlen: auto – jeder Worker wählt nach seiner Grafikkarte (unter 12 GB gemma4:e4b, ab 12 GB gemma4:12b) und lädt das Modell beim ersten Auftrag selbst herunter.": "Recommended: auto – each worker picks by its graphics card (below 12 GB gemma4:e4b, from 12 GB gemma4:12b) and downloads the model itself on the first job.",
+     "Höchste Kontextgröße (Tokens)": "Maximum context size (tokens)",
+@@ -730,8 +730,9 @@ EN: dict[str, str] = {
+     "Charakterbögen je Spieler und Kampagne": "Character sheets per player and campaign",
+     "Charakterbögen von Spielern: höchstens Seiten je Bogen": "Players’ character sheets: at most pages per sheet",
+-    "Cloud, nur Schätzung: Kapitel je Stunde Aufnahme (Euro, 0 = Mittelwert)": "Cloud, estimate only: chapter per hour of recording (euros, 0 = average)",
+-    "Cloud, nur Schätzung: Korrektur per Hinweis (Euro, 0 = Mittelwert)": "Cloud, estimate only: correction by note (euros, 0 = average)",
+-    "Cloud, nur Schätzung: SL-Unterlage je Seite (Euro, 0 = Mittelwert)": "Cloud, estimate only: GM document per page (euros, 0 = average)",
+-    "Cloud, nur Schätzung: Transkription je Stunde Aufnahme (Euro, 0 = Mittelwert)": "Cloud, estimate only: transcription per hour of recording (euros, 0 = average)",
++    "Cloud, nur Schätzung: Kapitel je Stunde Aufnahme (Euro, 0 = automatisch)": "Cloud, estimate only: chapter per hour of recording (euros, 0 = automatic)",
++    "Cloud, nur Schätzung: Korrektur per Hinweis (Euro, 0 = automatisch)": "Cloud, estimate only: correction by note (euros, 0 = automatic)",
++    "Cloud, nur Schätzung: SL-Unterlage je Seite (Euro, 0 = automatisch)": "Cloud, estimate only: GM document per page (euros, 0 = automatic)",
++    "Cloud, nur Schätzung: Transkription je Stunde Aufnahme (Euro, 0 = automatisch)": "Cloud, estimate only: transcription per hour of recording (euros, 0 = automatic)",
++    "Automatisch geschätzt (bei 0): Transkription {t} je Stunde, Kapitel {k} je Stunde, Korrektur {r}, SL-Unterlage {u} je Seite. Grundlage sind die bisherigen Cloud-Läufe, solange es keine gibt die Preise des Anbieters.": "Automatic estimate (at 0): transcription {t} per hour, chapter {k} per hour, correction {r}, GM document {u} per page. Based on previous cloud runs; until there are any, on the provider's prices.",
+     "Cloud-Kosten werden so abgerechnet, wie sie anfallen, plus Aufschlag. Die Cloud-Werte hier dienen nur der Schätzung vor dem Start. Worker-Arbeit kostet, was du hier festlegst, gemessen an der Länge der Aufnahme bzw. den Seiten.": "Cloud costs are billed as they occur, plus the surcharge. The cloud values here are only used for the estimate before starting. Worker jobs cost what you set here, measured by the length of the recording or the pages.",
+     "Code": "Code",
+diff --git a/app/verwaltung/router.py b/app/verwaltung/router.py
+index e3e5cb9..35d93de 100644
+--- a/app/verwaltung/router.py
++++ b/app/verwaltung/router.py
+@@ -31,4 +31,5 @@ from sqlalchemy.orm import Session
+ 
+ from app import begrenzung, errors, queue
++from app.abrechnung import TOKENS_SCHAETZUNG
+ from app.config import get_settings
+ from app.db import get_db, server_id, utcnow
+@@ -882,5 +883,6 @@ def extern_speichern(request: Request, anbieter: str = Form(""), api_key: str =
+ 
+ # ---------------------------------------------------------------- Zusammenfassung (Sprachmodell)
+-TOKENS_JE_SESSION = (110_000, 5_000)  # 4 Stunden Spiel: Recap- und Vorschlags-Aufruf zusammen
++# 4 Stunden Spiel, alle Aufrufe zusammen – gleiche Grundlage wie die Schätzung der Abrechnung (0.4.93)
++TOKENS_JE_SESSION = tuple(4 * t for t in TOKENS_SCHAETZUNG["summarize"])
+ 
+ 
+diff --git a/app/verwaltung/templates/abrechnung.html b/app/verwaltung/templates/abrechnung.html
+index b9daf0f..f3c77d5 100644
+--- a/app/verwaltung/templates/abrechnung.html
++++ b/app/verwaltung/templates/abrechnung.html
+@@ -50,4 +50,5 @@
+     <label>{{ _(text) }} <input type="text" name="{{ name }}" value="{{ euro_feld(werte[name]) if ist_euro else werte[name] }}" inputmode="decimal" required maxlength="12"></label>
+     {% endfor %}
++    <p class="hilfe">{{ _("Automatisch geschätzt (bei 0): Transkription {t} je Stunde, Kapitel {k} je Stunde, Korrektur {r}, SL-Unterlage {u} je Seite. Grundlage sind die bisherigen Cloud-Läufe, solange es keine gibt die Preise des Anbieters.", t=automatisch.transcribe, k=automatisch.summarize, r=automatisch.revise, u=automatisch.document) }}</p>
+     <div><button class="tw-btn tw-btn--secondary" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Speichern") }}</button></div>
+   </form>
+diff --git a/app/verwaltung/templates/assistent.html b/app/verwaltung/templates/assistent.html
+index 6af817c..80b6ec0 100644
+--- a/app/verwaltung/templates/assistent.html
++++ b/app/verwaltung/templates/assistent.html
+@@ -121,5 +121,5 @@
+       <label class="wahl"><input type="radio" name="wahl" value="api" {% if llm.art == "api" or (llm.art != "lokal" and art == "cloud") %}checked{% endif %}>
+         <strong>{{ _("Cloud-API (Mistral)") }}</strong>
+-        <span>{{ _("Gute Kapitel, etwa 6 Cent pro Runde.") }}{% if mistral %} {{ _("Der Mistral-Schlüssel von eben wird verwendet.") }}{% endif %}</span></label>
++        <span>{{ _("Gute Kapitel, je nach Modell etwa 20 bis 70 Cent pro Runde von 4 Stunden.") }}{% if mistral %} {{ _("Der Mistral-Schlüssel von eben wird verwendet.") }}{% endif %}</span></label>
+       {% if art in ("lokal", "beides") %}
+       <label class="wahl"><input type="radio" name="wahl" value="lokal" {% if llm.art == "lokal" %}checked{% endif %}>
+diff --git a/pyproject.toml b/pyproject.toml
+index 7901b32..28aad3a 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.92"
++version = "0.4.93"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index e29fe3f..10c4de8 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -154,5 +154,5 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.92"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.93"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index 525dfdb..eecb596 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -135,5 +135,5 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.92"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.93"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index accc0e2..ae5ef01 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -84,5 +84,5 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.92"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.93"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+diff --git a/tests/test_server_0487.py b/tests/test_server_0487.py
+index 4543aa3..1741c25 100644
+--- a/tests/test_server_0487.py
++++ b/tests/test_server_0487.py
+@@ -222,7 +222,9 @@ def test_n5_gleichzeitige_einloesung_endet_als_aktion(client, world, dbs, monkey
+ 
+ # ---------------------------------------------------------------- N6: Hinweis ohne Cloud-Schätzwerte
+-def test_n6_hinweis_ohne_cloud_schaetzwerte(client, dbs, admin):  # noqa: F811
++def test_n6_hinweis_ohne_cloud_schaetzwerte(client, dbs, admin, monkeypatch):  # noqa: F811
+     from app import abrechnung
+ 
++    # 0.4.93: ohne Läufe schätzt der Server aus den Preisen des Anbieters – hier ein Anbieter ohne bekannte Preise
++    monkeypatch.setattr(abrechnung, "preis_aus_anbieter", lambda db, art: 0.0)
+     seite = client.get("/verwaltung/abrechnung").text
+     assert "Für die Cloud fehlen noch Schätzwerte" in seite and "Transkription" in seite
+diff --git a/tests/test_server_0491.py b/tests/test_server_0491.py
+index 0f79060..f90e544 100644
+--- a/tests/test_server_0491.py
++++ b/tests/test_server_0491.py
+@@ -9,4 +9,5 @@ from tests.test_abrechnung_0485 import _modus
+ from tests.test_server_0489 import _auswerten_und_annehmen, _namen
+ from tests.test_unterlagen import api  # noqa: F401 (Fixture)
++from tests.test_verwaltung import admin  # noqa: F401 (Fixture)
+ 
+ API = "/api/v1"
+@@ -240,2 +241,39 @@ def test_grenzen_fuer_charakterboegen(client, world, dbs):
+                         files={"file": (f"bogen{i}.txt", f"Name: Tharvok {i}".encode(), "text/plain")})
+         assert r.status_code == 201, r.text
++
++
++# ---------------------------------------------------------------- 0.4.93: Cloud-Schätzung aus den Preisen des Anbieters
++def test_cloud_schaetzung_aus_anbieterpreisen(client, dbs, admin, monkeypatch):  # noqa: F811
++    from app import abrechnung
++    from app.einstellungen import meta_schreiben
++
++    # Voreinstellung Mistral: Kapitel mit mistral-medium-latest (150 / 750 Cent je 1 Mio. Tokens)
++    meta_schreiben(dbs, "llm.api_modell", "mistral-medium-latest")
++    dbs.commit()
++    kapitel = abrechnung.preis_je_einheit(dbs, "summarize", "cloud")
++    assert kapitel == (85_000 * 150 + 4_500 * 750) / 1_000_000  # ≈ 16 Cent je Stunde, Nostria gemessen ≈ 15
++    assert abrechnung.preis_je_einheit(dbs, "revise", "cloud") > 0
++    assert abrechnung.preis_je_einheit(dbs, "document", "cloud") > 0
++    assert abrechnung.preis_je_einheit(dbs, "transcribe", "cloud") > 0  # aus cent_pro_minute
++    # das teurere Modell zählt, wenn Vorschläge ein anderes nutzen
++    meta_schreiben(dbs, "llm.api_modell", "mistral-large-latest")
++    meta_schreiben(dbs, "llm.api_modell_vorschlaege", "mistral-medium-latest")
++    dbs.commit()
++    assert abrechnung.preis_je_einheit(dbs, "summarize", "cloud") == kapitel
++    # eigene Preise aus der Verwaltung gehen vor, unbekanntes Modell ohne eigene Preise = keine Schätzung
++    meta_schreiben(dbs, "llm.api_modell", "eigenes-modell")
++    meta_schreiben(dbs, "llm.api_modell_vorschlaege", "")
++    dbs.commit()
++    assert abrechnung.preis_aus_anbieter(dbs, "summarize") == 0
++    meta_schreiben(dbs, "llm.cent_ein", "100")
++    meta_schreiben(dbs, "llm.cent_aus", "200")
++    dbs.commit()
++    assert abrechnung.preis_aus_anbieter(dbs, "summarize") == (85_000 * 100 + 4_500 * 200) / 1_000_000
++    # ein eigener Wert des Betreibers geht immer vor
++    p = abrechnung.preise(dbs)
++    p.cloud_kapitel_h = 77
++    abrechnung.preise_schreiben(dbs, p, "test")
++    dbs.commit()
++    assert abrechnung.preis_je_einheit(dbs, "summarize", "cloud") == 77
++    seite = client.get("/verwaltung/abrechnung").text
++    assert "Automatisch geschätzt (bei 0)" in seite and "0 = automatisch" in seite
+diff --git a/tests/test_step5.py b/tests/test_step5.py
+index b79aaf5..e58b4f7 100644
+--- a/tests/test_step5.py
++++ b/tests/test_step5.py
+@@ -347,5 +347,5 @@ def test_verwaltung_zusammenfassung(client, dbs, admin):  # noqa: F811
+     assert (k.art, k.api_key, k.api_url) == ("api", "sk-abcdefghijklmnop1234", "https://api.mistral.ai/v1")
+     seite = client.get("/verwaltung/zusammenfassung").text
+-    assert "sk-abcdefghijklmnop1234" not in seite and "…1234" in seite and "Kosten etwa 6 Cent" in seite
++    assert "sk-abcdefghijklmnop1234" not in seite and "…1234" in seite and "Kosten etwa 20 Cent" in seite  # 0.4.93: Tokens wie gemessen (Nostria)
+     client.post(url, data={**basis, "art": "lokal", "lokal_modell": "qwen3:8b"})
+     dbs.expire_all()
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index 665e997..c5b56e0 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -113,5 +113,5 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.92"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.93"
+ 
+ 
+diff --git a/uv.lock b/uv.lock
+index dd6937f..63c9c2d 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -1987,5 +1987,5 @@ wheels = [
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.92"
++version = "0.4.93"
+ source = { editable = "." }
+ dependencies = [
+-- 
+2.43.0
+
