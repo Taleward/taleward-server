@@ -1,0 +1,532 @@
+From e57a9306d493e5840125981cf45235cbf572ee26 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 00:01:29 +0200
+Subject: [PATCH 140/140] Server 0.4.100
+
+---
+ app/cli.py                       |  48 ++++++++++
+ app/sicherung.py                 |   9 +-
+ app/sicherung_passwort.py        | 148 +++++++++++++++++++++++++++++++
+ docs/BETRIEB.md                  |   7 ++
+ engine-requirements.txt          |   2 +
+ pyproject.toml                   |   3 +-
+ tests/test_abrechnung_0485.py    |   1 -
+ tests/test_aktualisierung.py     |   2 +-
+ tests/test_assistent.py          |   2 +-
+ tests/test_modellablage.py       |   2 +-
+ tests/test_sicherung_passwort.py | 121 +++++++++++++++++++++++++
+ tests/test_worker_app.py         |   2 +-
+ uv.lock                          |  18 +++-
+ 13 files changed, 355 insertions(+), 10 deletions(-)
+ create mode 100644 app/sicherung_passwort.py
+ create mode 100644 tests/test_sicherung_passwort.py
+
+diff --git a/app/cli.py b/app/cli.py
+index f1d3a70..a3701f7 100644
+--- a/app/cli.py
++++ b/app/cli.py
+@@ -949,4 +949,52 @@ def wiederherstellen(datei: Path = typer.Argument(..., help="Sicherung (ZIP) aus
+ 
+ 
++def _passwort_lesen() -> str:
++    """Passwort aus der Standardeingabe (eine Zeile) – nie als Argument, sonst stünde es in der Prozessliste."""
++    import sys
++
++    if sys.stdin.isatty():
++        return typer.prompt("Passwort", hide_input=True)
++    return sys.stdin.readline().rstrip("\r\n")
++
++
++@app.command("sicherung-export")
++def sicherung_export(ziel: Path = typer.Argument(..., help="Zieldatei (.taleward), z. B. auf einem USB-Stick")):
++    """Vollständige Sicherung mit Passwort zum Mitnehmen anlegen. Passwort über die Standardeingabe."""
++    from app import sicherung_passwort
++
++    passwort = _passwort_lesen()
++    try:
++        p = sicherung_passwort.exportieren(ziel, passwort)
++    except ValueError as e:
++        typer.echo(str(e), err=True)
++        raise typer.Exit(1)
++    typer.echo(f"Sicherung gespeichert: {p}")
++
++
++@app.command("sicherung-import")
++def sicherung_import(datei: Path = typer.Argument(..., help="Sicherung mit Passwort (.taleward)"),
++                     ja: bool = typer.Option(False, "--ja", help="Ohne Rückfrage")):
++    """Sicherung mit Passwort zurückspielen. Vorher den Server beenden! Der jetzige Stand wird vorher gesichert.
++    Rückgabe 2: Passwort falsch oder Datei beschädigt."""
++    from app import sicherung, sicherung_passwort
++
++    passwort = _passwort_lesen()
++    if not ja and not typer.confirm("Den jetzigen Stand ersetzen? (Er wird vorher gesichert.)"):
++        raise typer.Exit(1)
++    try:
++        info, vorher = sicherung_passwort.importieren(datei, passwort)
++    except sicherung_passwort.PasswortFehler as e:
++        typer.echo(str(e), err=True)
++        raise typer.Exit(2)
++    except (sicherung_passwort.FormatFehler, sicherung.SicherungFehler, OSError) as e:
++        typer.echo(str(e), err=True)
++        raise typer.Exit(1)
++    typer.echo(f"Sicherung vom {info.get('erstellt', '?')} mit {info.get('dateien', 0)} Dateien.")
++    if vorher:
++        typer.echo(f"Bisheriger Stand gesichert: {vorher}")
++    run_migrations()
++    typer.echo("Wiederhergestellt. Jetzt den Server starten.")
++
++
+ @app.command("einrichtungscode")
+ def einrichtungscode(neu: bool = typer.Option(False, "--neu", help="Einen neuen Code erzeugen (der alte gilt nicht mehr)")):
+diff --git a/app/sicherung.py b/app/sicherung.py
+index 809c908..197a409 100644
+--- a/app/sicherung.py
++++ b/app/sicherung.py
+@@ -69,11 +69,12 @@ def einstellungen(db) -> dict:
+ 
+ 
+-def erstellen(grund: str = "", zusatz_ordner: str | None = None, tage: int = STANDARD_TAGE) -> Path:
++def erstellen(grund: str = "", zusatz_ordner: str | None = None, tage: int = STANDARD_TAGE,
++              ordner: Path | None = None) -> Path:
+     """Sicherung anlegen. Die Datenbank wird mit der SQLite-Sicherungsfunktion kopiert – konsistent, auch
+-    während der Server läuft."""
++    während der Server läuft. Mit `ordner` nur dort ablegen (ohne Aufräumen und Kopie), etwa zum Verschlüsseln."""
+     from app.routers.auth import API_VERSION
+ 
+     s = get_settings()
+-    ziel_ordner = ablage()
++    ziel_ordner = ordner or ablage()
+     ziel_ordner.mkdir(parents=True, exist_ok=True)
+     jetzt = datetime.now(BERLIN)
+@@ -109,4 +110,6 @@ def erstellen(grund: str = "", zusatz_ordner: str | None = None, tage: int = STA
+         endgueltig = ziel_ordner / name
+         teil.replace(endgueltig)
++    if ordner:
++        return endgueltig
+     if zusatz_ordner:
+         try:
+diff --git a/app/sicherung_passwort.py b/app/sicherung_passwort.py
+new file mode 100644
+index 0000000..49d65d4
+--- /dev/null
++++ b/app/sicherung_passwort.py
+@@ -0,0 +1,148 @@
++"""Sicherung mit Passwort (ab 0.4.100): eine gewöhnliche Sicherung (ZIP), verschlüsselt zum Mitnehmen.
++
++Für Taleward für Windows: „Sicherung speichern“ legt die Datei dort ab, wo der Nutzer sie haben will (USB-Stick,
++Cloud-Ordner) – deshalb immer mit Passwort. Aus dem Passwort wird mit Argon2id ein Schlüssel abgeleitet; der Inhalt
++ist in Blöcken mit AES-256-GCM verschlüsselt. Jeder Block trägt seine Nummer und ein Endkennzeichen in der Nonce, der
++Kopf ist in jedem Block mitgeprüft: Vertauschte, fehlende oder angehängte Blöcke fallen auf.
++
++Aufbau: MAGIE (8) · Salz (16) · Zeitkosten (4) · Speicher in KiB (4) · Parallelität (1) · Nonce-Anfang (7)
++        danach Blöcke: Länge (4) · Geheimtext mit Prüfwert (Länge)
++Nonce je Block: Nonce-Anfang (7) · Blocknummer (4) · 1 beim letzten Block, sonst 0 (1)
++
++Zugänge, die unter Windows geschützt abgelegt sind (siehe app/dpapi.py), lassen sich nur auf demselben PC wieder
++lesen; auf einem anderen PC werden sie nach dem Zurückspielen neu eingetragen.
++"""
++from __future__ import annotations
++
++import os
++import struct
++import tempfile
++from pathlib import Path
++from typing import BinaryIO
++
++MAGIE = b"TWSICH01"
++ENDUNG = ".taleward"
++MINDESTLAENGE = 8
++BLOCK = 1024 * 1024
++_KOPF = struct.Struct(">16sIIB7s")
++_LAENGE = struct.Struct(">I")
++# Standard für einen gewöhnlichen PC: knapp eine Sekunde
++ZEITKOSTEN, SPEICHER_KIB, PARALLEL = 3, 64 * 1024, 2
++# Beim Lesen höchstens das (eine fremde Datei soll den PC nicht lahmlegen)
++_HOECHSTENS = (10, 1024 * 1024, 8)
++
++
++class PasswortFehler(Exception):
++    """Passwort falsch oder Datei beschädigt (lässt sich nicht unterscheiden)."""
++
++
++class FormatFehler(Exception):
++    pass
++
++
++def _schluessel(passwort: str, salz: bytes, zeit: int, speicher: int, parallel: int) -> bytes:
++    from argon2.low_level import Type, hash_secret_raw
++
++    return hash_secret_raw(passwort.encode("utf-8"), salz, time_cost=zeit, memory_cost=speicher,
++                           parallelism=parallel, hash_len=32, type=Type.ID)
++
++
++def _nonce(anfang: bytes, nummer: int, letzter: bool) -> bytes:
++    return anfang + struct.pack(">IB", nummer, 1 if letzter else 0)
++
++
++def verschluesseln(quelle: BinaryIO, ziel: BinaryIO, passwort: str, *, zeit: int | None = None,
++                   speicher: int | None = None, parallel: int | None = None) -> None:
++    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
++
++    zeit, speicher, parallel = zeit or ZEITKOSTEN, speicher or SPEICHER_KIB, parallel or PARALLEL
++    if len(passwort) < MINDESTLAENGE:
++        raise ValueError(f"Das Passwort braucht mindestens {MINDESTLAENGE} Zeichen.")
++    salz, anfang = os.urandom(16), os.urandom(7)
++    kopf = MAGIE + _KOPF.pack(salz, zeit, speicher, parallel, anfang)
++    aes = AESGCM(_schluessel(passwort, salz, zeit, speicher, parallel))
++    ziel.write(kopf)
++    nummer, block = 0, quelle.read(BLOCK)
++    while True:
++        naechster = quelle.read(BLOCK)
++        letzter = not naechster
++        teil = aes.encrypt(_nonce(anfang, nummer, letzter), block, kopf)
++        ziel.write(_LAENGE.pack(len(teil)) + teil)
++        if letzter:
++            return
++        nummer, block = nummer + 1, naechster
++
++
++def entschluesseln(quelle: BinaryIO, ziel: BinaryIO, passwort: str) -> None:
++    from cryptography.exceptions import InvalidTag
++    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
++
++    kopf = quelle.read(len(MAGIE) + _KOPF.size)
++    if len(kopf) < len(MAGIE) + _KOPF.size or not kopf.startswith(MAGIE):
++        raise FormatFehler("Das ist keine Taleward-Sicherung mit Passwort.")
++    salz, zeit, speicher, parallel, anfang = _KOPF.unpack(kopf[len(MAGIE):])
++    if not (1 <= zeit <= _HOECHSTENS[0] and 8 <= speicher <= _HOECHSTENS[1] and 1 <= parallel <= _HOECHSTENS[2]):
++        raise FormatFehler("Die Sicherung hat ungewöhnliche Einstellungen und wird nicht geöffnet.")
++    aes = AESGCM(_schluessel(passwort, salz, zeit, speicher, parallel))
++    nummer = 0
++    while True:
++        roh = quelle.read(_LAENGE.size)
++        if len(roh) < _LAENGE.size:
++            raise PasswortFehler("Die Sicherung ist unvollständig.")
++        (laenge,) = _LAENGE.unpack(roh)
++        if not 16 <= laenge <= BLOCK + 16:
++            raise PasswortFehler("Die Sicherung ist beschädigt.")
++        teil = quelle.read(laenge)
++        if len(teil) < laenge:
++            raise PasswortFehler("Die Sicherung ist unvollständig.")
++        for letzter in (False, True):
++            try:
++                klar = aes.decrypt(_nonce(anfang, nummer, letzter), teil, kopf)
++                break
++            except InvalidTag:
++                continue
++        else:
++            raise PasswortFehler("Das Passwort stimmt nicht, oder die Datei ist beschädigt.")
++        ziel.write(klar)
++        if letzter:
++            if quelle.read(1):
++                raise PasswortFehler("Die Sicherung ist beschädigt.")
++            return
++        nummer += 1
++
++
++def exportieren(ziel: Path, passwort: str) -> Path:
++    """Vollständige Sicherung anlegen und verschlüsselt nach `ziel` schreiben (läuft auch bei laufendem Server)."""
++    from app import sicherung
++
++    if len(passwort) < MINDESTLAENGE:
++        raise ValueError(f"Das Passwort braucht mindestens {MINDESTLAENGE} Zeichen.")
++    ziel = ziel.expanduser()
++    if ziel.suffix.lower() != ENDUNG:
++        ziel = ziel.with_name(ziel.name + ENDUNG)
++    with tempfile.TemporaryDirectory(dir=sicherung.ablage().parent) as tmp:
++        klar = sicherung.erstellen("export", ordner=Path(tmp))
++        teil = ziel.with_name(ziel.name + ".part")
++        try:
++            with open(klar, "rb") as q, open(teil, "wb") as z:
++                verschluesseln(q, z, passwort)
++            teil.replace(ziel)
++        finally:
++            teil.unlink(missing_ok=True)
++    return ziel
++
++
++def importieren(datei: Path, passwort: str) -> tuple[dict, Path | None]:
++    """Nur bei gestopptem Server. Entschlüsselt, prüft und spielt zurück; der jetzige Stand wird vorher gesichert.
++    Liefert (Angaben aus der Sicherung, Pfad der Vorher-Sicherung)."""
++    from app import sicherung
++    from app.config import get_settings
++
++    s = get_settings()
++    s.data_dir.mkdir(parents=True, exist_ok=True)
++    with tempfile.TemporaryDirectory(dir=s.data_dir) as tmp:
++        klar = Path(tmp) / "sicherung.zip"
++        with open(datei.expanduser(), "rb") as q, open(klar, "wb") as z:
++            entschluesseln(q, z, passwort)
++        info = sicherung.pruefen(klar)
++        return info, sicherung.wiederherstellen(klar)
+diff --git a/docs/BETRIEB.md b/docs/BETRIEB.md
+index 3f9ca9e..2357a7e 100644
+--- a/docs/BETRIEB.md
++++ b/docs/BETRIEB.md
+@@ -64,4 +64,11 @@ Windows-Programm, das Server, Worker und App zusammen startet). Dann gilt:
+   sichert mit `chronik sicherung` und spielt bei einem Fehlschlag mit `chronik wiederherstellen` zurück.
+ - `EINZELPLATZ_STOPP_DATEI`: Legt das Programm diese Datei an, fährt der Server geordnet herunter.
++- Unter Windows legt der Server Geheimnisse mit dem Windows-Datenschutz (DPAPI) ab: das Anmelde-Geheimnis
++  (`geheimnis.txt`) und die Zugänge in der Datenbank (Cloud, Hugging Face, Benachrichtigungen, Anmeldedienste); mit
++  `EINZELPLATZ_WORKER_GESCHUETZT=true` auch den Worker-Schlüssel. Lesen kann sie nur derselbe Windows-Nutzer auf
++  demselben PC; auf einem anderen PC gelten sie als nicht eingetragen.
++- Sicherung zum Mitnehmen: `chronik sicherung-export ZIEL` legt eine vollständige Sicherung an und verschlüsselt sie
++  mit einem Passwort (Argon2id, AES-256-GCM); `chronik sicherung-import DATEI --ja` spielt sie bei gestopptem Server
++  zurück (Rückgabe 2: Passwort falsch oder Datei beschädigt). Das Passwort kommt über die Standardeingabe.
+ - Der Server belegt seinen Anschluss unter Windows exklusiv (kein anderes Programm kann sich davorschalten). Die
+   Beschreibung der Schnittstelle (`/api/v1/docs`) gibt es in dieser Betriebsart nicht.
+diff --git a/engine-requirements.txt b/engine-requirements.txt
+index 4765c3f..6ef4ccf 100644
+--- a/engine-requirements.txt
++++ b/engine-requirements.txt
+@@ -127,4 +127,6 @@ idna==3.20
+     #   requests
+     #   yarl
++imageio-ffmpeg==0.6.0
++    # via taleward-server
+ jinja2==3.1.6
+     # via
+diff --git a/pyproject.toml b/pyproject.toml
+index 06a767b..298e061 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.99"
++version = "0.4.100"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+@@ -29,4 +29,5 @@ ki = [
+     "whisperx==3.8.6",
+     "truststore>=0.10",  # Zertifikate aus dem Windows-/macOS-Speicher (Virenscanner, Firmen-Proxy)
++    "imageio-ffmpeg==0.6.0",  # ffmpeg für die Worker-App (bisher ohne feste Fassung nachinstalliert)
+ ]
+ 
+diff --git a/tests/test_abrechnung_0485.py b/tests/test_abrechnung_0485.py
+index 89e52e6..c23d10a 100644
+--- a/tests/test_abrechnung_0485.py
++++ b/tests/test_abrechnung_0485.py
+@@ -3,5 +3,4 @@ import io
+ import re
+ import threading
+-import time
+ 
+ import pytest
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index 34e18a2..58439e1 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -154,5 +154,5 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.99"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.100"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index 46cec38..d8bda74 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -135,5 +135,5 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.99"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.100"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index 9345d9f..c34bff7 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -84,5 +84,5 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.99"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.100"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+diff --git a/tests/test_sicherung_passwort.py b/tests/test_sicherung_passwort.py
+new file mode 100644
+index 0000000..52b2ab7
+--- /dev/null
++++ b/tests/test_sicherung_passwort.py
+@@ -0,0 +1,121 @@
++"""Server 0.4.100: Sicherung mit Passwort zum Mitnehmen (Argon2id, AES-256-GCM in Blöcken)."""
++import io
++
++import pytest
++
++
++# ---------------------------------------------------------------- Sicherung mit Passwort
++_SCHNELL = {"zeit": 1, "speicher": 8, "parallel": 1}
++
++
++def _verschluesselt(daten: bytes, passwort: str = "richtig-123") -> bytes:
++    from app.sicherung_passwort import verschluesseln
++
++    aus = io.BytesIO()
++    verschluesseln(io.BytesIO(daten), aus, passwort, **_SCHNELL)
++    return aus.getvalue()
++
++
++def _entschluesselt(daten: bytes, passwort: str = "richtig-123") -> bytes:
++    from app.sicherung_passwort import entschluesseln
++
++    aus = io.BytesIO()
++    entschluesseln(io.BytesIO(daten), aus, passwort)
++    return aus.getvalue()
++
++
++@pytest.mark.parametrize("groesse", [0, 1, 1024 * 1024, 1024 * 1024 + 5, 3 * 1024 * 1024])
++def test_hin_und_zurueck(groesse):
++    import os
++
++    daten = os.urandom(groesse)
++    v = _verschluesselt(daten)
++    assert daten[:64] not in v or groesse == 0
++    assert _entschluesselt(v) == daten
++
++
++def test_falsches_passwort_und_manipulation():
++    import struct
++
++    from app.sicherung_passwort import BLOCK, MAGIE, FormatFehler, PasswortFehler, _KOPF
++
++    daten = bytes(range(256)) * (BLOCK // 256) * 2 + b"rest"  # drei Blöcke
++    v = _verschluesselt(daten)
++    with pytest.raises(PasswortFehler):
++        _entschluesselt(v, "falsch-123")
++    kopf = len(MAGIE) + _KOPF.size
++    bloecke, pos = [], kopf
++    while pos < len(v):
++        (n,) = struct.unpack(">I", v[pos:pos + 4])
++        bloecke.append(v[pos:pos + 4 + n])
++        pos += 4 + n
++    assert len(bloecke) == 3
++    for kaputt in (
++        v[:kopf] + bloecke[0] + bloecke[1],  # letzter Block fehlt
++        v[:kopf] + bloecke[0] + bloecke[2],  # mittlerer Block fehlt
++        v[:kopf] + bloecke[1] + bloecke[0] + bloecke[2],  # vertauscht
++        v + b"x",  # angehängt
++        v[:kopf] + bloecke[0] + bloecke[1] + bloecke[2][:-1],  # abgeschnitten
++        v[:-1] + bytes([v[-1] ^ 1]),  # ein Bit verändert
++        v[:len(MAGIE)] + bytes([v[len(MAGIE)] ^ 1]) + v[len(MAGIE) + 1:],  # Salz verändert
++    ):
++        with pytest.raises(PasswortFehler):
++            _entschluesselt(kaputt)
++    with pytest.raises(FormatFehler):
++        _entschluesselt(b"PK\x03\x04" + v[4:])
++    zu_teuer = v[:len(MAGIE) + 16] + struct.pack(">I", 1000) + v[len(MAGIE) + 20:]
++    with pytest.raises(FormatFehler):
++        _entschluesselt(zu_teuer)
++
++
++def test_kurzes_passwort_abgelehnt(tmp_path):
++    from app.sicherung_passwort import exportieren, verschluesseln
++
++    with pytest.raises(ValueError):
++        verschluesseln(io.BytesIO(b"x"), io.BytesIO(), "kurz")
++    with pytest.raises(ValueError):
++        exportieren(tmp_path / "s.taleward", "1234567")
++
++
++def test_standard_ist_angemessen_teuer():
++    from app import sicherung_passwort as sp
++
++    assert sp.SPEICHER_KIB >= 64 * 1024 and sp.ZEITKOSTEN >= 3
++
++
++def test_export_und_import_ueber_die_kommandozeile(client, world, dbs, tmp_path, monkeypatch):
++    from typer.testing import CliRunner
++
++    from app import sicherung, sicherung_passwort
++    from app.cli import app
++    from app.models import Campaign
++
++    monkeypatch.setattr(sicherung_passwort, "ZEITKOSTEN", 1)
++    monkeypatch.setattr(sicherung_passwort, "SPEICHER_KIB", 8)
++    monkeypatch.setattr(sicherung_passwort, "PARALLEL", 1)
++    dbs.add(Campaign(title="Die Mühle am Nebelbach"))
++    dbs.commit()
++    ziel = tmp_path / "stick" / "meine-runden"
++    ziel.parent.mkdir()
++    r = CliRunner().invoke(app, ["sicherung-export", str(ziel)], input="richtig-123\n")
++    assert r.exit_code == 0, r.output
++    datei = ziel.with_name("meine-runden.taleward")
++    assert f"Sicherung gespeichert: {datei}" in r.output and datei.is_file()
++    assert not list(datei.parent.glob("*.part")) and not any("export" in e.name for e in sicherung.liste())
++    assert b"chronik.db" not in datei.read_bytes()  # nichts im Klartext
++
++    dbs.query(Campaign).filter(Campaign.title == "Die Mühle am Nebelbach").delete()
++    dbs.commit()
++    dbs.close()
++    r = CliRunner().invoke(app, ["sicherung-import", str(datei), "--ja"], input="falsch-123\n")
++    assert r.exit_code == 2 and "Passwort" in r.output
++    r = CliRunner().invoke(app, ["sicherung-import", str(tmp_path / "gibt-es-nicht.taleward"), "--ja"],
++                           input="richtig-123\n")
++    assert r.exit_code == 1
++    r = CliRunner().invoke(app, ["sicherung-import", str(datei), "--ja"], input="richtig-123\n")
++    assert r.exit_code == 0, r.output
++    assert "Bisheriger Stand gesichert" in r.output and "Wiederhergestellt" in r.output
++    from app.db import session_factory
++
++    with session_factory()() as neu:
++        assert neu.query(Campaign).filter(Campaign.title == "Die Mühle am Nebelbach").count() == 1
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index c0d54b4..f4fd8d4 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -113,5 +113,5 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.99"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.100"
+ 
+ 
+diff --git a/uv.lock b/uv.lock
+index 097c48c..1c8023b 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -672,4 +672,18 @@ wheels = [
+ ]
+ 
++[[package]]
++name = "imageio-ffmpeg"
++version = "0.6.0"
++source = { registry = "https://pypi.org/simple" }
++sdist = { url = "https://files.pythonhosted.org/packages/44/bd/c3343c721f2a1b0c9fc71c1aebf1966a3b7f08c2eea8ed5437a2865611d6/imageio_ffmpeg-0.6.0.tar.gz", hash = "sha256:e2556bed8e005564a9f925bb7afa4002d82770d6b08825078b7697ab88ba1755", size = 25210, upload-time = "2025-01-16T21:34:32.747Z" }
++wheels = [
++    { url = "https://files.pythonhosted.org/packages/da/58/87ef68ac83f4c7690961bce288fd8e382bc5f1513860fc7f90a9c1c1c6bf/imageio_ffmpeg-0.6.0-py3-none-macosx_10_9_intel.macosx_10_9_x86_64.whl", hash = "sha256:9d2baaf867088508d4a3458e61eeb30e945c4ad8016025545f66c4b5aaef0a61", size = 24932969, upload-time = "2025-01-16T21:34:20.464Z" },
++    { url = "https://files.pythonhosted.org/packages/40/5c/f3d8a657d362cc93b81aab8feda487317da5b5d31c0e1fdfd5e986e55d17/imageio_ffmpeg-0.6.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:b1ae3173414b5fc5f538a726c4e48ea97edc0d2cdc11f103afee655c463fa742", size = 21113891, upload-time = "2025-01-16T21:34:00.277Z" },
++    { url = "https://files.pythonhosted.org/packages/33/e7/1925bfbc563c39c1d2e82501d8372734a5c725e53ac3b31b4c2d081e895b/imageio_ffmpeg-0.6.0-py3-none-manylinux2014_aarch64.whl", hash = "sha256:1d47bebd83d2c5fc770720d211855f208af8a596c82d17730aa51e815cdee6dc", size = 25632706, upload-time = "2025-01-16T21:33:53.475Z" },
++    { url = "https://files.pythonhosted.org/packages/a0/2d/43c8522a2038e9d0e7dbdf3a61195ecc31ca576fb1527a528c877e87d973/imageio_ffmpeg-0.6.0-py3-none-manylinux2014_x86_64.whl", hash = "sha256:c7e46fcec401dd990405049d2e2f475e2b397779df2519b544b8aab515195282", size = 29498237, upload-time = "2025-01-16T21:34:13.726Z" },
++    { url = "https://files.pythonhosted.org/packages/a0/13/59da54728351883c3c1d9fca1710ab8eee82c7beba585df8f25ca925f08f/imageio_ffmpeg-0.6.0-py3-none-win32.whl", hash = "sha256:196faa79366b4a82f95c0f4053191d2013f4714a715780f0ad2a68ff37483cc2", size = 19652251, upload-time = "2025-01-16T21:34:06.812Z" },
++    { url = "https://files.pythonhosted.org/packages/2c/c6/fa760e12a2483469e2bf5058c5faff664acf66cadb4df2ad6205b016a73d/imageio_ffmpeg-0.6.0-py3-none-win_amd64.whl", hash = "sha256:02fa47c83703c37df6bfe4896aab339013f62bf02c5ebf2dce6da56af04ffc0a", size = 31246824, upload-time = "2025-01-16T21:34:28.6Z" },
++]
++
+ [[package]]
+ name = "iniconfig"
+@@ -1987,5 +2001,5 @@ wheels = [
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.99"
++version = "0.4.100"
+ source = { editable = "." }
+ dependencies = [
+@@ -2009,4 +2023,5 @@ dependencies = [
+ [package.optional-dependencies]
+ ki = [
++    { name = "imageio-ffmpeg" },
+     { name = "truststore" },
+     { name = "whisperx" },
+@@ -2028,4 +2043,5 @@ requires-dist = [
+     { name = "fastapi", specifier = ">=0.115" },
+     { name = "httpx", specifier = ">=0.27" },
++    { name = "imageio-ffmpeg", marker = "extra == 'ki'", specifier = "==0.6.0" },
+     { name = "jinja2", specifier = ">=3.1" },
+     { name = "pillow", specifier = ">=11" },
+-- 
+2.43.0
+
