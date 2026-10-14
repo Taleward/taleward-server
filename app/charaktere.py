@@ -298,6 +298,8 @@ def chronik(db: Session, me: Member, request) -> dict:
     for s in sitzungen:
         recap = None
         r = db.get(Recap, s.id) if s.id in da else None
+        if r is not None and bis is not None and r.edited_at is not None and r.edited_at > bis:
+            r = None  # S21.4: Ehemalige sehen den Stand bis zum Austritt – später Bearbeitetes nicht
         if r is not None:
             recap = {"title": r.title, "text": r.text, "openThreads": json.loads(r.open_threads or "[]"),
                      "publishedAt": _z(s.published_at)}

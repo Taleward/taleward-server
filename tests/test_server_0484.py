@@ -402,11 +402,12 @@ def test_zweiter_faktor_aus_per_befehl(client, dbs, admin):  # noqa: F811
 # ---------------------------------------------------------------- Lokaler Worker: Stoppdatei (Windows)
 def test_worker_achtet_auf_stoppdatei(tmp_path):
     datei = tmp_path / "stop"
-    code = ("import time\nfrom app.cli import _auf_stoppdatei_achten\n_auf_stoppdatei_achten()\n"
-            "try:\n    time.sleep(30)\nexcept KeyboardInterrupt:\n    print('angehalten', flush=True)\n")
+    code = ("import time\nfrom app.cli import _auf_stoppdatei_achten\n"
+            "try:\n    _auf_stoppdatei_achten()\n    print('bereit', flush=True)\n    time.sleep(30)\n"
+            "except KeyboardInterrupt:\n    print('angehalten', flush=True)\n")
     p = subprocess.Popen([sys.executable, "-c", code], env={**os.environ, "WORKER_STOP_DATEI": str(datei)},
                          stdout=subprocess.PIPE, text=True, cwd=os.getcwd())
-    time.sleep(2)
+    assert p.stdout.readline().strip() == "bereit"  # erst dann die Datei – das Laden kann unter Last dauern
     datei.touch()
     out, _ = p.communicate(timeout=20)
     assert "angehalten" in out
