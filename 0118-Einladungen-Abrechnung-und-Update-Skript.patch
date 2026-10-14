@@ -1,0 +1,327 @@
+From 891095fecb1265ff13f82046f9e9ab41c022f16f Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 06:20:43 +0200
+Subject: [PATCH 118/119] Einladungen, Abrechnung und Update-Skript
+
+Einladungscodes mit 12 Ziffern (alte gelten weiter). Abrechnung: Laenge der Aufnahme pruefen, Mindestbetrag fuer abgebrochene Cloud-Auftraege, nur einmal buchen, Token-Preise mit zweitem Faktor. Wortkorrektur zaehlt als Bearbeitung. Statusdatei des Update-Skripts.
+---
+ app/abrechnung.py              | 31 +++++++++++++++++++++---
+ app/audio.py                   | 29 +++++++++++++++++++++--
+ app/extern.py                  | 43 ++++++++++++++++++++++++++--------
+ app/routers/worker.py          |  3 +++
+ app/services.py                |  4 ++--
+ app/unsicher.py                |  5 ++++
+ app/verwaltung/guthaben.py     |  6 +++++
+ app/verwaltung/router.py       |  9 +++++++
+ deploy/aktualisieren.sh        | 15 ++++++++----
+ tests/test_eingaben_pruefen.py |  2 +-
+ 10 files changed, 124 insertions(+), 23 deletions(-)
+
+diff --git a/app/abrechnung.py b/app/abrechnung.py
+index c8dd45d..88549a4 100644
+--- a/app/abrechnung.py
++++ b/app/abrechnung.py
+@@ -28,7 +28,8 @@ from dataclasses import asdict, dataclass, fields
+ from datetime import datetime
+ 
+-from sqlalchemy import func, select
++from sqlalchemy import func, select, update
+ from sqlalchemy.exc import IntegrityError
+ from sqlalchemy.orm import Session
++from sqlalchemy.orm.attributes import set_committed_value
+ 
+ from app.db import utcnow
+@@ -271,4 +272,13 @@ def aufnahme_sekunden(db: Session, session_id: str | None) -> int:
+ 
+ 
++def menge_nachtragen(db: Session, job: Job, sekunden: float | None) -> None:
++    """Transkription fertig: Ist die tatsächlich verarbeitete Audiolänge größer als beim Start gemessen (z. B. ein
++    präparierter Datei-Kopf), zählt die größere – nie weniger als gemessen (0.4.89, M2)."""
++    k = db.get(KostenAuftrag, job.id)
++    if k is None or k.zustand != "laeuft" or k.art != "transcribe" or not sekunden or sekunden <= 0:
++        return
++    k.menge = max(k.menge or 0, int(math.ceil(min(float(sekunden), 24 * 3600))))
++
++
+ def menge(db: Session, job: Job) -> int:
+     if job.type in ("transcribe", "summarize"):
+@@ -421,12 +431,27 @@ def abrechnen(db: Session, k: KostenAuftrag, _schreiben: bool = True) -> int:
+     Kampagne weg) – kostet den vollen Betrag; die Arbeit ist dann getan bzw. begonnen (N1)."""
+     job = db.get(Job, k.job_id)
++    # 0.4.89 (L1): „superseded“ (neu transkribiert, abgelöst) ist kein Scheitern – die Arbeit war begonnen
++    gescheitert = job is not None and job.state == "failed" and job.error_code != "superseded"
+     if k.weg == "worker":
+-        betrag = 0 if job is not None and job.state == "failed" else betrag_fuer(db, k.art, "worker", k.menge)
++        betrag = 0 if gescheitert else betrag_fuer(db, k.art, "worker", k.menge)
+     else:  # Cloud: tatsächliche Kosten (auch bei Fehlschlag, soweit angefallen); Testmodus kostet nichts
+         betrag = _mit_aufschlag(db, _cloud_kosten(db, k, job))
++        if betrag == 0 and (job is None or job.state == "failed"):
++            # 0.4.89 (M1): gelöscht, abgelöst oder gescheitert, ehe ein Verbrauch protokolliert war – mindestens die
++            # Schätzung vom Start (der Anbieter hat ggf. schon gerechnet)
++            betrag = max(0, k.schaetzung_cent or 0)
++    jetzt = utcnow()
++    # 0.4.89 (L2): nur einmal buchen – auch wenn zwei Prozesse denselben Kostenauftrag zugleich abrechnen
++    res = db.execute(update(KostenAuftrag).where(KostenAuftrag.job_id == k.job_id, KostenAuftrag.zustand == "laeuft")
++                     .values(zustand="abgerechnet", betrag_cent=betrag, abgerechnet_at=jetzt)
++                     .execution_options(synchronize_session=False))
++    for feld, wert in (("zustand", "abgerechnet"), ("betrag_cent", betrag if res.rowcount == 1 else k.betrag_cent),
++                       ("abgerechnet_at", jetzt if res.rowcount == 1 else k.abgerechnet_at)):
++        set_committed_value(k, feld, wert)
++    if res.rowcount != 1:
++        return 0
+     g = db.get(Guthaben, k.guthaben_id)
+     if betrag > 0:
+         buchen(db, g, "verbrauch", -betrag, job_id=k.job_id, _schreiben=_schreiben)
+-    k.zustand, k.betrag_cent, k.abgerechnet_at = "abgerechnet", betrag, utcnow()
+     return betrag
+ 
+diff --git a/app/audio.py b/app/audio.py
+index efc5d2f..49d4000 100644
+--- a/app/audio.py
++++ b/app/audio.py
+@@ -91,6 +91,12 @@ def dauer(wav: Path) -> float:
+ 
+ 
++# Mehr Bytes je Sekunde hat keine übliche Aufnahme (48 kHz, Stereo, 16 bit ≈ 192 kB/s). Meldet der Kopf einer Datei
++# eine Länge, die dazu nicht passt, wird sie durch Dekodieren gemessen (0.4.89, M2: präparierter Kopf).
++PLAUSIBEL_BYTES_JE_S = 200_000
++
++
+ def dauer_datei(datei: Path) -> float | None:
+-    """Länge einer hochgeladenen Audiodatei laut ffprobe (Sekunden), ohne sie zu dekodieren. None = nicht messbar."""
++    """Länge einer hochgeladenen Audiodatei in Sekunden. Zuerst laut Kopf (ffprobe, schnell); passt die Länge nicht
++    zur Dateigröße, durch Dekodieren gemessen. None = nicht messbar."""
+     programm = shutil.which("ffprobe")
+     if not programm:
+@@ -103,6 +109,25 @@ def dauer_datei(datei: Path) -> float | None:
+         wert = float(res.stdout.decode(errors="replace").strip())
+     except (subprocess.TimeoutExpired, ValueError, OSError):
++        wert = 0.0
++    try:
++        groesse = datei.stat().st_size
++    except OSError:
++        groesse = 0
++    if wert <= 0 or groesse / wert > PLAUSIBEL_BYTES_JE_S:
++        gemessen = dauer_dekodiert(datei)
++        return gemessen if gemessen else (wert if wert > 0 else None)
++    return wert
++
++
++def dauer_dekodiert(datei: Path) -> float | None:
++    """Länge durch Dekodieren der ersten Tonspur (ohne Ausgabe). Langsamer, aber unabhängig von den Angaben im Kopf."""
++    try:
++        res = ffmpeg(["-hide_banner", "-loglevel", "error", *EINGABE, "-i", str(datei), "-map", "0:a:0", "-f", "null",
++                      "-progress", "pipe:1", "-"], 900)
++    except (AudioFehler, OSError):
+         return None
+-    return wert if wert > 0 else None
++    zeiten = [int(z.split("=", 1)[1]) for z in res.stdout.decode(errors="replace").splitlines()
++              if z.startswith("out_time_us=") and z.split("=", 1)[1].strip().isdigit()]
++    return max(zeiten) / 1_000_000 if zeiten and max(zeiten) > 0 else None
+ 
+ 
+diff --git a/app/extern.py b/app/extern.py
+index 4347cfd..29430a8 100644
+--- a/app/extern.py
++++ b/app/extern.py
+@@ -33,5 +33,5 @@ from app.audio import AudioFehler
+ from app.config import get_settings
+ from app.db import utcnow
+-from app.models import Campaign, GameSession, Job, Upload, Worker
++from app.models import Campaign, GameSession, Job, Upload, UsageLog, Worker
+ 
+ log = logging.getLogger("extern")
+@@ -149,5 +149,4 @@ def _segmente(antwort: dict, versatz: float, label) -> list[dict]:
+ def verarbeiten(db: Session, job: Job, klient: MistralKlient | None = None) -> None:
+     """Einen reservierten Auftrag extern transkribieren und wie ein Worker-Ergebnis übernehmen."""
+-    from app import queue
+     from app.namenshilfe import fuer_kampagne
+     from app.routers.worker import ResultIn, ergebnis_uebernehmen
+@@ -161,7 +160,9 @@ def verarbeiten(db: Session, job: Job, klient: MistralKlient | None = None) -> N
+     arbeit = Path(tempfile.mkdtemp(prefix="extern-", dir=str(storage.uploads_root().parent)))
+     t0 = time.monotonic()
++    job_id, campaign_id, session_id = job.id, sitzung.campaign_id, sitzung.id
++    abgerechnet = 0.0
+     try:
+         dateien = _dateien_zusammensetzen(up, arbeit)
+-        segmente, stimmen, gesamt, abgerechnet = [], [], 0.0, 0.0
++        segmente, stimmen, gesamt = [], [], 0.0
+         if up.source == "discord":
+             for nr, (f, pfad) in enumerate(dateien):
+@@ -195,7 +196,11 @@ def verarbeiten(db: Session, job: Job, klient: MistralKlient | None = None) -> N
+                                         "model": f"mistral/{klient.modell}", "segments": segmente,
+                                         "speakers": stimmen})
+-        db.refresh(job)
+-        if job.state != "leased" or job.lease_worker_id != HALTER:
+-            return  # inzwischen anders erledigt
++        db.expire_all()
++        job = db.get(Job, job_id)
++        if job is None or job.state != "leased" or job.lease_worker_id != HALTER:
++            # inzwischen anders erledigt oder die Runde ist gelöscht – der Verbrauch beim Anbieter bleibt festgehalten
++            _verbrauch_festhalten(db, campaign_id, session_id, abgerechnet, k)
++            db.commit()
++            return
+         ergebnis_uebernehmen(db, job, body, engine="external", worker_id=None,
+                              kosten_cent=math.ceil(minuten * k.cent_pro_minute))
+@@ -203,15 +208,33 @@ def verarbeiten(db: Session, job: Job, klient: MistralKlient | None = None) -> N
+     except AudioFehler as e:
+         db.rollback()
+-        queue.fail_job(db, db.get(Job, job.id), e.code, str(e), e.retryable)
+-        db.commit()
++        _gescheitert(db, job_id, campaign_id, session_id, abgerechnet, k, e.code, str(e), e.retryable)
+     except Exception as e:  # Netz weg, unerwartete Antwort …
+         db.rollback()
+         log.exception("Externe Transkription fehlgeschlagen")
+-        queue.fail_job(db, db.get(Job, job.id), "external_error", f"{type(e).__name__}: {e}"[:300], True)
+-        db.commit()
++        _gescheitert(db, job_id, campaign_id, session_id, abgerechnet, k, "external_error",
++                     f"{type(e).__name__}: {e}"[:300], True)
+     finally:
+         shutil.rmtree(arbeit, ignore_errors=True)
+ 
+ 
++def _verbrauch_festhalten(db: Session, campaign_id: str, session_id: str, sekunden: float, k) -> None:
++    """Was der Anbieter bis hierhin abgerechnet hat, auch ohne Ergebnis protokollieren (0.4.89, M1) – die Abrechnung
++    findet es über die Runde, auch wenn es sie nicht mehr gibt."""
++    if sekunden > 0:
++        db.add(UsageLog(campaign_id=campaign_id, session_id=session_id, kind="transcription", engine="external",
++                        audio_seconds=round(sekunden, 1), cost_cents=math.ceil(sekunden / 60 * k.cent_pro_minute)))
++
++
++def _gescheitert(db: Session, job_id: str, campaign_id: str, session_id: str, sekunden: float, k, code: str,
++                 meldung: str, erneut: bool) -> None:
++    from app import queue
++
++    _verbrauch_festhalten(db, campaign_id, session_id, sekunden, k)
++    job = db.get(Job, job_id)
++    if job is not None:
++        queue.fail_job(db, job, code, meldung, erneut)
++    db.commit()
++
++
+ def einen_auftrag(db: Session, klient: MistralKlient | None = None) -> bool:
+     """Ältesten fälligen Auftrag reservieren und extern bearbeiten. True, wenn einer bearbeitet wurde."""
+diff --git a/app/routers/worker.py b/app/routers/worker.py
+index 82d3864..b1e2dbf 100644
+--- a/app/routers/worker.py
++++ b/app/routers/worker.py
+@@ -327,4 +327,7 @@ def ergebnis_uebernehmen(db: Session, job: Job, body: ResultIn, engine: str, wor
+     up = db.get(Upload, job.upload_id)
+     discord = up.source == "discord"
++    from app import abrechnung
++
++    abrechnung.menge_nachtragen(db, job, body.audio_seconds)  # 0.4.89 (M2): mindestens die tatsächliche Audiolänge
+     if s.nachtranskription:
+         return _nachtranskription_uebernehmen(db, s, job, body, engine, worker_id, kosten_cent, discord)
+diff --git a/app/services.py b/app/services.py
+index dd36170..a09e5c5 100644
+--- a/app/services.py
++++ b/app/services.py
+@@ -232,6 +232,6 @@ _WORDS = [
+ def new_invite_code(db: Session) -> str:
+     for _ in range(50):
+-        # Wort + 8 Ziffern (≈ 31 Bit); passt zum bisherigen Muster „WORT-Ziffern“ der App
+-        code = f"{secrets.choice(_WORDS)}-{secrets.randbelow(10**8):08d}"
++        # Wort + 12 Ziffern (≈ 44 Bit, S29); passt zum Muster „WORT-Ziffern“ der App, alte 8-stellige gelten bis zum Ablauf
++        code = f"{secrets.choice(_WORDS)}-{secrets.randbelow(10**12):012d}"
+         if db.get(Invite, code) is None:
+             return code
+diff --git a/app/unsicher.py b/app/unsicher.py
+index e4bd5dd..abff64f 100644
+--- a/app/unsicher.py
++++ b/app/unsicher.py
+@@ -189,8 +189,13 @@ def ersetzen(db: Session, s: GameSession, paare: list[tuple[str, str]]) -> None:
+     r = db.get(Recap, s.id)
+     if r is not None:
++        vorher = (r.title, r.text, r.open_threads)
+         r.title = _ersetzen(r.title, ersetzungen)[:300]
+         r.text = _ersetzen(r.text, ersetzungen)
+         r.open_threads = json.dumps([_ersetzen(f, ersetzungen) for f in json.loads(r.open_threads or "[]")],
+                                     ensure_ascii=False)
++        if (r.title, r.text, r.open_threads) != vorher:
++            from app.db import utcnow
++
++            r.edited_at = utcnow()  # S21.4: auch Wort-Korrekturen zählen als Bearbeitung (Chronik Ehemaliger)
+         pruefung = pruefteil.lesen(r.review)
+         for p in pruefung.get("paragraphs") or []:
+diff --git a/app/verwaltung/guthaben.py b/app/verwaltung/guthaben.py
+index 440680f..cc7f78f 100644
+--- a/app/verwaltung/guthaben.py
++++ b/app/verwaltung/guthaben.py
+@@ -75,4 +75,10 @@ def _person(request: Request, db: Session) -> User | None:
+     if user is None or user.token_version != daten.get("tv") or user.setup_account:
+         return None
++    from app.einstellungen import meta_lesen
++
++    # 0.4.89: Wer den zweiten Faktor einschaltet (bzw. sich überall abmeldet), beendet auch Sitzungen hier
++    abgemeldet = meta_lesen(db, f"verwaltung.abgemeldet.{user.id}")
++    if abgemeldet and abgemeldet.isdigit() and int(daten.get("iat") or 0) < int(abgemeldet):
++        return None
+     request.state.csrf = _csrf(wert)
+     return user
+diff --git a/app/verwaltung/router.py b/app/verwaltung/router.py
+index def3a42..e3e5cb9 100644
+--- a/app/verwaltung/router.py
++++ b/app/verwaltung/router.py
+@@ -1146,4 +1146,13 @@ def zusammenfassung_speichern(request: Request, art: str = Form("aus"), anbieter
+     if bool(preise[0]) != bool(preise[1]):
+         return fehler(_("Bitte beide Preise angeben oder beide leer lassen."))
++    from app import abrechnung
++    from app.verwaltung import zweiter_faktor
++
++    bisher = (meta_lesen(db, "llm.cent_ein") or "", meta_lesen(db, "llm.cent_aus") or "")
++    if abrechnung.an(db) and (preise[0], preise[1]) != bisher and not zweiter_faktor.aktiv(db, user.id):
++        # 0.4.89 (N3-Rest): Token-Preise fließen in die Abrechnung – ändern wie dort nur mit zweitem Faktor
++        antwort = fehler(_("Das geht nur mit eingeschaltetem zweiten Faktor (Anmeldung → Dein zweiter Faktor)."))
++        antwort.status_code = 403
++        return antwort
+     key = api_key.strip()
+     if key and (len(key) < 16 or len(key) > 300 or any(c.isspace() for c in key)):
+diff --git a/deploy/aktualisieren.sh b/deploy/aktualisieren.sh
+index a561821..80ce0c7 100755
+--- a/deploy/aktualisieren.sh
++++ b/deploy/aktualisieren.sh
+@@ -88,6 +88,11 @@ als_container() {  # Befehl mit den Rechten des Containers (uid 1000) ausführen
+ # Der Ordner gehört dem Container. Was root dort ändert, könnte ein Verweis woandershin lenken (zwischen Prüfen und
+ # Schreiben, S21.5) – darum schreibt und löscht dort der Benutzer des Containers.
++ordner_ohne_container() {  # root darf dort nur schreiben, wo der Container nichts anlegen kann (Ordner gehört root)
++  [ -d "$ORDNER" ] && [ ! -L "$ORDNER" ] \
++    && { ! command -v setpriv >/dev/null 2>&1 || [ "$(stat -c %u "$ORDNER" 2>/dev/null)" = 0 ]; }
++}
++
+ als_container rm -f "$ORDNER/server-jetzt" 2>/dev/null \
+-  || { [ -d "$ORDNER" ] && [ ! -L "$ORDNER" ] && rm -f "$ORDNER/server-jetzt"; }
++  || { ordner_ohne_container && rm -f "$ORDNER/server-jetzt"; } || true
+ 
+ melden() {  # ergebnis, von, nach, meldung
+@@ -96,12 +101,12 @@ melden() {  # ergebnis, von, nach, meldung
+     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$3" "${4//\"/\'}")
+   # shellcheck disable=SC2016  # $1 wird erst in der inneren Shell ausgewertet
+-  if ! printf '%s\n' "$inhalt" | als_container sh -c 'umask 022; cat > "$1.neu" && mv -f "$1.neu" "$1"' _ "$STATUS" \
+-      2>/dev/null; then
+-    # Ohne setpriv (sehr alte Systeme): wie bisher über eine Datei im Ordner von root
++  if ! printf '%s\n' "$inhalt" | als_container sh -c 'umask 022; cat > "$1.neu" && mv -fT "$1.neu" "$1"' _ "$STATUS" \
++      2>/dev/null && ordner_ohne_container; then
++    # Als root nur ohne setpriv (sehr alte Systeme) oder wenn der Ordner root gehört – sonst bleibt die Statusdatei alt
+     tmp=$(mktemp "$ZIEL/.server-status.XXXXXX") || return 0
+     printf '%s\n' "$inhalt" > "$tmp"
+     chmod 644 "$tmp"
+     chown 1000:1000 "$tmp" 2>/dev/null || true
+-    if [ -d "$ORDNER" ] && [ ! -L "$ORDNER" ]; then mv -f "$tmp" "$STATUS"; else rm -f "$tmp"; fi
++    if [ -d "$ORDNER" ] && [ ! -L "$ORDNER" ]; then mv -fT "$tmp" "$STATUS"; else rm -f "$tmp"; fi
+   fi
+   echo "[taleward] $1: $2 → $3 $4"
+diff --git a/tests/test_eingaben_pruefen.py b/tests/test_eingaben_pruefen.py
+index 6d37e80..c80856e 100644
+--- a/tests/test_eingaben_pruefen.py
++++ b/tests/test_eingaben_pruefen.py
+@@ -195,5 +195,5 @@ def test_einladungscode_lang_genug(client, world):
+     w = world
+     code = client.post(f"{API}/campaigns/{w['cid']}/invites", headers=w["gm"]).json()["code"]
+-    assert re.fullmatch(r"[A-Z]+-\d{8}", code)
++    assert re.fullmatch(r"[A-Z]+-\d{12}", code)  # S29 (0.4.89)
+ 
+ 
+-- 
+2.43.0
