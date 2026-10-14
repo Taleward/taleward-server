@@ -189,11 +189,11 @@ def schluessel_datei_schreiben(db: Session, datei: Path) -> Path:
     db.commit()
     datei.parent.mkdir(parents=True, exist_ok=True)
     neu = datei.with_suffix(".neu")
-    alt_umask = os.umask(0o077)
-    try:
-        neu.write_text(f"wk.{w.id}.{geheim}\n", encoding="utf-8", newline="\n")
-    finally:
-        os.umask(alt_umask)
+    # Frisch anlegen: nur für den Nutzer lesbar, nie durch einen dort liegenden Verweis hindurch (O_EXCL)
+    neu.unlink(missing_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    with os.fdopen(os.open(neu, flags, 0o600), "w", encoding="utf-8", newline="\n") as f:
+        f.write(f"wk.{w.id}.{geheim}\n")
     for versuch in range(20):  # unter Windows kann der Leser die Datei gerade offen haben
         try:
             os.replace(neu, datei)  # nie halb geschrieben lesen

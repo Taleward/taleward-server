@@ -1100,8 +1100,29 @@ def einzelplatz(port: int = typer.Option(8000)):
     get_settings.cache_clear()
     # Proxy-Kopfzeilen nie auswerten: die echte Absenderadresse entscheidet, ob eine Anfrage vom PC selbst kommt
     # Ohne Zugriffsprotokoll: Es stünden Adressen mit Download-Schlüsseln darin, und das Programm fragt laufend nach
-    uvicorn.run("app.main:app", host="0.0.0.0", port=port, proxy_headers=False, forwarded_allow_ips="",
-                server_header=False, access_log=False)
+    konfig = uvicorn.Config("app.main:app", host="0.0.0.0", port=port, proxy_headers=False, forwarded_allow_ips="",
+                            server_header=False, access_log=False)
+    uvicorn.Server(konfig).run(sockets=[einzelplatz_anschluss(port)])
+
+
+def einzelplatz_anschluss(port: int):
+    """Anschluss für den Einzelplatz selbst belegen. Unter Windows exklusiv (SO_EXCLUSIVEADDRUSE): Sonst könnte ein
+    anderes Programm desselben PCs zusätzlich 127.0.0.1:<port> belegen und Startschlüssel und Passwort abfangen.
+    Anderswo wie uvicorn (SO_REUSEADDR – unter Linux erlaubt das keinen zweiten Lauscher)."""
+    import socket
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    exklusiv = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+    try:
+        if exklusiv is not None:
+            s.setsockopt(socket.SOL_SOCKET, exklusiv, 1)
+        else:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind(("0.0.0.0", port))
+    except OSError:
+        s.close()
+        raise
+    return s
 
 
 if __name__ == "__main__":

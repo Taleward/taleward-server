@@ -54,6 +54,8 @@ HEIMNETZE = tuple(ipaddress.ip_network(n) for n in (
     "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "fc00::/7", "fe80::/10"))
 ADRESSEN_TAKT_S = 30.0
 ADRESSEN_NACHFRAGE_S = 5.0
+# Beschreibung der Schnittstelle gibt es im Einzelplatz nicht (weder im Heimnetz noch auf dem PC)
+OHNE_DOKU = ("/api/v1/docs", "/api/v1/docs/oauth2-redirect", "/api/v1/openapi.json")
 
 
 def an() -> bool:
@@ -134,6 +136,10 @@ def _ermitteln() -> tuple[frozenset[str], str | None]:
     return frozenset(werte), haupt
 
 
+def _faellig(erzwingen: bool = False) -> bool:
+    return time.monotonic() - _adressen["zeit"] >= (ADRESSEN_NACHFRAGE_S if erzwingen else ADRESSEN_TAKT_S)
+
+
 def _auffrischen(erzwingen: bool = False) -> None:
     jetzt = time.monotonic()
     with _adressen_lock:
@@ -161,7 +167,9 @@ def oeffentliche_url() -> str:
     return f"http://{host}" + ("" if port() == 80 else f":{port()}")
 
 
-def host_erlaubt(kopfzeile: str | None) -> bool:
+def host_erlaubt(kopfzeile: str | None, nachsehen: bool = True) -> bool:
+    """`nachsehen=False`: nur mit den bekannten Adressen vergleichen (die Pforte frischt sie außerhalb des
+    Ereignis-Takts auf)."""
     if not kopfzeile:
         return False
     try:
@@ -176,10 +184,35 @@ def host_erlaubt(kopfzeile: str | None) -> bool:
     ip = _ip(name)
     if not _heimnetz(ip):
         return False
-    if str(ip) in eigene_adressen():
+    if str(ip) in (eigene_adressen() if nachsehen else _adressen["werte"]):
         return True
-    _auffrischen(erzwingen=True)  # neue Adresse (WLAN gewechselt) – höchstens alle paar Sekunden nachsehen
+    if nachsehen:
+        _auffrischen(erzwingen=True)  # neue Adresse (WLAN gewechselt) – höchstens alle paar Sekunden nachsehen
     return str(ip) in _adressen["werte"]
+
+
+async def _host_pruefen(kopfzeile: str | None) -> bool:
+    """Wie host_erlaubt, aber das Nachsehen der eigenen Adressen (Namensauflösung, kann dauern) läuft in einem Faden."""
+    import anyio
+
+    if _faellig():
+        await anyio.to_thread.run_sync(_auffrischen)
+    if host_erlaubt(kopfzeile, nachsehen=False):
+        return True
+    if _faellig(erzwingen=True) and host_erlaubt_wenn_bekannt(kopfzeile):
+        await anyio.to_thread.run_sync(_auffrischen, True)
+        return host_erlaubt(kopfzeile, nachsehen=False)
+    return False
+
+
+def host_erlaubt_wenn_bekannt(kopfzeile: str | None) -> bool:
+    """Wäre die Host-Kopfzeile erlaubt, wenn ihre Heimnetz-Adresse zu diesem PC gehört? (Lohnt das Nachsehen?)"""
+    try:
+        teile = urlsplit("//" + (kopfzeile or "").strip())
+        return (teile.port or 80) == port() and teile.username is None and not teile.path and _heimnetz(
+            _ip((teile.hostname or "").lower()))
+    except ValueError:
+        return False
 
 
 def eigener_datenschutz(url: str | None) -> bool:
@@ -207,12 +240,15 @@ class Pforte:
             return await self.app(scope, receive, send)
         client = scope.get("client")
         absender = client[0] if client else None
-        kopf = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers") or []}
+        roh = scope.get("headers") or []
+        kopf = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in roh}
         pfad = scope.get("path") or "/"
         if not privat(absender):
             return await _antwort(scope, receive, send, 404)
-        if not host_erlaubt(kopf.get("host")):
-            return await _antwort(scope, receive, send, 400)
+        if sum(1 for k, _ in roh if k.lower() == b"host") != 1 or not await _host_pruefen(kopf.get("host")):
+            return await _antwort(scope, receive, send, 400)  # auch bei zwei Host-Kopfzeilen
+        if pfad in OHNE_DOKU:
+            return await _antwort(scope, receive, send, 404)
         if not vom_pc(absender) and not pfad_aus_dem_netz(pfad):
             return await _antwort(scope, receive, send, 404)
         if pfad == "/" and scope["type"] == "http":

@@ -63,6 +63,8 @@ Windows-Programm, das Server, Worker und App zusammen startet). Dann gilt:
   `GET /worker/v1/busy` (mit dem Worker-Schlüssel), ob gerade ein Auftrag, ein Hochladen oder eine Verarbeitung läuft,
   sichert mit `chronik sicherung` und spielt bei einem Fehlschlag mit `chronik wiederherstellen` zurück.
 - `EINZELPLATZ_STOPP_DATEI`: Legt das Programm diese Datei an, fährt der Server geordnet herunter.
+- Der Server belegt seinen Anschluss unter Windows exklusiv (kein anderes Programm kann sich davorschalten). Die
+  Beschreibung der Schnittstelle (`/api/v1/docs`) gibt es in dieser Betriebsart nicht.
 
 Die Verbindung im WLAN ist nicht verschlüsselt. Einzelplatz ist für das eigene WLAN gedacht; für geteilte Netze
 (Vereinsheim) ist ein richtiger Server mit HTTPS die bessere Wahl.
