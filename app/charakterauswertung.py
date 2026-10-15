@@ -34,7 +34,7 @@ ZEICHEN_JE_SEITE = 3000  # Texte ohne Seiten (txt, md, Hintergrund): so viel gil
 LISTE_HOECHSTENS = 100
 OFFEN = ("awaiting_gm", "queued", "processing")
 HINWEIS = "character_analysis_pending"
-# Adressen mit Schema oder www., jede Domain mit Pfad („foo.xyz/x“) und E-Mail-Adressen (S31, Link-Filter)
+# Adressen mit Schema oder www., jede Domain mit Pfad („foo.xyz/x“) und E-Mail-Adressen (Link-Filter)
 _LINK = re.compile(r"(?i)\b(?:[a-z][a-z0-9+.-]*://|www\.)\S+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}/\S*|[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 
 
@@ -211,7 +211,7 @@ FESTE_GRUENDE = ("doc.no_text",)  # Meldungen ohne Platzhalter – alles andere 
 
 def _meldung(a: CharacterAnalysis, sl: bool, lang: str) -> str | None:
     """Grund bei failed: nur ein fester Satz des Servers, nie Inhalte aus Bogen, Hintergrund, Vorschlägen, Bibel oder
-    die Rückmeldung von Modell bzw. Worker (YAML 0.4.18, `CharacterAnalysis.message`; S31)."""
+    die Rückmeldung von Modell bzw. Worker (YAML 0.4.18, `CharacterAnalysis.message`)."""
     try:
         schluessel = json.loads(a.message or "{}").get("key")
     except (ValueError, AttributeError):
@@ -264,7 +264,7 @@ def speichern(db: Session, a: CharacterAnalysis, d: dict, engine: str, worker_id
     from app.sprachmodell import dokument_pruefen
 
     me = db.get(Member, a.member_id)
-    if me is None or not me.aktiv:  # S31: inzwischen ausgetreten – keine Vorschläge aus ihrem Material
+    if me is None or not me.aktiv:  # inzwischen ausgetreten – keine Vorschläge aus ihrem Material
         a.state, a.abschnitte, a.decided_at = "rejected", None, a.decided_at or utcnow()
         proposals_d = None
     else:
@@ -275,7 +275,7 @@ def speichern(db: Session, a: CharacterAnalysis, d: dict, engine: str, worker_id
                                                                          Entry.type == "pc"))}
     if me is not None and me.character_name:
         spieler.add(me.character_name.casefold())
-    # 0.4.91 (S31): offene Plätze zählen mit – wer einen Platz einnimmt, durchläuft den Neuzugang nicht
+    # 0.4.91: offene Plätze zählen mit – wer einen Platz einnimmt, durchläuft den Neuzugang nicht
     andere = sorted(m.id for m in db.scalars(select(Member).where(Member.campaign_id == a.campaign_id))
                     if (m.aktiv or m.open_seat) and m.id != a.member_id and m.role != "gm")
     vorschlaege = dokument_pruefen(proposals_d or [], {i: e.name for i, e in sichtbar.items() if e.type != "pc"})

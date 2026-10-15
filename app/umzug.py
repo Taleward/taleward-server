@@ -303,7 +303,7 @@ def packliste(db: Session, c: Campaign, zugestimmt: set[str]) -> tuple[dict, lis
                         "version": e.origin_version, "seat": platz.get(e.origin_member_id)}
         eintraege.append({
             "key": f"e{i + 1}", "type": e.type, "name": e.name, "summary": summary, "gmNotes": e.gm_notes,
-            # S31: Geheimes aus Bogen/Hintergrund geht als SL-Wissen mit (die Herkunftsmarke reist nicht mit)
+            # Geheimes aus Bogen/Hintergrund geht als SL-Wissen mit (die Herkunftsmarke reist nicht mit)
             "status": e.status, "holderSeat": halter, "visibility": "gm_only" if e.origin_analysis_id else e.visibility,
             "hiddenFromSeats": sorted(platz[m] for m in e.hidden_member_ids if m in platz),
             "pcCharacterId": e.pc_character_id, "origin": herkunft, "links": links.lesen(e.links),
@@ -996,7 +996,7 @@ def platz_einnehmen(db: Session, platz: Member, user: User, rolle: str, frueher:
     platz.left_at, platz.deleted_at, platz.joined_at = None, None, utcnow()
     platz.chronicle_seen_at = platz.bible_seen_at = None
     db.flush()
-    if rolle != "gm":  # 0.4.91 (S31): Geheimes aus Bögen/Hintergründen, das nach dem Umzug entstanden ist
+    if rolle != "gm":  # 0.4.91: Geheimes aus Bögen/Hintergründen, das nach dem Umzug entstanden ist
         from app.charaktere import neuzugang
 
         neuzugang(db, platz, nur_auswertungen=True)
@@ -1036,7 +1036,7 @@ def nehmen(db: Session, c: Campaign, ich: Member, platz: Member) -> None:
     c.imported_by_member_id = None
 
 
-# 0.4.94 (S32): Was der Person gehört, nicht der Figur – geht beim Freigeben an ein „Ehemaliges Mitglied“
+# 0.4.94: Was der Person gehört, nicht der Figur – geht beim Freigeben an ein „Ehemaliges Mitglied“
 _PRIVAT = (
     (Comment, "author_member_id"), (Comment, "recipient_member_id"), (Proposal, "submitted_by_member_id"),
     (CampaignDocument, "uploaded_by_member_id"), (CharacterAnalysis, "member_id"), (Entry, "origin_member_id"),
@@ -1090,7 +1090,7 @@ def freigeben(db: Session, platz: Member) -> None:
         raise errors.conflict("last_gm")
     set_recording_consent(db, platz, False)
     set_move_consent(db, platz, False)
-    _privates_abloesen(db, platz)  # 0.4.94 (S32)
+    _privates_abloesen(db, platz)  # 0.4.94
     platz.user_id, platz.open_seat, platz.role = None, True, "player"
     platz.chronicle_seen_at = platz.bible_seen_at = None
     db.execute(SessionSeen.__table__.delete().where(SessionSeen.member_id == platz.id))

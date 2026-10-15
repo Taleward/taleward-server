@@ -258,7 +258,7 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
 
             ZAEHLER.freigeben(versuch)
             ZAEHLER.loeschen(f"verw-name:{name}")
-            if not user.setup_account and zweiter_faktor.aktiv(db, user.id):  # S4: erst noch der Code
+            if not user.setup_account and zweiter_faktor.aktiv(db, user.id):  # erst noch der Code
                 antwort = RedirectResponse("/verwaltung/anmelden/code", status_code=303)
                 antwort.set_cookie(COOKIE_CODE, _code_cookie(db, user), max_age=CODE_MINUTEN * 60, httponly=True,
                                    samesite="strict", secure=request.url.scheme == "https", path="/verwaltung")
@@ -271,7 +271,7 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
     return antwort
 
 
-# ---------------------------------------------------------------- Zweiter Faktor (S4, 0.4.84)
+# ---------------------------------------------------------------- Zweiter Faktor (0.4.84)
 COOKIE_CODE = "tw_verwaltung_code"
 CODE_MINUTEN = 5
 
@@ -1166,7 +1166,7 @@ def zusammenfassung_speichern(request: Request, art: str = Form("aus"), anbieter
 
     bisher = (meta_lesen(db, "llm.cent_ein") or "", meta_lesen(db, "llm.cent_aus") or "")
     if abrechnung.an(db) and (preise[0], preise[1]) != bisher and not zweiter_faktor.aktiv(db, user.id):
-        # 0.4.89 (N3-Rest): Token-Preise fließen in die Abrechnung – ändern wie dort nur mit zweitem Faktor
+        # 0.4.89: Token-Preise fließen in die Abrechnung – ändern wie dort nur mit zweitem Faktor
         antwort = fehler(_("Das geht nur mit eingeschaltetem zweiten Faktor (Anmeldung → Dein zweiter Faktor)."))
         antwort.status_code = 403
         return antwort
@@ -1638,7 +1638,7 @@ def einbinden(app: FastAPI) -> None:
     async def _kopfzeilen(request: Request, call_next):
         pfad = request.url.path
         if pfad.startswith("/verwaltung") and not netz_erlaubt(request.client.host if request.client else None):
-            antwort = Response(status_code=404)  # S4: VERWALTUNG_NUR_AUS – von außen gibt es keine Verwaltung
+            antwort = Response(status_code=404)  # VERWALTUNG_NUR_AUS – von außen gibt es keine Verwaltung
             for k, v in SICHERHEITS_KOPFZEILEN.items():
                 antwort.headers.setdefault(k, v)
             return antwort
@@ -1647,7 +1647,7 @@ def einbinden(app: FastAPI) -> None:
             antwort.headers.setdefault("Cache-Control", "public, max-age=86400")  # Stil und Logo dürfen zwischengespeichert werden
             antwort.headers.setdefault("X-Content-Type-Options", "nosniff")
         elif pfad.startswith(("/verwaltung", "/einladung", "/datenschutz", "/passwort", "/konto/", "/konto-loeschen",
-                              "/auth/oidc/", "/guthaben")):  # S26.1: auch die Bestätigungsseite der Anmeldung mit Diensten
+                              "/auth/oidc/", "/guthaben")):  # auch die Bestätigungsseite der Anmeldung mit Diensten
             for k, v in SICHERHEITS_KOPFZEILEN.items():
                 antwort.headers.setdefault(k, v)
         elif pfad == "/app" or pfad.startswith("/app/"):

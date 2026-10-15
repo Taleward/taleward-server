@@ -111,12 +111,12 @@ def neuzugang(db: Session, me: Member, nur_auswertungen: bool = False) -> None:
     Vorschläge) – wer etwas nicht miterlebt hat, soll es nicht plötzlich wissen. Die SL bekommt einen Hinweis und
     gibt einzeln frei.
 
-    nur_auswertungen (0.4.91, S31): beim Einnehmen eines offenen Platzes – dessen Verborgen-Listen stammen aus dem Umzug,
+    nur_auswertungen (0.4.91): beim Einnehmen eines offenen Platzes – dessen Verborgen-Listen stammen aus dem Umzug,
     es fehlt nur Geheimes aus Bögen und Hintergründen, das erst danach entstanden ist."""
     betroffen = []
     for e in db.scalars(select(Entry).where(Entry.campaign_id == me.campaign_id)):
         ids = e.hidden_member_ids
-        # 0.4.89 (S31): Geheimes aus Bogen/Hintergrund – Nachzügler immer verbergen, auch bei leerer Liste
+        # 0.4.89: Geheimes aus Bogen/Hintergrund – Nachzügler immer verbergen, auch bei leerer Liste
         aus_auswertung = bool(e.origin_analysis_id) and e.visibility == "public" and e.origin_member_id != me.id
         if ((ids and not nur_auswertungen) or aus_auswertung) and me.id not in ids:
             e.hidden_from.append(EntryHidden(entry_id=e.id, member_id=me.id))
@@ -174,7 +174,7 @@ def einreichen(db: Session, me: Member, eintraege: list[schemas.WorldEntryIn]) -
         raise errors.conflict("no_character")
     if not 1 <= len(eintraege) <= MAX_WELT:
         raise errors.bad_request("world_too_many")
-    # 0.4.91 (S31): offene Plätze zählen mit – wer einen Platz einnimmt, durchläuft den Neuzugang nicht
+    # 0.4.91: offene Plätze zählen mit – wer einen Platz einnimmt, durchläuft den Neuzugang nicht
     andere = sorted(m.id for m in db.scalars(select(Member).where(Member.campaign_id == me.campaign_id))
                     if (m.aktiv or m.open_seat) and m.id != me.id and m.role != "gm")
     aus = []
@@ -262,7 +262,7 @@ def entscheiden(db: Session, p: Proposal, mitglieder: set[str]) -> None:
     e.origin_character_id, e.origin_entry_id = p.origin_character_id, p.origin_entry_id
     e.origin_version, e.origin_member_id = p.origin_version, p.submitted_by_member_id
     if p.analysis_id and p.action != "update":
-        e.origin_analysis_id = p.analysis_id  # S31: bleibt geheim für alle außer SL und Urheberin
+        e.origin_analysis_id = p.analysis_id  # bleibt geheim für alle außer SL und Urheberin
     p.target_entry_id = e.id
 
 
@@ -309,7 +309,7 @@ def chronik(db: Session, me: Member, request) -> dict:
         recap = None
         r = db.get(Recap, s.id) if s.id in da else None
         if r is not None and bis is not None and r.edited_at is not None and r.edited_at > bis:
-            r = None  # S21.4: Ehemalige sehen den Stand bis zum Austritt – später Bearbeitetes nicht
+            r = None  # Ehemalige sehen den Stand bis zum Austritt – später Bearbeitetes nicht
         if r is not None:
             recap = {"title": r.title, "text": r.text, "openThreads": json.loads(r.open_threads or "[]"),
                      "publishedAt": _z(s.published_at)}

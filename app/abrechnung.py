@@ -44,7 +44,7 @@ MAX_AUFNAHME_SEKUNDEN = 8 * 3600  # feste Obergrenze je Runde (Entscheidung Benj
 
 
 def verarbeitung_hoechstens(db: Session) -> int | None:
-    """0.4.99 (M3): So viele Sekunden Audio werden je Runde höchstens verarbeitet (Zusammenfügen bricht danach ab) –
+    """0.4.99: So viele Sekunden Audio werden je Runde höchstens verarbeitet (Zusammenfügen bricht danach ab) –
     mit Abrechnung die feste Obergrenze plus eine Minute Luft, sonst None (dann gilt die allgemeine Grenze in audio)."""
     return MAX_AUFNAHME_SEKUNDEN + 60 if an(db) else None
 
@@ -248,7 +248,7 @@ def aufnahme_messen(up: Upload) -> float | None:
                 for i in range(f.chunk_count):
                     with open(storage.chunk_path(up.id, f.id, i), "rb") as ein:
                         shutil.copyfileobj(ein, aus)
-            d = audio.dauer_datei(ziel, gruendlich=True)  # 0.4.91 (M2): Kosten hängen dran – immer dekodieren
+            d = audio.dauer_datei(ziel, gruendlich=True)  # 0.4.91: Kosten hängen dran – immer dekodieren
             ziel.unlink(missing_ok=True)
             if d is None:
                 return None
@@ -266,7 +266,7 @@ def groesse_sekunden(up: Upload) -> int:
 
 def aufnahme_sekunden(db: Session, session_id: str | None) -> int:
     """Länge der Aufnahme nach eigener Messung des Servers. Nicht messbar: das Größere aus der gemeldeten Länge der Runde
-    (setzt die SL) und der Schätzung nach Dateigröße (0.4.87, N4)."""
+    (setzt die SL) und der Schätzung nach Dateigröße (0.4.87)."""
     if not session_id:
         return 0
     up = db.scalar(select(Upload).where(Upload.session_id == session_id, Upload.state == "completed")
@@ -280,11 +280,11 @@ def aufnahme_sekunden(db: Session, session_id: str | None) -> int:
 
 def menge_nachtragen(db: Session, job: Job, sekunden: float | None) -> None:
     """Transkription fertig: Ist die tatsächlich verarbeitete Audiolänge größer als beim Start gemessen (z. B. ein
-    präparierter Datei-Kopf), zählt die größere – nie weniger als gemessen (0.4.89, M2)."""
+    präparierter Datei-Kopf), zählt die größere – nie weniger als gemessen (0.4.89)."""
     k = db.get(KostenAuftrag, job.id)
     if k is None or k.zustand != "laeuft" or k.art != "transcribe" or not sekunden or sekunden <= 0:
         return
-    k.menge = max(k.menge or 0, int(math.ceil(float(sekunden))))  # 0.4.94 (M2): ohne Kappung – zählt, was verarbeitet ist
+    k.menge = max(k.menge or 0, int(math.ceil(float(sekunden))))  # 0.4.94: ohne Kappung – zählt, was verarbeitet ist
 
 
 def menge(db: Session, job: Job) -> int:
@@ -450,7 +450,7 @@ def starten(db: Session, job: Job, weg: str) -> str | None:
 # ---------------------------------------------------------------- Abrechnen
 def _cloud_kosten(db: Session, k: KostenAuftrag, job: Job | None) -> int:
     """Tatsächliche Cloud-Kosten aus dem Verbrauchsprotokoll. Das Protokoll bleibt beim Löschen von Runde oder
-    Unterlage erhalten; der Bezug steht seit 0.4.87 am Kostenauftrag selbst (N1)."""
+    Unterlage erhalten; der Bezug steht seit 0.4.87 am Kostenauftrag selbst."""
     document_id = k.document_id or (job.document_id if job is not None else None)
     session_id = k.session_id or (job.session_id if job is not None else None)
     analysis_id = k.analysis_id or (job.analysis_id if job is not None else None)
@@ -471,20 +471,20 @@ def abrechnen(db: Session, k: KostenAuftrag, _schreiben: bool = True) -> int:
     """Einen Kostenauftrag buchen (in der laufenden Transaktion). Gibt den Betrag zurück.
 
     Worker: endgültig gescheitert kostet nichts. Fertig – oder gelöscht, bevor er fertig war (Runde, Unterlage oder
-    Kampagne weg) – kostet den vollen Betrag; die Arbeit ist dann getan bzw. begonnen (N1)."""
+    Kampagne weg) – kostet den vollen Betrag; die Arbeit ist dann getan bzw. begonnen."""
     job = db.get(Job, k.job_id)
-    # 0.4.89 (L1): „superseded“ (neu transkribiert, abgelöst) ist kein Scheitern – die Arbeit war begonnen
+    # 0.4.89: „superseded“ (neu transkribiert, abgelöst) ist kein Scheitern – die Arbeit war begonnen
     gescheitert = job is not None and job.state == "failed" and job.error_code != "superseded"
     if k.weg == "worker":
         betrag = 0 if gescheitert else betrag_fuer(db, k.art, "worker", k.menge)
     else:  # Cloud: tatsächliche Kosten (auch bei Fehlschlag, soweit angefallen); Testmodus kostet nichts
         betrag = _mit_aufschlag(db, _cloud_kosten(db, k, job))
         if betrag == 0 and (job is None or job.state == "failed"):
-            # 0.4.89 (M1): gelöscht, abgelöst oder gescheitert, ehe ein Verbrauch protokolliert war – mindestens die
+            # 0.4.89: gelöscht, abgelöst oder gescheitert, ehe ein Verbrauch protokolliert war – mindestens die
             # Schätzung vom Start (der Anbieter hat ggf. schon gerechnet)
             betrag = max(0, k.schaetzung_cent or 0)
     jetzt = utcnow()
-    # 0.4.89 (L2): nur einmal buchen – auch wenn zwei Prozesse denselben Kostenauftrag zugleich abrechnen
+    # 0.4.89: nur einmal buchen – auch wenn zwei Prozesse denselben Kostenauftrag zugleich abrechnen
     res = db.execute(update(KostenAuftrag).where(KostenAuftrag.job_id == k.job_id, KostenAuftrag.zustand == "laeuft")
                      .values(zustand="abgerechnet", betrag_cent=betrag, abgerechnet_at=jetzt)
                      .execution_options(synchronize_session=False))
@@ -501,7 +501,7 @@ def abrechnen(db: Session, k: KostenAuftrag, _schreiben: bool = True) -> int:
 
 def vor_loeschen(db: Session, *, campaign_id: str | None = None, session_id: str | None = None,
                  document_id: str | None = None) -> int:
-    """0.4.87 (N1): Vor dem Löschen einer Kampagne, Runde oder Unterlage deren laufende Kostenaufträge buchen – sonst
+    """0.4.87: Vor dem Löschen einer Kampagne, Runde oder Unterlage deren laufende Kostenaufträge buchen – sonst
     verschwände der Auftrag und mit ihm der Bezug. Gilt unabhängig vom Schalter (gestartet ist gestartet)."""
     bedingung = []
     if campaign_id:
@@ -611,7 +611,7 @@ def gutschein_einloesen(db: Session, g: Guthaben, code: str, von: str) -> int:
     try:
         res = db.execute(update(Gutschein).where(Gutschein.id == gs.id, Gutschein.eingeloest_at.is_(None))
                          .values(eingeloest_von=g.id, eingeloest_at=jetzt))
-    except IntegrityError:  # 0.4.87 (N5): gleichzeitig ein anderer Code derselben Aktion – der Index lässt nur einen zu
+    except IntegrityError:  # 0.4.87: gleichzeitig ein anderer Code derselben Aktion – der Index lässt nur einen zu
         db.rollback()
         raise ValueError("aktion") from None
     if res.rowcount != 1:
@@ -707,7 +707,7 @@ def euro(cent: int) -> str:
     return f"{vorzeichen}{cent // 100},{cent % 100:02d} €"
 
 
-# ---------------------------------------------------------------- Abrechnen beim Abschluss (0.4.87, N1)
+# ---------------------------------------------------------------- Abrechnen beim Abschluss (0.4.87)
 # Aufträge werden an vielen Stellen beendet (Ergebnis eines Workers, Zentrale, Cloud, endgültiges Scheitern). Statt
 # jede Stelle einzeln anzupassen, bucht ein Datenbank-Ereignis in derselben Transaktion, in der ein Auftrag „done“ oder
 # „failed“ wird: vor dem Schreiben merken, nach dem Schreiben buchen (dann sind auch Verbrauchsprotokolle derselben

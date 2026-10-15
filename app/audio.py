@@ -14,7 +14,7 @@ import wave
 from pathlib import Path
 
 SAMPLE_RATE = 16000
-# 0.4.99 (M3): Mehr verarbeitet Taleward nie, auch ohne Abrechnung – eine präparierte Datei (z. B. viele Tonspuren,
+# 0.4.99: Mehr verarbeitet Taleward nie, auch ohne Abrechnung – eine präparierte Datei (z. B. viele Tonspuren,
 # falscher Kopf) könnte sonst beliebig lange Audiodaten auf die Platte bzw. in den Speicher bringen.
 GRENZE_S = 24 * 3600
 log = logging.getLogger("worker")
@@ -63,7 +63,7 @@ EINGABE = ["-protocol_whitelist", "file,pipe", "-format_whitelist", FORMATE]
 
 def dekodieren(quelle: Path) -> bytes:
     """Eine Datei zu 16 kHz mono, 16 bit PCM (roh)."""
-    # 0.4.94 (M2): immer die erste Tonspur – nie mehr, als `dauer_dekodiert` gemessen hat (die längste Spur)
+    # 0.4.94: immer die erste Tonspur – nie mehr, als `dauer_dekodiert` gemessen hat (die längste Spur)
     res = ffmpeg(["-hide_banner", "-loglevel", "error", *EINGABE, "-i", str(quelle), "-map", "0:a:0",
                   "-ac", "1", "-ar", str(SAMPLE_RATE), "-f", "s16le", "-acodec", "pcm_s16le", "-"],
                  _zeitgrenze(quelle))
@@ -75,7 +75,7 @@ def dekodieren(quelle: Path) -> bytes:
 def zusammenfuegen(abschnitte: list[Path], ziel: Path, hoechstens_s: float | None = None) -> list[float]:
     """Abschnitte in Reihenfolge zu einer WAV-Datei. Gibt die Startzeit (s) jedes Abschnitts zurück.
 
-    0.4.99 (M3): Dekodiert wird fortlaufend in die Datei (nicht erst in den Speicher) und nie mehr als `hoechstens_s`
+    0.4.99: Dekodiert wird fortlaufend in die Datei (nicht erst in den Speicher) und nie mehr als `hoechstens_s`
     (höchstens GRENZE_S) insgesamt – wird es mehr, bricht das Zusammenfügen mit `recording_too_long` ab, egal was die
     Messung beim Hochladen ergeben hat."""
     grenze = min(hoechstens_s or GRENZE_S, GRENZE_S)
@@ -146,7 +146,7 @@ def dauer(wav: Path) -> float:
 
 
 # Mehr Bytes je Sekunde hat keine übliche Aufnahme (48 kHz, Stereo, 16 bit ≈ 192 kB/s). Meldet der Kopf einer Datei
-# eine Länge, die dazu nicht passt, wird sie durch Dekodieren gemessen (0.4.89, M2: präparierter Kopf).
+# eine Länge, die dazu nicht passt, wird sie durch Dekodieren gemessen (0.4.89, präparierter Kopf).
 PLAUSIBEL_BYTES_JE_S = 200_000
 
 
@@ -154,7 +154,7 @@ def dauer_datei(datei: Path, gruendlich: bool = False) -> float | None:
     """Länge einer hochgeladenen Audiodatei in Sekunden. Zuerst laut Kopf (ffprobe, schnell); passt die Länge nicht
     zur Dateigröße, durch Dekodieren gemessen. None = nicht messbar.
 
-    gruendlich (0.4.91, M2): immer dekodieren – der Kopf lässt sich beliebig setzen, auch passend zur Dateigröße (z. B.
+    gruendlich (0.4.91): immer dekodieren – der Kopf lässt sich beliebig setzen, auch passend zur Dateigröße (z. B.
     niedrige Bitrate). Gilt, sobald die Länge Geld kostet. Scheitert das Dekodieren, None (nie die Kopf-Länge)."""
     if gruendlich:
         return dauer_dekodiert(datei)
@@ -174,7 +174,7 @@ def dauer_datei(datei: Path, gruendlich: bool = False) -> float | None:
     except OSError:
         groesse = 0
     if wert <= 0 or groesse / wert > PLAUSIBEL_BYTES_JE_S:
-        return dauer_dekodiert(datei)  # 0.4.91 (M2): unplausibler Kopf und nicht dekodierbar → nicht messbar
+        return dauer_dekodiert(datei)  # 0.4.91: unplausibler Kopf und nicht dekodierbar → nicht messbar
     return wert
 
 
@@ -196,7 +196,7 @@ def _tonspuren(datei: Path) -> int | None:
 
 
 def dauer_dekodiert(datei: Path) -> float | None:
-    """Länge durch Dekodieren (ohne Ausgabe), unabhängig von den Angaben im Kopf. 0.4.94 (M2): jede Tonspur wird
+    """Länge durch Dekodieren (ohne Ausgabe), unabhängig von den Angaben im Kopf. 0.4.94: jede Tonspur wird
     gemessen und die längste zählt – welche Spur später verarbeitet wird, ist damit gleich (`dekodieren` nimmt die
     erste). Ohne ffprobe nur die erste Spur."""
     anzahl = _tonspuren(datei)
