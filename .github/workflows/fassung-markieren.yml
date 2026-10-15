@@ -2,6 +2,9 @@ name: Fassung markieren
 # Setzt zu jeder neuen Server-Fassung (version in pyproject.toml) das Git-Tag v<Fassung>.
 # Nur nach einem erfolgreichen Patch-Lauf. Danach unterschreibt „Freigabe“ die Fassung nach Bestätigung durch Benjamin;
 # erst dann übernehmen Server und Worker sie.
+# Außerdem hängt der Ablauf die Prüfsummen der PyTorch-Dateien (pytorch-pruefsummen.txt) an das Release der Fassung,
+# solange sie noch nicht freigegeben ist – die Freigabe unterschreibt sie mit, die Worker-App installiert PyTorch dann
+# nur mit genau diesen Prüfsummen.
 on:
   push:
     branches: [main]
@@ -10,8 +13,11 @@ on:
   workflow_run:
     workflows: ["Patch einspielen"]
     types: [completed]
+    branches: [main]
 
 permissions: {}
+
+concurrency: fassung-markieren
 
 jobs:
   markieren:
@@ -19,12 +25,16 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+    outputs:
+      tag: ${{ steps.t.outputs.tag }}
+      commit: ${{ steps.t.outputs.commit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           persist-credentials: false
       - name: Tag setzen, falls neu
+        id: t
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -38,3 +48,66 @@ jobs:
             gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/v$V" -f sha="$(git rev-parse HEAD)" >/dev/null
             echo "v$V gesetzt."
           fi
+          COMMIT=$(gh api "repos/$GH_REPO/commits/v$V" -q .sha)
+          printf '%s' "$COMMIT" | grep -Eq '^[0-9a-f]{40}$' || { echo "Commit von v$V unbekannt"; exit 1; }
+          { echo "tag=v$V"; echo "commit=$COMMIT"; } >> "$GITHUB_OUTPUT"
+
+  pruefsummen:
+    needs: markieren
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: PyTorch-Prüfsummen für die Fassung ermitteln
+        env:
+          COMMIT: ${{ needs.markieren.outputs.commit }}
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$COMMIT" HEAD || { echo "::error::Commit liegt nicht auf main"; exit 1; }
+          mkdir -p ausgabe
+          git show "$COMMIT:uv.lock" > ausgabe/uv.lock
+          python3 deploy/pytorch_pruefsummen.py ausgabe/uv.lock ausgabe/pytorch-pruefsummen.txt
+          rm ausgabe/uv.lock
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pytorch-pruefsummen
+          path: ausgabe/pytorch-pruefsummen.txt
+          retention-days: 1
+
+  anhaengen:
+    needs: [markieren, pruefsummen]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.markieren.outputs.tag }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pytorch-pruefsummen
+          path: ausgabe
+      - name: An das Release hängen (nur vor der Freigabe, nie überschreiben)
+        run: |
+          set -euo pipefail
+          printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "Unbekanntes Tag: $TAG"; exit 1; }
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release view "$TAG" --json assets -q '.assets[].name' > namen.txt
+            if grep -qx 'freigabe.txt' namen.txt; then
+              echo "$TAG ist schon freigegeben – die Liste kommt erst mit der nächsten Fassung dazu."; exit 0
+            fi
+            if grep -qx 'pytorch-pruefsummen.txt' namen.txt; then
+              echo "Die Liste hängt schon an $TAG."; exit 0
+            fi
+          else
+            gh release create "$TAG" --verify-tag --latest=false --title "Taleward-Server ${TAG#v}" \
+              --notes "Freigegebene Server-Fassung. Installation und Updates: siehe INSTALLATION.md."
+          fi
+          gh release upload "$TAG" ausgabe/pytorch-pruefsummen.txt
+          echo "PyTorch-Prüfsummen an $TAG gehängt." >> "$GITHUB_STEP_SUMMARY"
