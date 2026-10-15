@@ -58,7 +58,7 @@ def anmeldung(request: Request, user: User = Depends(verwalter), db: Session = D
 
 def seite(request: Request, user: User, db: Session, fehler: str = "", faktor_neu: dict | None = None,
           faktor_codes: list[str] | None = None) -> HTMLResponse:
-    """Seite „Anmeldung“: oben der eigene zweite Faktor (S4, seit 0.4.86 hier statt unter Konten), darunter die
+    """Seite „Anmeldung“: oben der eigene zweite Faktor (seit 0.4.86 hier statt unter Konten), darunter die
     Anmeldedienste für alle Mitglieder."""
     from app.verwaltung import zweiter_faktor
 

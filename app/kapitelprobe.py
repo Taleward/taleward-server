@@ -331,7 +331,7 @@ def _rechnen(p: Probe, k, recap_ein: dict, vorschlag_ein: dict, campaign_id: str
         _REIHE.acquire()
     try:
         p.schritt = ""
-        grund = noch_erlaubt(p, k)  # S26.2: Freigabe und Rolle können sich während des Wartens geändert haben
+        grund = noch_erlaubt(p, k)  # Freigabe und Rolle können sich während des Wartens geändert haben
         if grund:
             p.zustand, p.fehler = "fehler", grund
             p.beendet = utcnow().isoformat().replace("+00:00", "Z")
@@ -514,7 +514,7 @@ def _korrigieren(p: Probe, k, ein: dict, hinweise: dict[int, str], fehlt: str) -
     with _REIHE:
         t0 = time.monotonic()
         try:
-            grund = noch_erlaubt(p, k)  # S26.5: wie beim Probelauf nach dem Warten erneut prüfen
+            grund = noch_erlaubt(p, k)  # wie beim Probelauf nach dem Warten erneut prüfen
             if grund:
                 runde["fehler"] = grund
             elif k.art == "attrappe":  # Testmodus: hängt an jeden genannten Absatz eine Markierung

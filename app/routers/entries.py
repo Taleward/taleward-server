@@ -74,7 +74,7 @@ def patch_entry(
     vorher = (acc.entry.visibility, sorted(acc.entry.hidden_member_ids))
     apply_entry_input(db, acc.entry, body, require_public_text=True)
     if (acc.entry.visibility, sorted(acc.entry.hidden_member_ids)) != vorher:
-        # S31: die SL hat selbst festgelegt, wer es weiß – nur bei echter Änderung (die App schickt das ganze Formular)
+        # die SL hat selbst festgelegt, wer es weiß – nur bei echter Änderung (die App schickt das ganze Formular)
         acc.entry.origin_analysis_id = None
     db.commit()
     db.refresh(acc.entry)

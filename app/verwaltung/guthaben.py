@@ -6,7 +6,7 @@ ab bzw. übernimmt sie. Im Topf-Modus sehen die Verwalter der Organisation hier 
 
 Anmeldung mit Benutzername und Passwort (wie „Konto löschen“), eigenes kurzlebiges Cookie nur für diesen Pfad. Konten
 nur mit Anmeldung über einen Dienst setzen sich in der App unter Konto ein Passwort. Hat das Konto einen zweiten Faktor
-eingeschaltet (Verwalter), kommt danach der Code aus der Authenticator-App (0.4.87, N2).
+eingeschaltet (Verwalter), kommt danach der Code aus der Authenticator-App (0.4.87).
 """
 from __future__ import annotations
 
@@ -144,7 +144,7 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
     ZAEHLER.freigeben(versuch)
     from app.verwaltung import zweiter_faktor
 
-    if zweiter_faktor.aktiv(db, user.id):  # N2: erst noch der Code
+    if zweiter_faktor.aktiv(db, user.id):  # erst noch der Code
         antwort = _code_seite(request, db)
         antwort.set_cookie(COOKIE_CODE, _token(user, f"{server_id()}:guthaben-code", timedelta(minutes=CODE_MINUTEN)),
                            max_age=CODE_MINUTEN * 60, httponly=True, samesite="strict",
@@ -176,7 +176,7 @@ def _code_seite(request: Request, db: Session, fehler: str | None = None, status
 
 @router.post("/anmelden/code", dependencies=[Depends(_an)])
 def anmelden_code(request: Request, code: str = Form(""), db: Session = Depends(get_db)):
-    """Zweiter Schritt der Anmeldung (N2): gleiche Prüfung und gleiche Fehlversuch-Grenze wie in der Verwaltung."""
+    """Zweiter Schritt der Anmeldung: gleiche Prüfung und gleiche Fehlversuch-Grenze wie in der Verwaltung."""
     from app.begrenzung import ZAEHLER
     from app.verwaltung import zweiter_faktor
     from app.verwaltung.router import _versuch

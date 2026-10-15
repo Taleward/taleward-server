@@ -74,9 +74,9 @@ class Settings(BaseSettings):
     # Web-Fassung der App (ab 0.4.2): zentrale Web-App der Taleward-Website darf diesen Server nutzen (CORS, Rückweg
     # nach der Anmeldung). In der Verwaltung abschaltbar. Leer = keine zentrale Web-App.
     central_web_origin: str = "https://app.taleward.org"  # zentrale Web-App an der Wurzel (bis 0.4.50: taleward.org/app/)
-    # 0.4.84 (S4): Verwaltung nur aus diesen Netzen erreichbar, z. B. "192.168.178.0/24, 10.8.0.0/24" (VPN); sonst 404.
+    # 0.4.84: Verwaltung nur aus diesen Netzen erreichbar, z. B. "192.168.178.0/24, 10.8.0.0/24" (VPN); sonst 404.
     # Leer = von überall (mit Passwort und, wenn eingeschaltet, zweitem Faktor). Nur hinter Caddy (docker-compose.yml)
-    # sinnvoll; im Heimnetz-Paket sieht der Server wegen der Port-Weiterleitung nur die Docker-Adresse (S30.1).
+    # sinnvoll; im Heimnetz-Paket sieht der Server wegen der Port-Weiterleitung nur die Docker-Adresse.
     verwaltung_nur_aus: str = ""
     # Einzelplatz (Windows-Programm: Server, Worker und App auf einem PC im Heimnetz, app/einzelplatz.py).
     # Setzt das Programm über die Umgebung; dann gelten eigene Regeln für Adressen, Verwaltung und das erste Konto.

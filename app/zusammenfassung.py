@@ -131,7 +131,7 @@ def eingabe_bauen(db: Session, s: GameSession) -> Eingabe:
     bibel, geheim = [], []
     for e in db.scalars(select(Entry).where(Entry.campaign_id == c.id).order_by(Entry.updated_at.desc())):
         # Teilweise verborgene Einträge („Wer weiß was“) wie gm_only behandeln – den Recap lesen alle (0.3.6)
-        if e.allgemein_bekannt:  # 0.4.89: auch Geheimes aus Bogen/Hintergrund (S31) nicht als bekannt
+        if e.allgemein_bekannt:  # 0.4.89: auch Geheimes aus Bogen/Hintergrund nicht als bekannt
             bibel.append(BekannterEintrag(e.id, e.type, e.name, e.summary))
         else:
             geheim.append(GeheimerEintrag(e.id, e.type, e.name))

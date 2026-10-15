@@ -200,7 +200,7 @@ MESSPLATZ_WARTEN_S = 60  # 0.4.99: Fäden nicht lange belegen (vorher 600 s) –
 
 
 def _messen(db: Session, up: Upload):
-    """0.4.91 (M2): Das Dekodieren dauert (etwa 12 s je Stunde). Solange gemessen wird, steht der Upload auf
+    """0.4.91: Das Dekodieren dauert (etwa 12 s je Stunde). Solange gemessen wird, steht der Upload auf
     „measuring“: keine Teile mehr (sonst ließe sich nach der Messung tauschen) und kein zweites Messen. Ein Stand
     „measuring“ ohne laufende Messung in diesem Prozess (Neustart mittendrin) gilt wieder als offen."""
     from app import abrechnung
@@ -254,7 +254,7 @@ def complete(uploadId: str, request: Request, user: User = Depends(current_user)
         if dauer is _LAEUFT:  # zweiter Aufruf, während gemessen wird – harmlos, der erste schließt ab
             return processing_status(db, s, sprache(request))
         up.dauer_sekunden = dauer
-        if dauer is None:  # 0.4.99 (M3): nicht messbar (kein lesbares Audio, sehr viele Tonspuren) → nicht annehmen
+        if dauer is None:  # 0.4.99: nicht messbar (kein lesbares Audio, sehr viele Tonspuren) → nicht annehmen
             storage.delete_upload_files(up.id)
             up.state = "aborted"
             set_state(s, "created")

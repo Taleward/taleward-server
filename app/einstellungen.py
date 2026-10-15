@@ -224,7 +224,7 @@ def llm_konfig(db: Session) -> LlmKonfig:
     url = wert("llm.api_url", s.llm_api_url) or s.llm_api_url
     eigener = wert("llm.api_key", s.llm_api_key) or None
     key = eigener
-    if not key and ist_mistral_adresse(url):  # S26.3: Hostname exakt, nicht als Textteil
+    if not key and ist_mistral_adresse(url):  # Hostname exakt, nicht als Textteil
         key = extern_konfig(db).api_key
     try:
         kontext = int(wert("llm.lokal_kontext", s.llm_local_context))

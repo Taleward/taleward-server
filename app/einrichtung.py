@@ -56,7 +56,7 @@ ERSTER_START = "einrichtung.erster_start"
 def heimnetz_ohne_code(request, db: Session) -> bool:
     """Taleward-Box: Ersteinrichtung ohne Code – nur wenn so eingeschaltet (EINRICHTUNG_IM_HEIMNETZ) und die Anfrage
     aus einem privaten Netz kommt (Heimnetz, Vereins-WLAN). Aus dem Internet gilt weiter der Code.
-    Seit 0.4.87 (S6/S21.3) nur in den ersten 30 Minuten nach dem **ersten** Start (Zeitpunkt in der Datenbank), nicht
+    Seit 0.4.87 nur in den ersten 30 Minuten nach dem **ersten** Start (Zeitpunkt in der Datenbank), nicht
     nach jedem Neustart wieder."""
     import ipaddress
 
@@ -85,7 +85,7 @@ def beim_start(db: Session) -> str | None:
     """Beim Serverstart: Wird noch eingerichtet, Code sicherstellen und deutlich ins Protokoll schreiben."""
     if not braucht_einrichtung(db):
         return None
-    if meta_lesen(db, ERSTER_START) is None:  # S6/S21.3: Frist läuft ab dem ersten Start, nicht ab jedem Neustart
+    if meta_lesen(db, ERSTER_START) is None:  # Frist läuft ab dem ersten Start, nicht ab jedem Neustart
         meta_schreiben(db, ERSTER_START, str(time.time()))
     from app.config import get_settings
 

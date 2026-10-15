@@ -196,7 +196,7 @@ def ersetzen(db: Session, s: GameSession, paare: list[tuple[str, str]]) -> None:
         if (r.title, r.text, r.open_threads) != vorher:
             from app.db import utcnow
 
-            r.edited_at = utcnow()  # S21.4: auch Wort-Korrekturen zählen als Bearbeitung (Chronik Ehemaliger)
+            r.edited_at = utcnow()  # auch Wort-Korrekturen zählen als Bearbeitung (Chronik Ehemaliger)
         pruefung = pruefteil.lesen(r.review)
         for p in pruefung.get("paragraphs") or []:
             p["note"] = _ersetzen(p.get("note"), ersetzungen)

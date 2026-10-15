@@ -51,7 +51,7 @@ def _passwort_fehler(_, name: str, password: str, password2: str) -> str | None:
         return _("Die beiden Passwörter stimmen nicht überein.")
     from app.konto import passwort_zu_schwach
 
-    if passwort_zu_schwach(password, name):  # S21.2: dieselbe Prüfung wie bei Konten der App
+    if passwort_zu_schwach(password, name):  # dieselbe Prüfung wie bei Konten der App
         return _("Dieses Passwort ist zu leicht zu erraten.")
     return None
 

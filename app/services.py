@@ -245,7 +245,7 @@ _WORDS = [
 
 def new_invite_code(db: Session) -> str:
     for _ in range(50):
-        # Wort + 12 Ziffern (≈ 44 Bit, S29); passt zum Muster „WORT-Ziffern“ der App, alte 8-stellige gelten bis zum Ablauf
+        # Wort + 12 Ziffern (≈ 44 Bit); passt zum Muster „WORT-Ziffern“ der App, alte 8-stellige gelten bis zum Ablauf
         code = f"{secrets.choice(_WORDS)}-{secrets.randbelow(10**12):012d}"
         if db.get(Invite, code) is None:
             return code

@@ -165,7 +165,7 @@ def verarbeiten(db: Session, job: Job, klient: MistralKlient | None = None) -> N
         dateien = _dateien_zusammensetzen(up, arbeit)
         from app import abrechnung
 
-        hoechstens = abrechnung.verarbeitung_hoechstens(db)  # 0.4.99 (M3): nie mehr dekodieren als erlaubt
+        hoechstens = abrechnung.verarbeitung_hoechstens(db)  # 0.4.99: nie mehr dekodieren als erlaubt
         segmente, stimmen, gesamt = [], [], 0.0
         if up.source == "discord":
             for nr, (f, pfad) in enumerate(dateien):
@@ -223,7 +223,7 @@ def verarbeiten(db: Session, job: Job, klient: MistralKlient | None = None) -> N
 
 
 def _laenge_pruefen(db: Session, sekunden: float) -> None:
-    """0.4.94 (M2): Vor jedem Aufruf beim Anbieter – mit Abrechnung nie mehr als die feste Obergrenze je Runde, was auch
+    """0.4.94: Vor jedem Aufruf beim Anbieter – mit Abrechnung nie mehr als die feste Obergrenze je Runde, was auch
     immer die Messung beim Hochladen ergeben hat."""
     from app import abrechnung
 
@@ -233,7 +233,7 @@ def _laenge_pruefen(db: Session, sekunden: float) -> None:
 
 
 def _verbrauch_festhalten(db: Session, campaign_id: str, session_id: str, sekunden: float, k) -> None:
-    """Was der Anbieter bis hierhin abgerechnet hat, auch ohne Ergebnis protokollieren (0.4.89, M1) – die Abrechnung
+    """Was der Anbieter bis hierhin abgerechnet hat, auch ohne Ergebnis protokollieren (0.4.89) – die Abrechnung
     findet es über die Runde, auch wenn es sie nicht mehr gibt."""
     if sekunden > 0:
         db.add(UsageLog(campaign_id=campaign_id, session_id=session_id, kind="transcription", engine="external",

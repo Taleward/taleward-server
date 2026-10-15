@@ -86,7 +86,7 @@ als_container() {  # Befehl mit den Rechten des Containers (uid 1000) ausführen
 }
 
 # Der Ordner gehört dem Container. Was root dort ändert, könnte ein Verweis woandershin lenken (zwischen Prüfen und
-# Schreiben, S21.5) – darum schreibt und löscht dort der Benutzer des Containers.
+# Schreiben) – darum schreibt und löscht dort der Benutzer des Containers.
 ordner_ohne_container() {  # Rückfall ohne setpriv-Umweg: ohne root-Rechte (kein Rechtesprung), ohne setpriv (sehr
   # alte Systeme) oder in einem Ordner, der root gehört (dort kann der Container nichts anlegen) – sonst nie als root
   [ -d "$ORDNER" ] && [ ! -L "$ORDNER" ] && { [ "$(id -u)" != 0 ] || ! command -v setpriv >/dev/null 2>&1 \

@@ -199,7 +199,7 @@ def _auftrag(db: Session, job: Job) -> dict:
             "hotwords": fuer_kampagne(db, c, s.number),
             # 0.4.6: erneute Transkription – nur der Text, Stimmen sind schon zugeordnet
             "nurText": bool(s.nachtranskription),
-            # 0.4.99 (M3): mehr Audio verarbeitet der Worker nicht (nur mit Abrechnung gesetzt)
+            # 0.4.99: mehr Audio verarbeitet der Worker nicht (nur mit Abrechnung gesetzt)
             **({"maxAudioSeconds": m} if (m := _hoechstens(db)) else {}),
         },
         "files": files,
@@ -336,7 +336,7 @@ def ergebnis_uebernehmen(db: Session, job: Job, body: ResultIn, engine: str, wor
     discord = up.source == "discord"
     from app import abrechnung
 
-    abrechnung.menge_nachtragen(db, job, body.audio_seconds)  # 0.4.89 (M2): mindestens die tatsächliche Audiolänge
+    abrechnung.menge_nachtragen(db, job, body.audio_seconds)  # 0.4.89: mindestens die tatsächliche Audiolänge
     if s.nachtranskription:
         return _nachtranskription_uebernehmen(db, s, job, body, engine, worker_id, kosten_cent, discord)
     # Ergebnis eines früheren Versuchs verwerfen

@@ -278,7 +278,7 @@ MESSAGES: dict[str, tuple[str, str]] = {
                            "so viel – teile die Aufnahme bitte auf.",
                            "The recording is longer than {stunden} hours. This server accepts at most that much per "
                            "session – please split the recording."),
-    # 0.4.99 (M3)
+    # 0.4.99
     "recording_unreadable": ("Diese Aufnahme kann Taleward nicht lesen. Speichere sie bitte als gewöhnliche Audiodatei "
                              "(zum Beispiel MP3 oder M4A) und lade sie noch einmal hoch.",
                              "Taleward can't read this recording. Please save it as an ordinary audio file (for "

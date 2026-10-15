@@ -289,7 +289,7 @@ class Entry(Base):
     former_holder_member_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     # 0.4.13: Links als JSON [{id, label, url, shared}]; Spieler bekommen nur shared (app/links.py)
     links: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # 0.4.89 (S31): aus einer Auswertung von Charakterbogen bzw. Hintergrund übernommen – bis die SL Sichtbarkeit oder
+    # 0.4.89: aus einer Auswertung von Charakterbogen bzw. Hintergrund übernommen – bis die SL Sichtbarkeit oder
     # „Wer weiß was“ selbst festlegt, wissen es nur SL und Urheberin (auch Nachzügler nicht; die KI nicht als bekannt)
     origin_analysis_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
@@ -762,7 +762,7 @@ class KostenAuftrag(Base):
     weg: Mapped[str] = mapped_column(String(16))  # worker | zentrale | extern
     art: Mapped[str] = mapped_column(String(16))  # Auftragsart (transcribe, summarize, revise, document)
     menge: Mapped[int] = mapped_column(Integer, default=0)  # Sekunden Aufnahme bzw. Seiten bzw. 1
-    # 0.4.87 (N1): Bezug auch ohne den Auftrag – Runde, Unterlage oder Kampagne können vor dem Abrechnen gelöscht werden
+    # 0.4.87: Bezug auch ohne den Auftrag – Runde, Unterlage oder Kampagne können vor dem Abrechnen gelöscht werden
     campaign_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     session_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     document_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
@@ -778,7 +778,7 @@ class Gutschein(Base):
     """Gutscheincode über einen festen Betrag. Gespeichert wird nur die SHA-256 des Codes."""
 
     __tablename__ = "gutscheine"
-    # 0.4.87 (N5): je Guthaben höchstens ein eingelöster Gutschein derselben Aktion – in der Datenbank selbst
+    # 0.4.87: je Guthaben höchstens ein eingelöster Gutschein derselben Aktion – in der Datenbank selbst
     __table_args__ = (Index("ix_gutscheine_aktion_eingeloest", "aktion", "eingeloest_von", unique=True,
                             sqlite_where=text("eingeloest_von IS NOT NULL")),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)

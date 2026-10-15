@@ -94,7 +94,7 @@ def _seite_abrechnung(request: Request, user: User, db: Session, status: int = 2
         von = db.get(User, z.von)
         protokoll.append({"z": z, "von": von.display_name if von else z.von, "daten": _kurz(json.loads(z.daten or "{}"))})
     orgs = list(db.scalars(select(Organization).order_by(Organization.name)))
-    # N6: Cloud-Arten ohne eigenen Schätzwert und ohne bisherige Läufe – die würden mit 0 € geschätzt
+    # Cloud-Arten ohne eigenen Schätzwert und ohne bisherige Läufe – die würden mit 0 € geschätzt
     namen = {"transcribe": tr(request)("Transkription"), "summarize": tr(request)("Kapitel"),
              "revise": tr(request)("Korrektur per Hinweis"), "document": tr(request)("SL-Unterlage")}
     ohne = [namen[a] for a in abrechnung.KOSTENPFLICHTIG if abrechnung.preis_je_einheit(db, a, "cloud") <= 0]
@@ -120,7 +120,7 @@ def seite(request: Request, user: User = Depends(verwalter), db: Session = Depen
 def modus(request: Request, modus: str = Form(""), user: User = Depends(verwalter), db: Session = Depends(get_db)):
     if modus not in abrechnung.MODI:
         return _seite_abrechnung(request, user, db, 400, fehler=tr(request)("Bitte eine der Möglichkeiten wählen."))
-    if modus != "aus" and not _faktor(db, user):  # 0.4.87 (N3); Ausschalten geht immer – die Notbremse
+    if modus != "aus" and not _faktor(db, user):  # 0.4.87; Ausschalten geht immer – die Notbremse
         return _ohne_faktor(request, user, db)
     if modus != abrechnung.modus(db):
         abrechnung.modus_schreiben(db, modus, user.id)
@@ -130,7 +130,7 @@ def modus(request: Request, modus: str = Form(""), user: User = Depends(verwalte
 
 @router.post("/abrechnung/preise", dependencies=[Depends(csrf_pruefen)])
 async def preise(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)):
-    if not _faktor(db, user):  # 0.4.87 (N3): Aufschlag und Preise nur mit zweitem Faktor
+    if not _faktor(db, user):  # 0.4.87: Aufschlag und Preise nur mit zweitem Faktor
         return _ohne_faktor(request, user, db)
     form = await request.form()
     p = abrechnung.preise(db)

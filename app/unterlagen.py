@@ -281,7 +281,7 @@ def loeschen(db: Session, doc: CampaignDocument) -> None:
     """Unterlage samt Datei, Text, Vorschlägen und Aufträgen löschen. Übernommene Einträge bleiben."""
     from app import abrechnung
 
-    abrechnung.vor_loeschen(db, document_id=doc.id)  # 0.4.87 (N1): Gestartetes wird vor dem Löschen gebucht
+    abrechnung.vor_loeschen(db, document_id=doc.id)  # 0.4.87: Gestartetes wird vor dem Löschen gebucht
     if doc.kind == "character_sheet":
         from app import charakterauswertung
 

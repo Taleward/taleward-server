@@ -142,7 +142,7 @@ def _loeschen(db: Session, schluessel: str) -> None:
 
 # ---------------------------------------------------------------- Prüfen
 def _verbrauchen(db: Session, user_id: str, alt: str, neu: dict) -> bool:
-    """S30.2: Stand nur ersetzen, wenn er seit dem Lesen unverändert ist (bedingtes Update in der Datenbank). Zwei
+    """Stand nur ersetzen, wenn er seit dem Lesen unverändert ist (bedingtes Update in der Datenbank). Zwei
     gleichzeitige Anfragen mit demselben Code: Die zweite findet den alten Stand nicht mehr und gilt nicht."""
     from sqlalchemy import update
     from sqlalchemy.exc import OperationalError

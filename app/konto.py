@@ -203,7 +203,7 @@ def _kampagne_loeschen(db: Session, c: Campaign) -> None:
     from app import abrechnung
     from app.bilder import cover_ordner, loeschen, portrait_ordner
 
-    abrechnung.vor_loeschen(db, campaign_id=c.id)  # 0.4.87 (N1): Gestartetes wird vor dem Löschen gebucht
+    abrechnung.vor_loeschen(db, campaign_id=c.id)  # 0.4.87: Gestartetes wird vor dem Löschen gebucht
     from app import charakterauswertung
 
     charakterauswertung.kampagne_entfernt(db, c.id)  # 0.4.18: Aufträge der Auswertungen

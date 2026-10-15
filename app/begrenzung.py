@@ -87,7 +87,7 @@ class Zaehler:
                 self._weg(k)
         # 3. notfalls die mit den wenigsten Versuchen (bei Gleichstand die am längsten unbenutzten) – eine laufende
         # Sperre hat viele Versuche und bleibt, auch wenn jemand mit sehr vielen Netzen Massen von Schlüsseln mit je
-        # zwei Versuchen anlegt (S26.4). Gleich ein Zehntel Luft schaffen, damit nicht jeder neue Schlüssel sortiert.
+        # zwei Versuchen anlegt. Gleich ein Zehntel Luft schaffen, damit nicht jeder neue Schlüssel sortiert.
         ziel = max(0, grenze - MAX_SCHLUESSEL // 10)
         reihenfolge = sorted(enumerate(self._daten), key=lambda x: (len(self._daten[x[1]]), x[0]))
         for _i, k in reihenfolge[:len(self._daten) - ziel]:
