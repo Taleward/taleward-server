@@ -67,7 +67,7 @@ index c22fcd5..05eb554 100644
 -    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.102"
 +    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.103"
  
-
+ 
 diff --git a/uv.lock b/uv.lock
 index 88f34a8..0a50e34 100644
 --- a/uv.lock
