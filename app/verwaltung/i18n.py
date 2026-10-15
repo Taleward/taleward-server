@@ -467,8 +467,9 @@ EN: dict[str, str] = {
     "Zu viele Fehlversuche. Bitte in ein paar Minuten erneut versuchen.":
         "Too many failed attempts. Please try again in a few minutes.",
     "Benutzername oder Passwort stimmt nicht.": "Username or password is incorrect.",
-    "Dieses Konto hat kein Verwalter-Recht. Freischalten mit: uv run chronik admin -u {name}":
-        "This account has no administrator rights. Grant them with: uv run chronik admin -u {name}",
+    "Mit diesem Konto nutzt du Taleward in der App. Die Verwaltung ist nur für Verwalter dieses Servers – ein Verwalter kann dich unter „Konten“ freischalten.":
+        "This account is for using Taleward in the app. The admin area is only for administrators of this server – an "
+        "administrator can grant you access under “Accounts”.",
     "Benutzername fehlt oder enthält Leerzeichen.": "Username is missing or contains spaces.",
     "Bitte einen eigenen Benutzernamen wählen, nicht „admin“.": "Please choose your own username, not “admin”.",
     "Bitte einen Anzeigenamen angeben.": "Please enter a display name.",

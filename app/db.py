@@ -86,14 +86,24 @@ def get_db() -> Iterator[Session]:
         db.close()
 
 
+def migrationen_ort(paket: Path | None = None) -> tuple[Path, Path]:
+    """Ordner der Alembic-Migrationen und alembic.ini: im Quellordner neben `app/`, sonst (installiertes Paket, z. B.
+    das KI-Paket der Worker-App) die mitgelieferte Kopie in `app/_migrationen`."""
+    paket = paket or Path(__file__).resolve().parent
+    quelle = paket.parent
+    if (quelle / "migrations" / "env.py").is_file():
+        return quelle / "migrations", quelle / "alembic.ini"
+    return paket / "_migrationen", paket / "_migrationen" / "alembic.ini"
+
+
 def run_migrations() -> None:
     """Bringt die Datenbank per Alembic auf den neuesten Stand."""
     from alembic import command
     from alembic.config import Config
 
-    root = Path(__file__).resolve().parent.parent
-    cfg = Config(str(root / "alembic.ini"))
-    cfg.set_main_option("script_location", str(root / "migrations"))
+    ordner, ini = migrationen_ort()
+    cfg = Config(str(ini))
+    cfg.set_main_option("script_location", str(ordner))
     cfg.set_main_option("sqlalchemy.url", get_settings().db_url)
     get_engine()  # legt data_dir an
     command.upgrade(cfg, "head")

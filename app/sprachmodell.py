@@ -2663,7 +2663,7 @@ class Ablauf:
             aus.append(eintrag)
             if urteil == "widerspricht" and eintrag["begruendung"]:
                 # Nur ein Hinweis für die Spielleitung, kein Urteil: Die Relationsprüfung schlägt bei kleinen
-                # Modellen überwiegend falsch an (06.10.: 1 echter Treffer in 12 Flaggen). Das Urteil des Absatzes
+                # Modellen überwiegend falsch an (in einer Messung 1 echter Treffer in 12 Flaggen). Das Urteil des Absatzes
                 # und damit die Nachbesserung bleiben unberührt. 0.4.64: Die App zeigt Begründungen nur an
                 # beanstandeten Absätzen, und dort genau einen Satz – der Hinweis füllt also nur eine leere
                 # Begründung; im Modellvergleich bleibt er vollständig (letzte_relationen_*).

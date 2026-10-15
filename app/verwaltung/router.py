@@ -251,8 +251,7 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
             fehler = tr(request)("Benutzername oder Passwort stimmt nicht.")
         elif not _ist_verwalter(db, user):
             ZAEHLER.freigeben(versuch)
-            fehler = tr(request)("Dieses Konto hat kein Verwalter-Recht. Freischalten mit: uv run chronik admin -u {name}",
-                                 name=name)
+            fehler = tr(request)("Mit diesem Konto nutzt du Taleward in der App. Die Verwaltung ist nur für Verwalter dieses Servers – ein Verwalter kann dich unter „Konten“ freischalten.")
         else:
             from app.verwaltung import zweiter_faktor
 

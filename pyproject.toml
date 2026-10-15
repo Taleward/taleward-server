@@ -53,5 +53,10 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 
+# Für Installationen ohne Quellordner (KI-Paket der Worker-App, „Alles auf diesem PC“): Datenbank-Migrationen mitliefern
+[tool.hatch.build.targets.wheel.force-include]
+"migrations" = "app/_migrationen"
+"alembic.ini" = "app/_migrationen/alembic.ini"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

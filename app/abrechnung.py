@@ -40,7 +40,7 @@ from app.models import (AbrechnungProtokoll, Buchung, Campaign, CampaignDocument
 MODI = ("aus", "guthaben", "topf")
 KOSTENPFLICHTIG = ("transcribe", "summarize", "revise", "document")
 NUTZUNG = {"transcribe": "transcription", "summarize": "summary", "revise": "revision", "document": "document"}
-MAX_AUFNAHME_SEKUNDEN = 8 * 3600  # feste Obergrenze je Runde (Entscheidung Benjamin, 13.10.2026)
+MAX_AUFNAHME_SEKUNDEN = 8 * 3600  # feste Obergrenze je Runde
 
 
 def verarbeitung_hoechstens(db: Session) -> int | None:
@@ -323,7 +323,7 @@ def _mittelwert_cloud(db: Session, art: str) -> float:
 
 
 # 0.4.93: Tokens für die Schätzung aus den Preisen des Anbieters, solange es keine eigenen Läufe gibt. Gemessen an der
-# Nostria-Runde (158 min, 08.10.): mit Mistral 211k Tokens ein / 10k aus für Kapitel, Vorschläge und Gegenprüfung
+# Lange Testrunde (158 min): mit Mistral 211k Tokens ein / 10k aus für Kapitel, Vorschläge und Gegenprüfung
 # (≈ 80k / 3,8k je Stunde) – aufgerundet. Korrektur: Hinweis, Kapitel und bis 40.000 Zeichen Abschrift. Unterlage:
 # eine Seite (≈ 3.000 Zeichen) plus Bibel und Vorschläge.
 TOKENS_SCHAETZUNG = {"summarize": (85_000, 4_500), "revise": (20_000, 3_000), "document": (2_000, 500)}

@@ -37,7 +37,7 @@ def test_anmeldung_und_schutz(client, dbs):
     assert "chronik einrichtungscode" in seite.text  # noch kein Verwalter → Einrichtung mit Code
     assert "frame-ancestors 'none'" in seite.headers["content-security-policy"]
     r = client.post("/verwaltung/anmelden", data={"username": "mitglied", "password": "geheim123"})
-    assert r.status_code == 400 and "kein Verwalter-Recht" in r.text
+    assert r.status_code == 400 and "nur für Verwalter dieses Servers" in r.text and "chronik admin" not in r.text
     for _ in range(5):
         client.post("/verwaltung/anmelden", data={"username": "mitglied", "password": "falsch"})
     r = client.post("/verwaltung/anmelden", data={"username": "mitglied", "password": "geheim123"})

@@ -39,7 +39,7 @@ class Anbieter:
 
 
 ANBIETER: tuple[Anbieter, ...] = (
-    # Empfehlung nach der Messung vom 08.10.2026 (je 6 Läufe, lange Runde): Medium schreibt das bessere Kapitel,
+    # Empfehlung nach einer Messung (je 6 Läufe, lange Runde): Medium schreibt das bessere Kapitel,
     # Large die besseren Vorschläge.
     Anbieter("mistral", "Mistral (EU)", "https://api.mistral.ai/v1", "mistral-medium-latest", True,
              "Frankreich / EU",
