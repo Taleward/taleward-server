@@ -40,11 +40,22 @@ class FormatFehler(Exception):
     pass
 
 
-def _schluessel(passwort: str, salz: bytes, zeit: int, speicher: int, parallel: int) -> bytes:
+def _schluessel(passwort: str, salz: bytes, zeit: int, speicher: int, parallel: int, *,
+               normalisieren: bool = True) -> bytes:
+    """Ab 0.4.102 wird das Passwort vorher nach NFC normalisiert – „é“ als ein Zeichen oder als „e“ mit Akzent ergibt
+    denselben Schlüssel, egal wie Tastatur oder System es eingeben."""
+    import unicodedata
+
+    from argon2.exceptions import HashingError
     from argon2.low_level import Type, hash_secret_raw
 
-    return hash_secret_raw(passwort.encode("utf-8"), salz, time_cost=zeit, memory_cost=speicher,
-                           parallelism=parallel, hash_len=32, type=Type.ID)
+    if normalisieren:
+        passwort = unicodedata.normalize("NFC", passwort)
+    try:
+        return hash_secret_raw(passwort.encode("utf-8"), salz, time_cost=zeit, memory_cost=speicher,
+                               parallelism=parallel, hash_len=32, type=Type.ID)
+    except (HashingError, ValueError) as e:  # Einstellungen im Kopf, die argon2 nicht annimmt
+        raise FormatFehler("Die Sicherung hat ungewöhnliche Einstellungen und wird nicht geöffnet.") from e
 
 
 def _nonce(anfang: bytes, nummer: int, letzter: bool) -> bytes:
@@ -81,9 +92,15 @@ def entschluesseln(quelle: BinaryIO, ziel: BinaryIO, passwort: str) -> None:
     if len(kopf) < len(MAGIE) + _KOPF.size or not kopf.startswith(MAGIE):
         raise FormatFehler("Das ist keine Taleward-Sicherung mit Passwort.")
     salz, zeit, speicher, parallel, anfang = _KOPF.unpack(kopf[len(MAGIE):])
-    if not (1 <= zeit <= _HOECHSTENS[0] and 8 <= speicher <= _HOECHSTENS[1] and 1 <= parallel <= _HOECHSTENS[2]):
+    if not (1 <= zeit <= _HOECHSTENS[0] and 1 <= parallel <= _HOECHSTENS[2]
+            and 8 * parallel <= speicher <= _HOECHSTENS[1]):  # argon2 verlangt mindestens 8 KiB je Faden
         raise FormatFehler("Die Sicherung hat ungewöhnliche Einstellungen und wird nicht geöffnet.")
-    aes = AESGCM(_schluessel(passwort, salz, zeit, speicher, parallel))
+    schluessel = [_schluessel(passwort, salz, zeit, speicher, parallel)]
+    import unicodedata
+
+    if unicodedata.normalize("NFC", passwort) != passwort:  # Sicherungen von 0.4.100/0.4.101 (ohne Normalisierung)
+        schluessel.append(_schluessel(passwort, salz, zeit, speicher, parallel, normalisieren=False))
+    kandidaten = [AESGCM(k) for k in schluessel]
     nummer = 0
     while True:
         roh = quelle.read(_LAENGE.size)
@@ -95,13 +112,18 @@ def entschluesseln(quelle: BinaryIO, ziel: BinaryIO, passwort: str) -> None:
         teil = quelle.read(laenge)
         if len(teil) < laenge:
             raise PasswortFehler("Die Sicherung ist unvollständig.")
-        for letzter in (False, True):
-            try:
-                klar = aes.decrypt(_nonce(anfang, nummer, letzter), teil, kopf)
+        klar = None
+        for aes in kandidaten:
+            for letzter in (False, True):
+                try:
+                    klar = aes.decrypt(_nonce(anfang, nummer, letzter), teil, kopf)
+                    break
+                except InvalidTag:
+                    continue
+            if klar is not None:
+                kandidaten = [aes]  # ab dem ersten Block steht der Schlüssel fest
                 break
-            except InvalidTag:
-                continue
-        else:
+        if klar is None:
             raise PasswortFehler("Das Passwort stimmt nicht, oder die Datei ist beschädigt.")
         ziel.write(klar)
         if letzter:

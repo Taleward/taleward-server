@@ -22,7 +22,9 @@ anyio==4.15.1
     #   starlette
     #   watchfiles
 argon2-cffi==25.1.0
-    # via pwdlib
+    # via
+    #   pwdlib
+    #   taleward-server
 argon2-cffi-bindings==26.1.0
     # via argon2-cffi
 asteroid-filterbanks==0.4.0
@@ -58,7 +60,9 @@ colorlog==6.12.0
 contourpy==1.3.3
     # via matplotlib
 cryptography==50.0.1
-    # via pyjwt
+    # via
+    #   pyjwt
+    #   taleward-server
 ctranslate2==4.8.2
     # via
     #   faster-whisper

@@ -2000,10 +2000,12 @@ wheels = [
 
 [[package]]
 name = "taleward-server"
-version = "0.4.101"
+version = "0.4.102"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
+    { name = "argon2-cffi" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "jinja2" },
@@ -2040,6 +2042,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.13" },
+    { name = "argon2-cffi", specifier = ">=23.1" },
+    { name = "cryptography", specifier = ">=42" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "imageio-ffmpeg", marker = "extra == 'ki'", specifier = "==0.6.0" },

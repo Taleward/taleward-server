@@ -1,6 +1,6 @@
 [project]
 name = "taleward-server"
-version = "0.4.101"
+version = "0.4.102"
 description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
 license = "AGPL-3.0-only"
 license-files = ["LICENSE"]
@@ -13,6 +13,8 @@ dependencies = [
     "pydantic-settings>=2.4",
     "pyjwt[crypto]>=2.9",
     "pwdlib[argon2]>=0.2",
+    "argon2-cffi>=23.1",  # Sicherung mit Passwort (app/sicherung_passwort.py) nutzt es direkt
+    "cryptography>=42",  # ebenso (AES-256-GCM)
     "typer>=0.12",
     "python-multipart>=0.0.9",
     "httpx>=0.27",

@@ -72,6 +72,22 @@ def _neue_codes() -> list[str]:
             for _ in range(ANZAHL_CODES)]
 
 
+def _zu(geheim: str) -> str:
+    """Unter Windows (Taleward für Windows) liegt das Geheimnis per DPAPI geschützt in der Datenbank, sonst unverändert.
+    Nur dieses Feld – das bedingte Update beim Verbrauchen vergleicht den ganzen gespeicherten Text."""
+    from app import dpapi
+
+    return dpapi.text_schuetzen(geheim)
+
+
+def _auf(geheim: str | None) -> str | None:
+    """None, wenn sich ein geschütztes Geheimnis hier nicht öffnen lässt (anderer PC oder Nutzer) – dann gilt kein Code
+    mehr; Notweg: `chronik zweiter-faktor-aus -u <name>`."""
+    from app import dpapi
+
+    return dpapi.text_oeffnen(geheim)
+
+
 def stand(db: Session, user_id: str) -> dict | None:
     wert = meta_lesen(db, _schluessel(user_id))
     try:
@@ -93,7 +109,7 @@ def restliche_codes(db: Session, user_id: str) -> int:
 def beginnen(db: Session, user_id: str) -> str:
     """Neuen Schlüssel für das Einrichten anlegen (noch nicht aktiv). Liefert ihn als Base32."""
     geheim = base64.b32encode(secrets.token_bytes(20)).decode().rstrip("=")
-    meta_schreiben(db, _neu_schluessel(user_id), json.dumps({"geheim": geheim, "bis": time.time() + NEU_GUELTIG}))
+    meta_schreiben(db, _neu_schluessel(user_id), json.dumps({"geheim": _zu(geheim), "bis": time.time() + NEU_GUELTIG}))
     return geheim
 
 
@@ -103,7 +119,7 @@ def angefangen(db: Session, user_id: str) -> str | None:
         d = json.loads(wert) if wert else None
     except ValueError:
         return None
-    return d["geheim"] if d and d.get("bis", 0) > time.time() else None
+    return _auf(d["geheim"]) if d and d.get("bis", 0) > time.time() else None
 
 
 def uri(geheim: str, konto: str, aussteller: str) -> str:
@@ -124,7 +140,7 @@ def bestaetigen(db: Session, user_id: str, eingabe: str) -> list[str] | None:
         return None
     codes = _neue_codes()
     meta_schreiben(db, _schluessel(user_id), json.dumps({
-        "geheim": geheim, "zuletzt": fenster, "codes": [_hash(c) for c in codes], "seit": int(time.time())}))
+        "geheim": _zu(geheim), "zuletzt": fenster, "codes": [_hash(c) for c in codes], "seit": int(time.time())}))
     _loeschen(db, _neu_schluessel(user_id))
     return codes
 
@@ -149,7 +165,8 @@ def _verbrauchen(db: Session, user_id: str, alt: str, neu: dict) -> bool:
 
     try:
         erg = db.execute(update(ServerMeta).where(ServerMeta.key == _schluessel(user_id), ServerMeta.value == alt)
-                         .values(value=json.dumps(neu)).execution_options(synchronize_session="fetch"))
+                         .values(value=json.dumps({**neu, "geheim": _zu(neu["geheim"])}))  # ältere Klartexte nachziehen
+                         .execution_options(synchronize_session="fetch"))
     except OperationalError:  # SQLite: der andere hat gerade geschrieben – dieser Versuch gilt nicht
         db.rollback()
         return False
@@ -163,7 +180,10 @@ def pruefen(db: Session, user_id: str, eingabe: str, jetzt: float | None = None)
     if s is None or alt is None:
         return False
     eingabe = (eingabe or "").strip()
-    fenster = _passendes_fenster(s["geheim"], eingabe, jetzt)
+    geheim = _auf(s.get("geheim"))
+    if not geheim:
+        return False
+    fenster = _passendes_fenster(geheim, eingabe, jetzt)
     if fenster is not None:
         if fenster <= int(s.get("zuletzt") or 0):
             return False  # derselbe (oder ein älterer) Code noch einmal: abgelehnt
