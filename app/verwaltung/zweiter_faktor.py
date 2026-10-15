@@ -82,7 +82,7 @@ def _zu(geheim: str) -> str:
 
 def _auf(geheim: str | None) -> str | None:
     """None, wenn sich ein geschütztes Geheimnis hier nicht öffnen lässt (anderer PC oder Nutzer) – dann gilt kein Code
-    mehr; Notweg: `chronik zweiter-faktor-aus -u <name>`."""
+    aus der Authenticator-App mehr, nur noch Wiederherstellungscodes; Notweg: `chronik zweiter-faktor-aus -u <name>`."""
     from app import dpapi
 
     return dpapi.text_oeffnen(geheim)
@@ -180,10 +180,10 @@ def pruefen(db: Session, user_id: str, eingabe: str, jetzt: float | None = None)
     if s is None or alt is None:
         return False
     eingabe = (eingabe or "").strip()
+    # Lässt sich das Geheimnis hier nicht öffnen (Datenbank auf einen anderen PC gebracht), gilt kein Code aus der
+    # Authenticator-App – die Wiederherstellungscodes (nur als Hash gespeichert) gelten weiter.
     geheim = _auf(s.get("geheim"))
-    if not geheim:
-        return False
-    fenster = _passendes_fenster(geheim, eingabe, jetzt)
+    fenster = _passendes_fenster(geheim, eingabe, jetzt) if geheim else None
     if fenster is not None:
         if fenster <= int(s.get("zuletzt") or 0):
             return False  # derselbe (oder ein älterer) Code noch einmal: abgelehnt

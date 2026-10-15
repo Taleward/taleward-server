@@ -77,3 +77,38 @@ def test_aufruf_ohne_netz_meldet_fehler(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(m, "seite_laden", kein_netz)
     ziel = tmp_path / "liste.txt"
     assert m.main(["x", str(WURZEL / "uv.lock"), str(ziel)]) == 1 and not ziel.exists()
+
+
+def test_umleitung_nur_https_und_gleicher_host():
+    import urllib.request
+
+    m = _modul()
+    h = m._NurGleicherHost()
+    anfrage = urllib.request.Request("https://download.pytorch.org/whl/cpu/torch/")
+    for ziel in ("http://download.pytorch.org/whl/cpu/torch/", "https://boese.example/whl/cpu/torch/"):
+        with pytest.raises(m.Fehler):
+            h.redirect_request(anfrage, None, 302, "Found", {}, ziel)
+    assert h.redirect_request(anfrage, None, 302, "Found", {}, "https://download.pytorch.org/whl/cpu/torch/x") is not None
+    with pytest.raises(m.Fehler):
+        m.seite_laden("http://download.pytorch.org/whl/cpu/torch/")
+
+
+def test_linux_nur_mit_linux_und_x86_64():
+    m = _modul()
+    lock = (WURZEL / "uv.lock").read_text(encoding="utf-8")
+    f = m.fassungen(lock)
+
+    def laden(adresse):  # „x86_64“ gibt es nur für macOS – das zählt nicht als Linux
+        variante, paket = adresse.rstrip("/").split("/")[-2:]
+        return _seite(paket, f[paket], variante, systeme=("win_amd64", "macosx_14_0_x86_64"))
+    with pytest.raises(m.Fehler):
+        m.erzeugen(lock, laden)
+
+
+def test_pflicht_rad_ohne_pruefsumme_ist_fehler():
+    m = _modul()
+    ohne = '<a href="/whl/cpu/torch-2.8.0%2Bcpu-cp311-cp311-win_amd64.whl">x</a>'
+    with pytest.raises(m.Fehler):
+        m.dateien(ohne, "torch", "2.8.0")
+    anderes = '<a href="/whl/cpu/torch-2.8.0%2Bcpu-cp311-cp311-macosx_14_0_arm64.whl">x</a>'
+    assert m.dateien(anderes, "torch", "2.8.0") == {}

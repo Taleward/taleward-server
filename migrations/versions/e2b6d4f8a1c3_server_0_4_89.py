@@ -1,4 +1,4 @@
-"""Server 0.4.89: Herkunft von Einträgen aus einer Auswertung (S31); Kampagne an alten Kostenaufträgen nachtragen
+"""Server 0.4.89: Herkunft von Einträgen aus einer Auswertung; Kampagne an alten Kostenaufträgen nachtragen
 
 Revision ID: e2b6d4f8a1c3
 Revises: d7a3c5e9f1b2
