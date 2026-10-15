@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Taleward API
-  version: 0.4.19
+  version: 0.4.20
   description: |
     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
 
@@ -203,6 +203,11 @@ info:
     das Feld erst an Server ab 0.4.19; ältere Apps lassen es weg. Außerdem Campaign.characterSheetLimits – die geltenden
     Grenzen für Charakterbögen (Bögen je Mitglied, ausgewertete Seiten), damit die App keine festen Zahlen nennt; 409
     `sheet_limit` richtet sich nach maxSheets.
+    Änderungen in 0.4.20 (Hochladen abschließen, nur Beschreibung): POST /uploads/{id}/complete nennt die 409-Codes
+    `chunks_missing`, `upload_closed`, `recording_too_long` und `recording_unreadable` (die beiden letzten nur mit
+    eingeschaltetem Guthaben; der Upload ist danach verworfen) sowie 429 `too_many_requests` (der Server misst gerade
+    andere Aufnahmen, der Upload bleibt offen, die App versucht den Abschluss nach kurzer Pause erneut, ohne Teile neu
+    zu senden). Keine neuen Felder.
 
 servers:
   - url: https://taleward.example.org/api/v1
@@ -1883,7 +1888,20 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ProcessingStatus" }
         "409":
-          description: Es fehlen noch Teile
+          description: |
+            `chunks_missing` – es fehlen noch Teile (die App liefert nach und schließt erneut ab). `upload_closed` – der
+            Upload ist nicht mehr offen. Nur mit eingeschaltetem Guthaben (der Server misst die Länge selbst, ab 0.4.20
+            beschrieben): `recording_too_long` – länger als die Obergrenze je Runde; `recording_unreadable` – die Länge
+            ist nicht messbar (kein lesbares Audio, ungewöhnlich viele Tonspuren). In beiden Fällen ist der Upload
+            verworfen und die Runde wieder `created`; `message` sagt, was zu tun ist (z. B. als gewöhnliche Audiodatei
+            speichern und neu hochladen). Die App wiederholt dann nichts und zeigt die Meldung.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: |
+            `too_many_requests` (ab 0.4.20 beschrieben): Der Server misst gerade andere Aufnahmen. Der Upload bleibt
+            offen; die App versucht den Abschluss nach kurzer Pause erneut (ohne Teile neu zu senden).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

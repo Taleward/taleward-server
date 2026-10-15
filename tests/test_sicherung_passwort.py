@@ -30,7 +30,7 @@ def test_hin_und_zurueck(groesse):
 
     daten = os.urandom(groesse)
     v = _verschluesselt(daten)
-    assert daten[:64] not in v or groesse == 0
+    assert groesse < 64 or daten[:64] not in v  # kein Klartext in der Datei (kurze Folgen kommen zufällig vor)
     assert _entschluesselt(v) == daten
 
 
