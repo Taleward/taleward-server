@@ -1,0 +1,210 @@
+From 77a7d569f0523564a502e7d317cfb82451c0e217 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 20:33:19 +0200
+Subject: [PATCH 149/150] Server: Datenbank-Migrationen im installierten Paket,
+ Hinweis bei Anmeldung ohne Verwalter-Recht
+
+---
+ app/abrechnung.py          |  4 ++--
+ app/cloudanbieter.py       |  2 +-
+ app/db.py                  | 16 ++++++++++---
+ app/sprachmodell.py        |  2 +-
+ app/unterlagen.py          |  2 +-
+ app/verwaltung/i18n.py     |  5 ++--
+ app/verwaltung/router.py   |  3 +--
+ pyproject.toml             |  5 ++++
+ tests/test_server_04104.py | 48 ++++++++++++++++++++++++++++++++++++++
+ tests/test_verwaltung.py   |  2 +-
+ 10 files changed, 76 insertions(+), 13 deletions(-)
+ create mode 100644 tests/test_server_04104.py
+
+diff --git a/app/abrechnung.py b/app/abrechnung.py
+index 1a1a09b..d94d4d0 100644
+--- a/app/abrechnung.py
++++ b/app/abrechnung.py
+@@ -41,5 +41,5 @@ MODI = ("aus", "guthaben", "topf")
+ KOSTENPFLICHTIG = ("transcribe", "summarize", "revise", "document")
+ NUTZUNG = {"transcribe": "transcription", "summarize": "summary", "revise": "revision", "document": "document"}
+-MAX_AUFNAHME_SEKUNDEN = 8 * 3600  # feste Obergrenze je Runde (Entscheidung Benjamin, 13.10.2026)
++MAX_AUFNAHME_SEKUNDEN = 8 * 3600  # feste Obergrenze je Runde
+ 
+ 
+@@ -324,5 +324,5 @@ def _mittelwert_cloud(db: Session, art: str) -> float:
+ 
+ # 0.4.93: Tokens für die Schätzung aus den Preisen des Anbieters, solange es keine eigenen Läufe gibt. Gemessen an der
+-# Nostria-Runde (158 min, 08.10.): mit Mistral 211k Tokens ein / 10k aus für Kapitel, Vorschläge und Gegenprüfung
++# Lange Testrunde (158 min): mit Mistral 211k Tokens ein / 10k aus für Kapitel, Vorschläge und Gegenprüfung
+ # (≈ 80k / 3,8k je Stunde) – aufgerundet. Korrektur: Hinweis, Kapitel und bis 40.000 Zeichen Abschrift. Unterlage:
+ # eine Seite (≈ 3.000 Zeichen) plus Bibel und Vorschläge.
+diff --git a/app/cloudanbieter.py b/app/cloudanbieter.py
+index c7e1451..d61e19e 100644
+--- a/app/cloudanbieter.py
++++ b/app/cloudanbieter.py
+@@ -40,5 +40,5 @@ class Anbieter:
+ 
+ ANBIETER: tuple[Anbieter, ...] = (
+-    # Empfehlung nach der Messung vom 08.10.2026 (je 6 Läufe, lange Runde): Medium schreibt das bessere Kapitel,
++    # Empfehlung nach einer Messung (je 6 Läufe, lange Runde): Medium schreibt das bessere Kapitel,
+     # Large die besseren Vorschläge.
+     Anbieter("mistral", "Mistral (EU)", "https://api.mistral.ai/v1", "mistral-medium-latest", True,
+diff --git a/app/db.py b/app/db.py
+index 9c37bf8..9010bce 100644
+--- a/app/db.py
++++ b/app/db.py
+@@ -87,4 +87,14 @@ def get_db() -> Iterator[Session]:
+ 
+ 
++def migrationen_ort(paket: Path | None = None) -> tuple[Path, Path]:
++    """Ordner der Alembic-Migrationen und alembic.ini: im Quellordner neben `app/`, sonst (installiertes Paket, z. B.
++    das KI-Paket der Worker-App) die mitgelieferte Kopie in `app/_migrationen`."""
++    paket = paket or Path(__file__).resolve().parent
++    quelle = paket.parent
++    if (quelle / "migrations" / "env.py").is_file():
++        return quelle / "migrations", quelle / "alembic.ini"
++    return paket / "_migrationen", paket / "_migrationen" / "alembic.ini"
++
++
+ def run_migrations() -> None:
+     """Bringt die Datenbank per Alembic auf den neuesten Stand."""
+@@ -92,7 +102,7 @@ def run_migrations() -> None:
+     from alembic.config import Config
+ 
+-    root = Path(__file__).resolve().parent.parent
+-    cfg = Config(str(root / "alembic.ini"))
+-    cfg.set_main_option("script_location", str(root / "migrations"))
++    ordner, ini = migrationen_ort()
++    cfg = Config(str(ini))
++    cfg.set_main_option("script_location", str(ordner))
+     cfg.set_main_option("sqlalchemy.url", get_settings().db_url)
+     get_engine()  # legt data_dir an
+diff --git a/app/sprachmodell.py b/app/sprachmodell.py
+index d1dd392..b63fcd9 100644
+--- a/app/sprachmodell.py
++++ b/app/sprachmodell.py
+@@ -2664,5 +2664,5 @@ class Ablauf:
+             if urteil == "widerspricht" and eintrag["begruendung"]:
+                 # Nur ein Hinweis für die Spielleitung, kein Urteil: Die Relationsprüfung schlägt bei kleinen
+-                # Modellen überwiegend falsch an (06.10.: 1 echter Treffer in 12 Flaggen). Das Urteil des Absatzes
++                # Modellen überwiegend falsch an (in einer Messung 1 echter Treffer in 12 Flaggen). Das Urteil des Absatzes
+                 # und damit die Nachbesserung bleiben unberührt. 0.4.64: Die App zeigt Begründungen nur an
+                 # beanstandeten Absätzen, und dort genau einen Satz – der Hinweis füllt also nur eine leere
+diff --git a/app/unterlagen.py b/app/unterlagen.py
+index 140f0d0..e3f7880 100644
+--- a/app/unterlagen.py
++++ b/app/unterlagen.py
+@@ -211,5 +211,5 @@ def _bogen_grenzen_pruefen(db: Session, campaign_id: str, member_id: str, art: s
+     grenzen = abrechnung.bogen_grenzen(db, c) if c is not None else None
+     spieler = m is not None and m.role != "gm"
+-    # 0.4.18: 3 Bögen je Mitglied; mit Abrechnung gilt für Spieler die Zahl der SL (0–50, Voreinstellung 3; Benjamin 14.10.)
++    # 3 Bögen je Mitglied; mit Abrechnung gilt für Spieler die Zahl der SL (0–50, Voreinstellung 3)
+     anzahl_max = grenzen[1] if grenzen is not None and spieler else MAX_BOEGEN
+     if schon >= anzahl_max:
+diff --git a/app/verwaltung/i18n.py b/app/verwaltung/i18n.py
+index 4dc419b..3f14c4b 100644
+--- a/app/verwaltung/i18n.py
++++ b/app/verwaltung/i18n.py
+@@ -468,6 +468,7 @@ EN: dict[str, str] = {
+         "Too many failed attempts. Please try again in a few minutes.",
+     "Benutzername oder Passwort stimmt nicht.": "Username or password is incorrect.",
+-    "Dieses Konto hat kein Verwalter-Recht. Freischalten mit: uv run chronik admin -u {name}":
+-        "This account has no administrator rights. Grant them with: uv run chronik admin -u {name}",
++    "Mit diesem Konto nutzt du Taleward in der App. Die Verwaltung ist nur für Verwalter dieses Servers – ein Verwalter kann dich unter „Konten“ freischalten.":
++        "This account is for using Taleward in the app. The admin area is only for administrators of this server – an "
++        "administrator can grant you access under “Accounts”.",
+     "Benutzername fehlt oder enthält Leerzeichen.": "Username is missing or contains spaces.",
+     "Bitte einen eigenen Benutzernamen wählen, nicht „admin“.": "Please choose your own username, not “admin”.",
+diff --git a/app/verwaltung/router.py b/app/verwaltung/router.py
+index 48723de..47e9a9e 100644
+--- a/app/verwaltung/router.py
++++ b/app/verwaltung/router.py
+@@ -252,6 +252,5 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
+         elif not _ist_verwalter(db, user):
+             ZAEHLER.freigeben(versuch)
+-            fehler = tr(request)("Dieses Konto hat kein Verwalter-Recht. Freischalten mit: uv run chronik admin -u {name}",
+-                                 name=name)
++            fehler = tr(request)("Mit diesem Konto nutzt du Taleward in der App. Die Verwaltung ist nur für Verwalter dieses Servers – ein Verwalter kann dich unter „Konten“ freischalten.")
+         else:
+             from app.verwaltung import zweiter_faktor
+diff --git a/pyproject.toml b/pyproject.toml
+index 56f7475..7446ccb 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -54,4 +54,9 @@ build-backend = "hatchling.build"
+ packages = ["app"]
+ 
++# Für Installationen ohne Quellordner (KI-Paket der Worker-App, „Alles auf diesem PC“): Datenbank-Migrationen mitliefern
++[tool.hatch.build.targets.wheel.force-include]
++"migrations" = "app/_migrationen"
++"alembic.ini" = "app/_migrationen/alembic.ini"
++
+ [tool.pytest.ini_options]
+ testpaths = ["tests"]
+diff --git a/tests/test_server_04104.py b/tests/test_server_04104.py
+new file mode 100644
+index 0000000..f492512
+--- /dev/null
++++ b/tests/test_server_04104.py
+@@ -0,0 +1,48 @@
++"""Server 0.4.104: Das installierte Paket (KI-Paket der Worker-App, „Alles auf diesem PC“) bringt die
++Datenbank-Migrationen mit und kann damit eine neue Datenbank anlegen."""
++import os
++import shutil
++import subprocess
++import sys
++import zipfile
++from pathlib import Path
++
++import pytest
++
++WURZEL = Path(__file__).resolve().parents[1]
++
++
++def test_migrationen_im_quellordner_und_im_paket(tmp_path):
++    from app.db import migrationen_ort
++
++    ordner, ini = migrationen_ort()
++    assert ordner == WURZEL / "migrations" and ini == WURZEL / "alembic.ini"
++    paket = tmp_path / "site-packages" / "app"
++    paket.mkdir(parents=True)
++    ordner, ini = migrationen_ort(paket)
++    assert ordner == paket / "_migrationen" and ini == paket / "_migrationen" / "alembic.ini"
++
++
++@pytest.mark.skipif(shutil.which("uv") is None, reason="uv fehlt")
++def test_rad_bringt_migrationen_mit_und_legt_die_datenbank_an(tmp_path):
++    r = subprocess.run(["uv", "build", "--wheel", "-q", "-o", str(tmp_path / "rad"), str(WURZEL)],
++                       capture_output=True, text=True)
++    assert r.returncode == 0, r.stderr[-2000:]
++    rad = next((tmp_path / "rad").glob("taleward_server-*.whl"))
++    with zipfile.ZipFile(rad) as z:
++        namen = set(z.namelist())
++        z.extractall(tmp_path / "site")
++    assert "app/_migrationen/env.py" in namen and "app/_migrationen/alembic.ini" in namen
++    versionen = {n for n in namen if n.startswith("app/_migrationen/versions/") and n.endswith(".py")}
++    assert len(versionen) == len(list((WURZEL / "migrations" / "versions").glob("*.py")))
++    assert not any("__pycache__" in n for n in namen if n.startswith("app/_migrationen/"))
++    # Wie im KI-Paket: nur das installierte Paket, kein Quellordner daneben – neue Datenbank anlegen
++    daten = tmp_path / "daten"
++    umgebung = {**os.environ, "PYTHONPATH": str(tmp_path / "site"), "DATA_DIR": str(daten), "PYTHONUTF8": "1"}
++    umgebung.pop("DATABASE_URL", None)
++    skript = ("import app.db as d, pathlib, sys; o, i = d.migrationen_ort(); "
++              "assert str(o).startswith(sys.argv[1]), o; d.run_migrations(); print('ok')")
++    r = subprocess.run([sys.executable, "-c", skript, str(tmp_path / "site")], capture_output=True, text=True,
++                       env=umgebung, cwd=tmp_path)
++    assert r.returncode == 0 and r.stdout.strip().endswith("ok"), (r.stdout + r.stderr)[-2000:]
++    assert (daten / "chronik.db").stat().st_size > 0
+diff --git a/tests/test_verwaltung.py b/tests/test_verwaltung.py
+index d2329a2..6415760 100644
+--- a/tests/test_verwaltung.py
++++ b/tests/test_verwaltung.py
+@@ -38,5 +38,5 @@ def test_anmeldung_und_schutz(client, dbs):
+     assert "frame-ancestors 'none'" in seite.headers["content-security-policy"]
+     r = client.post("/verwaltung/anmelden", data={"username": "mitglied", "password": "geheim123"})
+-    assert r.status_code == 400 and "kein Verwalter-Recht" in r.text
++    assert r.status_code == 400 and "nur für Verwalter dieses Servers" in r.text and "chronik admin" not in r.text
+     for _ in range(5):
+         client.post("/verwaltung/anmelden", data={"username": "mitglied", "password": "falsch"})
+-- 
+2.43.0
+
