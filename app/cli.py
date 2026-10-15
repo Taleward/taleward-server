@@ -1150,27 +1150,53 @@ def einzelplatz(port: int = typer.Option(8000)):
     # Ohne Zugriffsprotokoll: Es stünden Adressen mit Download-Schlüsseln darin, und das Programm fragt laufend nach
     konfig = uvicorn.Config("app.main:app", host="0.0.0.0", port=port, proxy_headers=False, forwarded_allow_ips="",
                             server_header=False, access_log=False)
-    uvicorn.Server(konfig).run(sockets=[einzelplatz_anschluss(port)])
+    uvicorn.Server(konfig).run(sockets=einzelplatz_anschluesse(port))
 
 
-def einzelplatz_anschluss(port: int):
+def einzelplatz_anschluss(port: int, familie=None, adresse: str = "0.0.0.0"):
     """Anschluss für den Einzelplatz selbst belegen. Unter Windows exklusiv (SO_EXCLUSIVEADDRUSE): Sonst könnte ein
     anderes Programm desselben PCs zusätzlich 127.0.0.1:<port> belegen und Startschlüssel und Passwort abfangen.
     Anderswo wie uvicorn (SO_REUSEADDR – unter Linux erlaubt das keinen zweiten Lauscher)."""
     import socket
 
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    familie = socket.AF_INET if familie is None else familie
+    s = socket.socket(familie, socket.SOCK_STREAM)
     exklusiv = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
     try:
         if exklusiv is not None:
             s.setsockopt(socket.SOL_SOCKET, exklusiv, 1)
         else:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind(("0.0.0.0", port))
+        if familie == getattr(socket, "AF_INET6", None):
+            s.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+        s.bind((adresse, port))
     except OSError:
         s.close()
         raise
     return s
+
+
+# Fehler beim Belegen von [::1], die nur heißen „dieser PC hat kein IPv6“ – dann kann auch niemand sonst dort lauschen
+_OHNE_IPV6 = {97, 99, 10047, 10049}  # EAFNOSUPPORT, EADDRNOTAVAIL (Linux) bzw. WSAEAFNOSUPPORT, WSAEADDRNOTAVAIL
+
+
+def einzelplatz_anschluesse(port: int) -> list:
+    """IPv4 für alle Netze und zusätzlich [::1] – Browser fragen „localhost“ oft zuerst über IPv6. Belegt ein anderes
+    Programm schon [::1]:<port>, startet der Einzelplatz nicht (sonst landeten Anfragen an localhost dort). Ins Heimnetz
+    geht weiter nur IPv4."""
+    import errno
+    import socket
+
+    v4 = einzelplatz_anschluss(port)
+    if not socket.has_ipv6:
+        return [v4]
+    try:
+        return [v4, einzelplatz_anschluss(v4.getsockname()[1], socket.AF_INET6, "::1")]
+    except OSError as e:
+        if e.errno in _OHNE_IPV6 or e.errno in (errno.EAFNOSUPPORT, errno.EADDRNOTAVAIL):
+            return [v4]
+        v4.close()
+        raise
 
 
 if __name__ == "__main__":

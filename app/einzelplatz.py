@@ -161,9 +161,10 @@ def heimnetz_adresse() -> str | None:
 
 
 def oeffentliche_url() -> str:
-    """Adresse, unter der Handys im WLAN diesen PC erreichen (ohne Heimnetz: localhost)."""
+    """Adresse, unter der Handys im WLAN diesen PC erreichen (ohne Heimnetz: 127.0.0.1, nicht „localhost“ – das löst
+    je nach System zuerst über IPv6 auf)."""
     ip = heimnetz_adresse()
-    host = (f"[{ip}]" if ":" in ip else ip) if ip else "localhost"
+    host = (f"[{ip}]" if ":" in ip else ip) if ip else "127.0.0.1"
     return f"http://{host}" + ("" if port() == 80 else f":{port()}")
 
 

@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import wave
 from pathlib import Path
@@ -106,14 +107,25 @@ def _dekodieren_in(quelle: Path, w, rest_s: float) -> int:
     befehl = [_ffmpeg(), "-nostdin", "-hide_banner", "-loglevel", "error", *EINGABE, "-i", str(quelle),
               "-map", "0:a:0", "-ac", "1", "-ar", str(SAMPLE_RATE), "-t", f"{rest_s + 1:.3f}",
               "-f", "s16le", "-acodec", "pcm_s16le", "-"]
-    ende = time.monotonic() + _zeitgrenze(quelle)
+    frist = _zeitgrenze(quelle)
+    ende = time.monotonic() + frist
     geschrieben = 0
     rest = b""
     with tempfile.TemporaryFile() as fehler:
         p = subprocess.Popen(befehl, stdout=subprocess.PIPE, stderr=fehler, stdin=subprocess.DEVNULL, **extra)
+        abgelaufen = threading.Event()
+
+        def _abbrechen():  # Wächter: auch wenn ffmpeg hängt, ohne etwas zu schreiben (read() käme sonst nie zurück)
+            abgelaufen.set()
+            if p.poll() is None:
+                p.kill()
+
+        waechter = threading.Timer(frist, _abbrechen)
+        waechter.daemon = True
+        waechter.start()
         try:
             while True:
-                if time.monotonic() > ende:
+                if time.monotonic() > ende or abgelaufen.is_set():
                     raise AudioFehler("audio_timeout", "ffmpeg hat zu lange gebraucht.", True)
                 block = p.stdout.read(1 << 20)
                 if not block:
@@ -127,10 +139,13 @@ def _dekodieren_in(quelle: Path, w, rest_s: float) -> int:
         except subprocess.TimeoutExpired as e:
             raise AudioFehler("audio_timeout", "ffmpeg hat zu lange gebraucht.", True) from e
         finally:
+            waechter.cancel()
             if p.poll() is None:
                 p.kill()
                 p.wait()
             p.stdout.close()
+        if abgelaufen.is_set():
+            raise AudioFehler("audio_timeout", "ffmpeg hat zu lange gebraucht.", True)
         if code != 0 or geschrieben == 0:
             fehler.seek(0)
             text = fehler.read()[-2000:].decode(errors="replace").strip()
