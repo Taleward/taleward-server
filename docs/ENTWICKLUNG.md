@@ -230,7 +230,11 @@ JavaScript liegt als eigene Datei unter `app/verwaltung/static/`. Keine Schrifte
 bleiben englisch (`campaign`, `session`, `visibility`). Einheitliche Begriffe in Texten: Worker, Server, lokaler
 Server, Spielleitung (SL).
 
-**Abhängigkeiten.** Nach Änderungen an den KI-Abhängigkeiten `engine-requirements.txt` neu erzeugen:
+**Abhängigkeiten.** Die Fassungen von torch, torchaudio, torchvision und torchcodec legt `[tool.uv]
+override-dependencies` in `pyproject.toml` fest (whisperx verlangt sonst ein älteres PyTorch); ebenso, dass
+huggingface-hub neuer als 1.0 sein darf. Beim Anheben darauf achten, dass alle vier zusammenpassen und im
+PyTorch-Verzeichnis für cu128 vorliegen, und danach mit dem Probelauf auf echter Hardware prüfen. Nach Änderungen an
+den KI-Abhängigkeiten `engine-requirements.txt` neu erzeugen:
 
 ```bash
 uv export --format requirements-txt --extra ki --no-dev --no-hashes --no-emit-project --no-header -o engine-requirements.txt
