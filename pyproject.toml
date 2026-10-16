@@ -58,5 +58,17 @@ packages = ["app"]
 "migrations" = "app/_migrationen"
 "alembic.ini" = "app/_migrationen/alembic.ini"
 
+# whisperx 3.8.6 verlangt torch 2.8; die KI-Pakete laufen auf dem neueren PyTorch (geprüft im Probelauf), das bekannte
+# Lücken schließt. torchaudio, torchvision und torchcodec passen zu dieser torch-Fassung; alle vier gibt es im
+# PyTorch-Verzeichnis für cu128 (Worker-App, Dockerfile.worker), und torch von PyPI bringt dieselben CUDA-12.8-
+# Bibliotheken mit wie das Verzeichnis.
+[tool.uv]
+override-dependencies = [
+    "torch==2.10.0",
+    "torchaudio==2.10.0",
+    "torchvision==0.25.0",
+    "torchcodec==0.10.0",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
