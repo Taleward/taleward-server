@@ -1,0 +1,317 @@
+From 7d1f3685b001696b09f3656cfcf8fdde359570eb Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Fri, 16 Oct 2026 17:31:25 +0200
+Subject: [PATCH 153/158] =?UTF-8?q?Verwaltung:=20Tippfl=C3=A4chen,=20Fokus?=
+ =?UTF-8?q?=20in=20Tinte,=20Seiten=20statt=20Fehlerdaten,=20Sicherung=20im?=
+ =?UTF-8?q?=20Einzelplatz?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ app/verwaltung/guthaben.py                  | 17 +++++++-
+ app/verwaltung/router.py                    | 25 ++++++++----
+ app/verwaltung/static/verwaltung.css        | 45 ++++++++++++++++-----
+ app/verwaltung/templates/anmeldung.html     |  4 +-
+ app/verwaltung/templates/hinweis_seite.html |  9 +++++
+ app/verwaltung/templates/uebergabe.html     |  2 +-
+ app/verwaltung/templates/uebersicht.html    | 10 +++--
+ app/verwaltung/templates/updates.html       | 11 ++---
+ 8 files changed, 93 insertions(+), 30 deletions(-)
+ create mode 100644 app/verwaltung/templates/hinweis_seite.html
+
+diff --git a/app/verwaltung/guthaben.py b/app/verwaltung/guthaben.py
+index a0cd79b..ff8231b 100644
+--- a/app/verwaltung/guthaben.py
++++ b/app/verwaltung/guthaben.py
+@@ -59,7 +59,11 @@ def _csrf(wert: str) -> str:
+ 
+ 
++class _Aus(Exception):
++    """Guthaben ist auf diesem Server aus – Seite statt Fehlermeldung als Daten."""
++
++
+ def _an(db: Session = Depends(get_db)) -> None:
+     if not abrechnung.an(db):
+-        raise errors.not_found()
++        raise _Aus()
+ 
+ 
+@@ -357,2 +361,13 @@ def einbinden(app) -> None:
+     async def _abgemeldet(_req: Request, _exc: _Abgemeldet):
+         return RedirectResponse("/guthaben", status_code=303)
++
++    @app.exception_handler(_Aus)
++    async def _aus(req: Request, _exc: _Aus):
++        _ = tr(req)
++        quelle = app.dependency_overrides.get(get_db, get_db)()
++        db = next(quelle)
++        try:
++            return _seite(req, "hinweis_seite.html", None, db, status_code=404, titel=_("Guthaben"),
++                          text=_("Auf diesem Server gibt es kein Guthaben. Die Kosten trägt, wer den Server betreibt – du musst hier nichts tun."))
++        finally:
++            quelle.close()
+diff --git a/app/verwaltung/router.py b/app/verwaltung/router.py
+index 47e9a9e..0d3a92d 100644
+--- a/app/verwaltung/router.py
++++ b/app/verwaltung/router.py
+@@ -205,5 +205,6 @@ def csrf_pruefen(request: Request, csrf: str = Form("")) -> None:
+ 
+ 
+-def _seite(request: Request, name: str, user: User | None, db: Session, **ctx) -> HTMLResponse:
++def _seite(request: Request, name: str, user: User | None, db: Session, status_code: int = 200,
++           **ctx) -> HTMLResponse:
+     sprache = sprache_von(request)
+     _ = uebersetzer(sprache)
+@@ -213,6 +214,7 @@ def _seite(request: Request, name: str, user: User | None, db: Session, **ctx) -
+         "user": user, "angaben": angaben(db), "csrf": getattr(request.state, "csrf", ""), "meldung": meldung,
+         "aktiv": name.removesuffix(".html"), "_": _, "sprache": sprache, "sprachen": SPRACHEN,
+-        "zeit": _zeitformat(sprache), "groesse": _groesse, "leitsatz": None, **ctx,
+-    })
++        "zeit": _zeitformat(sprache), "groesse": _groesse, "leitsatz": None,
++        "einzelplatz": get_settings().taleward_einzelplatz, **ctx,
++    }, status_code=status_code)
+ 
+ 
+@@ -1261,5 +1263,8 @@ def einstellungen(request: Request, user: User = Depends(verwalter), db: Session
+     from app import aufbewahrung
+ 
+-    return _seite(request, "einstellungen.html", user, db, orgs=orgs, fehler=fehler,
++    from app import betreiber
++
++    return _seite(request, "einstellungen.html", user, db, orgs=orgs, fehler=fehler, betreiber=betreiber.lesen(db),
++                  impressum_text=bool(meta_lesen(db, "impressum.text")), impressum_url=meta_lesen(db, "impressum.url"),
+                   registrierung=registrierung(db), limit_euro=(limit or 0) / 100,
+                   aufbewahrung=aufbewahrung.lesen(db), hoechstens_tage=aufbewahrung.HOECHSTENS_TAGE,
+@@ -1280,4 +1285,6 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
+                             web_herkuenfte: str = Form(""), audio_modus: str = Form(""),
+                             audio_tage: str = Form(""), audio_bestaetigt: str = Form(""),
++                            betreiber_art: str = Form(""), betreiber_anschrift: str = Form(""),
++                            betreiber_vertretung: str = Form(""), betreiber_register: str = Form(""),
+                             user: User = Depends(verwalter),
+                             db: Session = Depends(get_db)):
+@@ -1305,5 +1312,5 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
+     except ValueError:
+         return fehler(_("Mindestalter bitte als Zahl angeben (z. B. 16)."))
+-    if registrierung not in ("", "invite_only", "closed"):
++    if registrierung not in ("", "invite_only", "closed") or betreiber_art not in ("", "privat", "verein", "firma"):
+         return fehler(_("Unbekannte Auswahl."))
+     if limit_euro.strip():
+@@ -1350,7 +1357,11 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
+     if geaendert:
+         zurueckgesetzt = aufbewahrung.speichern(db, neue_frist.modus, neue_frist.tage, user.id)
++    if betreiber_art:
++        from app import betreiber
++
++        betreiber.speichern(db, betreiber_art, betreiber_anschrift, betreiber_vertretung, betreiber_register)
+     orgs = db.scalars(select(Organization).order_by(Organization.created_at)).all()
+-    if org_name.strip() and len(orgs) == 1:
+-        orgs[0].name = org_name.strip()[:200]
++    if len(orgs) == 1:  # eine Organisation heißt wie der Betreiber (früher ein eigenes Feld mit demselben Wert)
++        orgs[0].name = (org_name.strip() or server_operator.strip())[:200]
+     db.commit()
+     mindestversion_vergessen()
+diff --git a/app/verwaltung/static/verwaltung.css b/app/verwaltung/static/verwaltung.css
+index 8ce7c7f..7809797 100644
+--- a/app/verwaltung/static/verwaltung.css
++++ b/app/verwaltung/static/verwaltung.css
+@@ -29,5 +29,5 @@
+   --paper:#F2E8D5; --paper-raised:#FBF6EA; --paper-sunken:#E9DDC4; --line:#D9C9A8; --line-strong:#8A7654;
+   --ink:#2A2118; --ink-muted:#5E4B36; --tinte:#17313b; --on-tinte:#f3f3ee; --siegel:#9e2a3a; --on-siegel:#ffffff;
+-  --siegel-soft:#F3DCDC; --siegel-text:#9e2a3a; --messing:#c49235; --salbei:#3d6a48; --focus-ring:var(--siegel);
++  --siegel-soft:#F3DCDC; --siegel-text:#9e2a3a; --messing:#c49235; --salbei:#3d6a48; --focus-ring:var(--ink);
+   --shadow-card:0 1px 0 rgba(42,33,24,0.08), 0 6px 18px -10px rgba(42,33,24,0.35); color-scheme:light;
+ }
+@@ -36,5 +36,5 @@
+     --paper:#121d22; --paper-raised:#1a2930; --paper-sunken:#0c1518; --line:#2e424b; --line-strong:#6f838b;
+     --ink:#e9ece6; --ink-muted:#a2aeb2; --tinte:#2c5361; --on-tinte:#f3f3ee; --siegel:#d4596c; --on-siegel:#1a0f12;
+-    --siegel-soft:#3b1c23; --siegel-text:#ec8a9a; --messing:#d9ad55; --salbei:#8cc096; --focus-ring:var(--siegel);
++    --siegel-soft:#3b1c23; --siegel-text:#ec8a9a; --messing:#d9ad55; --salbei:#8cc096; --focus-ring:var(--ink);
+     --shadow-card:0 1px 0 rgba(0,0,0,0.45), 0 8px 20px -10px rgba(0,0,0,0.7); color-scheme:dark;
+   }
+@@ -47,5 +47,9 @@
+ }
+ * { box-sizing:border-box; }
+-html, body { margin:0; background:var(--paper); color:var(--ink); font:400 16px/24px var(--font-sans); }
++html, body { margin:0; background:var(--paper); color:var(--ink); font:400 16px/24px var(--font-sans);
++  font-variant-numeric:lining-nums; }
++/* Tippflächen mindestens 48 px (Barrierefreiheit); Fokus in Tinte wie in der App – Siegelrot heißt „Achtung“ */
++input[type=checkbox], input[type=radio] { accent-color:var(--tinte); width:20px; height:20px; }
++@media (prefers-color-scheme: dark) { input[type=checkbox], input[type=radio] { accent-color:var(--salbei); } }
+ a { color:var(--tinte); text-underline-offset:3px; }
+ @media (prefers-color-scheme: dark) { a { color:var(--ink); } }
+@@ -71,5 +75,5 @@ code, .mono { font-family:ui-monospace, "Cascadia Mono", Consolas, monospace; fo
+ .nav { grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:var(--space-1); padding-bottom:var(--space-3); margin-left:calc(-1 * var(--space-3)); }
+ .nav a { color:var(--on-tinte); text-decoration:none; padding:var(--space-1) var(--space-3); border-radius:var(--radius-pill);
+-  font:500 15px/22px var(--font-sans); }
++  font:500 15px/22px var(--font-sans); min-height:48px; display:inline-flex; align-items:center; }
+ .nav a:hover { background:rgba(255,255,255,.12); }
+ .nav a[aria-current="page"] { background:var(--paper); color:var(--tinte); }
+@@ -83,11 +87,12 @@ main { max-width:1100px; margin:0 auto; padding:var(--space-8) var(--space-4) va
+ .tw-btn { font:700 15px/22px var(--font-sans); border-radius:var(--radius-md); padding:var(--space-2) var(--space-4);
+   border:1.5px solid transparent; cursor:pointer; display:inline-flex; gap:var(--space-2); align-items:center;
+-  text-decoration:none; }
+-.tw-btn:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
++  text-decoration:none; min-height:48px; }
++.tw-btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible,
++a:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
+ .tw-btn--primary { background:var(--tinte); color:var(--on-tinte); }
+ .tw-btn--secondary { background:var(--paper-raised); color:var(--ink); border-color:var(--line-strong); }
+ .tw-btn--danger { background:var(--siegel); color:var(--on-siegel); }
+ .tw-btn--quiet { background:none; color:var(--ink); text-decoration:underline; text-underline-offset:3px; padding-inline:var(--space-2); }
+-.tw-btn--klein { padding:2px var(--space-3); font-size:14px; }
++.tw-btn--klein { padding:var(--space-1) var(--space-3); font-size:14px; }
+ .tw-btn[disabled] { opacity:.45; cursor:not-allowed; }
+ 
+@@ -112,5 +117,6 @@ main { max-width:1100px; margin:0 auto; padding:var(--space-8) var(--space-4) va
+   background:var(--paper-sunken); border-left:4px solid var(--salbei); }
+ .meldung--fehler { background:var(--siegel-soft); border-left-color:var(--siegel); }
+-.geheim { background:var(--siegel-soft); border-radius:var(--radius-sm); padding:var(--space-3) var(--space-4); }
++.geheim { background:var(--paper-sunken); border-left:4px solid var(--tinte); border-radius:var(--radius-sm);
++  padding:var(--space-3) var(--space-4); }
+ .geheim code { word-break:break-all; font-size:15px; }
+ 
+@@ -148,7 +154,10 @@ label.haken { display:flex; gap:var(--space-2); align-items:center; font-weight:
+ input[type=text], input[type=password], input[type=url], input[type=number], input[type=email], input[type=date], select, textarea {
+   font:400 16px/24px var(--font-sans); color:var(--ink); background:var(--paper); border:1.5px solid var(--line-strong);
+-  border-radius:var(--radius-sm); padding:var(--space-2) var(--space-3); min-width:0; }
++  border-radius:var(--radius-sm); padding:var(--space-2) var(--space-3); min-width:0; min-height:48px; }
+ .hilfe { font:400 13px/18px var(--font-sans); color:var(--ink-muted); }
+-details summary { cursor:pointer; color:var(--ink-muted); font-size:14px; }
++details summary { cursor:pointer; color:var(--ink-muted); font-size:14px; min-height:48px; display:flex; align-items:center; }
++details summary::before { content:"▸"; margin-right:var(--space-2); }
++details[open] > summary::before { content:"▾"; }
++details summary::-webkit-details-marker { display:none; }
+ 
+ .log { background:var(--paper-sunken); border-radius:var(--radius-sm); padding:var(--space-3); max-height:320px; overflow:auto;
+@@ -210,5 +219,5 @@ article.text h2 { margin-top:var(--space-6); }
+ /* Kopplung: Adresse und Code für die Worker-App */
+ .koppeldaten { display:grid; grid-template-columns:auto 1fr; gap:var(--space-2) var(--space-4); align-items:center; margin:0 0 var(--space-3);
+-  background:var(--siegel-soft); border-radius:var(--radius-sm); padding:var(--space-3) var(--space-4); }
++  background:var(--paper-sunken); border-left:4px solid var(--tinte); border-radius:var(--radius-sm); padding:var(--space-3) var(--space-4); }
+ .koppeldaten dt { font:500 14px/20px var(--font-sans); color:var(--ink-muted); }
+ .koppeldaten dd { margin:0; overflow-wrap:anywhere; }
+@@ -220,2 +229,16 @@ input[type="range"] { width:100%; accent-color:var(--tinte); }
+ /* Zweiter Faktor: Wiederherstellungscodes (0.4.84) */
+ .codeliste { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: .5rem; }
++
++/* Lange Adressen und Pfade brechen um, statt die Seite am Handy zu verbreitern */
++.umbruch, .umbruch code, td code { overflow-wrap:anywhere; word-break:break-word; }
++code.ganz { user-select:all; } /* ein Tippen markiert die ganze Adresse zum Kopieren */
++.kopierzeile { display:flex; flex-wrap:wrap; gap:var(--space-2); align-items:center; }
++.kopierzeile code { flex:1 1 220px; min-width:0; overflow-wrap:anywhere; background:var(--paper-sunken);
++  border-radius:var(--radius-sm); padding:var(--space-2) var(--space-3); }
++.hinweis { background:var(--paper-sunken); border-left:4px solid var(--tinte); border-radius:var(--radius-md);
++  padding:var(--space-3) var(--space-4); margin-bottom:var(--space-6); }
++@media (max-width: 720px) {
++  .raster { grid-template-columns:repeat(2, minmax(0, 1fr)); gap:var(--space-3); }
++  .zahl { padding:var(--space-3); }
++  .zahl__wert { font-size:28px; line-height:32px; }
++}
+diff --git a/app/verwaltung/templates/anmeldung.html b/app/verwaltung/templates/anmeldung.html
+index ba95a61..924e70c 100644
+--- a/app/verwaltung/templates/anmeldung.html
++++ b/app/verwaltung/templates/anmeldung.html
+@@ -10,5 +10,5 @@
+     {% if not mail_bereit %}<a href="/verwaltung/einstellungen#benachrichtigungen">{{ _("Mailserver unter Einstellungen eintragen") }}</a>{% endif %}</p>
+   <p class="hilfe">{{ _("Die E-Mail-Adresse ist für Mitglieder freiwillig und dient nur dazu, das Passwort selbst zurückzusetzen.") }}</p>
+-  <p>{{ _("Öffentliche Adresse des Servers") }}: <code>{{ basis }}</code>{% if not https %} <span class="marke-status marke-status--fehler">{{ _("ohne HTTPS") }}</span>{% endif %}</p>
++  <p class="umbruch">{{ _("Öffentliche Adresse des Servers") }}: <code class="ganz">{{ basis }}</code>{% if not https %} <span class="marke-status marke-status--fehler">{{ _("ohne HTTPS") }}</span>{% endif %}</p>
+   {% if not https %}<p class="hilfe">{{ _("Die Anmeldedienste verlangen eine eigene Domain mit HTTPS. Die Adresse stellst du unter Einstellungen ein.") }}</p>{% endif %}
+ </div>
+@@ -20,5 +20,5 @@
+     <p class="hilfe"><a href="{{ d.link }}" rel="noopener noreferrer" target="_blank">{{ _("Zur Seite des Anbieters") }}</a></p>
+   </details>
+-  <p>{{ _("Rückleitungsadresse") }}: <code>{{ d.rueck }}</code></p>
++  <p class="umbruch">{{ _("Rückleitungsadresse") }}: <code class="ganz">{{ d.rueck }}</code></p>
+   <form class="formular" method="post" action="/verwaltung/anmeldung/{{ d.id }}">
+     <input type="hidden" name="csrf" value="{{ csrf }}">
+diff --git a/app/verwaltung/templates/hinweis_seite.html b/app/verwaltung/templates/hinweis_seite.html
+new file mode 100644
+index 0000000..adbf47b
+--- /dev/null
++++ b/app/verwaltung/templates/hinweis_seite.html
+@@ -0,0 +1,9 @@
++{% extends "basis.html" %}
++{% block titel %}{{ titel }}{% endblock %}
++{% block inhalt %}
++<article class="karte text">
++  <h1>{{ titel }}</h1>
++  <p>{{ text }}</p>
++</article>
++<p class="leise zentriert">{% include "_sprachen.html" %}</p>
++{% endblock %}
+diff --git a/app/verwaltung/templates/uebergabe.html b/app/verwaltung/templates/uebergabe.html
+index cf32c2f..0319332 100644
+--- a/app/verwaltung/templates/uebergabe.html
++++ b/app/verwaltung/templates/uebergabe.html
+@@ -37,5 +37,5 @@
+     <li>{{ _("Verwalter") }}: {% for a in admins %}{{ a.display_name }} ({{ a.username }}){% if not loop.last %}, {% endif %}{% endfor %}</li>
+     {% for text, da in hinterlegt %}<li><span aria-hidden="true">{{ "✓" if da else "○" }}</span> {{ _(text) }}: {{ _("hinterlegt") if da else _("nicht hinterlegt") }}</li>{% endfor %}
+-    <li>{{ _("Sicherungen liegen in") }} <code>{{ ablage }}</code>{% if sicherung_ordner %} {{ _("und zusätzlich in") }} <code>{{ sicherung_ordner }}</code>{% endif %}</li>
++    <li class="umbruch">{{ _("Sicherungen liegen in") }} <code class="ganz">{{ ablage }}</code>{% if sicherung_ordner %} {{ _("und zusätzlich in") }} <code>{{ sicherung_ordner }}</code>{% endif %}</li>
+   </ul>
+ </div>
+diff --git a/app/verwaltung/templates/uebersicht.html b/app/verwaltung/templates/uebersicht.html
+index c761102..dc7572a 100644
+--- a/app/verwaltung/templates/uebersicht.html
++++ b/app/verwaltung/templates/uebersicht.html
+@@ -63,4 +63,7 @@
+ <div class="karte" id="sicherung">
+   <h2>{{ _("Sicherung") }}</h2>
++  {% if einzelplatz %}
++  <p>{{ _("Sicherungen speicherst du im Taleward-Programm unter Einstellungen → Sicherung. Damit ziehst du auch auf einen neuen PC um.") }}</p>
++  {% else %}
+   {% if sicherungen %}
+   <p>{% if sicherung_einst.auto %}<span class="marke-status marke-status--gut">{{ _("automatisch") }}</span>{% else %}<span class="marke-status marke-status--warten">{{ _("nur von Hand") }}</span>{% endif %} {{ _("Letzte Sicherung: {zeit}", zeit=zeit(sicherungen[0].zeit)) }}</p>
+@@ -80,11 +83,12 @@
+     <label class="haken"><input type="checkbox" name="auto" value="1" {% if sicherung_einst.auto %}checked{% endif %}> {{ _("Jede Nacht automatisch sichern") }}</label>
+     <label>{{ _("Aufbewahren (Tage)") }} <input type="number" name="tage" value="{{ sicherung_einst.tage }}" min="1" max="365"></label>
+-    <label>{{ _("Zusätzlicher Ordner (optional)") }} <input type="text" name="ordner" value="{{ sicherung_einst.ordner or '' }}" placeholder="/mnt/storagebox/taleward">
+-      <span class="hilfe">{{ _("Jede Sicherung wird zusätzlich dorthin kopiert, z. B. auf eine eingebundene Storage Box. So überlebt sie auch einen Ausfall dieses Servers.") }}</span></label>
++    <label>{{ _("Zusätzlicher Ordner (optional)") }} <input type="text" name="ordner" value="{{ sicherung_einst.ordner or '' }}" placeholder="/mnt/sicherung">
++      <span class="hilfe">{{ _("Jede Sicherung wird zusätzlich dorthin kopiert, z. B. auf ein eingebundenes Netzlaufwerk. So überlebt sie auch einen Ausfall dieses Servers.") }}</span></label>
+     <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Speichern") }}</button></div>
+   </form>
+   </details>
+   <p class="hilfe">{{ _("Eine Sicherung enthält Datenbank, Bilder und SL-Unterlagen – also alle Inhalte, Konten und Einstellungen. Sicher aufbewahren. Wiederherstellen: Server beenden, dann „chronik wiederherstellen <Datei>“.") }}</p>
++  {% endif %}
+ </div>
+-<p class="leise">{{ _("Schnittstelle") }} {{ api_version }} · {{ _("Datenbank") }} <code>{{ db_datei }}</code></p>
++<p class="leise">{{ _("Schnittstelle") }} {{ api_version }}</p>
+ {% endblock %}
+diff --git a/app/verwaltung/templates/updates.html b/app/verwaltung/templates/updates.html
+index a0836c2..d4bba91 100644
+--- a/app/verwaltung/templates/updates.html
++++ b/app/verwaltung/templates/updates.html
+@@ -30,7 +30,7 @@
+   {% endif %}
+   {% if server_status and server_status.ergebnis != "aktuell" %}
+-  <div class="meldung {% if server_status.ergebnis not in ('aktualisiert', 'wartet') %}meldung--fehler{% endif %}">
++  <div class="{% if server_status.ergebnis == 'wartet' %}hinweis{% else %}meldung{% if server_status.ergebnis != 'aktualisiert' %} meldung--fehler{% endif %}{% endif %}">
+     {% if server_status.ergebnis == "aktualisiert" %}{{ _("Zuletzt aktualisiert: {von} → {nach} ({zeit})", von=server_status.von, nach=server_status.nach, zeit=zeit(status_zeit)) }}
+-    {% elif server_status.ergebnis == "wartet" %}{{ _("Fassung {nach} ist bei GitHub, aber noch nicht freigegeben ({zeit}). Es bleibt bei {von}.", nach=server_status.nach, von=server_status.von, zeit=zeit(status_zeit)) }}
++    {% elif server_status.ergebnis == "wartet" %}{{ _("Die neue Fassung {nach} ist erschienen und wird noch geprüft. Du musst nichts tun – der Server übernimmt sie nach der Freigabe. Bis dahin bleibt es bei {von} ({zeit}).", nach=server_status.nach, von=server_status.von, zeit=zeit(status_zeit)) }}
+     {% elif server_status.ergebnis == "zurueckgenommen" %}{{ _("Update auf {nach} zurückgenommen ({zeit}):", nach=server_status.nach, zeit=zeit(status_zeit)) }} {{ server_status.meldung }}
+     {% else %}{{ _("Update-Fehler ({zeit}):", zeit=zeit(status_zeit)) }} {{ server_status.meldung }}{% endif %}
+@@ -39,6 +39,6 @@
+   <p class="hilfe">{{ _("Von Hand auf dem Server:") }} <code>cd /opt/taleward &amp;&amp; sudo ./aktualisieren.sh --jetzt</code></p>
+   {% elif server_neu %}
+-  <p>{{ _("Vorher eine Sicherung anlegen (Übersicht → Sicherung). Dann auf dem Server ausführen:") }}</p>
+-  <div class="geheim"><code>cd ~/session-chronik-server &amp;&amp; git pull &amp;&amp; uv sync</code></div>
++  <p>{{ _("Vorher eine Sicherung anlegen (Übersicht → Sicherung). Dann auf dem Server im Ordner von Taleward ausführen:") }}</p>
++  <div class="geheim"><code>git pull &amp;&amp; uv sync</code></div>
+   <p class="hilfe">{{ _("Danach den Server neu starten. Die Datenbank wird beim Start selbst auf den neuen Stand gebracht.") }}</p>
+   {% endif %}
+@@ -85,5 +85,6 @@
+       {% if not pruefung_an %} · {{ _("Automatische Suche ist aus (UPDATE_CHECK=false).") }}{% endif %}</span>
+   </form>
+-  {% if fehler_pruefung %}<div class="meldung meldung--fehler">{{ _("Bei der letzten Suche gab es Fehler:") }} {{ fehler_pruefung }}</div>{% endif %}
++  {% if fehler_pruefung %}<div class="hinweis">{{ _("Die Update-Quelle war bei der letzten Suche nicht erreichbar. Der Server versucht es später von selbst wieder – du musst nichts tun.") }}
++    <details><summary>{{ _("Einzelheiten") }}</summary><p class="leise umbruch">{{ fehler_pruefung }}</p></details></div>{% endif %}
+ </div>
+ {% endblock %}
+-- 
+2.43.0
+
