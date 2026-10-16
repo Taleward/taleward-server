@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import errors, queue, schemas, stimmprofile
+from app import aliasse, dubletten, errors, queue, schemas, stimmprofile
 from app.access import SessionAccess, current_user, load_session
 from app.db import get_db, utcnow
 from app.errors import sprache
@@ -162,7 +162,14 @@ def proposal_out(p: Proposal) -> schemas.ProposalOut:
         public_suggested=p.public_suggested, visibility_reason=p.visibility_reason, confidence=p.confidence,
         flags=json.loads(p.flags), evidence=[schemas.EvidenceOut(**b) for b in json.loads(p.evidence)],
         decision=p.decision,
+        match=schemas.ProposalMatch(**_camel_zu_schlange(m)) if (m := dubletten.lesen(p.match_json)) else None,
+        merge_into_entry_id=p.merge_into_entry_id,
     )
+
+
+def _camel_zu_schlange(d: dict) -> dict:
+    return {"entry_id": d.get("entryId"), "name": d.get("name"), "matched_name": d.get("matchedName") or d.get("name"),
+            "entry_type": d.get("entryType"), "kind": d.get("kind")}
 
 
 @router.get("/sessions/{sessionId}/proposals", tags=["Vorschläge"], response_model=list[schemas.ProposalOut],
@@ -225,9 +232,19 @@ def patch_proposal(proposalId: str, body: schemas.ProposalPatch, user: User = De
         if not set(ids) <= _kampagnen_mitglieder(db, campaign_id):
             raise errors.bad_request("hidden_member_unknown")
         p.hidden_member_ids_json = json.dumps(ids)
+    if "merge_into_entry_id" in felder:  # 0.4.21: bei einem vorhandenen Eintrag ergänzen statt neu anlegen
+        if body.merge_into_entry_id is None:
+            p.merge_into_entry_id = None
+        else:
+            ziel = db.get(Entry, body.merge_into_entry_id)
+            # Nur action create und nur Einträge derselben Kampagne; fremde wie unbekannte behandeln
+            if p.action != "create" or ziel is None or ziel.campaign_id != campaign_id or ziel.type == "pc":
+                raise errors.bad_request("invalid_input", "invalid_input.merge_target")
+            p.merge_into_entry_id = ziel.id
     if "decision" in felder and body.decision is not None:
         p.decision = body.decision
-    if p.decision == "accepted" and p.suggested_visibility == "public" and p.action != "update" and not p.detail:
+    if (p.decision == "accepted" and p.suggested_visibility == "public" and p.action != "update" and not p.detail
+            and not p.merge_into_entry_id):
         raise errors.bad_request("validation_error", "public_text_required")
     if p.source == "character" and p.decision != vorher:
         from app import charaktere
@@ -238,15 +255,19 @@ def patch_proposal(proposalId: str, body: schemas.ProposalPatch, user: User = De
 
 
 # ---------- Recap ----------
-def recap_out(s: GameSession, r: Recap, sl: bool = False, lang: str = "de") -> schemas.RecapOut:
-    """Der Prüfteil (review, 0.4.6) nur für die SL – für Spieler gar nicht im JSON."""
+def recap_out(s: GameSession, r: Recap, sl: bool = False, lang: str = "de", db: Session | None = None) -> schemas.RecapOut:
+    """Der Prüfteil (review, 0.4.6) und die Hinweise auf Geheimes (gmWarnings, 0.4.21) nur für die SL – für Spieler
+    gar nicht im JSON. db: für die Spoiler-Prüfung (ohne db keine gmWarnings)."""
     out = schemas.RecapOut(session_id=s.id, number=s.number, title=r.title, text=r.text,
                            open_threads=json.loads(r.open_threads), published_at=s.published_at)
     if sl:
-        from app import korrektur, pruefteil
+        from app import korrektur, pruefteil, spoiler
 
         out.review = pruefteil.lesen(r.review)
         out.revision = korrektur.fuer_app(r, lang)  # 0.4.15: null ohne Entwurf
+        if db is not None:  # 0.4.21: Geheimes im Kapitel – nur in der SL-Antwort
+            out.gm_warnings = [schemas.GmWarning(code=h["code"], entry_ids=h["entryIds"], names=h["names"],
+                                                 paragraphs=h["paragraphs"]) for h in spoiler.pruefen(db, s, r)]
     from app import kapitelteile
 
     out.parts = kapitelteile.lesen(r)  # 0.4.17: für Spieler und SL gleich
@@ -261,7 +282,7 @@ def get_recap(sessionId: str, request: Request, user: User = Depends(current_use
     r = db.get(Recap, s.id)
     if r is None:
         raise errors.not_found("recap")
-    return recap_out(s, r, acc.is_gm, sprache(request))
+    return recap_out(s, r, acc.is_gm, sprache(request), db)
 
 
 @router.put("/sessions/{sessionId}/recap", tags=["Chronik"], response_model=schemas.RecapOut,
@@ -317,7 +338,7 @@ def put_recap(sessionId: str, body: schemas.RecapIn, request: Request, user: Use
             r.review = pruefteil.als_json(pruefung)
     r.edited_at = utcnow()
     db.commit()
-    return recap_out(s, r, True, sprache(request))
+    return recap_out(s, r, True, sprache(request), db)
 
 
 # ---------- Kapitel per Hinweis korrigieren (0.4.15) ----------
@@ -341,7 +362,7 @@ def start_revision(sessionId: str, body: schemas.RevisionIn, request: Request, u
     s, r = _recap_fuer_sl(db, sessionId, user)
     korrektur.starten(db, s, r, body.note, body.base_text)
     db.commit()
-    return recap_out(s, r, True, sprache(request))
+    return recap_out(s, r, True, sprache(request), db)
 
 
 @router.post("/sessions/{sessionId}/recap/revision/decision", tags=["Chronik"], response_model=schemas.RecapOut,
@@ -353,7 +374,7 @@ def decide_revision(sessionId: str, body: schemas.DecisionIn, request: Request, 
     s, r = _recap_fuer_sl(db, sessionId, user)
     korrektur.entscheiden(db, s, r, body.accept)
     db.commit()
-    return recap_out(s, r, True, sprache(request))
+    return recap_out(s, r, True, sprache(request), db)
 
 
 # ---------- Unsichere Namen (0.4.6) ----------
@@ -431,7 +452,7 @@ def corrections(sessionId: str, body: schemas.CorrectionsIn, request: Request, u
                             .model_dump(mode="json", by_alias=True))
     unsicher.ersetzen(db, s, paare)
     db.commit()
-    return recap_out(s, r, True, sprache(request))
+    return recap_out(s, r, True, sprache(request), db)
 
 
 # ---------- Veröffentlichen ----------
@@ -439,11 +460,49 @@ def _anhaengen(alt: str | None, neu: str | None) -> str:
     return "\n\n".join(t for t in ((alt or "").strip(), (neu or "").strip()) if t)[:MAX_TEXT]
 
 
+def _weniger_sichtbar(p: Proposal, e: Entry, public: bool, verborgen: list[str]) -> bool:
+    """Darf der Vorschlag Spieler erreichen, die den Eintrag sehen? Nein, wenn er gm_only ist oder vor Personen
+    verborgen, vor denen der Eintrag nicht verborgen ist – dann geht Geheimes nur in die SL-Notizen."""
+    if not public:
+        return e.visibility == "public"
+    return bool(set(verborgen) - e.hidden_member_ids) and e.visibility == "public"
+
+
+def _ergaenzen(db: Session, e: Entry, p: Proposal, s: GameSession | None, public: bool, verborgen: list[str]) -> None:
+    """„Dort ergänzen“ (0.4.21): Vorschlagstext an den Eintrag anhängen, Titel als Alias. Geheimes wandert nie in
+    einen sichtbareren Eintrag: dann kommen Titel und Text nur in die SL-Notizen, der Eintrag selbst bleibt wie er ist."""
+    if _weniger_sichtbar(p, e, public, verborgen):
+        geheim = _anhaengen(_anhaengen(e.gm_notes, f"{p.title}: {p.detail}".strip(": ")), p.gm_notes)
+        daten = dict(gm_notes=geheim)
+        notiz = ""
+    else:
+        aliasse.hinzufuegen(e, p.title)
+        if e.visibility == "public":
+            daten = dict(summary=_anhaengen(e.summary, p.detail), gm_notes=_anhaengen(e.gm_notes, p.gm_notes))
+            if public and verborgen:
+                daten["hidden_from_member_ids"] = sorted(set(e.hidden_member_ids) | set(verborgen))
+            notiz = p.detail
+        else:  # geheimer Eintrag: alles bleibt geheim, Text als öffentlicher Teil für später
+            daten = dict(summary=_anhaengen(e.summary, p.detail), gm_notes=_anhaengen(e.gm_notes, p.gm_notes))
+            notiz = ""
+    apply_entry_input(db, e, schemas.EntryInput(**daten))
+    if s is not None:
+        erwaehnt(db, e, s, notiz)
+
+
 def _uebernehmen(db: Session, campaign_id: str, s: GameSession | None, p: Proposal, mitglieder: set[str]) -> None:
     """Einen angenommenen Vorschlag in die Bibel schreiben (nutzt dieselben Regeln wie PATCH /entries).
     s = Session, aus der er stammt (für „erwähnt in Kapitel …“); None bei Unterlagen."""
     public = p.suggested_visibility == "public"
     verborgen = [m for m in json.loads(p.hidden_member_ids_json) if m in mitglieder] if public else []
+    if p.action == "create" and p.merge_into_entry_id:
+        # 0.4.21 „Dort ergänzen“: wie update auf den gewählten Eintrag; die Schreibweise des Vorschlags wird Alias
+        e = db.get(Entry, p.merge_into_entry_id)
+        if e is None or e.campaign_id != campaign_id or e.type == "pc":
+            e = None
+        if e is not None:
+            _ergaenzen(db, e, p, s, public, verborgen)
+            return
     if p.action == "create":
         e = Entry(campaign_id=campaign_id, type=p.entry_type, name=p.title)
         db.add(e)
