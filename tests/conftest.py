@@ -58,8 +58,12 @@ def dbs(client):
 def make_user(dbs):
     from app.cli import _neues_konto
 
-    def _make(username: str, name: str | None = None, password: str = "geheim123"):
+    def _make(username: str, name: str | None = None, password: str = "geheim123", terms: bool = True):
         u = _neues_konto(dbs, username.lower(), name or username.capitalize(), password)
+        if terms:  # 0.4.22: Testkonten haben den Nutzungsbedingungen zugestimmt (sonst nur Lesen)
+            from app.db import utcnow
+
+            u.terms_accepted_version, u.terms_accepted_at = 1, utcnow()
         dbs.commit()
         return u
 

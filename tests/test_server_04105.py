@@ -48,7 +48,7 @@ def test_impressum(client, dbs, admin):  # noqa: F811
     assert r.status_code == 400 and "eckigen Klammern" in r.text
     r = client.post("/verwaltung/assistent/impressum", data={"csrf": admin, "aktion": "veroeffentlichen",
                                                               "text": text + "\n\n<b>x</b>"}, follow_redirects=False)
-    assert r.headers["location"] == "/verwaltung/assistent/sicherung"
+    assert r.headers["location"] == "/verwaltung/assistent/nutzungsbedingungen"
     oeffentlich = client.get("/impressum")
     assert oeffentlich.status_code == 200 and "<h1>Impressum</h1>" in oeffentlich.text and "&lt;b&gt;" in oeffentlich.text
     # Eigener Link statt eigenem Text

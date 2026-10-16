@@ -32,6 +32,7 @@ OPTIONAL_FIELDS = {"characterBackstory", "gmNotes", "hiddenFromMemberIds", "memb
                    "missingChunks",  # 0.4.8: ImportStatus nur bei uploading
                    "formerHolderMemberId",  # 0.4.9: nur für die SL
                    "assignedMemberId",  # 0.4.10: erst nach der Bestätigung der Stimmen
+                   "gmWarnings",  # 0.4.21: nur für die SL, für Spieler weggelassen
                    "user"}
 
 # Statuscodes, die in der YAML fehlen, aber fachlich nötig sind – für den nächsten Änderungswunsch notiert.
@@ -93,6 +94,8 @@ class Contract:
             return
         if status == 426 and body and json.loads(body).get("code") == "app_outdated":
             return  # 0.3.9: kann jede API-Anfrage treffen (außer /info, /health)
+        if status == 403 and body and json.loads(body).get("code") == "terms_required":
+            return  # 0.4.22: kann jede ändernde Anfrage treffen, solange die Zustimmung zu den Bedingungen fehlt
         if status == 409 and body and json.loads(body).get("code") == "feature_unavailable":
             # Mit der App vereinbart: noch nicht fertige Funktionen antworten überall so.
             return

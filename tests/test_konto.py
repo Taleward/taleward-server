@@ -16,7 +16,7 @@ def einladung(client, w) -> str:
 
 def daten(**w):
     basis = {"username": "Neu.Ling", "displayName": "Neuling", "password": "Drachenfeuer7",
-             "acceptPrivacy": True, "ageConfirmed": True}
+             "acceptPrivacy": True, "ageConfirmed": True, "acceptTerms": True, "termsVersion": 1}
     return {**basis, **w}
 
 

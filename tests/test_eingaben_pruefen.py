@@ -230,7 +230,7 @@ def test_abmelden_macht_alte_sitzung_ungueltig(client, dbs):
 
     from app.cli import _neues_konto
 
-    _neues_konto(dbs, "chef", "Chefin", "geheim123", admin=True)
+    _neues_konto(dbs, "chef", "Chefin", "geheim123", admin=True).terms_accepted_version = 1
     dbs.commit()
     client.post("/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"}, follow_redirects=False)
     alt = dict(client.cookies)
@@ -246,7 +246,7 @@ def test_abmelden_macht_alte_sitzung_ungueltig(client, dbs):
 def test_leichtes_passwort_in_der_verwaltung_abgelehnt(client, dbs):
     from app.cli import _neues_konto
 
-    _neues_konto(dbs, "chef", "Chefin", "geheim123", admin=True)
+    _neues_konto(dbs, "chef", "Chefin", "geheim123", admin=True).terms_accepted_version = 1
     dbs.commit()
     client.post("/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"}, follow_redirects=False)
     csrf = re.search(r'name="csrf" value="([0-9a-f]+)"', client.get("/verwaltung/").text).group(1)

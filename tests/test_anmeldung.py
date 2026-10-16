@@ -288,7 +288,8 @@ def test_anmelden_mit_google_neues_konto(client, world, dbs, dienst):
     meta_schreiben(dbs, "registrierung", "invite_only")
     dbs.commit()
     r = client.post(f"{API}/auth/register", json={"inviteCode": code, "registrationToken": r["registrationToken"],
-                                                  "displayName": "Lena", "acceptPrivacy": True, "ageConfirmed": True})
+                                                  "displayName": "Lena", "acceptPrivacy": True, "ageConfirmed": True,
+                                                  "acceptTerms": True, "termsVersion": 1})
     assert r.status_code == 201, r.text
     u = r.json()["user"]
     assert u["username"] == "lena" and u["hasPassword"] is False and u["providers"] == ["google"]
