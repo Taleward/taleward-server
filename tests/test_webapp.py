@@ -37,7 +37,7 @@ def test_cors_zentral_eigene_und_fremde(client, dbs, admin):  # noqa: F811
         "https://taleward.meinverein.de"
     # In der Verwaltung abschalten
     seite = client.get("/verwaltung/einstellungen").text
-    assert "Die Web-App auf https://app.taleward.org darf diesen Server nutzen" in seite
+    assert "Auch die Web-App des Projekts Taleward (https://app.taleward.org) darf diesen Server nutzen" in seite
     csrf = admin
     r = client.post("/verwaltung/einstellungen", data={"csrf": csrf, "server_name": "S", "server_operator": "B",
                                                        "min_age": "16", "web_zentral_feld": "1",
