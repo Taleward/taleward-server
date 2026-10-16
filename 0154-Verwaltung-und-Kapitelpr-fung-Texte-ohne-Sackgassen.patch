@@ -1,0 +1,214 @@
+From 77b4476f25f2f1407c862994c49e3d912d95917e Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Fri, 16 Oct 2026 17:31:25 +0200
+Subject: [PATCH 154/158] =?UTF-8?q?Verwaltung=20und=20Kapitelpr=C3=BCfung:?=
+ =?UTF-8?q?=20Texte=20ohne=20Sackgassen?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ app/errors.py                                    | 14 ++++++++------
+ app/sprachmodell.py                              | 16 +++++++++++-----
+ app/verwaltung/templates/abrechnung.html         |  4 ++--
+ app/verwaltung/templates/anmelden.html           |  4 ++--
+ .../templates/anmeldung_bestaetigen.html         |  2 +-
+ app/verwaltung/templates/einladung.html          |  2 +-
+ app/verwaltung/templates/einrichtung.html        |  5 +++--
+ app/verwaltung/templates/passwort.html           |  3 ++-
+ app/verwaltung/templates/probelauf.html          |  2 +-
+ app/verwaltung/templates/transkription.html      |  2 +-
+ tests/test_szenennotizen.py                      |  4 +++-
+ 11 files changed, 35 insertions(+), 23 deletions(-)
+
+diff --git a/app/errors.py b/app/errors.py
+index bfaf4bb..2351d3d 100644
+--- a/app/errors.py
++++ b/app/errors.py
+@@ -249,12 +249,14 @@ MESSAGES: dict[str, tuple[str, str]] = {
+     "revision_running": ("Die Korrektur läuft gerade. Warte kurz, bis sie fertig ist.",
+                          "The correction is still running. Please wait a moment until it is done."),
+-    "revision_limit": ("Dieses Kapitel wurde heute schon zehnmal korrigiert. Morgen geht es wieder – oder ändere den "
+-                       "Text selbst.",
+-                       "This chapter has already been corrected ten times today. You can try again tomorrow – or edit "
+-                       "the text yourself."),
++    "revision_limit": ("Dieses Kapitel wurde in den letzten 24 Stunden schon zehnmal korrigiert. Später geht es "
++                       "wieder – oder ändere den Text selbst.",
++                       "This chapter has already been corrected ten times in the last 24 hours. You can try again "
++                       "later – or edit the text yourself."),
+     "no_revision": ("Es gibt gerade keinen Korrekturvorschlag, über den du entscheiden kannst.",
+                     "There is no correction proposal to decide on right now."),
+-    "resummarize_limit": ("Dieses Kapitel wurde heute schon fünfmal neu geschrieben. Morgen geht es wieder.",
+-                          "This chapter has already been rewritten five times today. You can try again tomorrow."),
++    "resummarize_limit": ("Dieses Kapitel wurde in den letzten 24 Stunden schon fünfmal neu geschrieben. Später "
++                          "geht es wieder.",
++                          "This chapter has already been rewritten five times in the last 24 hours. You can try again "
++                          "later."),
+     "audio_gone": ("Das Audio ist schon gelöscht. Bitte die Aufnahme neu hochladen.",
+                    "The audio has already been deleted. Please upload the recording again."),
+diff --git a/app/sprachmodell.py b/app/sprachmodell.py
+index b63fcd9..0e5e8ac 100644
+--- a/app/sprachmodell.py
++++ b/app/sprachmodell.py
+@@ -1546,7 +1546,12 @@ def pruefansicht_aus_pflicht(text: str, punkte: list[dict], befund: list[dict],
+ 
+ 
+-def spielleitung_beanstanden(befund: list[dict], text: str) -> list[dict]:
++HINWEIS_SPIELLEITUNG = {"de": "Hier tritt die Spielleitung als Figur auf.",
++                        "en": "The GM appears as a character here."}
++
++
++def spielleitung_beanstanden(befund: list[dict], text: str, sprache: str = "de") -> list[dict]:
+     """Absätze, in denen die Spielleitung als Figur auftritt („die Spielleitung zusicherte“), gelten als beanstandet –
+-    die Nachbesserung bekommt den Grund. Die Prüfung durch das Modell übersieht das regelmäßig."""
++    die Nachbesserung bekommt den Grund (die Regel selbst steht in ihrer Anweisung). Die SL liest den Satz in der
++    Prüfansicht. Die Prüfung durch das Modell übersieht das regelmäßig."""
+     teile = absaetze(text)
+     for b in befund:
+@@ -1554,5 +1559,5 @@ def spielleitung_beanstanden(befund: list[dict], text: str) -> list[dict]:
+         if 0 <= i < len(teile) and _SPIELLEITUNG.search(teile[i]) and b["verdict"] not in BEANSTANDET:
+             b["verdict"] = "off_game"
+-            b["note"] = "Die Spielleitung ist keine Figur – nenne den Nichtspielercharakter, für den sie spricht, oder erzähle ohne sie."
++            b["note"] = HINWEIS_SPIELLEITUNG.get(sprache, HINWEIS_SPIELLEITUNG["de"])
+     return befund
+ 
+@@ -2713,5 +2718,6 @@ class Ablauf:
+         try:
+             self._schritt("review")
+-            befund = spielleitung_beanstanden(self.pruefen(ein, titel, grundlage, r["text"]), r["text"])
++            sprache = "en" if ein.get("sprache") == "en" else "de"
++            befund = spielleitung_beanstanden(self.pruefen(ein, titel, grundlage, r["text"]), r["text"], sprache)
+             self.letzte_pruefung_vorher, self.letzte_pruefung_nachher = befund, []
+             self.letzte_relationen_vorher, self.letzte_relationen_nachher = [], []
+@@ -2722,5 +2728,5 @@ class Ablauf:
+                     r["text"], pruefung["revised"] = neu, True
+                     self._schritt("review")
+-                    befund = spielleitung_beanstanden(self.pruefen(ein, titel, grundlage, neu), neu)
++                    befund = spielleitung_beanstanden(self.pruefen(ein, titel, grundlage, neu), neu, sprache)
+                     self.letzte_pruefung_nachher = befund
+             # Relationen einmal, auf der Endfassung: nur Hinweise für die Spielleitung, keine Nachbesserung daraus
+diff --git a/app/verwaltung/templates/abrechnung.html b/app/verwaltung/templates/abrechnung.html
+index f3c77d5..f3264c2 100644
+--- a/app/verwaltung/templates/abrechnung.html
++++ b/app/verwaltung/templates/abrechnung.html
+@@ -5,5 +5,5 @@
+ <h1>{{ _("Abrechnung") }}</h1>
+ <p class="leise">{{ _("Wer verarbeiten lässt, zahlt aus einem Guthaben. Spieler zahlen nie. Aufladen mit Bezahlung kommt in einer späteren Fassung; bis dahin gibt es Gutschriften und Gutscheine.") }}</p>
+-{% if not faktor %}<div class="meldung meldung--fehler">{{ _("Ohne zweiten Faktor kannst du hier nur nachsehen und die Abrechnung ausschalten. Einschalten, Preise, Gutschriften und Gutscheine brauchen ihn.") }} <a href="/verwaltung/anmeldung#zweiter-faktor">{{ _("Zweiten Faktor einrichten") }}</a></div>{% endif %}
++{% if not faktor %}<div class="hinweis">{{ _("Ohne zweiten Faktor kannst du hier nur nachsehen und die Abrechnung ausschalten. Einschalten, Preise, Gutschriften und Gutscheine brauchen ihn.") }} <a href="/verwaltung/anmeldung#zweiter-faktor">{{ _("Zweiten Faktor einrichten") }}</a></div>{% endif %}
+ 
+ {% if codes %}
+@@ -50,5 +50,5 @@
+     <label>{{ _(text) }} <input type="text" name="{{ name }}" value="{{ euro_feld(werte[name]) if ist_euro else werte[name] }}" inputmode="decimal" required maxlength="12"></label>
+     {% endfor %}
+-    <p class="hilfe">{{ _("Automatisch geschätzt (bei 0): Transkription {t} je Stunde, Kapitel {k} je Stunde, Korrektur {r}, SL-Unterlage {u} je Seite. Grundlage sind die bisherigen Cloud-Läufe, solange es keine gibt die Preise des Anbieters.", t=automatisch.transcribe, k=automatisch.summarize, r=automatisch.revise, u=automatisch.document) }}</p>
++    <p class="hilfe">{{ _("Automatisch geschätzt (bei 0): Transkription {t} je Stunde, Kapitel {k} je Stunde, Korrektur {r}, SL-Unterlage {u} je Seite. Grundlage sind die bisherigen Cloud-Läufe; solange es keine gibt, die Preise des Anbieters.", t=automatisch.transcribe, k=automatisch.summarize, r=automatisch.revise, u=automatisch.document) }}</p>
+     <div><button class="tw-btn tw-btn--secondary" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Speichern") }}</button></div>
+   </form>
+diff --git a/app/verwaltung/templates/anmelden.html b/app/verwaltung/templates/anmelden.html
+index f7cce47..c1db590 100644
+--- a/app/verwaltung/templates/anmelden.html
++++ b/app/verwaltung/templates/anmelden.html
+@@ -13,8 +13,8 @@
+   </div>
+   {% if ersteinrichtung %}
+-  <div class="meldung">{{ _("Es gibt noch ein Konto aus der Ersteinrichtung. Melde dich damit an und lege deinen eigenen Verwalter an – danach wird es gelöscht.") }}</div>
++  <div class="meldung">{{ _("Es gibt noch ein Konto aus der Ersteinrichtung. Öffne den Einrichtungslink aus der Installation und lege damit deinen eigenen Verwalter an – danach wird es gelöscht. Link verloren? Auf dem Server zeigt ihn dieser Befehl:") }} <code>uv run chronik einrichtungscode</code></div>
+   {% endif %}
+   {% if kein_verwalter %}
+-  <p class="hilfe">{{ _("Es gibt noch kein Konto mit Verwalter-Recht. Im Ubuntu-Fenster anlegen mit") }}
++  <p class="hilfe">{{ _("Es gibt noch kein Konto mit Verwalter-Recht. Auf dem Server anlegen mit") }}
+     <code>uv run chronik create-user -u name -n Name --admin</code> {{ _("oder ein bestehendes Konto freischalten mit") }}
+     <code>uv run chronik admin -u name</code>.</p>
+diff --git a/app/verwaltung/templates/anmeldung_bestaetigen.html b/app/verwaltung/templates/anmeldung_bestaetigen.html
+index 8ac5df1..d6a7bdf 100644
+--- a/app/verwaltung/templates/anmeldung_bestaetigen.html
++++ b/app/verwaltung/templates/anmeldung_bestaetigen.html
+@@ -9,5 +9,5 @@
+     <p class="hilfe">{{ _("Bestätige nur, wenn du die Anmeldung gerade selbst in Taleward begonnen hast. Wenn nicht, schließe diese Seite einfach – dann passiert nichts.") }}</p>
+     <div><a class="tw-btn tw-btn--primary" href="{{ ziel }}" rel="noreferrer">{{ _("In Taleward anmelden") }}</a></div>
+-    <p class="leise">{{ _("Der Knopf gilt zwei Minuten.") }}</p>
++    <p class="leise">{{ _("Der Knopf gilt zwei Minuten. Danach beginne die Anmeldung in der App einfach neu.") }}</p>
+   </div>
+ </div>
+diff --git a/app/verwaltung/templates/einladung.html b/app/verwaltung/templates/einladung.html
+index 6eed972..b63ddfa 100644
+--- a/app/verwaltung/templates/einladung.html
++++ b/app/verwaltung/templates/einladung.html
+@@ -13,5 +13,5 @@
+   <div class="karte">
+     {% if gueltig %}
+-    <h2>{{ _("Du bist eingeladen!") }}</h2>
++    <h2>{{ _("Du bist eingeladen.") }}</h2>
+     <p class="leise">{{ _("Server: {name} · {betreiber}", name=angaben.server_name, betreiber=angaben.server_operator) }}</p>
+     <code class="einladung__code">{{ code }}</code>
+diff --git a/app/verwaltung/templates/einrichtung.html b/app/verwaltung/templates/einrichtung.html
+index 9b403e9..8a2dbc4 100644
+--- a/app/verwaltung/templates/einrichtung.html
++++ b/app/verwaltung/templates/einrichtung.html
+@@ -3,5 +3,5 @@
+ {% block inhalt %}
+ <div class="anmeldung">
+-  {% set leitsatz = _("Willkommen! Lege deinen eigenen Verwalter an.") %}
++  {% set leitsatz = _("Willkommen. Lege deinen eigenen Verwalter an.") %}
+   {% include "_kopf_marke.html" %}
+   <div class="karte">
+@@ -13,5 +13,6 @@
+       <label>{{ _("Benutzername") }} <input type="text" name="username" autocomplete="username" required maxlength="64" autofocus></label>
+       <label>{{ _("Anzeigename") }} <input type="text" name="display_name" required maxlength="128" placeholder="{{ _('z. B. Alex') }}"></label>
+-      <label>{{ _("Passwort") }} <input type="password" name="password" autocomplete="new-password" required minlength="8"></label>
++      <label>{{ _("Passwort") }} <input type="password" name="password" autocomplete="new-password" required minlength="8" aria-describedby="pw-hilfe">
++        <span class="hilfe" id="pw-hilfe">{{ _("Mindestens 8 Zeichen.") }}</span></label>
+       <label>{{ _("Passwort wiederholen") }} <input type="password" name="password2" autocomplete="new-password" required minlength="8"></label>
+       <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Verwalter anlegen und fortfahren") }}</button></div>
+diff --git a/app/verwaltung/templates/passwort.html b/app/verwaltung/templates/passwort.html
+index 8a98371..36cf155 100644
+--- a/app/verwaltung/templates/passwort.html
++++ b/app/verwaltung/templates/passwort.html
+@@ -13,5 +13,6 @@
+     <form class="formular" method="post" action="/passwort/{{ token }}">
+       <input type="text" name="username" value="{{ konto }}" autocomplete="username" hidden>
+-      <label>{{ _("Neues Passwort") }} <input type="password" name="password" autocomplete="new-password" required minlength="8" autofocus></label>
++      <label>{{ _("Neues Passwort") }} <input type="password" name="password" autocomplete="new-password" required minlength="8" autofocus aria-describedby="pw-hilfe">
++        <span class="hilfe" id="pw-hilfe">{{ _("Mindestens 8 Zeichen.") }}</span></label>
+       <label>{{ _("Passwort wiederholen") }} <input type="password" name="password2" autocomplete="new-password" required minlength="8"></label>
+       <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Passwort speichern") }}</button></div>
+diff --git a/app/verwaltung/templates/probelauf.html b/app/verwaltung/templates/probelauf.html
+index 39b3b6d..d78df3b 100644
+--- a/app/verwaltung/templates/probelauf.html
++++ b/app/verwaltung/templates/probelauf.html
+@@ -52,5 +52,5 @@
+   {% for k in p.korrekturen|reverse %}
+     <h3>{{ _("Durchgang {n}", n=k.nr) }}</h3>
+-    <p>{{ _("{n} Hinweise", n=k.anzahl if k.anzahl is defined else k.hinweise|length + (1 if k.fehlt else 0)) }} · {{ _("geändert: Absatz {liste}", liste=k.geaendert|join(", ")) if k.geaendert else _("nichts geändert") }} · {{ _("{a} → {b} Wörter", a=k.woerter_vorher, b=k.woerter_nachher) }} · {{ _("etwa {cent} Cent", cent=k.kosten_cent) }}</p>
++    <p>{% set n_hinweise = k.anzahl if k.anzahl is defined else k.hinweise|length + (1 if k.fehlt else 0) %}{{ _("1 Hinweis") if n_hinweise == 1 else _("{n} Hinweise", n=n_hinweise) }} · {{ _("geändert: Absatz {liste}", liste=k.geaendert|join(", ")) if k.geaendert else _("nichts geändert") }} · {{ _("{a} → {b} Wörter", a=k.woerter_vorher, b=k.woerter_nachher) }} · {{ _("etwa {cent} Cent", cent=k.kosten_cent) }}</p>
+     {% if k.fehler %}<p class="hilfe">{{ _("Hinweis") }}: {{ k.fehler }}</p>{% endif %}
+     {% for v in k.verworfen %}<p class="hilfe">{{ _("Verworfen (Absatz {n}): {grund}", n=v.absatz, grund=_(v.grund)) }}</p>{% endfor %}
+diff --git a/app/verwaltung/templates/transkription.html b/app/verwaltung/templates/transkription.html
+index ad175cc..9656597 100644
+--- a/app/verwaltung/templates/transkription.html
++++ b/app/verwaltung/templates/transkription.html
+@@ -194,5 +194,5 @@
+     <a href="https://github.com/Taleward/taleward-worker/releases/latest/download/TalewardWorker-Setup.exe">{{ _("Für Windows herunterladen") }}</a> ·
+     <a href="https://github.com/Taleward/taleward-worker#linux">{{ _("Linux") }}</a></p>
+-  <p class="hilfe">{{ _("Ein verbundener lokaler Server bekommt die Aufnahmen aller Kampagnen dieses Servers. Verbinde nur PCs, denen du vertraust.") }}</p>
++  <p class="hilfe">{{ _("Ein verbundener lokaler Server bekommt die Aufnahmen aller Kampagnen dieses Servers. Verbinde nur Geräte, denen du vertraust.") }}</p>
+   {% if koppel %}
+   <p>{{ _("In der Worker-App eintragen:") }}</p>
+diff --git a/tests/test_szenennotizen.py b/tests/test_szenennotizen.py
+index 1031d56..03d4e74 100644
+--- a/tests/test_szenennotizen.py
++++ b/tests/test_szenennotizen.py
+@@ -336,5 +336,7 @@ def test_spielleitung_im_recap_wird_beanstandet():
+     aus = spielleitung_beanstanden(befund, text)
+     assert [b["verdict"] for b in aus] == ["supported", "off_game", "supported"]
+-    assert aus[1]["verdict"] in BEANSTANDET and "Nichtspielercharakter" in aus[1]["note"]
++    assert aus[1]["verdict"] in BEANSTANDET and aus[1]["note"] == "Hier tritt die Spielleitung als Figur auf."
++    en = spielleitung_beanstanden([dict(b, verdict="supported") for b in befund], text, "en")
++    assert en[1]["note"] == "The GM appears as a character here."
+ 
+ 
+-- 
+2.43.0
+
