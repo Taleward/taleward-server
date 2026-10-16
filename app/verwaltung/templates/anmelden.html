@@ -12,10 +12,10 @@
     </form>
   </div>
   {% if ersteinrichtung %}
-  <div class="meldung">{{ _("Es gibt noch ein Konto aus der Ersteinrichtung. Melde dich damit an und lege deinen eigenen Verwalter an – danach wird es gelöscht.") }}</div>
+  <div class="meldung">{{ _("Es gibt noch ein Konto aus der Ersteinrichtung. Öffne den Einrichtungslink aus der Installation und lege damit deinen eigenen Verwalter an – danach wird es gelöscht. Link verloren? Auf dem Server zeigt ihn dieser Befehl:") }} <code>uv run chronik einrichtungscode</code></div>
   {% endif %}
   {% if kein_verwalter %}
-  <p class="hilfe">{{ _("Es gibt noch kein Konto mit Verwalter-Recht. Im Ubuntu-Fenster anlegen mit") }}
+  <p class="hilfe">{{ _("Es gibt noch kein Konto mit Verwalter-Recht. Auf dem Server anlegen mit") }}
     <code>uv run chronik create-user -u name -n Name --admin</code> {{ _("oder ein bestehendes Konto freischalten mit") }}
     <code>uv run chronik admin -u name</code>.</p>
   {% endif %}

@@ -1545,15 +1545,20 @@ def pruefansicht_aus_pflicht(text: str, punkte: list[dict], befund: list[dict], 
     return {"model": modell, "revised": nachgebessert, "paragraphs": aus}
 
 
-def spielleitung_beanstanden(befund: list[dict], text: str) -> list[dict]:
+HINWEIS_SPIELLEITUNG = {"de": "Hier tritt die Spielleitung als Figur auf.",
+                        "en": "The GM appears as a character here."}
+
+
+def spielleitung_beanstanden(befund: list[dict], text: str, sprache: str = "de") -> list[dict]:
     """Absätze, in denen die Spielleitung als Figur auftritt („die Spielleitung zusicherte“), gelten als beanstandet –
-    die Nachbesserung bekommt den Grund. Die Prüfung durch das Modell übersieht das regelmäßig."""
+    die Nachbesserung bekommt den Grund (die Regel selbst steht in ihrer Anweisung). Die SL liest den Satz in der
+    Prüfansicht. Die Prüfung durch das Modell übersieht das regelmäßig."""
     teile = absaetze(text)
     for b in befund:
         i = b.get("index", -1)
         if 0 <= i < len(teile) and _SPIELLEITUNG.search(teile[i]) and b["verdict"] not in BEANSTANDET:
             b["verdict"] = "off_game"
-            b["note"] = "Die Spielleitung ist keine Figur – nenne den Nichtspielercharakter, für den sie spricht, oder erzähle ohne sie."
+            b["note"] = HINWEIS_SPIELLEITUNG.get(sprache, HINWEIS_SPIELLEITUNG["de"])
     return befund
 
 
@@ -2712,7 +2717,8 @@ class Ablauf:
         pruefung = {"model": self.klient.modell, "revised": False, "paragraphs": []}
         try:
             self._schritt("review")
-            befund = spielleitung_beanstanden(self.pruefen(ein, titel, grundlage, r["text"]), r["text"])
+            sprache = "en" if ein.get("sprache") == "en" else "de"
+            befund = spielleitung_beanstanden(self.pruefen(ein, titel, grundlage, r["text"]), r["text"], sprache)
             self.letzte_pruefung_vorher, self.letzte_pruefung_nachher = befund, []
             self.letzte_relationen_vorher, self.letzte_relationen_nachher = [], []
             if self.nachbesserung and any(b["verdict"] in BEANSTANDET for b in befund):
@@ -2721,7 +2727,7 @@ class Ablauf:
                 if neu:
                     r["text"], pruefung["revised"] = neu, True
                     self._schritt("review")
-                    befund = spielleitung_beanstanden(self.pruefen(ein, titel, grundlage, neu), neu)
+                    befund = spielleitung_beanstanden(self.pruefen(ein, titel, grundlage, neu), neu, sprache)
                     self.letzte_pruefung_nachher = befund
             # Relationen einmal, auf der Endfassung: nur Hinweise für die Spielleitung, keine Nachbesserung daraus
             self.letzte_relationen_nachher = self.relationen(ein, r["text"], befund)

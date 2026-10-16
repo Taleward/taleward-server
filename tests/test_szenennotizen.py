@@ -335,7 +335,9 @@ def test_spielleitung_im_recap_wird_beanstandet():
     befund = [{"index": i, "verdict": "supported", "note": None, "evidence": []} for i in range(3)]
     aus = spielleitung_beanstanden(befund, text)
     assert [b["verdict"] for b in aus] == ["supported", "off_game", "supported"]
-    assert aus[1]["verdict"] in BEANSTANDET and "Nichtspielercharakter" in aus[1]["note"]
+    assert aus[1]["verdict"] in BEANSTANDET and aus[1]["note"] == "Hier tritt die Spielleitung als Figur auf."
+    en = spielleitung_beanstanden([dict(b, verdict="supported") for b in befund], text, "en")
+    assert en[1]["note"] == "The GM appears as a character here."
 
 
 def test_spielleitung_ohne_namen_im_transkript():

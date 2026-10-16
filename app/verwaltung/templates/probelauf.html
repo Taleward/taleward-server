@@ -51,7 +51,7 @@
   <h2>{{ _("Korrekturdurchgänge") }}</h2>
   {% for k in p.korrekturen|reverse %}
     <h3>{{ _("Durchgang {n}", n=k.nr) }}</h3>
-    <p>{{ _("{n} Hinweise", n=k.anzahl if k.anzahl is defined else k.hinweise|length + (1 if k.fehlt else 0)) }} · {{ _("geändert: Absatz {liste}", liste=k.geaendert|join(", ")) if k.geaendert else _("nichts geändert") }} · {{ _("{a} → {b} Wörter", a=k.woerter_vorher, b=k.woerter_nachher) }} · {{ _("etwa {cent} Cent", cent=k.kosten_cent) }}</p>
+    <p>{% set n_hinweise = k.anzahl if k.anzahl is defined else k.hinweise|length + (1 if k.fehlt else 0) %}{{ _("1 Hinweis") if n_hinweise == 1 else _("{n} Hinweise", n=n_hinweise) }} · {{ _("geändert: Absatz {liste}", liste=k.geaendert|join(", ")) if k.geaendert else _("nichts geändert") }} · {{ _("{a} → {b} Wörter", a=k.woerter_vorher, b=k.woerter_nachher) }} · {{ _("etwa {cent} Cent", cent=k.kosten_cent) }}</p>
     {% if k.fehler %}<p class="hilfe">{{ _("Hinweis") }}: {{ k.fehler }}</p>{% endif %}
     {% for v in k.verworfen %}<p class="hilfe">{{ _("Verworfen (Absatz {n}): {grund}", n=v.absatz, grund=_(v.grund)) }}</p>{% endfor %}
     {% if k.pruefliste %}

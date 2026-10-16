@@ -2,7 +2,7 @@
 {% block titel %}{{ _("Ersteinrichtung") }}{% endblock %}
 {% block inhalt %}
 <div class="anmeldung">
-  {% set leitsatz = _("Willkommen! Lege deinen eigenen Verwalter an.") %}
+  {% set leitsatz = _("Willkommen. Lege deinen eigenen Verwalter an.") %}
   {% include "_kopf_marke.html" %}
   <div class="karte">
     {% if code or alt %}
@@ -12,7 +12,8 @@
       {% if alt %}<input type="hidden" name="csrf" value="{{ csrf_wert }}">{% endif %}
       <label>{{ _("Benutzername") }} <input type="text" name="username" autocomplete="username" required maxlength="64" autofocus></label>
       <label>{{ _("Anzeigename") }} <input type="text" name="display_name" required maxlength="128" placeholder="{{ _('z. B. Alex') }}"></label>
-      <label>{{ _("Passwort") }} <input type="password" name="password" autocomplete="new-password" required minlength="8"></label>
+      <label>{{ _("Passwort") }} <input type="password" name="password" autocomplete="new-password" required minlength="8" aria-describedby="pw-hilfe">
+        <span class="hilfe" id="pw-hilfe">{{ _("Mindestens 8 Zeichen.") }}</span></label>
       <label>{{ _("Passwort wiederholen") }} <input type="password" name="password2" autocomplete="new-password" required minlength="8"></label>
       <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Verwalter anlegen und fortfahren") }}</button></div>
     </form>

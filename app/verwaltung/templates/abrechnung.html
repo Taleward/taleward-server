@@ -4,7 +4,7 @@
 {% set arten = {"zahlung": _("Zahlung"), "gutschrift": _("Gutschrift"), "gutschein": _("Gutschein"), "verbrauch": _("Verarbeitung"), "rueckbuchung": _("Rückbuchung"), "erstattung": _("Erstattung"), "korrektur": _("Korrektur")} %}
 <h1>{{ _("Abrechnung") }}</h1>
 <p class="leise">{{ _("Wer verarbeiten lässt, zahlt aus einem Guthaben. Spieler zahlen nie. Aufladen mit Bezahlung kommt in einer späteren Fassung; bis dahin gibt es Gutschriften und Gutscheine.") }}</p>
-{% if not faktor %}<div class="meldung meldung--fehler">{{ _("Ohne zweiten Faktor kannst du hier nur nachsehen und die Abrechnung ausschalten. Einschalten, Preise, Gutschriften und Gutscheine brauchen ihn.") }} <a href="/verwaltung/anmeldung#zweiter-faktor">{{ _("Zweiten Faktor einrichten") }}</a></div>{% endif %}
+{% if not faktor %}<div class="hinweis">{{ _("Ohne zweiten Faktor kannst du hier nur nachsehen und die Abrechnung ausschalten. Einschalten, Preise, Gutschriften und Gutscheine brauchen ihn.") }} <a href="/verwaltung/anmeldung#zweiter-faktor">{{ _("Zweiten Faktor einrichten") }}</a></div>{% endif %}
 
 {% if codes %}
 <div class="karte" id="codes">
@@ -49,7 +49,7 @@
     {% for name, text, ist_euro in preisfelder %}
     <label>{{ _(text) }} <input type="text" name="{{ name }}" value="{{ euro_feld(werte[name]) if ist_euro else werte[name] }}" inputmode="decimal" required maxlength="12"></label>
     {% endfor %}
-    <p class="hilfe">{{ _("Automatisch geschätzt (bei 0): Transkription {t} je Stunde, Kapitel {k} je Stunde, Korrektur {r}, SL-Unterlage {u} je Seite. Grundlage sind die bisherigen Cloud-Läufe, solange es keine gibt die Preise des Anbieters.", t=automatisch.transcribe, k=automatisch.summarize, r=automatisch.revise, u=automatisch.document) }}</p>
+    <p class="hilfe">{{ _("Automatisch geschätzt (bei 0): Transkription {t} je Stunde, Kapitel {k} je Stunde, Korrektur {r}, SL-Unterlage {u} je Seite. Grundlage sind die bisherigen Cloud-Läufe; solange es keine gibt, die Preise des Anbieters.", t=automatisch.transcribe, k=automatisch.summarize, r=automatisch.revise, u=automatisch.document) }}</p>
     <div><button class="tw-btn tw-btn--secondary" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Speichern") }}</button></div>
   </form>
 </div>

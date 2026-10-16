@@ -12,7 +12,7 @@
   {% include "_kopf_marke.html" %}
   <div class="karte">
     {% if gueltig %}
-    <h2>{{ _("Du bist eingeladen!") }}</h2>
+    <h2>{{ _("Du bist eingeladen.") }}</h2>
     <p class="leise">{{ _("Server: {name} · {betreiber}", name=angaben.server_name, betreiber=angaben.server_operator) }}</p>
     <code class="einladung__code">{{ code }}</code>
     {% if bis %}<p class="leise zentriert">{{ _("gültig bis {zeit}", zeit=zeit(bis)) }}</p>

@@ -248,14 +248,16 @@ MESSAGES: dict[str, tuple[str, str]] = {
                       "The chapter has changed in the meantime. Take another look and then try again."),
     "revision_running": ("Die Korrektur läuft gerade. Warte kurz, bis sie fertig ist.",
                          "The correction is still running. Please wait a moment until it is done."),
-    "revision_limit": ("Dieses Kapitel wurde heute schon zehnmal korrigiert. Morgen geht es wieder – oder ändere den "
-                       "Text selbst.",
-                       "This chapter has already been corrected ten times today. You can try again tomorrow – or edit "
-                       "the text yourself."),
+    "revision_limit": ("Dieses Kapitel wurde in den letzten 24 Stunden schon zehnmal korrigiert. Später geht es "
+                       "wieder – oder ändere den Text selbst.",
+                       "This chapter has already been corrected ten times in the last 24 hours. You can try again "
+                       "later – or edit the text yourself."),
     "no_revision": ("Es gibt gerade keinen Korrekturvorschlag, über den du entscheiden kannst.",
                     "There is no correction proposal to decide on right now."),
-    "resummarize_limit": ("Dieses Kapitel wurde heute schon fünfmal neu geschrieben. Morgen geht es wieder.",
-                          "This chapter has already been rewritten five times today. You can try again tomorrow."),
+    "resummarize_limit": ("Dieses Kapitel wurde in den letzten 24 Stunden schon fünfmal neu geschrieben. Später "
+                          "geht es wieder.",
+                          "This chapter has already been rewritten five times in the last 24 hours. You can try again "
+                          "later."),
     "audio_gone": ("Das Audio ist schon gelöscht. Bitte die Aufnahme neu hochladen.",
                    "The audio has already been deleted. Please upload the recording again."),
     "audio_deleted": ("Die Hörprobe ist bereits gelöscht.", "The voice sample has already been deleted."),

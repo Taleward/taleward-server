@@ -12,7 +12,8 @@
     <p class="leise">{{ _("Für das Konto „{name}“ auf {server}.", name=konto, server=angaben.server_name) }}</p>
     <form class="formular" method="post" action="/passwort/{{ token }}">
       <input type="text" name="username" value="{{ konto }}" autocomplete="username" hidden>
-      <label>{{ _("Neues Passwort") }} <input type="password" name="password" autocomplete="new-password" required minlength="8" autofocus></label>
+      <label>{{ _("Neues Passwort") }} <input type="password" name="password" autocomplete="new-password" required minlength="8" autofocus aria-describedby="pw-hilfe">
+        <span class="hilfe" id="pw-hilfe">{{ _("Mindestens 8 Zeichen.") }}</span></label>
       <label>{{ _("Passwort wiederholen") }} <input type="password" name="password2" autocomplete="new-password" required minlength="8"></label>
       <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Passwort speichern") }}</button></div>
     </form>
