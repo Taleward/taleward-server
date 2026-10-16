@@ -24,7 +24,8 @@
       <label>{{ _("Registereintrag") }} <input type="text" name="betreiber_register" value="{{ betreiber.register }}" maxlength="300"></label>
       </div></details>
     <label>{{ _("Link zum Datenschutzhinweis") }} <input type="url" name="privacy_policy_url" value="{{ angaben.privacy_policy_url or '' }}" maxlength="500" placeholder="https://…"></label>
-    <p class="hilfe">{{ _("Impressum:") }} {% if impressum_text %}<a href="/impressum">{{ _("veröffentlicht") }}</a>{% elif impressum_url %}<a href="{{ impressum_url }}" rel="noopener noreferrer">{{ _("eigener Link") }}</a>{% else %}{{ _("keins") }}{% endif %} · <a href="/verwaltung/assistent/impressum">{{ _("Bearbeiten") }}</a></p>
+    <p class="hilfe">{{ _("Impressum:") }} {% if impressum_text %}<a href="/impressum">{{ _("veröffentlicht") }}</a>{% elif impressum_url %}<a href="{{ impressum_url }}" rel="noopener noreferrer">{{ _("eigener Link") }}</a>{% else %}{{ _("keins") }}{% endif %} · <a href="/verwaltung/assistent/impressum">{{ _("Bearbeiten") }}</a>
+      · {{ _("Nutzungsbedingungen:") }} {% if nb.quelle == "link" %}<a href="{{ nb.url }}" rel="noopener noreferrer">{{ _("eigener Link") }}</a>{% elif nb.quelle == "eigen" %}<a href="/nutzungsbedingungen">{{ _("eigener Text") }}</a>{% else %}<a href="/nutzungsbedingungen">{{ _("Vorlage") }}</a>{% endif %} ({{ _("Fassung") }} {{ nb.version }}) · <a href="/verwaltung/assistent/nutzungsbedingungen">{{ _("Bearbeiten") }}</a></p>
     <label>{{ _("Öffentliche Adresse des Servers") }} <input type="url" name="public_url" value="{{ angaben.public_url or '' }}" maxlength="300" placeholder="https://taleward.meinverein.example">
       <span class="hilfe">{{ _("Für Links in E-Mails und für Anmeldedienste. Leer = die Adresse, unter der die Verwaltung gerade aufgerufen wird.") }}</span></label>
     <label>{{ _("Mindestalter") }} <input type="number" name="min_age" value="{{ angaben.min_age }}" min="0" max="99"></label>
@@ -91,6 +92,19 @@
 </div>
 <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Speichern") }}</button></div>
 </form>
+
+<div class="karte" id="nutzungsbedingungen">
+  <h2>{{ _("Nutzungsbedingungen: neue Fassung") }}</h2>
+  {% if nb_meldung == "neu" %}<div class="meldung" role="status">{{ _("Neue Fassung {n}. Alle Mitglieder sehen beim nächsten Öffnen der App die Bedingungen und stimmen erneut zu.", n=nb.version) }}</div>
+  {% elif nb_meldung == "falsch" %}<div class="meldung meldung--fehler" role="alert">{{ _("Der eingegebene Name stimmt nicht mit dem Namen des Servers überein. Nichts geändert.") }}</div>{% endif %}
+  <p>{{ _("Geltende Fassung: {n}.", n=nb.version) }} {{ _("Hast du die Bedingungen so geändert, dass alle erneut zustimmen müssen, zähle die Fassung hoch. Bis zur Zustimmung können Mitglieder in der App nur lesen, Zustimmungen widerrufen, ihre Daten herunterladen und ihr Konto löschen. Tippfehler oder Umformulierungen brauchen keine neue Fassung.") }}</p>
+  <form class="formular" method="post" action="/verwaltung/nutzungsbedingungen/neue-fassung">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>{{ _("Zur Bestätigung den Namen des Servers eingeben") }} <input type="text" name="bestaetigung" autocomplete="off" placeholder="{{ angaben.server_name }}"></label>
+    <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Neue Fassung – alle müssen erneut zustimmen") }}</button></div>
+  </form>
+</div>
+
 <form method="post" action="/verwaltung/benachrichtigungen">
 <input type="hidden" name="csrf" value="{{ csrf }}">
 <div class="karte" id="benachrichtigungen">

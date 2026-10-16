@@ -1262,10 +1262,11 @@ def einstellungen(request: Request, user: User = Depends(verwalter), db: Session
 
     from app import aufbewahrung
 
-    from app import betreiber
+    from app import betreiber, nutzungsbedingungen
 
     return _seite(request, "einstellungen.html", user, db, orgs=orgs, fehler=fehler, betreiber=betreiber.lesen(db),
                   impressum_text=bool(meta_lesen(db, "impressum.text")), impressum_url=meta_lesen(db, "impressum.url"),
+                  nb=nutzungsbedingungen.stand(db), nb_meldung=request.query_params.get("nb", ""),
                   registrierung=registrierung(db), limit_euro=(limit or 0) / 100,
                   aufbewahrung=aufbewahrung.lesen(db), hoechstens_tage=aufbewahrung.HOECHSTENS_TAGE,
                   zustimmungen=db.scalar(select(func.count()).select_from(Member)

@@ -28,8 +28,8 @@ router = APIRouter(prefix="/verwaltung", include_in_schema=False)
 oeffentlich = APIRouter(include_in_schema=False)
 
 SCHRITTE = [("verein", "Betreiber"), ("betrieb", "Betriebsart"), ("zusammenfassung", "Zusammenfassung"),
-            ("datenschutz", "Datenschutz"), ("impressum", "Impressum"), ("sicherung", "Sicherung"),
-            ("spielleitung", "Spielleitung")]
+            ("datenschutz", "Datenschutz"), ("impressum", "Impressum"), ("nutzungsbedingungen", "Nutzungsbedingungen"),
+            ("sicherung", "Sicherung"), ("spielleitung", "Spielleitung")]
 MISTRAL_URL = "https://api.mistral.ai/v1"
 
 
@@ -118,7 +118,7 @@ def einrichtung_abschliessen(request: Request, code: str = Form(""), username: s
         return fehler(text)
     if db.scalar(select(User).where(User.username == name)):
         return fehler(_("Den Benutzer „{name}“ gibt es schon.", name=name))
-    neu = _neues_konto(db, name, display_name.strip()[:128], password, admin=True)
+    neu = _neues_konto(db, name, display_name.strip()[:128], password, admin=True, zugestimmt=True)  # eigenes Konto
     if alt is not None:
         for om in db.scalars(select(OrgMember).where(OrgMember.user_id == alt.id)):
             db.delete(om)
@@ -457,6 +457,85 @@ def impressum_oeffentlich(request: Request, db: Session = Depends(get_db)):
     _ = tr(request)
     return _seite(request, "hinweis_seite.html", None, db, status_code=404, titel=_("Impressum"),
                   text=_("Für diesen Server ist hier kein Impressum veröffentlicht. Frag bitte die Person, die den Server betreibt oder dich eingeladen hat."))
+
+
+# -- Nutzungsbedingungen (0.4.22): jeder Server hat welche – Vorlage dieses Servers, eigener Text oder eigener Link
+def _nb_schritt(request: Request, user: User, db: Session, **ctx):
+    from app import nutzungsbedingungen
+
+    st = nutzungsbedingungen.stand(db, sprache_von(request))
+    ctx.setdefault("text", st.text)
+    ctx.setdefault("eigener_link", st.url or "")
+    return _schritt(request, user, db, "nutzungsbedingungen", quelle=st.quelle, fassung=st.version, **ctx)
+
+
+@router.get("/assistent/nutzungsbedingungen", response_class=HTMLResponse)
+def nutzungsbedingungen_schritt(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)):
+    return _nb_schritt(request, user, db)
+
+
+@router.post("/assistent/nutzungsbedingungen", dependencies=[Depends(csrf_pruefen)])
+def nutzungsbedingungen_speichern(request: Request, aktion: str = Form(""), text: str = Form(""),
+                                  eigener_link: str = Form(""), user: User = Depends(verwalter),
+                                  db: Session = Depends(get_db)):
+    from app import nutzungsbedingungen
+
+    _ = tr(request)
+
+    def fehler(t: str):
+        st = nutzungsbedingungen.stand(db, sprache_von(request))
+        return _fehler(request, user, db, "nutzungsbedingungen", t, text=text, eigener_link=eigener_link,
+                       quelle=st.quelle, fassung=st.version)
+
+    if aktion == "vorlage":  # zurück zur Vorlage dieses Servers (sie passt sich den Betreiber-Angaben an)
+        nutzungsbedingungen.vorlage_nutzen(db)
+        db.commit()
+        return _nb_schritt(request, user, db, text=nutzungsbedingungen.vorlage(db, sprache_von(request)))
+    if aktion == "link":
+        link = eigener_link.strip()
+        if not link.startswith("https://"):
+            return fehler(_("Links müssen mit https:// beginnen."))
+        nutzungsbedingungen.link_speichern(db, link)
+        db.commit()
+        return _weiter("nutzungsbedingungen")
+    if aktion == "weiter":  # Vorlage so lassen
+        return _weiter("nutzungsbedingungen")
+    inhalt = text.strip()
+    if len(inhalt) < 80:
+        return fehler(_("Die Nutzungsbedingungen sind zu kurz."))
+    if inhalt.count("["):
+        return fehler(_("Es sind noch {n} Stellen in eckigen Klammern offen. Bitte ausfüllen oder entfernen.",
+                        n=inhalt.count("[")))
+    nutzungsbedingungen.text_speichern(db, inhalt)
+    db.commit()
+    return _weiter("nutzungsbedingungen")
+
+
+@router.post("/nutzungsbedingungen/neue-fassung", dependencies=[Depends(csrf_pruefen)])
+def nutzungsbedingungen_neue_fassung(request: Request, bestaetigung: str = Form(""),
+                                     user: User = Depends(verwalter), db: Session = Depends(get_db)):
+    """Fassung hochzählen: Alle Konten müssen in der App erneut zustimmen, bis dahin nur Lesen."""
+    from app import nutzungsbedingungen
+    from app.einstellungen import angaben
+
+    if bestaetigung.strip() != (angaben(db).server_name or "").strip():
+        return RedirectResponse("/verwaltung/einstellungen?nb=falsch#nutzungsbedingungen", status_code=303)
+    nutzungsbedingungen.hochzaehlen(db)
+    db.commit()
+    return RedirectResponse("/verwaltung/einstellungen?nb=neu#nutzungsbedingungen", status_code=303)
+
+
+@oeffentlich.get("/nutzungsbedingungen", response_class=HTMLResponse)
+def nutzungsbedingungen_oeffentlich(request: Request, db: Session = Depends(get_db)):
+    from app import nutzungsbedingungen
+    from app.datenschutz import html
+
+    st = nutzungsbedingungen.stand(db, sprache_von(request))
+    if st.url:
+        return RedirectResponse(st.url, status_code=303)
+    _ = tr(request)
+    return _seite(request, "datenschutz.html", None, db, inhalt=html(st.text),
+                  titel_seite=_("Nutzungsbedingungen") + f" ({_('Fassung')} {st.version})")
 
 
 # -- Sicherung

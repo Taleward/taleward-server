@@ -186,6 +186,26 @@
   </form>
 </div>
 
+{% elif schritt == "nutzungsbedingungen" %}
+<div class="karte">
+  <h2>{{ _("Nutzungsbedingungen") }}</h2>
+  <p>{{ _("Jeder Taleward-Server hat Nutzungsbedingungen. Die App zeigt sie beim Anlegen eines Kontos und bei jeder neuen Fassung; ohne Zustimmung können Mitglieder nur lesen. Du kannst die Vorlage dieses Servers nehmen, sie anpassen oder auf eure eigenen Bedingungen verlinken.") }}</p>
+  <div class="meldung">{{ _("Das ist eine Vorlage, keine Rechtsberatung. Bitte lesen und im Zweifel von jemandem mit rechtlichem Blick prüfen lassen.") }}</div>
+  <p class="hilfe">{{ _("Geltende Fassung: {n}.", n=fassung) }} {% if quelle == "vorlage" %}{{ _("Zurzeit gilt die Vorlage dieses Servers; sie füllt sich aus den Betreiber-Angaben.") }}{% elif quelle == "eigen" %}{{ _("Zurzeit gilt euer eigener Text.") }}{% else %}{{ _("Zurzeit gilt euer eigener Link.") }}{% endif %} <a href="/nutzungsbedingungen" target="_blank" rel="noopener">{{ _("Veröffentlichte Fassung ansehen") }}</a></p>
+  <form class="formular formular--breit" method="post" action="/verwaltung/assistent/nutzungsbedingungen">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>{{ _("Text") }} <textarea name="text" rows="18">{{ text }}</textarea>
+      <span class="hilfe">{{ _("Überschriften mit „## “, Aufzählungen mit „- “, Absätze durch Leerzeilen.") }}</span></label>
+    <div class="knopfzeile"><button class="tw-btn tw-btn--primary" type="submit" name="aktion" value="speichern">{{ _("Text speichern und weiter") }}</button>
+      <button class="tw-btn tw-btn--quiet" type="submit" name="aktion" value="weiter" formnovalidate>{{ _("Vorlage so lassen und weiter") }}</button>
+      <button class="tw-btn tw-btn--quiet" type="submit" name="aktion" value="vorlage" formnovalidate>{{ _("Vorlage neu erzeugen") }}</button></div>
+    <p class="hilfe">{{ _("Eine inhaltliche Änderung, der alle neu zustimmen sollen, zählst du später unter Einstellungen als neue Fassung hoch.") }}</p>
+    <hr>
+    <label>{{ _("Oder: Link zu euren eigenen Nutzungsbedingungen") }} <input type="url" name="eigener_link" value="{{ eigener_link }}" placeholder="https://verein.example/nutzungsbedingungen"></label>
+    <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit" name="aktion" value="link">{{ _("Link verwenden") }}</button></div>
+  </form>
+</div>
+
 {% elif schritt == "sicherung" %}
 <div class="karte">
   <h2>{{ _("Sicherung") }}</h2>
