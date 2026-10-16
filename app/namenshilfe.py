@@ -88,6 +88,7 @@ def abgeleitet(db: Session, campaign: Campaign) -> list[str]:
         .order_by(letzte.c.nr.desc().nulls_last(), Entry.updated_at.desc())
     ).all():
         namen.append(e.name)
+        namen.extend(e.aliases)  # 0.4.21: „Auch genannt“ direkt nach dem Namen
     namen.append(campaign.system_name)
     return _eindeutig(namen)
 

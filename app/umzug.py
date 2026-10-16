@@ -36,7 +36,7 @@ from pydantic import Field, ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app import errors, kapitelteile, links, schemas, storage
+from app import aliasse, errors, kapitelteile, links, schemas, storage
 from app.config import get_settings
 from app.db import utcnow
 from app.models import (
@@ -302,7 +302,8 @@ def packliste(db: Session, c: Campaign, zugestimmt: set[str]) -> tuple[dict, lis
             herkunft = {"characterId": e.origin_character_id, "entryId": e.origin_entry_id,
                         "version": e.origin_version, "seat": platz.get(e.origin_member_id)}
         eintraege.append({
-            "key": f"e{i + 1}", "type": e.type, "name": e.name, "summary": summary, "gmNotes": e.gm_notes,
+            "key": f"e{i + 1}", "type": e.type, "name": e.name, "aliases": e.aliases, "summary": summary,
+            "gmNotes": e.gm_notes,
             # Geheimes aus Bogen/Hintergrund geht als SL-Wissen mit (die Herkunftsmarke reist nicht mit)
             "status": e.status, "holderSeat": halter, "visibility": "gm_only" if e.origin_analysis_id else e.visibility,
             "hiddenFromSeats": sorted(platz[m] for m in e.hidden_member_ids if m in platz),
@@ -550,6 +551,7 @@ class _Eintrag(schemas.ApiModel):
     key: str = Field(min_length=1, max_length=40)
     type: schemas.EntryType
     name: str = Field(min_length=1, max_length=300)
+    aliases: list[str] = Field(default=[], max_length=50)  # 0.4.21; bereinigt beim Anlegen
     summary: str = Field(default="", max_length=200_000)
     gm_notes: str | None = Field(default=None, max_length=200_000)
     status: Literal["active", "done"] | None = None
@@ -888,7 +890,8 @@ def _anlegen(db: Session, user: User, z: zipfile.ZipFile, d: _Datei, angelegt: l
                   pc_character_id=((e.pc_character_id or "").lower() or None) if e.type == "pc" else None,
                   created_at=e.created_at or jetzt, updated_at=e.updated_at or jetzt,
                   public_changed_at=e.public_changed_at,
-                  links=links.schreiben(links.bereinigen(e.links, links.MAX_EINTRAG)))
+                  links=links.schreiben(links.bereinigen(e.links, links.MAX_EINTRAG)),
+                  aliases_json=aliasse.schreiben(aliasse.bereinigen(e.name, e.aliases)))
         if e.origin is not None:
             x.origin_character_id = e.origin.character_id.lower()
             x.origin_entry_id = (e.origin.entry_id or "").lower() or None

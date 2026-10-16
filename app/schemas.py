@@ -69,6 +69,9 @@ class ServerInfoOut(ApiModel):
     audio_retention: "AudioRetentionOut | None" = None
     public_url: str | None = None  # 0.4.16: Adresse für andere Geräte (Einladungslink, wenn die App über localhost läuft)
     server_id: str | None = None  # 0.4.16: feste Kennung dieses Servers (wie `aud` im Token)
+    legal_notice_url: str | None = None  # 0.4.22: Impressum (Vorlage /impressum oder eigener Link), null = keins
+    terms_url: str | None = None  # 0.4.22: Nutzungsbedingungen, ab 0.4.22 immer gesetzt
+    terms_version: int | None = None  # 0.4.22
 
 
 class InvitePreviewOut(ApiModel):
@@ -110,6 +113,8 @@ class UserOut(ApiModel):
     email_pending: str | None = None
     has_password: bool = True
     providers: list[Literal["google", "discord", "apple", "microsoft"]] = []
+    terms_accepted_version: int | None = None  # 0.4.22: null = noch nie zugestimmt
+    terms_accepted_at: datetime | None = None
 
 
 class RegisterRequest(ApiModel):
@@ -121,6 +126,13 @@ class RegisterRequest(ApiModel):
     registration_token: str | None = Field(default=None, max_length=200)
     accept_privacy: bool = False
     age_confirmed: bool = False
+    accept_terms: bool = False  # 0.4.22: Pflicht
+    terms_version: int | None = Field(default=None, ge=1)  # 0.4.22: Pflicht
+
+
+class TermsAcceptIn(ApiModel):
+    accept: bool
+    version: int = Field(ge=1)
 
 
 class DeleteCampaignRequest(ApiModel):
@@ -523,6 +535,21 @@ class SpeakerOut(ApiModel):
     source: Literal["intro_round", "voice_match", "discord_track", "none"]
     assigned_guest_name: str | None = None  # 0.4.7
     assigned_member_id: str | None = None  # 0.4.10: erst nach der Bestätigung, vorher weggelassen
+    samples: list["SpeakerSample"] = []  # 0.4.21: bis zu drei Textproben; leer bei älteren Workern
+    hint: "SpeakerHint | None" = None  # 0.4.21: Anrede oder Selbstnennung widerspricht der Zuordnung
+
+
+class SpeakerSample(ApiModel):
+    start: float
+    end: float | None = None
+    text: str
+
+
+class SpeakerHint(ApiModel):
+    code: Literal["addressed_as", "self_named"]
+    name: str
+    member_id: str
+    count: int
 
 
 class SpeakerAssignIn(ApiModel):
@@ -541,6 +568,14 @@ class RecapOut(ApiModel):
     review: dict | None = None  # 0.4.6: Prüfteil, nur für die SL (für Spieler weggelassen)
     revision: dict | None = None  # 0.4.15: Korrektur-Entwurf, nur für die SL (für Spieler weggelassen)
     parts: list[dict] = []  # 0.4.17: Teile im Kapitel; leer = ohne Teile
+    gm_warnings: list["GmWarning"] | None = None  # 0.4.21: nur für die SL (für Spieler weggelassen, auch keine Anzahl)
+
+
+class GmWarning(ApiModel):
+    code: Literal["secret_entry_name", "secret_wording"]
+    entry_ids: list[str]
+    names: list[str] = []
+    paragraphs: list[int] = []
 
 
 class RevisionIn(ApiModel):
@@ -594,6 +629,16 @@ class ProposalOut(ApiModel):
     flags: list[Literal["joke_suspected", "low_confidence", "contradicts_bible", "evidence_not_found"]]
     evidence: list[EvidenceOut]
     decision: Literal["open", "accepted", "rejected"]
+    match: "ProposalMatch | None" = None  # 0.4.21: nur bei action create, nur für die SL (Vorschläge sieht nur sie)
+    merge_into_entry_id: str | None = None  # 0.4.21
+
+
+class ProposalMatch(ApiModel):
+    entry_id: str
+    name: str
+    matched_name: str
+    entry_type: EntryType
+    kind: Literal["sound", "spelling", "part_name"]
 
 
 class ProposalPatch(ApiModel):
@@ -603,6 +648,7 @@ class ProposalPatch(ApiModel):
     gm_notes: str | None = Field(default=None, max_length=20000)
     visibility: Visibility | None = None
     hidden_from_member_ids: list[str] | None = None
+    merge_into_entry_id: str | None = Field(default=None, max_length=64)  # 0.4.21
 
 
 class TranscriptLineOut(ApiModel):
@@ -624,6 +670,7 @@ class EntryInput(ApiModel):
     gm_notes: str | None = Field(default=None, max_length=20000)
     hidden_from_member_ids: list[str] | None = None
     links: list[Link] | None = Field(default=None, max_length=3)  # 0.4.13
+    aliases: list[str] | None = Field(default=None, max_length=10)  # 0.4.21: „Auch genannt“, sichtbar wie der Name
 
 
 class MentionOut(ApiModel):
@@ -640,6 +687,7 @@ class EntryOut(ApiModel):
     status: Literal["active", "done"] | None
     holder_member_id: str | None
     visibility: Visibility
+    aliases: list[str] = []  # 0.4.21
     gm_notes: str | None = None  # wird für Spieler weggelassen
     hidden_from_member_ids: list[str] | None = None  # wird für Spieler weggelassen
     first_session_number: int | None

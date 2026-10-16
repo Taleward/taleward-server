@@ -1,4 +1,5 @@
 """Datenbanktabellen. IDs sind UUID-Strings, Zeiten immer UTC."""
+import json
 import uuid
 from datetime import datetime
 
@@ -43,6 +44,9 @@ class User(Base):
     email_verified_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     # Nach „Passwort ändern“ in der App bleibt genau das Token gültig, mit dem geändert wurde („<ver>:<jti>“)
     token_ausnahme: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # 0.4.22: zuletzt zugestimmte Fassung der Nutzungsbedingungen mit Zeitpunkt; None = noch nie (Konto von vorher)
+    terms_accepted_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    terms_accepted_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
     auth_methods: Mapped[list["AuthMethod"]] = relationship(cascade="all, delete-orphan")
 
@@ -292,6 +296,8 @@ class Entry(Base):
     # 0.4.89: aus einer Auswertung von Charakterbogen bzw. Hintergrund übernommen – bis die SL Sichtbarkeit oder
     # „Wer weiß was“ selbst festlegt, wissen es nur SL und Urheberin (auch Nachzügler nicht; die KI nicht als bekannt)
     origin_analysis_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # 0.4.21: „Auch genannt“ – weitere Namen als JSON-Liste; sichtbar wie der Name
+    aliases_json: Mapped[str | None] = mapped_column("aliases", Text, nullable=True)
 
     mentions: Mapped[list["EntryMention"]] = relationship(cascade="all, delete-orphan")
     hidden_from: Mapped[list["EntryHidden"]] = relationship(cascade="all, delete-orphan")
@@ -304,6 +310,19 @@ class Entry(Base):
     def allgemein_bekannt(self) -> bool:
         """Öffentlich und von niemandem verborgen – nur solche Einträge gelten für die KI als Spielerwissen."""
         return self.visibility == "public" and not self.hidden_from and not self.origin_analysis_id
+
+    @property
+    def aliases(self) -> list[str]:
+        try:
+            liste = json.loads(self.aliases_json or "[]")
+        except ValueError:
+            return []
+        return [str(x) for x in liste if isinstance(x, str) and x.strip()]
+
+    @property
+    def alle_namen(self) -> list[str]:
+        """Name und Aliasse, Name zuerst."""
+        return [self.name, *self.aliases]
 
 
 class EntryHidden(Base):
@@ -442,6 +461,9 @@ class Speaker(Base):
     source: Mapped[str] = mapped_column(String(16), default="none")
     assigned_member_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     assigned_guest_name: Mapped[str | None] = mapped_column(String(200), nullable=True)  # 0.4.7: Gast benannt
+    # 0.4.21: bis zu drei Textproben über die Runde verteilt, JSON [{start, end, text}]; Hörprobe je Probe liegt
+    # unter storage.sample_path(session, speaker, index). Leer/None = nur sample_text (ältere Worker).
+    samples_json: Mapped[str | None] = mapped_column("samples", Text, nullable=True)
 
 
 class TranscriptSegment(Base):
@@ -532,6 +554,10 @@ class Proposal(Base):
     # 0.4.18: bei source character aus einer Auswertung (Charakterbogen oder Hintergrund); None = mitgebrachte Welt
     analysis_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     relation: Mapped[str | None] = mapped_column(String(120), nullable=True)  # 0.4.19, mitgebrachte Welt (nur Anzeige)
+    # 0.4.21: Dublettenprüfung ohne Sprachmodell (JSON {entryId, name, matchedName, entryType, kind}) und die
+    # Entscheidung der SL, bei diesem Eintrag zu ergänzen statt neu anzulegen (nur action create)
+    match_json: Mapped[str | None] = mapped_column("match", Text, nullable=True)
+    merge_into_entry_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
 class GmNotice(Base):

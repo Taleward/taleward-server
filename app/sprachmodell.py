@@ -1711,6 +1711,17 @@ def _erwaehnt(name: str, text: str) -> bool:
     return any(re.search(rf"\b{re.escape(w)}", klein) for w in woerter)
 
 
+def _vorkommen(e: dict, text: str) -> bool:
+    """Name oder einer der Aliasse (0.4.21) im Text."""
+    return any(_erwaehnt(n, text) for n in (e.get("name") or "", *(e.get("aliases") or [])) if n)
+
+
+def _namenszeile(e: dict) -> str:
+    """„Name“ bzw. „Name (auch: Alias, Alias)“ für die Eingabe des Sprachmodells."""
+    auch = [a for a in (e.get("aliases") or []) if a]
+    return str(e.get("name") or "") + (f" (auch: {', '.join(auch)})" if auch else "")
+
+
 def klartext(text) -> str:
     """Markdown aus Modelltexten entfernen – die App zeigt reinen Text, und kleine Modelle streuen trotz Anweisung
     **fett**, ## Überschriften und Listen in einer Zeile („… - **Ziel:** … - **Lage:** …“) ein."""
@@ -2264,8 +2275,8 @@ class Ablauf:
 
     def recap(self, ein: dict, titel: str, grundlage: str, grenzen: tuple[int, int] | None = None,
               zusatz: str = "") -> dict:
-        bibel = "\n".join(f"- [{e['typ']}] {e['name']}" + (f": {e['zusammenfassung'][:500]}"
-                                                           if _erwaehnt(e["name"], grundlage) else "")
+        bibel = "\n".join(f"- [{e['typ']}] {_namenszeile(e)}" + (f": {e['zusammenfassung'][:500]}"
+                                                                 if _vorkommen(e, grundlage) else "")
                           for e in ein["bibel"])
         nutzer = (f"{_kopf(ein)}\n\nBekannt aus früheren Sessions (Spielerwissen):\n{bibel or '(noch nichts)'}"
                   f"\n\n{titel}:\n{grundlage}")
@@ -2743,8 +2754,8 @@ class Ablauf:
 
     def vorschlaege(self, ein: dict, titel: str, grundlage: str) -> list[dict]:
         def eintrag(e: dict) -> str:
-            z = f"- id={e['id']} [{e['typ']}] {e['name']}"
-            if not _erwaehnt(e["name"], grundlage):
+            z = f"- id={e['id']} [{e['typ']}] {_namenszeile(e)}"
+            if not _vorkommen(e, grundlage):
                 return z  # nur der Name – spart Platz; Inhalt nur für Einträge, die vorkommen
             z += f": {e.get('zusammenfassung', '')[:600]}"
             if e.get("gm_notes"):
@@ -3276,8 +3287,8 @@ class DokumentAblauf:
         alle, welt = [], []
         for i, teil in enumerate(teile):
             def eintrag(e: dict) -> str:
-                z = f"- id={e['id']} [{e['typ']}] {e['name']}" + (" (geheim)" if e.get("sichtbarkeit") != "public" else "")
-                if _erwaehnt(e["name"], teil):
+                z = f"- id={e['id']} [{e['typ']}] {_namenszeile(e)}" + (" (geheim)" if e.get("sichtbarkeit") != "public" else "")
+                if _vorkommen(e, teil):
                     z += f": {e.get('zusammenfassung', '')[:600]}"
                     if e.get("gm_notes"):
                         z += f"\n  gmNotes: {e['gm_notes'][:600]}"

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app import errors, links, schemas
+from app import aliasse, errors, links, schemas
 from app.access import may_see_backstory
 from app.config import get_settings
 from app.db import utcnow
@@ -46,7 +46,8 @@ def user_out(u: User) -> schemas.UserOut:
     arten = [a.kind for a in u.auth_methods]
     return schemas.UserOut(id=u.id, username=u.username, display_name=u.display_name, email=u.email,
                            email_pending=u.email_pending, has_password="password" in arten,
-                           providers=sorted(k.split(":", 1)[1] for k in arten if k.startswith("oidc:")))
+                           providers=sorted(k.split(":", 1)[1] for k in arten if k.startswith("oidc:")),
+                           terms_accepted_version=u.terms_accepted_version, terms_accepted_at=u.terms_accepted_at)
 
 
 def default_organization(db: Session) -> Organization:
@@ -464,6 +465,7 @@ def entry_out(e: Entry, is_gm: bool, viewer_id: str | None = None) -> schemas.En
     daten = dict(
         id=e.id, campaign_id=e.campaign_id, type=e.type, name=e.name, summary=e.summary,
         status=e.status, holder_member_id=e.holder_member_id, visibility=e.visibility,
+        aliases=e.aliases,  # 0.4.21: sichtbar wie der Name (Spieler sehen nur Einträge, die sie sehen dürfen)
         first_session_number=min(numbers) if numbers else None,
         last_session_number=max(numbers) if numbers else None,
         mentions=[schemas.MentionOut(session_number=mn.session.number, note=mn.note) for mn in mentions],
@@ -480,7 +482,7 @@ def entry_out(e: Entry, is_gm: bool, viewer_id: str | None = None) -> schemas.En
     return schemas.EntryOut(**daten)
 
 
-_PUBLIC_FIELDS = ("type", "name", "summary", "status", "holder_member_id", "visibility")
+_PUBLIC_FIELDS = ("type", "name", "summary", "status", "holder_member_id", "visibility", "aliases_json")
 
 
 def apply_entry_input(db: Session, e: Entry, data: schemas.EntryInput, require_public_text: bool = False) -> None:
@@ -528,6 +530,10 @@ def apply_entry_input(db: Session, e: Entry, data: schemas.EntryInput, require_p
         e.hidden_from = [EntryHidden(entry_id=e.id, member_id=m) for m in sorted(ids)]
     if "links" in fields and data.links is not None:  # 0.4.13: ganze Liste ersetzen
         e.links = links.schreiben(links.pruefen(data.links))
+    if "aliases" in fields and data.aliases is not None:  # 0.4.21: ganze Liste ersetzen
+        e.aliases_json = aliasse.schreiben(aliasse.bereinigen(e.name, data.aliases))
+    elif "name" in fields and e.aliases:  # neuer Name darf nicht zugleich Alias sein
+        e.aliases_json = aliasse.schreiben(aliasse.bereinigen(e.name, e.aliases))
     if require_public_text and e.visibility == "public" and not (e.summary or "").strip():
         raise errors.bad_request("validation_error", "public_text_required")
     if e.type != "quest":
@@ -547,7 +553,7 @@ def apply_entry_input(db: Session, e: Entry, data: schemas.EntryInput, require_p
 
 def search_matches(e: Entry, q: str, is_gm: bool) -> bool:
     """Volltextsuche: alle Suchwörter müssen vorkommen. gmNotes durchsucht nur die SL."""
-    teile = [e.name, e.summary]
+    teile = [e.name, e.summary, *e.aliases]  # 0.4.21: Aliasse wie der Name
     if is_gm and e.gm_notes:
         teile.append(e.gm_notes)
     haystack = "\n".join(teile).casefold()

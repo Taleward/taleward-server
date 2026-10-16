@@ -96,6 +96,11 @@ MESSAGES: dict[str, tuple[str, str]] = {
                                "A link address must start with http:// or https:// and must not contain credentials."),
     "invalid_input.link_label": ("Ein Link braucht einen Namen.", "A link needs a name."),
     "invalid_input.link_id": ("Zwei Links haben dieselbe Kennung.", "Two links have the same ID."),
+    # Dort ergänzen (0.4.21)
+    "invalid_input.merge_target": ("Zum Ergänzen passt nur ein Eintrag dieser Kampagne, und nur bei einem Vorschlag "
+                                   "„neu anlegen“.",
+                                   "You can only merge into an entry of this campaign, and only for a "
+                                   "“create” proposal."),
     "conflict": ("Das wurde inzwischen geändert.", "This was changed in the meantime."),
     "conflict.plan": ("Der Kapitelplan wurde inzwischen auf einem anderen Gerät geändert. Bitte neu laden.",
                       "The chapter plan was changed on another device in the meantime. Please reload."),
@@ -262,6 +267,14 @@ MESSAGES: dict[str, tuple[str, str]] = {
                    "The audio has already been deleted. Please upload the recording again."),
     "audio_deleted": ("Die Hörprobe ist bereits gelöscht.", "The voice sample has already been deleted."),
     "lease_lost": ("Dieser Auftrag ist nicht (mehr) diesem Worker zugeteilt.", "This job is no longer assigned to this worker."),
+    # Nutzungsbedingungen (0.4.22)
+    "consent_required.terms": ("Bitte stimme den Nutzungsbedingungen dieses Servers zu.",
+                               "Please accept this server's terms of use."),
+    "terms_changed": ("Die Nutzungsbedingungen haben sich inzwischen geändert. Bitte lies die neue Fassung.",
+                      "The terms of use have changed in the meantime. Please read the new version."),
+    "terms_required": ("Für diesen Server gibt es neue Nutzungsbedingungen. Stimm ihnen in der App zu, dann geht es "
+                       "weiter. Lesen geht auch so.",
+                       "This server has new terms of use. Accept them in the app to continue. Reading still works."),
     "app_outdated": ("Diese App ist zu alt. Bitte aktualisiere auf Taleward {version} oder neuer.",
                      "This app is too old. Please update to Taleward {version} or newer."),
     "setup_account_only": ("Das Konto „admin“ dient nur der Ersteinrichtung. Bitte im Browser unter /verwaltung einen eigenen Verwalter anlegen.",

@@ -67,6 +67,7 @@ class BekannterEintrag:
     typ: str
     name: str
     zusammenfassung: str  # nur öffentlicher Text
+    aliases: list[str] = field(default_factory=list)  # 0.4.21: nur bei allgemein bekannten Einträgen
 
 
 @dataclass
@@ -74,6 +75,7 @@ class GeheimerEintrag:
     id: str
     typ: str
     name: str  # nur der Name – Inhalt bleibt in der Zentrale
+    aliases: list[str] = field(default_factory=list)  # 0.4.21: nur für den Vorschlags-Aufruf
 
 
 @dataclass
@@ -132,9 +134,9 @@ def eingabe_bauen(db: Session, s: GameSession) -> Eingabe:
     for e in db.scalars(select(Entry).where(Entry.campaign_id == c.id).order_by(Entry.updated_at.desc())):
         # Teilweise verborgene Einträge („Wer weiß was“) wie gm_only behandeln – den Recap lesen alle (0.3.6)
         if e.allgemein_bekannt:  # 0.4.89: auch Geheimes aus Bogen/Hintergrund nicht als bekannt
-            bibel.append(BekannterEintrag(e.id, e.type, e.name, e.summary))
+            bibel.append(BekannterEintrag(e.id, e.type, e.name, e.summary, e.aliases))
         else:
-            geheim.append(GeheimerEintrag(e.id, e.type, e.name))
+            geheim.append(GeheimerEintrag(e.id, e.type, e.name, e.aliases))
     return Eingabe(
         sprache=c.language, kampagne=c.title, system=c.system, system_name=c.system_name, welt=c.world_info,
         session_nummer=s.number, session_titel=s.title, personen=personen, gaeste=gaeste,
@@ -155,8 +157,8 @@ def vorschlag_eingabe(db: Session, s: GameSession, basis: Eingabe) -> dict:
     d = basis.als_dict()
     bibel, geheim = [], []
     for e in db.scalars(select(Entry).where(Entry.campaign_id == s.campaign_id).order_by(Entry.updated_at.desc())):
-        eintrag = {"id": e.id, "typ": e.type, "name": e.name, "zusammenfassung": e.summary or "",
-                   "gm_notes": e.gm_notes or None}
+        eintrag = {"id": e.id, "typ": e.type, "name": e.name, "aliases": e.aliases,
+                   "zusammenfassung": e.summary or "", "gm_notes": e.gm_notes or None}
         # Teilweise verborgene Einträge („Wer weiß was“) nicht als allgemein bekannt ausgeben
         (bibel if e.allgemein_bekannt else geheim).append(eintrag)
     d["bibel"], d["geheim"] = bibel, geheim
@@ -412,6 +414,9 @@ def speichern(db: Session, s: GameSession, erg: Ergebnis, rechenzeit: float, eng
                  parts=_teile_json(erg.teile, text)))
     eintraege = {e.id: e for e in db.scalars(select(Entry).where(Entry.campaign_id == s.campaign_id))}
     geheime_texte = geheime_bibeltexte(eintraege.values())
+    from app import dubletten, woerterbuch
+
+    allgemein = woerterbuch.liste(sprache or "de")
     # Qualitätsprüfung Stufe 1: Belege gegen das Transkript prüfen (erfundene Zitate fallen weg)
     transkript = stellen.woerter
     ohne_beleg = 0
@@ -447,6 +452,9 @@ def speichern(db: Session, s: GameSession, erg: Ergebnis, rechenzeit: float, eng
             suggested_visibility=sichtbar, visibility_reason=grund,
             confidence=sicherheit, flags=json.dumps(flags),
             evidence=json.dumps(geprueft, ensure_ascii=False),
+            # 0.4.21: klingt der neue Eintrag wie ein vorhandener? (ohne Sprachmodell, nur für die SL)
+            match_json=dubletten.schreiben(dubletten.finden(v.title, eintraege.values(), allgemein))
+            if v.action == "create" else None,
         ))
     if ohne_beleg:
         log.info("Session %s: %d von %d Vorschlägen ohne auffindbaren Beleg im Transkript", s.id, ohne_beleg,

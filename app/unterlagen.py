@@ -309,7 +309,7 @@ def eingabe(db: Session, doc: CampaignDocument) -> dict:
     """Unterlage + ganze Bibel inkl. gmNotes (Schnittstelle: „mit der vorhandenen Bibel (inkl. gmNotes) als
     Kontext“). Vorschläge und Unterlagen sieht nur die SL."""
     c = db.get(Campaign, doc.campaign_id)
-    bibel = [{"id": e.id, "typ": e.type, "name": e.name, "zusammenfassung": e.summary or "",
+    bibel = [{"id": e.id, "typ": e.type, "name": e.name, "aliases": e.aliases, "zusammenfassung": e.summary or "",
               "gm_notes": e.gm_notes or None,
               # teilweise verborgen = nicht allgemein bekannt („Wer weiß was“) → im Aufruf als geheim
               "sichtbarkeit": "teilweise" if e.visibility == "public" and not e.allgemein_bekannt else e.visibility}
@@ -359,6 +359,9 @@ def speichern(db: Session, doc: CampaignDocument, d: dict, engine: str, worker_i
     if doc.kind != "handout":
         markiert += geheime_bibeltexte(eintraege.values())
     db.execute(delete(Proposal).where(Proposal.document_id == doc.id))
+    from app import dubletten, woerterbuch
+
+    allgemein = woerterbuch.liste(db.get(Campaign, doc.campaign_id).language or "de")
     for pos, v in enumerate(vorschlaege):
         detail, gm_notes = v["detail"], v["gmNotes"]
         oeffentlich_vorgeschlagen = v["publicSuggested"]
@@ -386,6 +389,9 @@ def speichern(db: Session, doc: CampaignDocument, d: dict, engine: str, worker_i
             visibility_reason=grund if oeffentlich_vorgeschlagen or sichtbar == "public" else None,
             confidence=v["confidence"], flags=json.dumps(v["flags"]),
             evidence=json.dumps(v["evidence"], ensure_ascii=False),
+            # 0.4.21: klingt der neue Eintrag wie ein vorhandener? (ohne Sprachmodell, nur für die SL)
+            match_json=dubletten.schreiben(dubletten.finden(v["title"], eintraege.values(), allgemein))
+            if v["action"] == "create" else None,
         ))
     welt = (d.get("worldInfoSuggestion") or "").strip()[:1500] or None
     if welt and markiert and _geheimes_im_detail(welt, markiert):

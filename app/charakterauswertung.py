@@ -243,7 +243,8 @@ def eingabe(db: Session, a: CharacterAnalysis) -> dict:
     """Eingabe in der Form der Unterlagen (art „handout“: alles darin ist Wissen dieser Spielerin, ohne geheimen Teil) –
     so verstehen auch ältere Worker den Auftrag. `quelle` wählt bei neueren die passende Anweisung."""
     c = db.get(Campaign, a.campaign_id)
-    bibel = [{"id": e.id, "typ": e.type, "name": e.name, "zusammenfassung": e.summary or "", "gm_notes": None,
+    bibel = [{"id": e.id, "typ": e.type, "name": e.name, "aliases": e.aliases, "zusammenfassung": e.summary or "",
+              "gm_notes": None,
               # teilweise verborgen = nicht allgemein bekannt → im Aufruf als geheim (wie bei Unterlagen)
               "sichtbarkeit": "public" if e.allgemein_bekannt else "teilweise"}
              for e in _sichtbar_fuer(db, a)]
