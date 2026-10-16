@@ -1,0 +1,227 @@
+From 00fa0ce39ad35e93744cedbdd1a9e6a436190adb Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Fri, 16 Oct 2026 22:49:37 +0200
+Subject: [PATCH 168/171] Verwaltung: Nutzungsbedingungen im Assistenten,
+ Vorlage unter /nutzungsbedingungen, neue Fassung
+
+---
+ app/verwaltung/assistent.py                 | 85 ++++++++++++++++++++-
+ app/verwaltung/i18n.py                      | 22 ++++++
+ app/verwaltung/router.py                    |  3 +-
+ app/verwaltung/templates/assistent.html     | 20 +++++
+ app/verwaltung/templates/einstellungen.html | 16 +++-
+ 5 files changed, 141 insertions(+), 5 deletions(-)
+
+diff --git a/app/verwaltung/assistent.py b/app/verwaltung/assistent.py
+index 2ae67af..88c8964 100644
+--- a/app/verwaltung/assistent.py
++++ b/app/verwaltung/assistent.py
+@@ -29,6 +29,6 @@ oeffentlich = APIRouter(include_in_schema=False)
+ 
+ SCHRITTE = [("verein", "Betreiber"), ("betrieb", "Betriebsart"), ("zusammenfassung", "Zusammenfassung"),
+-            ("datenschutz", "Datenschutz"), ("impressum", "Impressum"), ("sicherung", "Sicherung"),
+-            ("spielleitung", "Spielleitung")]
++            ("datenschutz", "Datenschutz"), ("impressum", "Impressum"), ("nutzungsbedingungen", "Nutzungsbedingungen"),
++            ("sicherung", "Sicherung"), ("spielleitung", "Spielleitung")]
+ MISTRAL_URL = "https://api.mistral.ai/v1"
+ 
+@@ -119,5 +119,5 @@ def einrichtung_abschliessen(request: Request, code: str = Form(""), username: s
+     if db.scalar(select(User).where(User.username == name)):
+         return fehler(_("Den Benutzer „{name}“ gibt es schon.", name=name))
+-    neu = _neues_konto(db, name, display_name.strip()[:128], password, admin=True)
++    neu = _neues_konto(db, name, display_name.strip()[:128], password, admin=True, zugestimmt=True)  # eigenes Konto
+     if alt is not None:
+         for om in db.scalars(select(OrgMember).where(OrgMember.user_id == alt.id)):
+@@ -460,4 +460,83 @@ def impressum_oeffentlich(request: Request, db: Session = Depends(get_db)):
+ 
+ 
++# -- Nutzungsbedingungen (0.4.22): jeder Server hat welche – Vorlage dieses Servers, eigener Text oder eigener Link
++def _nb_schritt(request: Request, user: User, db: Session, **ctx):
++    from app import nutzungsbedingungen
++
++    st = nutzungsbedingungen.stand(db, sprache_von(request))
++    ctx.setdefault("text", st.text)
++    ctx.setdefault("eigener_link", st.url or "")
++    return _schritt(request, user, db, "nutzungsbedingungen", quelle=st.quelle, fassung=st.version, **ctx)
++
++
++@router.get("/assistent/nutzungsbedingungen", response_class=HTMLResponse)
++def nutzungsbedingungen_schritt(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)):
++    return _nb_schritt(request, user, db)
++
++
++@router.post("/assistent/nutzungsbedingungen", dependencies=[Depends(csrf_pruefen)])
++def nutzungsbedingungen_speichern(request: Request, aktion: str = Form(""), text: str = Form(""),
++                                  eigener_link: str = Form(""), user: User = Depends(verwalter),
++                                  db: Session = Depends(get_db)):
++    from app import nutzungsbedingungen
++
++    _ = tr(request)
++
++    def fehler(t: str):
++        st = nutzungsbedingungen.stand(db, sprache_von(request))
++        return _fehler(request, user, db, "nutzungsbedingungen", t, text=text, eigener_link=eigener_link,
++                       quelle=st.quelle, fassung=st.version)
++
++    if aktion == "vorlage":  # zurück zur Vorlage dieses Servers (sie passt sich den Betreiber-Angaben an)
++        nutzungsbedingungen.vorlage_nutzen(db)
++        db.commit()
++        return _nb_schritt(request, user, db, text=nutzungsbedingungen.vorlage(db, sprache_von(request)))
++    if aktion == "link":
++        link = eigener_link.strip()
++        if not link.startswith("https://"):
++            return fehler(_("Links müssen mit https:// beginnen."))
++        nutzungsbedingungen.link_speichern(db, link)
++        db.commit()
++        return _weiter("nutzungsbedingungen")
++    if aktion == "weiter":  # Vorlage so lassen
++        return _weiter("nutzungsbedingungen")
++    inhalt = text.strip()
++    if len(inhalt) < 80:
++        return fehler(_("Die Nutzungsbedingungen sind zu kurz."))
++    if inhalt.count("["):
++        return fehler(_("Es sind noch {n} Stellen in eckigen Klammern offen. Bitte ausfüllen oder entfernen.",
++                        n=inhalt.count("[")))
++    nutzungsbedingungen.text_speichern(db, inhalt)
++    db.commit()
++    return _weiter("nutzungsbedingungen")
++
++
++@router.post("/nutzungsbedingungen/neue-fassung", dependencies=[Depends(csrf_pruefen)])
++def nutzungsbedingungen_neue_fassung(request: Request, bestaetigung: str = Form(""),
++                                     user: User = Depends(verwalter), db: Session = Depends(get_db)):
++    """Fassung hochzählen: Alle Konten müssen in der App erneut zustimmen, bis dahin nur Lesen."""
++    from app import nutzungsbedingungen
++    from app.einstellungen import angaben
++
++    if bestaetigung.strip() != (angaben(db).server_name or "").strip():
++        return RedirectResponse("/verwaltung/einstellungen?nb=falsch#nutzungsbedingungen", status_code=303)
++    nutzungsbedingungen.hochzaehlen(db)
++    db.commit()
++    return RedirectResponse("/verwaltung/einstellungen?nb=neu#nutzungsbedingungen", status_code=303)
++
++
++@oeffentlich.get("/nutzungsbedingungen", response_class=HTMLResponse)
++def nutzungsbedingungen_oeffentlich(request: Request, db: Session = Depends(get_db)):
++    from app import nutzungsbedingungen
++    from app.datenschutz import html
++
++    st = nutzungsbedingungen.stand(db, sprache_von(request))
++    if st.url:
++        return RedirectResponse(st.url, status_code=303)
++    _ = tr(request)
++    return _seite(request, "datenschutz.html", None, db, inhalt=html(st.text),
++                  titel_seite=_("Nutzungsbedingungen") + f" ({_('Fassung')} {st.version})")
++
++
+ # -- Sicherung
+ @router.get("/assistent/sicherung", response_class=HTMLResponse)
+diff --git a/app/verwaltung/i18n.py b/app/verwaltung/i18n.py
+index ac8597c..40637f3 100644
+--- a/app/verwaltung/i18n.py
++++ b/app/verwaltung/i18n.py
+@@ -1123,4 +1123,26 @@ EN: dict[str, str] = {
+     "Seite des Sprechermodells": "Speaker model page",
+     "Unter „Settings“ → „Access Tokens“ einen Schlüssel mit dem Recht „Read“ anlegen, kopieren und hier einfügen.": "Under “Settings” → “Access Tokens”, create a key with the “Read” permission, copy it and paste it here.",
++    "Der eingegebene Name stimmt nicht mit dem Namen des Servers überein. Nichts geändert.": "The name you entered does not match the server's name. Nothing changed.",
++    "Die Nutzungsbedingungen sind zu kurz.": "The terms of use are too short.",
++    "Fassung": "version",
++    "Geltende Fassung: {n}.": "Current version: {n}.",
++    "Hast du die Bedingungen so geändert, dass alle erneut zustimmen müssen, zähle die Fassung hoch. Bis zur Zustimmung können Mitglieder in der App nur lesen, Zustimmungen widerrufen, ihre Daten herunterladen und ihr Konto löschen. Tippfehler oder Umformulierungen brauchen keine neue Fassung.": "If you changed the terms in a way that everyone has to accept again, raise the version. Until they accept, members can only read in the app, withdraw consents, download their data and delete their account. Typos or rewording do not need a new version.",
++    "Neue Fassung {n}. Alle Mitglieder sehen beim nächsten Öffnen der App die Bedingungen und stimmen erneut zu.": "New version {n}. All members will see the terms the next time they open the app and accept them again.",
++    "Neue Fassung – alle müssen erneut zustimmen": "New version – everyone must accept again",
++    "Nutzungsbedingungen": "Terms of use",
++    "Nutzungsbedingungen:": "Terms of use:",
++    "Nutzungsbedingungen: neue Fassung": "Terms of use: new version",
++    "Vorlage": "template",
++    "Zur Bestätigung den Namen des Servers eingeben": "Enter the server's name to confirm",
++    "eigener Text": "own text",
++    "Jeder Taleward-Server hat Nutzungsbedingungen. Die App zeigt sie beim Anlegen eines Kontos und bei jeder neuen Fassung; ohne Zustimmung können Mitglieder nur lesen. Du kannst die Vorlage dieses Servers nehmen, sie anpassen oder auf eure eigenen Bedingungen verlinken.": "Every Taleward server has terms of use. The app shows them when an account is created and whenever there is a new version; without acceptance members can only read. You can use this server's template, adapt it or link to your own terms.",
++    "Das ist eine Vorlage, keine Rechtsberatung. Bitte lesen und im Zweifel von jemandem mit rechtlichem Blick prüfen lassen.": "This is a template, not legal advice. Please read it and, if in doubt, have someone with a legal eye check it.",
++    "Zurzeit gilt die Vorlage dieses Servers; sie füllt sich aus den Betreiber-Angaben.": "Currently this server's template applies; it fills in from the operator details.",
++    "Zurzeit gilt euer eigener Text.": "Currently your own text applies.",
++    "Zurzeit gilt euer eigener Link.": "Currently your own link applies.",
++    "Text speichern und weiter": "Save text and continue",
++    "Vorlage so lassen und weiter": "Keep the template and continue",
++    "Eine inhaltliche Änderung, der alle neu zustimmen sollen, zählst du später unter Einstellungen als neue Fassung hoch.": "A change in substance that everyone should accept again is raised later under Settings as a new version.",
++    "Oder: Link zu euren eigenen Nutzungsbedingungen": "Or: link to your own terms of use",
+ }
+ 
+diff --git a/app/verwaltung/router.py b/app/verwaltung/router.py
+index 0d3a92d..751c67a 100644
+--- a/app/verwaltung/router.py
++++ b/app/verwaltung/router.py
+@@ -1263,8 +1263,9 @@ def einstellungen(request: Request, user: User = Depends(verwalter), db: Session
+     from app import aufbewahrung
+ 
+-    from app import betreiber
++    from app import betreiber, nutzungsbedingungen
+ 
+     return _seite(request, "einstellungen.html", user, db, orgs=orgs, fehler=fehler, betreiber=betreiber.lesen(db),
+                   impressum_text=bool(meta_lesen(db, "impressum.text")), impressum_url=meta_lesen(db, "impressum.url"),
++                  nb=nutzungsbedingungen.stand(db), nb_meldung=request.query_params.get("nb", ""),
+                   registrierung=registrierung(db), limit_euro=(limit or 0) / 100,
+                   aufbewahrung=aufbewahrung.lesen(db), hoechstens_tage=aufbewahrung.HOECHSTENS_TAGE,
+diff --git a/app/verwaltung/templates/assistent.html b/app/verwaltung/templates/assistent.html
+index a132963..a74b6f1 100644
+--- a/app/verwaltung/templates/assistent.html
++++ b/app/verwaltung/templates/assistent.html
+@@ -187,4 +187,24 @@
+ </div>
+ 
++{% elif schritt == "nutzungsbedingungen" %}
++<div class="karte">
++  <h2>{{ _("Nutzungsbedingungen") }}</h2>
++  <p>{{ _("Jeder Taleward-Server hat Nutzungsbedingungen. Die App zeigt sie beim Anlegen eines Kontos und bei jeder neuen Fassung; ohne Zustimmung können Mitglieder nur lesen. Du kannst die Vorlage dieses Servers nehmen, sie anpassen oder auf eure eigenen Bedingungen verlinken.") }}</p>
++  <div class="meldung">{{ _("Das ist eine Vorlage, keine Rechtsberatung. Bitte lesen und im Zweifel von jemandem mit rechtlichem Blick prüfen lassen.") }}</div>
++  <p class="hilfe">{{ _("Geltende Fassung: {n}.", n=fassung) }} {% if quelle == "vorlage" %}{{ _("Zurzeit gilt die Vorlage dieses Servers; sie füllt sich aus den Betreiber-Angaben.") }}{% elif quelle == "eigen" %}{{ _("Zurzeit gilt euer eigener Text.") }}{% else %}{{ _("Zurzeit gilt euer eigener Link.") }}{% endif %} <a href="/nutzungsbedingungen" target="_blank" rel="noopener">{{ _("Veröffentlichte Fassung ansehen") }}</a></p>
++  <form class="formular formular--breit" method="post" action="/verwaltung/assistent/nutzungsbedingungen">
++    <input type="hidden" name="csrf" value="{{ csrf }}">
++    <label>{{ _("Text") }} <textarea name="text" rows="18">{{ text }}</textarea>
++      <span class="hilfe">{{ _("Überschriften mit „## “, Aufzählungen mit „- “, Absätze durch Leerzeilen.") }}</span></label>
++    <div class="knopfzeile"><button class="tw-btn tw-btn--primary" type="submit" name="aktion" value="speichern">{{ _("Text speichern und weiter") }}</button>
++      <button class="tw-btn tw-btn--quiet" type="submit" name="aktion" value="weiter" formnovalidate>{{ _("Vorlage so lassen und weiter") }}</button>
++      <button class="tw-btn tw-btn--quiet" type="submit" name="aktion" value="vorlage" formnovalidate>{{ _("Vorlage neu erzeugen") }}</button></div>
++    <p class="hilfe">{{ _("Eine inhaltliche Änderung, der alle neu zustimmen sollen, zählst du später unter Einstellungen als neue Fassung hoch.") }}</p>
++    <hr>
++    <label>{{ _("Oder: Link zu euren eigenen Nutzungsbedingungen") }} <input type="url" name="eigener_link" value="{{ eigener_link }}" placeholder="https://verein.example/nutzungsbedingungen"></label>
++    <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit" name="aktion" value="link">{{ _("Link verwenden") }}</button></div>
++  </form>
++</div>
++
+ {% elif schritt == "sicherung" %}
+ <div class="karte">
+diff --git a/app/verwaltung/templates/einstellungen.html b/app/verwaltung/templates/einstellungen.html
+index 7a378b9..e256bf9 100644
+--- a/app/verwaltung/templates/einstellungen.html
++++ b/app/verwaltung/templates/einstellungen.html
+@@ -25,5 +25,6 @@
+       </div></details>
+     <label>{{ _("Link zum Datenschutzhinweis") }} <input type="url" name="privacy_policy_url" value="{{ angaben.privacy_policy_url or '' }}" maxlength="500" placeholder="https://…"></label>
+-    <p class="hilfe">{{ _("Impressum:") }} {% if impressum_text %}<a href="/impressum">{{ _("veröffentlicht") }}</a>{% elif impressum_url %}<a href="{{ impressum_url }}" rel="noopener noreferrer">{{ _("eigener Link") }}</a>{% else %}{{ _("keins") }}{% endif %} · <a href="/verwaltung/assistent/impressum">{{ _("Bearbeiten") }}</a></p>
++    <p class="hilfe">{{ _("Impressum:") }} {% if impressum_text %}<a href="/impressum">{{ _("veröffentlicht") }}</a>{% elif impressum_url %}<a href="{{ impressum_url }}" rel="noopener noreferrer">{{ _("eigener Link") }}</a>{% else %}{{ _("keins") }}{% endif %} · <a href="/verwaltung/assistent/impressum">{{ _("Bearbeiten") }}</a>
++      · {{ _("Nutzungsbedingungen:") }} {% if nb.quelle == "link" %}<a href="{{ nb.url }}" rel="noopener noreferrer">{{ _("eigener Link") }}</a>{% elif nb.quelle == "eigen" %}<a href="/nutzungsbedingungen">{{ _("eigener Text") }}</a>{% else %}<a href="/nutzungsbedingungen">{{ _("Vorlage") }}</a>{% endif %} ({{ _("Fassung") }} {{ nb.version }}) · <a href="/verwaltung/assistent/nutzungsbedingungen">{{ _("Bearbeiten") }}</a></p>
+     <label>{{ _("Öffentliche Adresse des Servers") }} <input type="url" name="public_url" value="{{ angaben.public_url or '' }}" maxlength="300" placeholder="https://taleward.meinverein.example">
+       <span class="hilfe">{{ _("Für Links in E-Mails und für Anmeldedienste. Leer = die Adresse, unter der die Verwaltung gerade aufgerufen wird.") }}</span></label>
+@@ -92,4 +93,17 @@
+ <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Speichern") }}</button></div>
+ </form>
++
++<div class="karte" id="nutzungsbedingungen">
++  <h2>{{ _("Nutzungsbedingungen: neue Fassung") }}</h2>
++  {% if nb_meldung == "neu" %}<div class="meldung" role="status">{{ _("Neue Fassung {n}. Alle Mitglieder sehen beim nächsten Öffnen der App die Bedingungen und stimmen erneut zu.", n=nb.version) }}</div>
++  {% elif nb_meldung == "falsch" %}<div class="meldung meldung--fehler" role="alert">{{ _("Der eingegebene Name stimmt nicht mit dem Namen des Servers überein. Nichts geändert.") }}</div>{% endif %}
++  <p>{{ _("Geltende Fassung: {n}.", n=nb.version) }} {{ _("Hast du die Bedingungen so geändert, dass alle erneut zustimmen müssen, zähle die Fassung hoch. Bis zur Zustimmung können Mitglieder in der App nur lesen, Zustimmungen widerrufen, ihre Daten herunterladen und ihr Konto löschen. Tippfehler oder Umformulierungen brauchen keine neue Fassung.") }}</p>
++  <form class="formular" method="post" action="/verwaltung/nutzungsbedingungen/neue-fassung">
++    <input type="hidden" name="csrf" value="{{ csrf }}">
++    <label>{{ _("Zur Bestätigung den Namen des Servers eingeben") }} <input type="text" name="bestaetigung" autocomplete="off" placeholder="{{ angaben.server_name }}"></label>
++    <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Neue Fassung – alle müssen erneut zustimmen") }}</button></div>
++  </form>
++</div>
++
+ <form method="post" action="/verwaltung/benachrichtigungen">
+ <input type="hidden" name="csrf" value="{{ csrf }}">
+-- 
+2.43.0
+
