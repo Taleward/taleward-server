@@ -1,0 +1,262 @@
+From 58f291e941ec3241db77444140b7d16a7c611485 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Fri, 16 Oct 2026 17:31:26 +0200
+Subject: [PATCH 156/158] =?UTF-8?q?Verwaltung:=20Betreiber=20in=20den=20Ei?=
+ =?UTF-8?q?nstellungen,=20=C3=9Cbersetzungen?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ app/verwaltung/i18n.py                      |  54 +++++++++-
+ app/verwaltung/templates/einstellungen.html |  32 ++++--
+ tests/test_server_04105.py                  | 108 ++++++++++++++++++++
+ 3 files changed, 184 insertions(+), 10 deletions(-)
+ create mode 100644 tests/test_server_04105.py
+
+diff --git a/app/verwaltung/i18n.py b/app/verwaltung/i18n.py
+index 3f14c4b..f5c90d3 100644
+--- a/app/verwaltung/i18n.py
++++ b/app/verwaltung/i18n.py
+@@ -496,5 +496,5 @@ EN: dict[str, str] = {
+     # Übersicht
+     "Worker bereit": "workers ready",
+-    "Runden in der Warteschlange": "sessions in the queue",
++    "Runden in der Warteschlange": "Sessions in the queue",
+     "in Verarbeitung": "being processed",
+     "warten auf die Spielleitung": "waiting for the GM",
+@@ -1066,4 +1066,56 @@ EN: dict[str, str] = {
+     'Was gelöscht wird': 'What is deleted',
+     'Zu viele Versuche. Bitte in einer Viertelstunde noch einmal.': 'Too many attempts. Please try again in a quarter of an hour.',
++    "1 Hinweis": "1 note",
++    "Anschrift": "Postal address",
++    "App im Browser und App-Fassungen": "App in the browser and app versions",
++    "App-Fassung von Hand festlegen (selten nötig)": "Set app version by hand (rarely needed)",
++    "Auf diesem Server gibt es kein Guthaben. Die Kosten trägt, wer den Server betreibt – du musst hier nichts tun.": "There is no credit on this server. Whoever runs the server pays the costs – you don't need to do anything here.",
++    "Automatisch geschätzt (bei 0): Transkription {t} je Stunde, Kapitel {k} je Stunde, Korrektur {r}, SL-Unterlage {u} je Seite. Grundlage sind die bisherigen Cloud-Läufe; solange es keine gibt, die Preise des Anbieters.": "Estimated automatically (at 0): transcription {t} per hour, chapter {k} per hour, correction {r}, GM document {u} per page. Based on previous cloud runs; as long as there are none, on the provider's prices.",
++    "Bearbeiten": "Edit",
++    "Bei Verein oder Firma: weitere Angaben (freiwillig)": "For a club or company: further details (optional)",
++    "Betrieben von": "Run by",
++    "Bitte angeben, wer den Server betreibt.": "Please enter who runs the server.",
++    "Das Impressum ist zu kurz.": "The legal notice is too short.",
++    "Das ist eine Vorlage, keine Rechtsberatung. Bitte lesen, Stellen in [eckigen Klammern] ausfüllen und im Zweifel von jemandem mit rechtlichem Blick prüfen lassen.": "This is a template, not legal advice. Please read it, fill in the places in [square brackets] and, if in doubt, have someone with legal knowledge check it.",
++    "Das zeigt die App beim Hinzufügen dieses Servers. Daraus füllen sich auch die Vorlagen für Datenschutzhinweis und Impressum. Alles lässt sich später unter Einstellungen ändern.": "The app shows this when this server is added. The templates for the privacy notice and legal notice are filled from it too. You can change everything later under Settings.",
++    "Datenschutzhinweis veröffentlichen": "Publish privacy notice",
++    "Der Knopf gilt zwei Minuten. Danach beginne die Anmeldung in der App einfach neu.": "The button is valid for two minutes. After that, simply start signing in again in the app.",
++    "Die App zeigt sie beim Hinzufügen des Servers (Betreiber, Kontakt, Datenschutzhinweis). Daraus füllen sich auch die Vorlagen für Datenschutzhinweis und Impressum.": "The app shows these when the server is added (operator, contact, privacy notice). The templates for the privacy notice and legal notice are filled from them too.",
++    "Die Update-Quelle war bei der letzten Suche nicht erreichbar. Der Server versucht es später von selbst wieder – du musst nichts tun.": "The update source could not be reached during the last check. The server will try again later by itself – you don't need to do anything.",
++    "Die neue Fassung {nach} ist erschienen und wird noch geprüft. Du musst nichts tun – der Server übernimmt sie nach der Freigabe. Bis dahin bleibt es bei {von} ({zeit}).": "The new version {nach} has been released and is still being checked. You don't need to do anything – the server takes it over once it is approved. Until then it stays on {von} ({zeit}).",
++    "Du bist eingeladen.": "You're invited.",
++    "Ein verbundener lokaler Server bekommt die Aufnahmen aller Kampagnen dieses Servers. Verbinde nur Geräte, denen du vertraust.": "A connected local server receives the recordings of all campaigns on this server. Only connect devices you trust.",
++    "Einem Verein": "A club",
++    "Einer Firma oder anderen Organisation": "A company or other organisation",
++    "Es gibt noch ein Konto aus der Ersteinrichtung. Öffne den Einrichtungslink aus der Installation und lege damit deinen eigenen Verwalter an – danach wird es gelöscht. Link verloren? Auf dem Server zeigt ihn dieser Befehl:": "There is still an account from the initial setup. Open the setup link from the installation and use it to create your own administrator – the setup account is deleted afterwards. Lost the link? This command on the server shows it:",
++    "Es gibt noch kein Konto mit Verwalter-Recht. Auf dem Server anlegen mit": "There is no account with administrator rights yet. Create one on the server with",
++    "Für Datenschutzhinweis und Impressum. Bleibt sie leer, steht dort „[Anschrift]“ zum Ausfüllen.": "For the privacy notice and legal notice. If it stays empty, they show “[Address]” to fill in.",
++    "Für diesen Server ist hier kein Impressum veröffentlicht. Frag bitte die Person, die den Server betreibt oder dich eingeladen hat.": "No legal notice is published here for this server. Please ask the person who runs the server or invited you.",
++    "Für diesen Server ist hier noch kein Datenschutzhinweis veröffentlicht. Frag bitte die Person, die den Server betreibt oder dich eingeladen hat.": "No privacy notice is published here for this server yet. Please ask the person who runs the server or invited you.",
++    "Impressum": "Legal notice",
++    "Impressum veröffentlichen": "Publish legal notice",
++    "Impressum:": "Legal notice:",
++    "Jede Sicherung wird zusätzlich dorthin kopiert, z. B. auf ein eingebundenes Netzlaufwerk. So überlebt sie auch einen Ausfall dieses Servers.": "Every backup is also copied there, e.g. to a mounted network drive. That way it survives a failure of this server.",
++    "Mindestens 8 Zeichen.": "At least 8 characters.",
++    "Name (Betreiber)": "Name (operator)",
++    "Normalerweise bietet der Server neue App-Fassungen selbst an, siehe „Updates“. Was du hier einträgst, gilt vorrangig.": "Normally the server offers new app versions by itself, see “Updates”. What you enter here takes precedence.",
++    "Ob du für diesen Server ein Impressum brauchst, hängt davon ab, wer ihn für wen betreibt – zum Beispiel privat für die eigene Runde oder öffentlich für einen Verein. Taleward gibt dazu keine Rechtsauskunft.": "Whether you need a legal notice for this server depends on who runs it for whom – for example privately for your own group or publicly for a club. Taleward does not give legal advice on this.",
++    "Oder: Link zu eurem eigenen Impressum": "Or: link to your own legal notice",
++    "Ohne Impressum weiter": "Continue without a legal notice",
++    "Privat, für die eigene Runde": "Privately, for your own group",
++    "Registereintrag": "Register entry",
++    "Sicherungen speicherst du im Taleward-Programm unter Einstellungen → Sicherung. Damit ziehst du auch auf einen neuen PC um.": "You save backups in the Taleward program under Settings → Backup. You also use them to move to a new PC.",
++    "Straße und Hausnummer, Postleitzahl und Ort": "Street and number, postcode and town",
++    "Vertreten durch": "Represented by",
++    "Vorher eine Sicherung anlegen (Übersicht → Sicherung). Dann auf dem Server im Ordner von Taleward ausführen:": "First create a backup (Overview → Backup). Then run this on the server in the Taleward folder:",
++    "Wer betreibt diesen Server?": "Who runs this server?",
++    "Wer den Server betreibt": "Who runs the server",
++    "Willkommen. Lege deinen eigenen Verwalter an.": "Welcome. Create your own administrator.",
++    "eigener Link": "own link",
++    "keins": "none",
++    "veröffentlicht": "published",
++    "z. B. Drachenhort e. V. oder dein Name": "e.g. Dragon's Hoard club or your name",
++    "z. B. Vereinsregister, Amtsgericht, Nummer": "e.g. register of associations, court, number",
++    "z. B. Vorstand: Name, Name": "e.g. board: name, name",
+ }
+ 
+diff --git a/app/verwaltung/templates/einstellungen.html b/app/verwaltung/templates/einstellungen.html
+index bca3b74..893259e 100644
+--- a/app/verwaltung/templates/einstellungen.html
++++ b/app/verwaltung/templates/einstellungen.html
+@@ -5,19 +5,28 @@
+ <form method="post" action="/verwaltung/einstellungen">
+ <input type="hidden" name="csrf" value="{{ csrf }}">
+-<div class="karte">
++<div class="karte" id="betreiber">
+   <h2>{{ _("Angaben für die App") }}</h2>
+-  <p class="leise">{{ _("Die App zeigt sie beim Hinzufügen des Servers (Betreiber, Kontakt, Datenschutzhinweis).") }}</p>
++  <p class="leise">{{ _("Die App zeigt sie beim Hinzufügen des Servers (Betreiber, Kontakt, Datenschutzhinweis). Daraus füllen sich auch die Vorlagen für Datenschutzhinweis und Impressum.") }}</p>
+   <div class="formular">
+     <label>{{ _("Name des Servers") }} <input type="text" name="server_name" value="{{ angaben.server_name }}" required maxlength="100"></label>
+-    <label>{{ _("Betreiber") }} <input type="text" name="server_operator" value="{{ angaben.server_operator }}" required maxlength="200"></label>
++    <fieldset><legend>{{ _("Betrieben von") }}</legend>
++      <label class="haken"><input type="radio" name="betreiber_art" value="privat" {% if betreiber.art == "privat" %}checked{% endif %}> {{ _("Privat, für die eigene Runde") }}</label>
++      <label class="haken"><input type="radio" name="betreiber_art" value="verein" {% if betreiber.art in ("verein", "") %}checked{% endif %}> {{ _("Einem Verein") }}</label>
++      <label class="haken"><input type="radio" name="betreiber_art" value="firma" {% if betreiber.art == "firma" %}checked{% endif %}> {{ _("Einer Firma oder anderen Organisation") }}</label>
++    </fieldset>
++    <label>{{ _("Name (Betreiber)") }} <input type="text" name="server_operator" value="{{ angaben.server_operator }}" required maxlength="200"></label>
++    <label>{{ _("Anschrift") }} <textarea name="betreiber_anschrift" rows="3" maxlength="500">{{ betreiber.anschrift }}</textarea></label>
+     <label>{{ _("Kontakt") }} <input type="text" name="server_contact" value="{{ angaben.server_contact or '' }}" maxlength="200">
+       <span class="hilfe">{{ _("E-Mail-Adresse oder Webseite für Fragen zum Datenschutz.") }}</span></label>
++    <details{% if betreiber.vertretung or betreiber.register %} open{% endif %}><summary>{{ _("Bei Verein oder Firma: weitere Angaben (freiwillig)") }}</summary>
++      <div class="formular">
++      <label>{{ _("Vertreten durch") }} <input type="text" name="betreiber_vertretung" value="{{ betreiber.vertretung }}" maxlength="300"></label>
++      <label>{{ _("Registereintrag") }} <input type="text" name="betreiber_register" value="{{ betreiber.register }}" maxlength="300"></label>
++      </div></details>
+     <label>{{ _("Link zum Datenschutzhinweis") }} <input type="url" name="privacy_policy_url" value="{{ angaben.privacy_policy_url or '' }}" maxlength="500" placeholder="https://…"></label>
+-    <label>{{ _("Öffentliche Adresse des Servers") }} <input type="url" name="public_url" value="{{ angaben.public_url or '' }}" maxlength="300" placeholder="https://taleward.meinverein.de">
++    <p class="hilfe">{{ _("Impressum:") }} {% if impressum_text %}<a href="/impressum">{{ _("veröffentlicht") }}</a>{% elif impressum_url %}<a href="{{ impressum_url }}" rel="noopener noreferrer">{{ _("eigener Link") }}</a>{% else %}{{ _("keins") }}{% endif %} · <a href="/verwaltung/assistent/impressum">{{ _("Bearbeiten") }}</a></p>
++    <label>{{ _("Öffentliche Adresse des Servers") }} <input type="url" name="public_url" value="{{ angaben.public_url or '' }}" maxlength="300" placeholder="https://taleward.meinverein.example">
+       <span class="hilfe">{{ _("Für Links in E-Mails und für Anmeldedienste. Leer = die Adresse, unter der die Verwaltung gerade aufgerufen wird.") }}</span></label>
+     <label>{{ _("Mindestalter") }} <input type="number" name="min_age" value="{{ angaben.min_age }}" min="0" max="99"></label>
+-    {% if orgs|length == 1 %}
+-    <label>{{ _("Name der Organisation (Verein)") }} <input type="text" name="org_name" value="{{ orgs[0].name }}" maxlength="200"></label>
+-    {% endif %}
+   </div>
+ </div>
+@@ -57,7 +66,10 @@
+ </div>
+ <div class="karte">
+-  <h2>{{ _("App-Versionen") }}</h2>
+-  <p class="leise">{{ _("Die App fragt das ab: bei neuerer Version zeigt sie „Neue Version“, bei zu alter Version sperrt sie diesen Server bis zum Update.") }}</p>
++  <h2>{{ _("App im Browser und App-Fassungen") }}</h2>
+   <div class="formular">
++    <details{% if angaben.app_min_version or angaben.app_latest_version or angaben.app_download_url %} open{% endif %}>
++    <summary>{{ _("App-Fassung von Hand festlegen (selten nötig)") }}</summary>
++    <p class="leise">{{ _("Normalerweise bietet der Server neue App-Fassungen selbst an, siehe „Updates“. Was du hier einträgst, gilt vorrangig.") }}</p>
++    <div class="formular">
+     <label>{{ _("Mindestversion der App") }} <input type="text" name="app_min_version" value="{{ angaben.app_min_version or '' }}" maxlength="20" placeholder="0.9.0" pattern="[0-9]+(\.[0-9]+)*">
+       <span class="hilfe">{{ _("Leer = keine Grenze. Ältere Apps bekommen dann keinen Zugang mehr (426).") }}</span></label>
+@@ -66,4 +78,6 @@
+       <span class="hilfe">{{ _("APK- oder Store-Link. Erscheint auch auf der Einladungsseite („App herunterladen“).") }}</span></label>
+     <label>{{ _("Was ist neu") }} <textarea name="app_release_notes" rows="3" maxlength="1000">{{ angaben.app_release_notes or '' }}</textarea></label>
++    </div>
++    </details>
+     {% if zentrale_webapp %}
+     <input type="hidden" name="web_zentral_feld" value="1">
+diff --git a/tests/test_server_04105.py b/tests/test_server_04105.py
+new file mode 100644
+index 0000000..11aeb85
+--- /dev/null
++++ b/tests/test_server_04105.py
+@@ -0,0 +1,108 @@
++"""Server 0.4.105: Wer den Server betreibt (Datenschutz-Vorlage, Impressum), Seiten statt Fehlerdaten, Verwaltung."""
++import html
++import re
++
++from tests.test_verwaltung import admin, csrf_von  # noqa: F401 (Fixture)
++
++
++def _text(seite: str) -> str:
++    return html.unescape(re.search(r'<textarea name="text"[^>]*>(.*?)</textarea>', seite, re.S).group(1))
++
++
++def _betreiber(client, csrf, **w):
++    daten = {"csrf": csrf, "verein_name": "Nebelfeld-Runde", "server_contact": "kontakt@nebelfeld.example",
++             "min_age": "16", "art": "privat", "anschrift": "Lindenweg 3\n12345 Nebelfeld"} | w
++    return client.post("/verwaltung/assistent/verein", data=daten, follow_redirects=False)
++
++
++def test_betreiber_fuellt_datenschutz_vorlage(client, dbs, admin):  # noqa: F811
++    seite = client.get("/verwaltung/assistent/verein").text
++    assert "Wer betreibt diesen Server?" in seite and 'value="privat"' in seite and "1. " in seite
++    assert _betreiber(client, admin, art="kaputt").status_code == 400
++    assert _betreiber(client, admin).headers["location"] == "/verwaltung/assistent/betrieb"
++    text = _text(client.get("/verwaltung/assistent/datenschutz").text)
++    assert "Nebelfeld-Runde\nLindenweg 3\n12345 Nebelfeld\nkontakt@nebelfeld.example" in text
++    assert "um unsere Runden zu dokumentieren" in text and "Vereins" not in text and "[Anschrift]" not in text
++    # Verein ohne Anschrift: Platzhalter bleibt zum Ausfüllen, Zusatzangaben gehen nur bei Verein/Firma
++    _betreiber(client, admin, art="verein", anschrift="", vertretung="Vorstand: Ada Kiesel", registereintrag="VR 4711")
++    from app import betreiber
++
++    b = betreiber.lesen(dbs)
++    assert (b.art, b.anschrift, b.vertretung, b.register) == ("verein", "", "Vorstand: Ada Kiesel", "VR 4711")
++    assert "[Anschrift]" in _text(client.get("/verwaltung/assistent/datenschutz").text)
++    _betreiber(client, admin, art="privat", vertretung="soll weg", registereintrag="soll weg")
++    assert betreiber.lesen(dbs).vertretung == "" and betreiber.lesen(dbs).register == ""
++
++
++def test_impressum(client, dbs, admin):  # noqa: F811
++    _betreiber(client, admin, art="verein", vertretung="Vorstand: Ada Kiesel", registereintrag="VR 4711")
++    r = client.get("/impressum")
++    assert r.status_code == 404 and "kein Impressum veröffentlicht" in r.text and "{" not in r.text  # keine Fehlerdaten
++    seite = client.get("/verwaltung/assistent/impressum").text
++    assert "keine Rechtsauskunft" in seite
++    text = _text(seite)
++    assert "Nebelfeld-Runde\nLindenweg 3" in text and "Vorstand: Ada Kiesel" in text and "VR 4711" in text
++    assert "betreibt diesen Server nicht" in text
++    r = client.post("/verwaltung/assistent/impressum", data={"csrf": admin, "aktion": "veroeffentlichen",
++                                                              "text": "[offen]" + text}, follow_redirects=False)
++    assert r.status_code == 400 and "eckigen Klammern" in r.text
++    r = client.post("/verwaltung/assistent/impressum", data={"csrf": admin, "aktion": "veroeffentlichen",
++                                                              "text": text + "\n\n<b>x</b>"}, follow_redirects=False)
++    assert r.headers["location"] == "/verwaltung/assistent/sicherung"
++    oeffentlich = client.get("/impressum")
++    assert oeffentlich.status_code == 200 and "<h1>Impressum</h1>" in oeffentlich.text and "&lt;b&gt;" in oeffentlich.text
++    # Eigener Link statt eigenem Text
++    r = client.post("/verwaltung/assistent/impressum", data={"csrf": admin, "aktion": "link",
++                                                              "eigener_link": "http://unsicher.example"})
++    assert r.status_code == 400
++    client.post("/verwaltung/assistent/impressum", data={"csrf": admin, "aktion": "link",
++                                                          "eigener_link": "https://nebelfeld.example/impressum"})
++    r = client.get("/impressum", follow_redirects=False)
++    assert r.status_code == 303 and r.headers["location"] == "https://nebelfeld.example/impressum"
++    client.post("/verwaltung/assistent/impressum", data={"csrf": admin, "aktion": "ohne"})
++    assert client.get("/impressum").status_code == 404
++    # Englische Vorlage
++    client.cookies.set("tw_sprache", "en")
++    assert "# Legal notice" in _text(client.get("/verwaltung/assistent/impressum").text)
++
++
++def test_seiten_statt_fehlerdaten(client, dbs):
++    r = client.get("/datenschutz")
++    assert r.status_code == 404 and "noch kein Datenschutzhinweis" in r.text and '"code"' not in r.text
++    r = client.get("/guthaben")
++    assert r.status_code == 404 and "kein Guthaben" in r.text and '"code"' not in r.text
++    assert client.post("/guthaben/anmelden", data={"username": "x", "password": "y"}).status_code == 404
++
++
++def test_einstellungen_betreiber_ohne_doppelte_felder(client, dbs, admin):  # noqa: F811
++    from app import betreiber
++    from app.models import Organization
++
++    seite = client.get("/verwaltung/einstellungen").text
++    assert 'name="org_name"' not in seite and 'name="betreiber_anschrift"' in seite
++    assert "App-Fassung von Hand festlegen" in seite
++    r = client.post("/verwaltung/einstellungen", data={
++        "csrf": admin, "server_name": "Nebelfeld", "server_operator": "Nebelfeld-Runde", "min_age": "16",
++        "betreiber_art": "firma", "betreiber_anschrift": "Lindenweg 3\r\n\r\n12345 Nebelfeld", "betreiber_register": "HRB 1"},
++        follow_redirects=False)
++    assert r.status_code == 303
++    b = betreiber.lesen(dbs)
++    assert (b.art, b.anschrift, b.register) == ("firma", "Lindenweg 3\n12345 Nebelfeld", "HRB 1")
++    orgs = dbs.query(Organization).all()
++    assert len(orgs) != 1 or orgs[0].name == "Nebelfeld-Runde"
++
++
++def test_verwaltung_ohne_datenbankpfad_und_mit_tippflaechen(client, dbs, admin):  # noqa: F811
++    seite = client.get("/verwaltung/").text
++    assert "chronik.db" not in seite and "storagebox" not in seite.lower()
++    css = client.get("/verwaltung/static/verwaltung.css").text
++    assert "--focus-ring:var(--ink)" in css and "--focus-ring:var(--siegel)" not in css
++    assert css.count("min-height:48px") >= 4
++
++
++def test_sicherung_im_einzelplatz_nur_ein_satz(client, dbs, admin, monkeypatch):  # noqa: F811
++    from app.config import get_settings
++
++    monkeypatch.setattr(get_settings(), "taleward_einzelplatz", True)
++    seite = client.get("/verwaltung/").text
++    assert "im Taleward-Programm unter Einstellungen → Sicherung" in seite and "Jetzt sichern" not in seite
+-- 
+2.43.0
+
