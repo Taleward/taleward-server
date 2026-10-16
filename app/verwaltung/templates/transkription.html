@@ -231,6 +231,14 @@
   {% endif %}
   {% endif %}
   <h3>{{ _("Zugang zu Hugging Face") }}</h3>
+  {% if not hf_ende and not modell.stand %}
+  <p>{{ _("So bekommst du den Zugangsschlüssel – einmalig und kostenlos:") }}</p>
+  <ol class="schritte">
+    <li>{{ _("Auf huggingface.co ein Konto anlegen.") }} <a href="https://huggingface.co/join" rel="noopener noreferrer" target="_blank">huggingface.co/join</a></li>
+    <li>{{ _("Angemeldet die Seite des Sprechermodells öffnen und den Bedingungen zustimmen.") }} <a href="https://huggingface.co/pyannote/speaker-diarization-community-1" rel="noopener noreferrer" target="_blank">{{ _("Seite des Sprechermodells") }}</a></li>
+    <li>{{ _("Unter „Settings“ → „Access Tokens“ einen Schlüssel mit dem Recht „Read“ anlegen, kopieren und hier einfügen.") }} <a href="https://huggingface.co/settings/tokens" rel="noopener noreferrer" target="_blank">huggingface.co/settings/tokens</a></li>
+  </ol>
+  {% endif %}
   <p>{% if hf_ende %}<span class="marke-status marke-status--gut">{{ _("hinterlegt") }}</span> {{ _("endet auf …{ende}", ende=hf_ende) }}{% else %}<span class="marke-status">{{ _("nicht hinterlegt") }}</span>{% endif %}</p>
   <form class="formular" method="post" action="/verwaltung/transkription/hf">
     <input type="hidden" name="csrf" value="{{ csrf }}">

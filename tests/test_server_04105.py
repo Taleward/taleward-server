@@ -106,3 +106,9 @@ def test_sicherung_im_einzelplatz_nur_ein_satz(client, dbs, admin, monkeypatch):
     monkeypatch.setattr(get_settings(), "taleward_einzelplatz", True)
     seite = client.get("/verwaltung/").text
     assert "im Taleward-Programm unter Einstellungen → Sicherung" in seite and "Jetzt sichern" not in seite
+
+
+def test_anleitung_fuer_den_zugang_zum_sprechermodell(client, dbs, admin):  # noqa: F811
+    seite = client.get("/verwaltung/transkription").text
+    assert "einmalig und kostenlos" in seite and "huggingface.co/pyannote/speaker-diarization-community-1" in seite
+    assert 'id="hf"' in seite  # Sprungziel für „Stimmen erkennen einrichten“ im Programm

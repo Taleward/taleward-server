@@ -41,7 +41,7 @@ def test_einrichtung_nur_mit_code(client, dbs):
     r = client.post("/verwaltung/einrichtung", data={**body, "code": code}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/verwaltung/assistent/verein"
     assert "tw_verwaltung" in r.headers["set-cookie"]
-    assert "Euer Verein" in client.get("/verwaltung/assistent/verein").text
+    assert "Wer betreibt diesen Server?" in client.get("/verwaltung/assistent/verein").text
     # Code verbraucht, Server eingerichtet
     client.cookies.clear()
     assert client.get(f"/verwaltung/einrichtung?code={code}", follow_redirects=False).headers["location"] \

@@ -1117,6 +1117,11 @@ EN: dict[str, str] = {
     "z. B. Drachenhort e. V. oder dein Name": "e.g. Dragon's Hoard club or your name",
     "z. B. Vereinsregister, Amtsgericht, Nummer": "e.g. register of associations, court, number",
     "z. B. Vorstand: Name, Name": "e.g. board: name, name",
+    "So bekommst du den Zugangsschlüssel – einmalig und kostenlos:": "How to get the access key – once and free of charge:",
+    "Auf huggingface.co ein Konto anlegen.": "Create an account on huggingface.co.",
+    "Angemeldet die Seite des Sprechermodells öffnen und den Bedingungen zustimmen.": "While signed in, open the speaker model's page and accept the conditions.",
+    "Seite des Sprechermodells": "Speaker model page",
+    "Unter „Settings“ → „Access Tokens“ einen Schlüssel mit dem Recht „Read“ anlegen, kopieren und hier einfügen.": "Under “Settings” → “Access Tokens”, create a key with the “Read” permission, copy it and paste it here.",
 }
 
 WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}
