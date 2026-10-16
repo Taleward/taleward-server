@@ -353,6 +353,11 @@ def recording_consent(
     campaignId: str, body: schemas.RecordingConsentIn, user: User = Depends(current_user), db: Session = Depends(get_db)
 ):
     _, me = _load(db, campaignId, user)
+    if body.granted:  # 0.4.22: Widerrufen geht immer, Zustimmen nur mit angenommenen Nutzungsbedingungen
+        from app import nutzungsbedingungen
+
+        if not nutzungsbedingungen.zugestimmt(user, db):
+            raise errors.ApiError(403, "terms_required")
     set_recording_consent(db, me, body.granted)
     db.commit()
     return member_out(me, me)

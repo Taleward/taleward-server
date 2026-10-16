@@ -64,8 +64,11 @@ def passwort_zu_schwach(passwort: str, *namen: str) -> bool:
 
 def registrieren(db: Session, adresse: str, invite_code: str, username: str, display_name: str,
                  password: str | None, accept_privacy: bool, age_confirmed: bool,
-                 methode: tuple[str, str] | None = None) -> User:
-    """Mit Passwort oder (0.4.0) mit einem Anmeldedienst: methode = ("oidc:<dienst>", sub)."""
+                 methode: tuple[str, str] | None = None, accept_terms: bool = False,
+                 terms_version: int | None = None) -> User:
+    """Mit Passwort oder (0.4.0) mit einem Anmeldedienst: methode = ("oidc:<dienst>", sub).
+    0.4.22: nur mit Zustimmung zu den Nutzungsbedingungen in der gezeigten Fassung (400 consent_required bzw.
+    409 terms_changed); Zeitpunkt und Fassung stehen am Konto."""
     _begrenzen(adresse)
     if registrierung(db) != "invite_only":
         raise errors.ApiError(403, "registration_closed")
@@ -82,6 +85,12 @@ def registrieren(db: Session, adresse: str, invite_code: str, username: str, dis
     ZAEHLER.freigeben(versuch)
     if accept_privacy is not True or age_confirmed is not True:
         raise errors.bad_request("consent_required")
+    from app import nutzungsbedingungen
+
+    if accept_terms is not True or terms_version is None:
+        raise errors.bad_request("consent_required", "consent_required.terms")
+    if int(terms_version) != nutzungsbedingungen.version(db):
+        raise errors.conflict("terms_changed")
     name = (username or "").strip().lower()
     if not BENUTZERNAME.fullmatch(name):
         raise errors.bad_request("username_invalid")
@@ -95,7 +104,8 @@ def registrieren(db: Session, adresse: str, invite_code: str, username: str, dis
     if db.scalar(select(User).where(User.username == name)) is not None:
         raise errors.conflict("username_taken")
     jetzt = utcnow()
-    u = User(username=name, display_name=anzeige, privacy_accepted_at=jetzt, age_confirmed_at=jetzt)
+    u = User(username=name, display_name=anzeige, privacy_accepted_at=jetzt, age_confirmed_at=jetzt,
+             terms_accepted_version=int(terms_version), terms_accepted_at=jetzt)
     db.add(u)
     db.flush()
     if methode is None:
@@ -166,6 +176,7 @@ def exportieren(db: Session, u: User, basis_url: str) -> dict:
                     "email": u.email, "emailVerifiedAt": _z(u.email_verified_at), "emailPending": u.email_pending,
                     "providers": sorted(m.kind.split(":", 1)[1] for m in u.auth_methods if m.kind.startswith("oidc:")),
                     "privacyAcceptedAt": _z(u.privacy_accepted_at), "ageConfirmedAt": _z(u.age_confirmed_at),
+                    "termsAcceptedVersion": u.terms_accepted_version, "termsAcceptedAt": _z(u.terms_accepted_at),
                     "signInMethods": [{"kind": m.kind, "createdAt": _z(m.created_at), "lastUsedAt": _z(m.last_used_at)}
                                       for m in anmeldungen]},
         "organizations": [{"id": o.id, "name": o.name, "role": om.role, "joinedAt": _z(om.joined_at)}

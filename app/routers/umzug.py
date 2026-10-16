@@ -72,7 +72,7 @@ def export_file(campaignId: str, exportId: str, t: str | None = Query(default=No
         if sl is None:
             raise errors.not_found("export")
     else:
-        user = current_user(creds, db)
+        user = current_user(None, creds, db)  # GET: keine Prüfung der Nutzungsbedingungen nötig
         _nur_sl(db, campaignId, user)
         x = _export(db, campaignId, exportId)
     if x.state != "ready":

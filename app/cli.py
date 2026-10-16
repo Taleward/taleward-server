@@ -20,9 +20,17 @@ def _db():
     return session_factory()()
 
 
-def _neues_konto(db, username: str, display_name: str, password: str, admin: bool = False) -> User:
-    """Konto + Anmeldeart „Passwort“ + Mitgliedschaft in der (Standard-)Organisation."""
+def _neues_konto(db, username: str, display_name: str, password: str, admin: bool = False,
+                 zugestimmt: bool = False) -> User:
+    """Konto + Anmeldeart „Passwort“ + Mitgliedschaft in der (Standard-)Organisation.
+    zugestimmt (0.4.22): Zustimmung zu den Nutzungsbedingungen gleich eintragen – nur für das eigene Konto des
+    Betreibers (Einrichtung, Einzelplatz, Demo); für andere Personen stimmt niemand stellvertretend zu."""
     u = User(username=username, display_name=display_name)
+    if zugestimmt:
+        from app import nutzungsbedingungen
+        from app.db import utcnow
+
+        u.terms_accepted_version, u.terms_accepted_at = nutzungsbedingungen.version(db), utcnow()
     db.add(u)
     db.flush()
     db.add(AuthMethod(user_id=u.id, kind="password", secret=hash_password(password)))
@@ -44,6 +52,9 @@ def create_user(
     username: str = typer.Option(..., "--username", "-u", help="Anmeldename (ohne Leerzeichen)"),
     display_name: str = typer.Option(..., "--name", "-n", help="Anzeigename, z. B. 'Anna'"),
     admin: bool = typer.Option(False, "--admin", help="Als Verwalter der Organisation (Verein) eintragen"),
+    zugestimmt: bool = typer.Option(False, "--zugestimmt",
+                                    help="Zustimmung zu den Nutzungsbedingungen gleich eintragen (nur für eigene "
+                                         "Konten, z. B. Testkonten – sonst stimmt die Person in der App zu)"),
 ):
     """Neues Benutzerkonto anlegen (Passwort wird abgefragt)."""
     uname = username.strip().lower()
@@ -55,7 +66,7 @@ def create_user(
         typer.echo(f"Den Benutzer '{uname}' gibt es schon.", err=True)
         raise typer.Exit(1)
     pw = _ask_password()
-    _neues_konto(db, uname, display_name.strip(), pw, admin=admin)
+    _neues_konto(db, uname, display_name.strip(), pw, admin=admin, zugestimmt=zugestimmt)
     db.commit()
     typer.echo(f"Benutzer '{uname}' angelegt.")
 
@@ -93,8 +104,8 @@ def demo_data(password: str = typer.Option("chronik-demo", help="Passwort für b
     if db.scalar(select(User).where(User.username.in_(["sl", "spieler"]))):
         typer.echo("Demo-Konten existieren schon.", err=True)
         raise typer.Exit(1)
-    gm_user = _neues_konto(db, "sl", "Spielleitung (Demo)", password, admin=True)
-    pl_user = _neues_konto(db, "spieler", "Spielerin (Demo)", password)
+    gm_user = _neues_konto(db, "sl", "Spielleitung (Demo)", password, admin=True, zugestimmt=True)
+    pl_user = _neues_konto(db, "spieler", "Spielerin (Demo)", password, zugestimmt=True)
     c = Campaign(title="Die Chroniken von Rabenfels", description="Demo-Kampagne zum Testen des Spoilerschutzes.",
                  organization_id=default_organization(db).id, language="de", system="dsa", cover_preset=random_cover(),
                  world_info="Rabenfels ist eine kleine Stadt am Rand des Finsterwalds.\n\n"

@@ -416,7 +416,7 @@ def _erstes_konto(body: KontoIn, db: Session) -> JSONResponse:
         return _fehler(400, "password_too_weak")
     if body.betriebsart is not None and body.betriebsart not in BETRIEBSARTEN:
         return _fehler(400, "validation_error")
-    _neues_konto(db, anmeldename, name, body.passwort, admin=True)
+    _neues_konto(db, anmeldename, name, body.passwort, admin=True, zugestimmt=True)  # die Person ist der Betreiber
     if meta_lesen(db, "angabe.server_name") is None:
         meta_schreiben(db, "angabe.server_name", f"Taleward – {name}"[:128])
     if meta_lesen(db, "angabe.server_operator") is None:

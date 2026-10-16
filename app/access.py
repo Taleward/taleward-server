@@ -5,7 +5,9 @@ Grundregel: Was ein Nutzer nicht sehen darf, liefert 404 (die Existenz bleibt ve
 """
 from dataclasses import dataclass
 
-from fastapi import Depends
+import re
+
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -18,7 +20,45 @@ from app.security import decode_token
 _bearer = HTTPBearer(auto_error=False)
 
 
+# 0.4.22: Ohne Zustimmung zur geltenden Fassung der Nutzungsbedingungen nur noch lesen. Ausnahmen laut Schnittstelle:
+# zustimmen, Konto löschen, Daten herunterladen (GET ohnehin), alles unter /auth, Zustimmung zu Aufnahmen widerrufen
+# (prüft der Endpunkt selbst, weil es auf den Körper ankommt), begonnene Aufnahmen fertig hochladen, Abmelden;
+# dazu das Stimmprofil löschen (ebenfalls ein Widerruf).
+_SCHREIBEND = {"POST", "PUT", "PATCH", "DELETE"}
+_TERMS_AUSNAHMEN = (
+    (re.compile(r"^/me/terms$"), {"PUT"}),
+    (re.compile(r"^/me$"), {"DELETE"}),
+    (re.compile(r"^/me/voice-profile$"), {"DELETE"}),
+    (re.compile(r"^/auth/"), None),
+    (re.compile(r"^/uploads/"), None),
+    (re.compile(r"^/campaigns/[A-Za-z0-9_-]+/recording-consent$"), {"PUT"}),
+)
+
+
+def terms_ausnahme(pfad: str, methode: str) -> bool:
+    for muster, methoden in _TERMS_AUSNAHMEN:
+        if muster.search(pfad) and (methoden is None or methode in methoden):
+            return True
+    return False
+
+
+def terms_pruefen(request: Request | None, user: User, db: Session) -> None:
+    """403 terms_required bei ändernden Anfragen ohne Zustimmung zur geltenden Fassung (0.4.22)."""
+    if request is None or request.method not in _SCHREIBEND:
+        return
+    pfad = request.url.path
+    if pfad.startswith("/api/v1"):
+        pfad = pfad[len("/api/v1"):]
+    if terms_ausnahme(pfad, request.method):
+        return
+    from app import nutzungsbedingungen
+
+    if not nutzungsbedingungen.zugestimmt(user, db):
+        raise errors.ApiError(403, "terms_required")
+
+
 def current_user(
+    request: Request,
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: Session = Depends(get_db),
 ) -> User:
@@ -37,6 +77,7 @@ def current_user(
 
         if not user.token_ausnahme or user.token_ausnahme != f"{version}:{token_jti(creds.credentials)}":
             raise errors.TOKEN_INVALID
+    terms_pruefen(request, user, db)
     return user
 
 

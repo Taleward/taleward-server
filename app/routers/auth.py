@@ -13,14 +13,14 @@ from app.models import AuthMethod, Organization, OrgMember, User
 from app.security import create_token, verify_password
 from app.services import user_out
 
-API_VERSION = "0.4.20"
+API_VERSION = "0.4.22"
 
 router = APIRouter(tags=["Auth"])
 
 
 @router.get("/info", response_model=schemas.ServerInfoOut)
 def info(request: Request, db: Session = Depends(get_db)):
-    from app import aktualisierung, anmeldedienste, aufbewahrung, mail
+    from app import aktualisierung, anmeldedienste, aufbewahrung, mail, nutzungsbedingungen
     from app.einstellungen import oeffentliche_adresse
     from app.einrichtung import betriebsart
     from app import cloudanbieter
@@ -28,6 +28,7 @@ def info(request: Request, db: Session = Depends(get_db)):
     from app.services import cloud_anbieter
 
     a = angaben(db)  # .env, überschreibbar in der Verwaltung
+    basis = oeffentliche_adresse(db, request)
     extern = anbieter(db)
     k = llm_konfig(db)
     dienste = anmeldedienste.eingerichtet(db)
@@ -52,6 +53,9 @@ def info(request: Request, db: Session = Depends(get_db)):
         password_reset=mail.kann_senden(db) and mail_adresse(db) is not None,
         audio_retention=schemas.AudioRetentionOut(**aufbewahrung.lesen(db).api()),
         public_url=oeffentliche_herkunft(a.public_url), server_id=server_id(),
+        # 0.4.22: Nutzungsbedingungen (immer) und Impressum (Vorlage, Link oder null) dieses Servers
+        terms_url=nutzungsbedingungen.adresse(db, basis), terms_version=nutzungsbedingungen.version(db),
+        legal_notice_url=nutzungsbedingungen.impressum_adresse(db, basis),
     )
 
 
@@ -125,7 +129,8 @@ def register(body: schemas.RegisterRequest, request: Request, db: Session = Depe
         if body.username is None or body.password is None:
             raise errors.bad_request("validation_error", "validation_error.empty", field="username/password")
         u = registrieren(db, adresse, body.invite_code, body.username, body.display_name, body.password,
-                         body.accept_privacy, body.age_confirmed)
+                         body.accept_privacy, body.age_confirmed, accept_terms=body.accept_terms,
+                         terms_version=body.terms_version)
     db.commit()
     token, expires = create_token(u.id, u.token_version, server_id())
     return schemas.LoginResponse(access_token=token, expires_at=expires, user=user_out(u))
@@ -133,6 +138,23 @@ def register(body: schemas.RegisterRequest, request: Request, db: Session = Depe
 
 @router.get("/me", response_model=schemas.UserOut)
 def me(user: User = Depends(current_user)):
+    return user_out(user)
+
+
+@router.put("/me/terms", response_model=schemas.UserOut)
+def terms_zustimmen(body: schemas.TermsAcceptIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """0.4.22: Einer neuen Fassung der Nutzungsbedingungen zustimmen. version muss die geltende sein (409
+    terms_changed); eine Zustimmung lässt sich nicht einzeln zurücknehmen (dafür: Konto löschen)."""
+    from app import nutzungsbedingungen
+
+    if body.accept is not True:
+        raise errors.bad_request("consent_required", "consent_required.terms")
+    if body.version != nutzungsbedingungen.version(db):
+        raise errors.conflict("terms_changed")
+    if (user.terms_accepted_version or 0) < body.version:
+        user.terms_accepted_version, user.terms_accepted_at = body.version, utcnow()
+        db.commit()
+        db.refresh(user)
     return user_out(user)
 
 
