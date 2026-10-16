@@ -1,0 +1,273 @@
+From 9107e368660c32abb873e4d64c3927135b4210c3 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Fri, 16 Oct 2026 22:49:37 +0200
+Subject: [PATCH 166/171] =?UTF-8?q?Schnittstelle=200.4.22:=20YAML=20unver?=
+ =?UTF-8?q?=C3=A4ndert=20=C3=BCbernommen?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ contract/session-chronik-api.yaml | 182 +++++++++++++++++++++++++++++-
+ 1 file changed, 181 insertions(+), 1 deletion(-)
+
+diff --git a/contract/session-chronik-api.yaml b/contract/session-chronik-api.yaml
+index 9383ec2..3cc6244 100644
+--- a/contract/session-chronik-api.yaml
++++ b/contract/session-chronik-api.yaml
+@@ -2,5 +2,5 @@ openapi: 3.1.0
+ info:
+   title: Taleward API
+-  version: 0.4.20
++  version: 0.4.22
+   description: |
+     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
+@@ -209,4 +209,19 @@ info:
+     andere Aufnahmen, der Upload bleibt offen, die App versucht den Abschluss nach kurzer Pause erneut, ohne Teile neu
+     zu senden). Keine neuen Felder.
++    Änderungen in 0.4.21 (Geheimes im Kapitel, „Auch genannt“, Stimmen sicherer zuordnen): Recap.gmWarnings – der Server
++    meldet der SL, wenn das Kapitel den Namen eines Eintrags nennt, den nicht alle Spieler kennen, oder wörtlich aus
++    geheimen Texten übernimmt (nur SL, Veröffentlichen bleibt möglich). EntryInput.aliases – freiwillige weitere Namen
++    eines Eintrags („Auch genannt“), Sichtbarkeit wie der Name. Proposal.match – ein „neu anlegen“-Vorschlag klingt wie
++    ein vorhandener Eintrag (ohne Sprachmodell geprüft); PATCH /proposals/{id} mit mergeIntoEntryId ergänzt den Eintrag
++    statt einen neuen anzulegen, die abweichende Schreibweise kommt zu aliases. Speaker.samples – bis zu drei
++    Textproben je Stimme mit eigener Hörprobe (GET …/sample?index=), Speaker.hint – Anrede oder Selbstnennung passt
++    nicht zur Zuordnung. Ältere Apps sehen weiter sampleText und lassen die neuen Felder weg.
++    Änderungen in 0.4.22 (Impressum und Nutzungsbedingungen je Server): Jeder Server hat ab 0.4.22 Nutzungsbedingungen
++    (Vorlage aus dem Einrichtungsassistenten oder eigener Link) und meldet sie in ServerInfo.termsUrl und termsVersion,
++    dazu ServerInfo.legalNoticeUrl (Impressum). Registrieren nur mit acceptTerms und der gezeigten termsVersion (beides
++    mit Zeitpunkt protokollieren). User.termsAcceptedVersion/termsAcceptedAt; PUT /me/terms für die Zustimmung zu einer
++    neuen Fassung. Solange sie fehlt, antwortet der Server auf ändernde Anfragen mit 403 `terms_required` – lesen,
++    Zustimmungen widerrufen, laufende Aufnahmen fertig hochladen, Daten herunterladen und das Konto löschen gehen weiter.
++    Das gilt auch für Konten, die vor dem Update angelegt wurden (termsAcceptedVersion null).
+ 
+ servers:
+@@ -292,4 +307,7 @@ paths:
+         Legt nur das Konto an – den Beitritt zur Kampagne macht die App danach mit POST /campaigns/join.
+         acceptPrivacy und ageConfirmed müssen true sein (400 `consent_required`); beides mit Zeitpunkt protokollieren.
++        Ab 0.4.22 zusätzlich acceptTerms true und termsVersion = ServerInfo.termsVersion (fehlt eins → 400
++        `consent_required`; andere Fassung → 409 `terms_changed`, die App lädt /info neu und zeigt die neue Fassung).
++        Zeitpunkt und Fassung protokollieren; termsAcceptedVersion des neuen Kontos ist danach diese Fassung.
+         Passwort mindestens 8 Zeichen (400 `weak_password`), Benutzername eindeutig (409 `username_taken`).
+         Gegen Durchprobieren von Codes: Anfragen pro Adresse begrenzen (429).
+@@ -311,4 +329,6 @@ paths:
+                     acceptPrivacy: { type: boolean, enum: [true] }
+                     ageConfirmed: { type: boolean, enum: [true], description: "Mindestalter aus /info erreicht oder Eltern einverstanden" }
++                    acceptTerms: { type: boolean, enum: [true], description: "Ab 0.4.22 Pflicht: Nutzungsbedingungen aus /info" }
++                    termsVersion: { type: integer, minimum: 1, description: "Ab 0.4.22 Pflicht: die Fassung, der zugestimmt wurde" }
+                 - type: object
+                   title: Nach Anmeldung mit einem Dienst (ab 0.4.0)
+@@ -324,4 +344,6 @@ paths:
+                     acceptPrivacy: { type: boolean, enum: [true] }
+                     ageConfirmed: { type: boolean, enum: [true] }
++                    acceptTerms: { type: boolean, enum: [true], description: "Ab 0.4.22 Pflicht, wie oben" }
++                    termsVersion: { type: integer, minimum: 1, description: "Ab 0.4.22 Pflicht, wie oben" }
+       responses:
+         "201":
+@@ -442,4 +464,32 @@ paths:
+         "409": { $ref: "#/components/responses/Conflict" }
+ 
++  /me/terms:
++    put:
++      tags: [Auth]
++      summary: Einer neuen Fassung der Nutzungsbedingungen zustimmen (ab 0.4.22)
++      description: |
++        version muss ServerInfo.termsVersion sein (sonst 409 `terms_changed`; die App lädt /info neu). Zeitpunkt und Fassung
++        protokollieren. Antwort ist das eigene Profil mit neuer termsAcceptedVersion. Eine Zustimmung lässt sich nicht
++        einzeln zurücknehmen; wer nicht mehr einverstanden ist, löscht das Konto (DELETE /me).
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [accept, version]
++              properties:
++                accept: { type: boolean, enum: [true] }
++                version: { type: integer, minimum: 1 }
++      responses:
++        "200":
++          description: Zugestimmt
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/User" }
++        "400": { $ref: "#/components/responses/BadRequest" }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "409": { $ref: "#/components/responses/Conflict" }
++
+   /me/email:
+     put:
+@@ -1975,4 +2025,12 @@ paths:
+       tags: [Stimmen]
+       summary: Kurze Hörprobe (wenige Sekunden, wird mit dem Audio gelöscht)
++      parameters:
++        - name: index
++          in: query
++          required: false
++          description: |
++            Ab 0.4.21: Hörprobe zu Speaker.samples[index]. Ohne index wie bisher die Hörprobe zu sampleText. Index außerhalb
++            der Liste → 404.
++          schema: { type: integer, minimum: 0, maximum: 2 }
+       responses:
+         "200":
+@@ -2027,4 +2085,10 @@ paths:
+                 visibility: { $ref: "#/components/schemas/Visibility" }
+                 hiddenFromMemberIds: { type: array, items: { type: string } }
++                mergeIntoEntryId:
++                  type: [string, "null"]
++                  description: |
++                    Ab 0.4.21, nur bei action create: bei diesem Eintrag ergänzen statt neu anlegen (meist match.entryId,
++                    jeder Eintrag der Kampagne ist erlaubt); null nimmt es zurück. Anderer Eintrag oder andere action → 400
++                    `invalid_input`. Die App schickt dabei in der Regel decision accepted mit.
+       responses:
+         "200":
+@@ -3057,4 +3121,21 @@ components:
+         authMethods: { type: array, items: { type: string, enum: [password, oidc, passkey] }, description: "oidc, sobald mindestens ein Dienst eingerichtet ist" }
+         privacyPolicyUrl: { type: [string, "null"] }
++        legalNoticeUrl:
++          type: [string, "null"]
++          description: |
++            Ab 0.4.22: Impressum des Betreibers (Vorlage des Servers unter `/impressum` oder eigener Link aus der Verwaltung).
++            null = keins angegeben. Die App zeigt es unter „Konten und Server“ bei diesem Server.
++        termsUrl:
++          type: [string, "null"]
++          description: |
++            Ab 0.4.22 immer gesetzt: Nutzungsbedingungen des Betreibers (Vorlage unter `/nutzungsbedingungen` oder eigener
++            Link). Fehlt das Feld oder ist es null (ältere Server), fragt die App nicht danach.
++        termsVersion:
++          type: [integer, "null"]
++          minimum: 1
++          description: |
++            Ab 0.4.22: Fassung der Nutzungsbedingungen. Der Betreiber zählt sie in der Verwaltung hoch, wenn eine Änderung
++            eine neue Zustimmung braucht (Tippfehler: nicht hochzählen). Ist sie höher als User.termsAcceptedVersion,
++            zeigt die App die neue Fassung mit „Zustimmen“ und weist darauf hin, dass bis dahin nur Lesen geht.
+         minAge: { type: integer, example: 16 }
+         minAppVersion: { type: [string, "null"], example: "0.10.0", description: "Ältere Apps bekommen 426 app_outdated; null = keine Grenze" }
+@@ -3342,4 +3423,12 @@ components:
+         hasPassword: { type: boolean, description: "false bei Konten, die nur über einen Dienst angelegt wurden (ab 0.4.0)" }
+         providers: { type: array, items: { type: string, enum: [google, discord, apple, microsoft] }, description: "Verbundene Dienste (ab 0.4.0)" }
++        termsAcceptedVersion:
++          type: [integer, "null"]
++          description: |
++            Ab 0.4.22: zuletzt zugestimmte Fassung der Nutzungsbedingungen; null = noch nie (z. B. Konto von vor dem Update).
++            Kleiner als ServerInfo.termsVersion → ändernde Anfragen enden mit 403 `terms_required`, außer: PUT /me/terms,
++            DELETE /me, GET /me/export, alles unter /auth, Zustimmung zu Aufnahmen widerrufen (PUT …/recording-consent mit
++            granted false), Hochladen einer schon begonnenen Aufnahme (/uploads/…) und Abmelden. Lesen geht immer.
++        termsAcceptedAt: { type: [string, "null"], format: date-time, description: "Ab 0.4.22, Zeitpunkt dieser Zustimmung" }
+ 
+     VoiceProfile:
+@@ -3625,4 +3714,37 @@ components:
+         speakingSeconds: { type: number }
+         sampleText: { type: string, description: Transkript der Hörprobe }
++        samples:
++          type: array
++          maxItems: 3
++          description: |
++            Ab 0.4.21: bis zu drei Textproben dieser Stimme, über die Runde verteilt, je mindestens einige Wörter, bevorzugt
++            Sätze mit Figurennamen; aufsteigend nach start. Die Hörprobe zu samples[i] liefert GET …/sample?index=i,
++            solange das Audio da ist. sampleText bleibt für ältere Apps (in der Regel gleich samples[0].text). Fehlt das
++            Feld oder ist es leer, zeigt die App nur sampleText.
++          items:
++            type: object
++            required: [start, text]
++            properties:
++              start: { type: number, description: "Sekunden im Transkript" }
++              end: { type: [number, "null"] }
++              text: { type: string, maxLength: 300 }
++        hint:
++          description: |
++            Ab 0.4.21, optional: Die Abschrift spricht gegen die Zuordnung. Der Server zählt ohne Sprachmodell, wie oft
++            die Stimme mit einem Figurennamen angesprochen wird (addressed_as, z. B. „Litha, was machst du?“ kurz vor ihrem
++            Beitrag) oder sich selbst so nennt (self_named, „Ich, Litha, …“), und meldet es nur bei einem klaren Widerspruch
++            zur Zuordnung (vor der Bestätigung suggestedMemberId, danach assignedMemberId). memberId = Mitglied, dessen
++            Figur so heißt. Die App bietet dann „Tauschen“ an: Diese Stimme bekommt memberId, die Stimme, die bisher
++            memberId hatte, bekommt die bisherige Zuordnung dieser Stimme; bestätigt wird wie immer mit PUT. null = kein
++            Hinweis.
++          oneOf:
++            - type: object
++              required: [code, name, memberId, count]
++              properties:
++                code: { type: string, enum: [addressed_as, self_named] }
++                name: { type: string, description: "Der Figurenname, wie er in der Abschrift steht" }
++                memberId: { type: string }
++                count: { type: integer, minimum: 1 }
++            - { type: "null" }
+         suggestedMemberId: { type: [string, "null"] }
+         confidence: { type: number, minimum: 0, maximum: 1 }
+@@ -3682,4 +3804,28 @@ components:
+             Regelerklärung, Off-Topic) – der Name muss als Spielerwissen in der Szene vorkommen.
+         targetEntryId: { type: [string, "null"], description: Bei update der betroffene Eintrag }
++        match:
++          description: |
++            Ab 0.4.21, nur bei action create (Session und Unterlage): Der Vorschlag klingt wie ein vorhandener Eintrag. Der
++            Server prüft ohne Sprachmodell gegen Namen und aliases aller Einträge der Kampagne (auch gm_only): Klang
++            (sound, Kölner Phonetik), Schreibweise (spelling, kleiner Zeichenabstand), Teilname (part_name, „Hauptmann
++            Varek“ gegen „Varek“). Höchstens ein Treffer, der beste. name = Name des Eintrags, matchedName = welcher Name
++            oder Alias passte. null = kein Treffer. Die App fragt dann „Klingt wie … Dort ergänzen?“.
++          oneOf:
++            - type: object
++              required: [entryId, name, entryType, kind]
++              properties:
++                entryId: { type: string }
++                name: { type: string }
++                matchedName: { type: string }
++                entryType: { $ref: "#/components/schemas/EntryType" }
++                kind: { type: string, enum: [sound, spelling, part_name] }
++            - { type: "null" }
++        mergeIntoEntryId:
++          type: [string, "null"]
++          description: |
++            Ab 0.4.21: Die SL hat entschieden, den create-Vorschlag bei diesem Eintrag zu ergänzen (PATCH). Gesetzt wirkt er
++            wie update auf diesen Eintrag (beim Veröffentlichen bzw. Übernehmen wie bei update angehängt); der Titel des
++            Vorschlags kommt zu aliases, wenn er weder Name noch Alias ist. Die Sichtbarkeit des Eintrags ändert sich
++            dadurch nicht. null = als neuer Eintrag.
+         title: { type: string }
+         detail: { type: string, description: "Spielerwissen (öffentlicher Teil)" }
+@@ -3768,4 +3914,28 @@ components:
+         publishedAt: { type: [string, "null"], format: date-time }
+         review: { $ref: "#/components/schemas/RecapReview" }
++        gmWarnings:
++          type: array
++          description: |
++            Ab 0.4.21, nur SL (für Spieler weggelassen, auch keine Anzahl). Der Server prüft das Kapitel nach jedem
++            Schreiben und jeder Änderung des Textes (PUT …/recap, übernommene Korrektur, neu schreiben):
++            secret_entry_name = der Text nennt Name oder Alias eines Eintrags, den nicht alle Spieler kennen (gm_only oder
++            teilweise verborgen); secret_wording = eine längere Stelle stimmt wörtlich mit gmNotes oder dem Text eines
++            gm_only-Eintrags überein. Ein Hinweis je Code und Eintrag. Veröffentlichen bleibt möglich; die App zeigt die
++            Hinweise vor der Freigabe. Ein Eintrag, den dieses Kapitel per reveal-Vorschlag aufdecken würde, zählt nicht,
++            solange der Vorschlag angenommen ist. Leer oder fehlend = nichts gefunden.
++          items:
++            type: object
++            required: [code, entryIds]
++            properties:
++              code: { type: string, enum: [secret_entry_name, secret_wording] }
++              entryIds: { type: array, minItems: 1, items: { type: string } }
++              names:
++                type: array
++                items: { type: string }
++                description: Die gefundenen Namen bzw. Aliasse, wie sie im Kapitel stehen
++              paragraphs:
++                type: array
++                items: { type: integer, minimum: 0 }
++                description: Betroffene Absätze (0-basiert, wie RecapReview.paragraphs)
+         revision:
+           description: Offener Korrektur-Entwurf (ab 0.4.15, nur SL; für Spieler weggelassen). Ohne Entwurf null.
+@@ -3906,4 +4076,14 @@ components:
+         status: { type: [string, "null"], enum: [active, done, null], description: Nur für Quests }
+         holderMemberId: { type: [string, "null"], description: Nur für Gegenstände }
++        aliases:
++          type: array
++          maxItems: 10
++          items: { type: string, minLength: 1, maxLength: 40 }
++          description: |
++            Ab 0.4.21, freiwillig („Auch genannt“): andere Namen oder Schreibweisen, unter denen der Eintrag vorkommt
++            („Tarvok“, „der Alte“). Sichtbar wie der Name: Spieler bekommen sie nur bei Einträgen, die sie sehen, und
++            die Suche der Spieler findet sie nur dort. Recap-Pipeline: nur aliases öffentlicher, nicht teilweise
++            verborgener Einträge; Vorschlags-Pipeline, Dublettenprüfung (Proposal.match) und Namenshilfe: alle. Doppelte und
++            der Name selbst fallen beim Speichern weg. Fehlt bei älteren Servern.
+         visibility: { $ref: "#/components/schemas/Visibility" }
+         hiddenFromMemberIds:
+-- 
+2.43.0
+
