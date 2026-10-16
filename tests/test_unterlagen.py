@@ -171,6 +171,38 @@ def test_markierte_abschnitte_bleiben_geheim(client, world, dbs, api):
     assert v["detail"] == "" and "Spion" in v["gmNotes"] and not v["publicSuggested"]
 
 
+
+@pytest.mark.parametrize("welt, bleibt", [
+    ("Eine raue Küstenwelt. Borin ist ein Spion der Krone und plant den Verrat.", False),  # markierter Abschnitt
+    ("Eine raue Küstenwelt mit kleinen Häfen und vielen Schmugglern.", True),
+])
+def test_welt_vorschlag_ohne_geheimes(client, world, dbs, api, welt, bleibt):
+    w = world
+    api["modell"] = Unterlagenmodell([vorschlag()], welt=welt)
+    einstellen(dbs, art="api", api_key="sk-test-schluessel-1234")
+    daten = docx(["Borin ist der Wirt der Taverne.", "[SL] Borin ist ein Spion der Krone und plant den Verrat."])
+    d = hochladen(client, w, "notizen.docx", daten, "mixed").json()
+    assert verarbeiten(dbs)
+    d = client.get(f"{API}/documents/{d['id']}", headers=w["gm"]).json()
+    assert d["worldInfoSuggestion"] == (welt if bleibt else None)
+
+
+def test_welt_vorschlag_ohne_geheimes_der_bibel(client, world, dbs, api):
+    from app.models import Entry
+
+    w = world
+    bibel(client, w)
+    e = dbs.query(Entry).filter_by(name="Rabenfels").one()
+    e.gm_notes = "Unter dem alten Leuchtturm liegt der Eingang zur Schmugglerhöhle."
+    dbs.commit()
+    api["modell"] = Unterlagenmodell([vorschlag()], welt="Küste. Unter dem alten Leuchtturm liegt der Eingang zur "
+                                                          "Schmugglerhöhle.")
+    einstellen(dbs, art="api", api_key="sk-test-schluessel-1234")
+    d = hochladen(client, w, "a.pdf", pdf(["Der Wirt heisst Borin."]), "mixed").json()
+    assert verarbeiten(dbs)
+    assert client.get(f"{API}/documents/{d['id']}", headers=w["gm"]).json()["worldInfoSuggestion"] is None
+
+
 def test_pruefen_uebernehmen_und_loeschen(client, world, dbs, api):
     from app import unterlagen
     from app.models import Entry

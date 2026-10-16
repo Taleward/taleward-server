@@ -11,6 +11,8 @@ Trennung SL-/Spielerwissen (verbindlich, hier erzwungen – nicht dem Sprachmode
 - Ergänzt ein Vorschlag aus gm/mixed einen öffentlichen Eintrag, kommt alles Neue in gmNotes (detail bleibt leer,
   der öffentliche Text des Eintrags bleibt, wie er ist).
 - Text aus markierten Abschnitten („[SL]“, „[GM]“, „Geheim:“, „Secret:“) im öffentlichen Teil → in gmNotes.
+- Vorschlag für die Welt-Info (lesen alle Mitglieder, fließt ins Kapitel): nie aus SL-Unterlagen; übernimmt er Text aus
+  markierten Abschnitten oder aus Geheimem der Bibel, entfällt er.
 Unterlagen und ihre Vorschläge sieht nur die SL. Die Datei bleibt, bis die SL die Unterlage löscht.
 """
 from __future__ import annotations
@@ -386,6 +388,8 @@ def speichern(db: Session, doc: CampaignDocument, d: dict, engine: str, worker_i
             evidence=json.dumps(v["evidence"], ensure_ascii=False),
         ))
     welt = (d.get("worldInfoSuggestion") or "").strip()[:1500] or None
+    if welt and markiert and _geheimes_im_detail(welt, markiert):
+        welt = None  # Die Welt-Info lesen alle: Geheimes darin wird gar nicht erst vorgeschlagen
     doc.world_info_suggestion = None if doc.kind == "gm" else welt
     doc.state, doc.progress = "awaiting_review", 1.0
     if doc.message and '"doc.failed"' in doc.message:
