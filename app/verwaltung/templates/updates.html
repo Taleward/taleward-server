@@ -29,17 +29,17 @@
   </form>
   {% endif %}
   {% if server_status and server_status.ergebnis != "aktuell" %}
-  <div class="meldung {% if server_status.ergebnis not in ('aktualisiert', 'wartet') %}meldung--fehler{% endif %}">
+  <div class="{% if server_status.ergebnis == 'wartet' %}hinweis{% else %}meldung{% if server_status.ergebnis != 'aktualisiert' %} meldung--fehler{% endif %}{% endif %}">
     {% if server_status.ergebnis == "aktualisiert" %}{{ _("Zuletzt aktualisiert: {von} → {nach} ({zeit})", von=server_status.von, nach=server_status.nach, zeit=zeit(status_zeit)) }}
-    {% elif server_status.ergebnis == "wartet" %}{{ _("Fassung {nach} ist bei GitHub, aber noch nicht freigegeben ({zeit}). Es bleibt bei {von}.", nach=server_status.nach, von=server_status.von, zeit=zeit(status_zeit)) }}
+    {% elif server_status.ergebnis == "wartet" %}{{ _("Die neue Fassung {nach} ist erschienen und wird noch geprüft. Du musst nichts tun – der Server übernimmt sie nach der Freigabe. Bis dahin bleibt es bei {von} ({zeit}).", nach=server_status.nach, von=server_status.von, zeit=zeit(status_zeit)) }}
     {% elif server_status.ergebnis == "zurueckgenommen" %}{{ _("Update auf {nach} zurückgenommen ({zeit}):", nach=server_status.nach, zeit=zeit(status_zeit)) }} {{ server_status.meldung }}
     {% else %}{{ _("Update-Fehler ({zeit}):", zeit=zeit(status_zeit)) }} {{ server_status.meldung }}{% endif %}
   </div>
   {% endif %}
   <p class="hilfe">{{ _("Von Hand auf dem Server:") }} <code>cd /opt/taleward &amp;&amp; sudo ./aktualisieren.sh --jetzt</code></p>
   {% elif server_neu %}
-  <p>{{ _("Vorher eine Sicherung anlegen (Übersicht → Sicherung). Dann auf dem Server ausführen:") }}</p>
-  <div class="geheim"><code>cd ~/session-chronik-server &amp;&amp; git pull &amp;&amp; uv sync</code></div>
+  <p>{{ _("Vorher eine Sicherung anlegen (Übersicht → Sicherung). Dann auf dem Server im Ordner von Taleward ausführen:") }}</p>
+  <div class="geheim"><code>git pull &amp;&amp; uv sync</code></div>
   <p class="hilfe">{{ _("Danach den Server neu starten. Die Datenbank wird beim Start selbst auf den neuen Stand gebracht.") }}</p>
   {% endif %}
   <p class="hilfe">{{ _("Eine neue Server-Fassung meldet der Server auch per Benachrichtigung (Einstellungen → Benachrichtigungen).") }}</p>
@@ -84,6 +84,7 @@
     <span class="hilfe">{% if geprueft %}{{ _("Zuletzt gesucht: {zeit}", zeit=zeit(geprueft)) }}{% else %}{{ _("Noch nie gesucht.") }}{% endif %}
       {% if not pruefung_an %} · {{ _("Automatische Suche ist aus (UPDATE_CHECK=false).") }}{% endif %}</span>
   </form>
-  {% if fehler_pruefung %}<div class="meldung meldung--fehler">{{ _("Bei der letzten Suche gab es Fehler:") }} {{ fehler_pruefung }}</div>{% endif %}
+  {% if fehler_pruefung %}<div class="hinweis">{{ _("Die Update-Quelle war bei der letzten Suche nicht erreichbar. Der Server versucht es später von selbst wieder – du musst nichts tun.") }}
+    <details><summary>{{ _("Einzelheiten") }}</summary><p class="leise umbruch">{{ fehler_pruefung }}</p></details></div>{% endif %}
 </div>
 {% endblock %}

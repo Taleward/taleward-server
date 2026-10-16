@@ -58,9 +58,13 @@ def _csrf(wert: str) -> str:
                     hashlib.sha256).hexdigest()[:40]
 
 
+class _Aus(Exception):
+    """Guthaben ist auf diesem Server aus – Seite statt Fehlermeldung als Daten."""
+
+
 def _an(db: Session = Depends(get_db)) -> None:
     if not abrechnung.an(db):
-        raise errors.not_found()
+        raise _Aus()
 
 
 def _person(request: Request, db: Session) -> User | None:
@@ -356,3 +360,14 @@ def einbinden(app) -> None:
     @app.exception_handler(_Abgemeldet)
     async def _abgemeldet(_req: Request, _exc: _Abgemeldet):
         return RedirectResponse("/guthaben", status_code=303)
+
+    @app.exception_handler(_Aus)
+    async def _aus(req: Request, _exc: _Aus):
+        _ = tr(req)
+        quelle = app.dependency_overrides.get(get_db, get_db)()
+        db = next(quelle)
+        try:
+            return _seite(req, "hinweis_seite.html", None, db, status_code=404, titel=_("Guthaben"),
+                          text=_("Auf diesem Server gibt es kein Guthaben. Die Kosten trägt, wer den Server betreibt – du musst hier nichts tun."))
+        finally:
+            quelle.close()

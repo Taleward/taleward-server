@@ -1,0 +1,9 @@
+{% extends "basis.html" %}
+{% block titel %}{{ titel }}{% endblock %}
+{% block inhalt %}
+<article class="karte text">
+  <h1>{{ titel }}</h1>
+  <p>{{ text }}</p>
+</article>
+<p class="leise zentriert">{% include "_sprachen.html" %}</p>
+{% endblock %}

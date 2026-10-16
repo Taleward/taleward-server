@@ -28,14 +28,14 @@
   /* Thema „Pergament“ (wie in der App; Kontraste ≥ 4,5:1) */
   --paper:#F2E8D5; --paper-raised:#FBF6EA; --paper-sunken:#E9DDC4; --line:#D9C9A8; --line-strong:#8A7654;
   --ink:#2A2118; --ink-muted:#5E4B36; --tinte:#17313b; --on-tinte:#f3f3ee; --siegel:#9e2a3a; --on-siegel:#ffffff;
-  --siegel-soft:#F3DCDC; --siegel-text:#9e2a3a; --messing:#c49235; --salbei:#3d6a48; --focus-ring:var(--siegel);
+  --siegel-soft:#F3DCDC; --siegel-text:#9e2a3a; --messing:#c49235; --salbei:#3d6a48; --focus-ring:var(--ink);
   --shadow-card:0 1px 0 rgba(42,33,24,0.08), 0 6px 18px -10px rgba(42,33,24,0.35); color-scheme:light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --paper:#121d22; --paper-raised:#1a2930; --paper-sunken:#0c1518; --line:#2e424b; --line-strong:#6f838b;
     --ink:#e9ece6; --ink-muted:#a2aeb2; --tinte:#2c5361; --on-tinte:#f3f3ee; --siegel:#d4596c; --on-siegel:#1a0f12;
-    --siegel-soft:#3b1c23; --siegel-text:#ec8a9a; --messing:#d9ad55; --salbei:#8cc096; --focus-ring:var(--siegel);
+    --siegel-soft:#3b1c23; --siegel-text:#ec8a9a; --messing:#d9ad55; --salbei:#8cc096; --focus-ring:var(--ink);
     --shadow-card:0 1px 0 rgba(0,0,0,0.45), 0 8px 20px -10px rgba(0,0,0,0.7); color-scheme:dark;
   }
 }
@@ -46,7 +46,11 @@
   --radius-sm:4px; --radius-md:10px; --radius-lg:18px; --radius-pill:999px;
 }
 * { box-sizing:border-box; }
-html, body { margin:0; background:var(--paper); color:var(--ink); font:400 16px/24px var(--font-sans); }
+html, body { margin:0; background:var(--paper); color:var(--ink); font:400 16px/24px var(--font-sans);
+  font-variant-numeric:lining-nums; }
+/* Tippflächen mindestens 48 px (Barrierefreiheit); Fokus in Tinte wie in der App – Siegelrot heißt „Achtung“ */
+input[type=checkbox], input[type=radio] { accent-color:var(--tinte); width:20px; height:20px; }
+@media (prefers-color-scheme: dark) { input[type=checkbox], input[type=radio] { accent-color:var(--salbei); } }
 a { color:var(--tinte); text-underline-offset:3px; }
 @media (prefers-color-scheme: dark) { a { color:var(--ink); } }
 h1 { font:700 30px/36px var(--font-serif); margin:0 0 var(--space-6); }
@@ -70,7 +74,7 @@ code, .mono { font-family:ui-monospace, "Cascadia Mono", Consolas, monospace; fo
 .marke small { font:500 14px/20px var(--font-sans); opacity:.8; }
 .nav { grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:var(--space-1); padding-bottom:var(--space-3); margin-left:calc(-1 * var(--space-3)); }
 .nav a { color:var(--on-tinte); text-decoration:none; padding:var(--space-1) var(--space-3); border-radius:var(--radius-pill);
-  font:500 15px/22px var(--font-sans); }
+  font:500 15px/22px var(--font-sans); min-height:48px; display:inline-flex; align-items:center; }
 .nav a:hover { background:rgba(255,255,255,.12); }
 .nav a[aria-current="page"] { background:var(--paper); color:var(--tinte); }
 @media (prefers-color-scheme: dark) { .nav a[aria-current="page"] { background:var(--paper); color:var(--ink); } }
@@ -82,13 +86,14 @@ main { max-width:1100px; margin:0 auto; padding:var(--space-8) var(--space-4) va
 /* Komponenten aus dem Markenhandbuch */
 .tw-btn { font:700 15px/22px var(--font-sans); border-radius:var(--radius-md); padding:var(--space-2) var(--space-4);
   border:1.5px solid transparent; cursor:pointer; display:inline-flex; gap:var(--space-2); align-items:center;
-  text-decoration:none; }
-.tw-btn:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
+  text-decoration:none; min-height:48px; }
+.tw-btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible,
+a:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
 .tw-btn--primary { background:var(--tinte); color:var(--on-tinte); }
 .tw-btn--secondary { background:var(--paper-raised); color:var(--ink); border-color:var(--line-strong); }
 .tw-btn--danger { background:var(--siegel); color:var(--on-siegel); }
 .tw-btn--quiet { background:none; color:var(--ink); text-decoration:underline; text-underline-offset:3px; padding-inline:var(--space-2); }
-.tw-btn--klein { padding:2px var(--space-3); font-size:14px; }
+.tw-btn--klein { padding:var(--space-1) var(--space-3); font-size:14px; }
 .tw-btn[disabled] { opacity:.45; cursor:not-allowed; }
 
 .karte { background:var(--paper-raised); border-radius:var(--radius-md); box-shadow:var(--shadow-card); padding:var(--space-6);
@@ -111,7 +116,8 @@ main { max-width:1100px; margin:0 auto; padding:var(--space-8) var(--space-4) va
 .meldung { border-radius:var(--radius-md); padding:var(--space-3) var(--space-4); margin-bottom:var(--space-6);
   background:var(--paper-sunken); border-left:4px solid var(--salbei); }
 .meldung--fehler { background:var(--siegel-soft); border-left-color:var(--siegel); }
-.geheim { background:var(--siegel-soft); border-radius:var(--radius-sm); padding:var(--space-3) var(--space-4); }
+.geheim { background:var(--paper-sunken); border-left:4px solid var(--tinte); border-radius:var(--radius-sm);
+  padding:var(--space-3) var(--space-4); }
 .geheim code { word-break:break-all; font-size:15px; }
 
 /* Tabellen */
@@ -147,9 +153,12 @@ label.haken { display:flex; gap:var(--space-2); align-items:center; font-weight:
 [hidden] { display:none !important; }
 input[type=text], input[type=password], input[type=url], input[type=number], input[type=email], input[type=date], select, textarea {
   font:400 16px/24px var(--font-sans); color:var(--ink); background:var(--paper); border:1.5px solid var(--line-strong);
-  border-radius:var(--radius-sm); padding:var(--space-2) var(--space-3); min-width:0; }
+  border-radius:var(--radius-sm); padding:var(--space-2) var(--space-3); min-width:0; min-height:48px; }
 .hilfe { font:400 13px/18px var(--font-sans); color:var(--ink-muted); }
-details summary { cursor:pointer; color:var(--ink-muted); font-size:14px; }
+details summary { cursor:pointer; color:var(--ink-muted); font-size:14px; min-height:48px; display:flex; align-items:center; }
+details summary::before { content:"▸"; margin-right:var(--space-2); }
+details[open] > summary::before { content:"▾"; }
+details summary::-webkit-details-marker { display:none; }
 
 .log { background:var(--paper-sunken); border-radius:var(--radius-sm); padding:var(--space-3); max-height:320px; overflow:auto;
   font:13px/19px ui-monospace, Consolas, monospace; white-space:pre-wrap; margin:var(--space-3) 0 0; }
@@ -209,7 +218,7 @@ article.text h2 { margin-top:var(--space-6); }
 
 /* Kopplung: Adresse und Code für die Worker-App */
 .koppeldaten { display:grid; grid-template-columns:auto 1fr; gap:var(--space-2) var(--space-4); align-items:center; margin:0 0 var(--space-3);
-  background:var(--siegel-soft); border-radius:var(--radius-sm); padding:var(--space-3) var(--space-4); }
+  background:var(--paper-sunken); border-left:4px solid var(--tinte); border-radius:var(--radius-sm); padding:var(--space-3) var(--space-4); }
 .koppeldaten dt { font:500 14px/20px var(--font-sans); color:var(--ink-muted); }
 .koppeldaten dd { margin:0; overflow-wrap:anywhere; }
 .koppelcode { font:700 24px/30px ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing:.12em; }
@@ -219,3 +228,17 @@ input[type="range"] { width:100%; accent-color:var(--tinte); }
 
 /* Zweiter Faktor: Wiederherstellungscodes (0.4.84) */
 .codeliste { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: .5rem; }
+
+/* Lange Adressen und Pfade brechen um, statt die Seite am Handy zu verbreitern */
+.umbruch, .umbruch code, td code { overflow-wrap:anywhere; word-break:break-word; }
+code.ganz { user-select:all; } /* ein Tippen markiert die ganze Adresse zum Kopieren */
+.kopierzeile { display:flex; flex-wrap:wrap; gap:var(--space-2); align-items:center; }
+.kopierzeile code { flex:1 1 220px; min-width:0; overflow-wrap:anywhere; background:var(--paper-sunken);
+  border-radius:var(--radius-sm); padding:var(--space-2) var(--space-3); }
+.hinweis { background:var(--paper-sunken); border-left:4px solid var(--tinte); border-radius:var(--radius-md);
+  padding:var(--space-3) var(--space-4); margin-bottom:var(--space-6); }
+@media (max-width: 720px) {
+  .raster { grid-template-columns:repeat(2, minmax(0, 1fr)); gap:var(--space-3); }
+  .zahl { padding:var(--space-3); }
+  .zahl__wert { font-size:28px; line-height:32px; }
+}

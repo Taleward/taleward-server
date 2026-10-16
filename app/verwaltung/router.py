@@ -204,7 +204,8 @@ def csrf_pruefen(request: Request, csrf: str = Form("")) -> None:
         raise errors.forbidden()
 
 
-def _seite(request: Request, name: str, user: User | None, db: Session, **ctx) -> HTMLResponse:
+def _seite(request: Request, name: str, user: User | None, db: Session, status_code: int = 200,
+           **ctx) -> HTMLResponse:
     sprache = sprache_von(request)
     _ = uebersetzer(sprache)
     ok = request.query_params.get("ok")
@@ -212,8 +213,9 @@ def _seite(request: Request, name: str, user: User | None, db: Session, **ctx) -
     return templates.TemplateResponse(request, name, {
         "user": user, "angaben": angaben(db), "csrf": getattr(request.state, "csrf", ""), "meldung": meldung,
         "aktiv": name.removesuffix(".html"), "_": _, "sprache": sprache, "sprachen": SPRACHEN,
-        "zeit": _zeitformat(sprache), "groesse": _groesse, "leitsatz": None, **ctx,
-    })
+        "zeit": _zeitformat(sprache), "groesse": _groesse, "leitsatz": None,
+        "einzelplatz": get_settings().taleward_einzelplatz, **ctx,
+    }, status_code=status_code)
 
 
 def _zurueck(pfad: str, ok: str | None = None) -> RedirectResponse:
@@ -1260,7 +1262,10 @@ def einstellungen(request: Request, user: User = Depends(verwalter), db: Session
 
     from app import aufbewahrung
 
-    return _seite(request, "einstellungen.html", user, db, orgs=orgs, fehler=fehler,
+    from app import betreiber
+
+    return _seite(request, "einstellungen.html", user, db, orgs=orgs, fehler=fehler, betreiber=betreiber.lesen(db),
+                  impressum_text=bool(meta_lesen(db, "impressum.text")), impressum_url=meta_lesen(db, "impressum.url"),
                   registrierung=registrierung(db), limit_euro=(limit or 0) / 100,
                   aufbewahrung=aufbewahrung.lesen(db), hoechstens_tage=aufbewahrung.HOECHSTENS_TAGE,
                   zustimmungen=db.scalar(select(func.count()).select_from(Member)
@@ -1279,6 +1284,8 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
                             public_url: str = Form(""), web_zentral: str = Form(""), web_zentral_feld: str = Form(""),
                             web_herkuenfte: str = Form(""), audio_modus: str = Form(""),
                             audio_tage: str = Form(""), audio_bestaetigt: str = Form(""),
+                            betreiber_art: str = Form(""), betreiber_anschrift: str = Form(""),
+                            betreiber_vertretung: str = Form(""), betreiber_register: str = Form(""),
                             user: User = Depends(verwalter),
                             db: Session = Depends(get_db)):
     from app.einstellungen import mindestversion_vergessen, version_tupel
@@ -1304,7 +1311,7 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
             raise ValueError
     except ValueError:
         return fehler(_("Mindestalter bitte als Zahl angeben (z. B. 16)."))
-    if registrierung not in ("", "invite_only", "closed"):
+    if registrierung not in ("", "invite_only", "closed") or betreiber_art not in ("", "privat", "verein", "firma"):
         return fehler(_("Unbekannte Auswahl."))
     if limit_euro.strip():
         try:
@@ -1349,9 +1356,13 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
     geaendert = neue_frist.api() != alt_frist.api()
     if geaendert:
         zurueckgesetzt = aufbewahrung.speichern(db, neue_frist.modus, neue_frist.tage, user.id)
+    if betreiber_art:
+        from app import betreiber
+
+        betreiber.speichern(db, betreiber_art, betreiber_anschrift, betreiber_vertretung, betreiber_register)
     orgs = db.scalars(select(Organization).order_by(Organization.created_at)).all()
-    if org_name.strip() and len(orgs) == 1:
-        orgs[0].name = org_name.strip()[:200]
+    if len(orgs) == 1:  # eine Organisation heißt wie der Betreiber (früher ein eigenes Feld mit demselben Wert)
+        orgs[0].name = (org_name.strip() or server_operator.strip())[:200]
     db.commit()
     mindestversion_vergessen()
     from app import webapp

@@ -62,6 +62,9 @@
 </div>
 <div class="karte" id="sicherung">
   <h2>{{ _("Sicherung") }}</h2>
+  {% if einzelplatz %}
+  <p>{{ _("Sicherungen speicherst du im Taleward-Programm unter Einstellungen → Sicherung. Damit ziehst du auch auf einen neuen PC um.") }}</p>
+  {% else %}
   {% if sicherungen %}
   <p>{% if sicherung_einst.auto %}<span class="marke-status marke-status--gut">{{ _("automatisch") }}</span>{% else %}<span class="marke-status marke-status--warten">{{ _("nur von Hand") }}</span>{% endif %} {{ _("Letzte Sicherung: {zeit}", zeit=zeit(sicherungen[0].zeit)) }}</p>
   {% else %}
@@ -79,12 +82,13 @@
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label class="haken"><input type="checkbox" name="auto" value="1" {% if sicherung_einst.auto %}checked{% endif %}> {{ _("Jede Nacht automatisch sichern") }}</label>
     <label>{{ _("Aufbewahren (Tage)") }} <input type="number" name="tage" value="{{ sicherung_einst.tage }}" min="1" max="365"></label>
-    <label>{{ _("Zusätzlicher Ordner (optional)") }} <input type="text" name="ordner" value="{{ sicherung_einst.ordner or '' }}" placeholder="/mnt/storagebox/taleward">
-      <span class="hilfe">{{ _("Jede Sicherung wird zusätzlich dorthin kopiert, z. B. auf eine eingebundene Storage Box. So überlebt sie auch einen Ausfall dieses Servers.") }}</span></label>
+    <label>{{ _("Zusätzlicher Ordner (optional)") }} <input type="text" name="ordner" value="{{ sicherung_einst.ordner or '' }}" placeholder="/mnt/sicherung">
+      <span class="hilfe">{{ _("Jede Sicherung wird zusätzlich dorthin kopiert, z. B. auf ein eingebundenes Netzlaufwerk. So überlebt sie auch einen Ausfall dieses Servers.") }}</span></label>
     <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Speichern") }}</button></div>
   </form>
   </details>
   <p class="hilfe">{{ _("Eine Sicherung enthält Datenbank, Bilder und SL-Unterlagen – also alle Inhalte, Konten und Einstellungen. Sicher aufbewahren. Wiederherstellen: Server beenden, dann „chronik wiederherstellen <Datei>“.") }}</p>
+  {% endif %}
 </div>
-<p class="leise">{{ _("Schnittstelle") }} {{ api_version }} · {{ _("Datenbank") }} <code>{{ db_datei }}</code></p>
+<p class="leise">{{ _("Schnittstelle") }} {{ api_version }}</p>
 {% endblock %}

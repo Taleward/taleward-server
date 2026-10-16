@@ -9,7 +9,7 @@
   <p><span class="marke-status{% if mail_bereit %} marke-status--gut{% endif %}">{{ _("„Passwort vergessen“ per E-Mail") }}: {{ _("eingerichtet") if mail_bereit else _("aus") }}</span>
     {% if not mail_bereit %}<a href="/verwaltung/einstellungen#benachrichtigungen">{{ _("Mailserver unter Einstellungen eintragen") }}</a>{% endif %}</p>
   <p class="hilfe">{{ _("Die E-Mail-Adresse ist für Mitglieder freiwillig und dient nur dazu, das Passwort selbst zurückzusetzen.") }}</p>
-  <p>{{ _("Öffentliche Adresse des Servers") }}: <code>{{ basis }}</code>{% if not https %} <span class="marke-status marke-status--fehler">{{ _("ohne HTTPS") }}</span>{% endif %}</p>
+  <p class="umbruch">{{ _("Öffentliche Adresse des Servers") }}: <code class="ganz">{{ basis }}</code>{% if not https %} <span class="marke-status marke-status--fehler">{{ _("ohne HTTPS") }}</span>{% endif %}</p>
   {% if not https %}<p class="hilfe">{{ _("Die Anmeldedienste verlangen eine eigene Domain mit HTTPS. Die Adresse stellst du unter Einstellungen ein.") }}</p>{% endif %}
 </div>
 {% for d in dienste %}
@@ -19,7 +19,7 @@
     <ol class="hilfe">{% for s in d.schritte %}<li>{{ _(s) }}</li>{% endfor %}</ol>
     <p class="hilfe"><a href="{{ d.link }}" rel="noopener noreferrer" target="_blank">{{ _("Zur Seite des Anbieters") }}</a></p>
   </details>
-  <p>{{ _("Rückleitungsadresse") }}: <code>{{ d.rueck }}</code></p>
+  <p class="umbruch">{{ _("Rückleitungsadresse") }}: <code class="ganz">{{ d.rueck }}</code></p>
   <form class="formular" method="post" action="/verwaltung/anmeldung/{{ d.id }}">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label>{{ _("Services ID") if d.id == "apple" else _("Client-ID") }} <input type="text" name="client_id" value="{{ d.k.client_id }}" maxlength="300" autocomplete="off"></label>
