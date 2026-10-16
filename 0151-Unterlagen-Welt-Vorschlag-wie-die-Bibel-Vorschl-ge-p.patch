@@ -1,0 +1,77 @@
+From bbc41de913454d7207a01fa29b58dbc93f3520c2 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Fri, 16 Oct 2026 17:00:32 +0200
+Subject: [PATCH 151/158] =?UTF-8?q?Unterlagen:=20Welt-Vorschlag=20wie=20di?=
+ =?UTF-8?q?e=20Bibel-Vorschl=C3=A4ge=20pr=C3=BCfen?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ app/unterlagen.py        |  4 ++++
+ tests/test_unterlagen.py | 32 ++++++++++++++++++++++++++++++++
+ 2 files changed, 36 insertions(+)
+
+diff --git a/app/unterlagen.py b/app/unterlagen.py
+index e3f7880..74053e3 100644
+--- a/app/unterlagen.py
++++ b/app/unterlagen.py
+@@ -12,4 +12,6 @@ Trennung SL-/Spielerwissen (verbindlich, hier erzwungen – nicht dem Sprachmode
+   der öffentliche Text des Eintrags bleibt, wie er ist).
+ - Text aus markierten Abschnitten („[SL]“, „[GM]“, „Geheim:“, „Secret:“) im öffentlichen Teil → in gmNotes.
++- Vorschlag für die Welt-Info (lesen alle Mitglieder, fließt ins Kapitel): nie aus SL-Unterlagen; übernimmt er Text aus
++  markierten Abschnitten oder aus Geheimem der Bibel, entfällt er.
+ Unterlagen und ihre Vorschläge sieht nur die SL. Die Datei bleibt, bis die SL die Unterlage löscht.
+ """
+@@ -387,4 +389,6 @@ def speichern(db: Session, doc: CampaignDocument, d: dict, engine: str, worker_i
+         ))
+     welt = (d.get("worldInfoSuggestion") or "").strip()[:1500] or None
++    if welt and markiert and _geheimes_im_detail(welt, markiert):
++        welt = None  # Die Welt-Info lesen alle: Geheimes darin wird gar nicht erst vorgeschlagen
+     doc.world_info_suggestion = None if doc.kind == "gm" else welt
+     doc.state, doc.progress = "awaiting_review", 1.0
+diff --git a/tests/test_unterlagen.py b/tests/test_unterlagen.py
+index 2306399..d4b4568 100644
+--- a/tests/test_unterlagen.py
++++ b/tests/test_unterlagen.py
+@@ -172,4 +172,36 @@ def test_markierte_abschnitte_bleiben_geheim(client, world, dbs, api):
+ 
+ 
++
++@pytest.mark.parametrize("welt, bleibt", [
++    ("Eine raue Küstenwelt. Borin ist ein Spion der Krone und plant den Verrat.", False),  # markierter Abschnitt
++    ("Eine raue Küstenwelt mit kleinen Häfen und vielen Schmugglern.", True),
++])
++def test_welt_vorschlag_ohne_geheimes(client, world, dbs, api, welt, bleibt):
++    w = world
++    api["modell"] = Unterlagenmodell([vorschlag()], welt=welt)
++    einstellen(dbs, art="api", api_key="sk-test-schluessel-1234")
++    daten = docx(["Borin ist der Wirt der Taverne.", "[SL] Borin ist ein Spion der Krone und plant den Verrat."])
++    d = hochladen(client, w, "notizen.docx", daten, "mixed").json()
++    assert verarbeiten(dbs)
++    d = client.get(f"{API}/documents/{d['id']}", headers=w["gm"]).json()
++    assert d["worldInfoSuggestion"] == (welt if bleibt else None)
++
++
++def test_welt_vorschlag_ohne_geheimes_der_bibel(client, world, dbs, api):
++    from app.models import Entry
++
++    w = world
++    bibel(client, w)
++    e = dbs.query(Entry).filter_by(name="Rabenfels").one()
++    e.gm_notes = "Unter dem alten Leuchtturm liegt der Eingang zur Schmugglerhöhle."
++    dbs.commit()
++    api["modell"] = Unterlagenmodell([vorschlag()], welt="Küste. Unter dem alten Leuchtturm liegt der Eingang zur "
++                                                          "Schmugglerhöhle.")
++    einstellen(dbs, art="api", api_key="sk-test-schluessel-1234")
++    d = hochladen(client, w, "a.pdf", pdf(["Der Wirt heisst Borin."]), "mixed").json()
++    assert verarbeiten(dbs)
++    assert client.get(f"{API}/documents/{d['id']}", headers=w["gm"]).json()["worldInfoSuggestion"] is None
++
++
+ def test_pruefen_uebernehmen_und_loeschen(client, world, dbs, api):
+     from app import unterlagen
+-- 
+2.43.0
+
