@@ -133,7 +133,7 @@ def stand(db: Session) -> list[Punkt]:
         Worker.revoked_at.is_(None), Worker.last_seen_at.is_not(None))) > 0
     cloud_da = extern_konfig(db).anbieter is not None
     punkte = [
-        Punkt("verein", "Angaben zum Verein", bool(meta_lesen(db, "angabe.server_operator"))
+        Punkt("verein", "Wer den Server betreibt", bool(meta_lesen(db, "angabe.server_operator"))
               or a.server_operator != s.server_operator, "/verwaltung/assistent/verein"),
         Punkt("betrieb", "Betriebsart und Transkription",
               art is not None and ((not lokal or worker_da) and (art == "lokal" or cloud_da)),

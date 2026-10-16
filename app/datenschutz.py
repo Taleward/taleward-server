@@ -15,7 +15,11 @@ def vorlage(db: Session, hosting: str = "") -> str:
     from app.einrichtung import betriebsart
     from app.einstellungen import angaben, extern_konfig, llm_konfig
 
+    from app import betreiber
+
     a = angaben(db)
+    b = betreiber.lesen(db)
+    wir, bei_uns = betreiber.wir(b.art)
     art = betriebsart(db)
     ext = extern_konfig(db)
     k = llm_konfig(db)
@@ -37,7 +41,7 @@ def vorlage(db: Session, hosting: str = "") -> str:
          f"Stand: [Datum]. Dieser Hinweis gilt für die App Taleward in Verbindung mit dem Server „{a.server_name}“, "
          f"den {a.server_operator} betreibt.",
          "## Verantwortlich",
-         f"{a.server_operator}\n[Anschrift]\n{kontakt}",
+         f"{a.server_operator}\n{b.anschrift or '[Anschrift]'}\n{kontakt}",
          "## Was die App macht",
          "Taleward nimmt Pen-&-Paper-Runden auf (nur mit Zustimmung aller Anwesenden), wandelt die Aufnahme in Text um "
          "und erstellt daraus eine Zusammenfassung („Kapitel“) und Vorschläge für die Kampagnen-Bibel. Die Spielleitung "
@@ -59,7 +63,7 @@ def vorlage(db: Session, hosting: str = "") -> str:
          "- Technisch nötige Daten beim Aufruf des Servers (IP-Adresse, Zeitpunkt), nur für den Betrieb und die "
          "Abwehr von Missbrauch.",
          "## Zweck und Rechtsgrundlage",
-         "Wir verarbeiten die Daten, um die Runden unseres Vereins zu dokumentieren und den Mitgliedern die "
+         f"Wir verarbeiten die Daten, um {wir} zu dokumentieren und den Mitgliedern die "
          "Zusammenfassungen bereitzustellen (Art. 6 Abs. 1 lit. b DSGVO – Nutzung des Angebots; bei Aufnahmen und "
          "Stimmprofilen Art. 6 Abs. 1 lit. a bzw. Art. 9 Abs. 2 lit. a DSGVO – Einwilligung). Aufgenommen wird nur, "
          "wenn alle Anwesenden zugestimmt haben; die Zustimmung lässt sich in der App jederzeit widerrufen.",
@@ -80,7 +84,7 @@ def vorlage(db: Session, hosting: str = "") -> str:
                   "übernehmen: ob der Anbieter Unterauftragsverarbeiter außerhalb der EU einsetzt und auf welcher "
                   "Grundlage, z. B. Standardvertragsklauseln.]"]
     if art in ("lokal", "beides"):
-        empfaenger.append("- Umwandlung von Aufnahmen in Text: auf einem Server unseres Vereins [Standort], ohne "
+        empfaenger.append(f"- Umwandlung von Aufnahmen in Text: {bei_uns} [Standort], ohne "
                           "Weitergabe an Dritte.")
     if mistral_transkription or mistral_llm:
         zwecke = " und ".join(z for z in ("die Umwandlung von Aufnahmen in Text" if mistral_transkription else "",
@@ -92,7 +96,7 @@ def vorlage(db: Session, hosting: str = "") -> str:
         empfaenger.append("- Für das Erstellen von Zusammenfassungen: [Anbieter, Sitz, Grundlage bei Übermittlung "
                           "außerhalb der EU].")
     if k.art == "lokal":
-        empfaenger.append("- Zusammenfassungen entstehen auf einem Server unseres Vereins, ohne Weitergabe an Dritte.")
+        empfaenger.append(f"- Zusammenfassungen entstehen {bei_uns}, ohne Weitergabe an Dritte.")
     anbieter = {"google": "Google Ireland Limited, Irland", "microsoft": "Microsoft Ireland Operations Limited, Irland",
                 "apple": "Apple Distribution International Ltd., Irland",
                 "discord": "[Discord – Anbieter und Sitz laut Datenschutzerklärung von Discord]"}
@@ -102,7 +106,7 @@ def vorlage(db: Session, hosting: str = "") -> str:
                           "Für diese Anmeldung ist der Dienst selbst verantwortlich; es gilt seine "
                           "Datenschutzerklärung. [Übermittlung außerhalb der EU laut Dienst prüfen.]")
     if email:
-        empfaenger.append("- E-Mails zu deinem Konto verschicken wir über [E-Mail-Anbieter des Vereins].")
+        empfaenger.append("- E-Mails zu deinem Konto verschicken wir über [E-Mail-Anbieter].")
     empfaenger.append("- Innerhalb einer Kampagne sehen die Mitglieder, was die Spielleitung freigibt. Abschriften, "
                       "Vorschläge und geheime Notizen sieht nur die Spielleitung.")
     t.append("\n".join(empfaenger))

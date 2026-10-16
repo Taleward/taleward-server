@@ -169,7 +169,7 @@ def test_datenschutz(client, dbs, admin, schluessel_ok):  # noqa: F811
     r = client.post("/verwaltung/assistent/datenschutz", data={"csrf": admin, "aktion": "veroeffentlichen",
                                                                "text": fertig + "\n\n<script>x</script>"},
                     follow_redirects=False)
-    assert r.headers["location"] == "/verwaltung/assistent/sicherung"
+    assert r.headers["location"] == "/verwaltung/assistent/impressum"
     oeffentlich = client.get("/datenschutz")
     assert oeffentlich.status_code == 200 and "<h2>Deine Rechte</h2>" in oeffentlich.text
     assert "<script>x" not in oeffentlich.text and "&lt;script&gt;" in oeffentlich.text

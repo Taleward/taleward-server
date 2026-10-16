@@ -14,10 +14,11 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import begrenzung, einrichtung, errors, kosten, schluessel
+from app import begrenzung, einrichtung, kosten, schluessel
 from app.db import get_db, utcnow
 from app.einstellungen import angaben, extern_konfig, llm_konfig, meta_lesen, meta_schreiben, speichern
 from app.models import Organization, OrgMember, User, Worker
+from app.verwaltung.i18n import sprache_von
 from app.verwaltung.router import (
     COOKIE, MIN_PASSWORT, SITZUNG_STUNDEN, NichtAngemeldet, _cookie_wert, _versuch, _online_grenze,
     _seite, csrf_pruefen, sitzung, tr, verwalter,
@@ -26,8 +27,9 @@ from app.verwaltung.router import (
 router = APIRouter(prefix="/verwaltung", include_in_schema=False)
 oeffentlich = APIRouter(include_in_schema=False)
 
-SCHRITTE = [("verein", "Verein"), ("betrieb", "Betriebsart"), ("zusammenfassung", "Zusammenfassung"),
-            ("datenschutz", "Datenschutz"), ("sicherung", "Sicherung"), ("spielleitung", "Spielleitung")]
+SCHRITTE = [("verein", "Betreiber"), ("betrieb", "Betriebsart"), ("zusammenfassung", "Zusammenfassung"),
+            ("datenschutz", "Datenschutz"), ("impressum", "Impressum"), ("sicherung", "Sicherung"),
+            ("spielleitung", "Spielleitung")]
 MISTRAL_URL = "https://api.mistral.ai/v1"
 
 
@@ -150,31 +152,42 @@ def assistent_start(user: User = Depends(verwalter), db: Session = Depends(get_d
 def verein(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)):
     from app.config import get_settings
 
+    from app import betreiber
+
     s, a = get_settings(), angaben(db)
     # Standardwerte aus der Installation nicht vorschlagen – sonst heißt jeder Server „Session-Chronik“
     return _schritt(request, user, db, "verein",
                     verein_wert="" if a.server_operator == s.server_operator else a.server_operator,
-                    name_wert="" if a.server_name == s.server_name else a.server_name)
+                    name_wert="" if a.server_name == s.server_name else a.server_name, betreiber=betreiber.lesen(db))
 
 
 @router.post("/assistent/verein", dependencies=[Depends(csrf_pruefen)])
 def verein_speichern(request: Request, verein_name: str = Form(""), server_name: str = Form(""),
-                     server_contact: str = Form(""), min_age: str = Form("16"), user: User = Depends(verwalter),
-                     db: Session = Depends(get_db)):
+                     server_contact: str = Form(""), min_age: str = Form("16"), art: str = Form("verein"),
+                     anschrift: str = Form(""), vertretung: str = Form(""), registereintrag: str = Form(""),
+                     user: User = Depends(verwalter), db: Session = Depends(get_db)):
+    from app import betreiber
+
     _ = tr(request)
+    if art not in betreiber.ARTEN:
+        return _fehler(request, user, db, "verein", _("Unbekannte Auswahl."), betreiber=betreiber.lesen(db))
     if not verein_name.strip():
-        return _fehler(request, user, db, "verein", _("Bitte den Namen des Vereins angeben."))
+        return _fehler(request, user, db, "verein", _("Bitte angeben, wer den Server betreibt."),
+                       betreiber=betreiber.lesen(db))
     kontakt = server_contact.strip()
     if not kontakt:
-        return _fehler(request, user, db, "verein", _("Bitte eine Kontaktadresse für Datenschutzfragen angeben."))
+        return _fehler(request, user, db, "verein", _("Bitte eine Kontaktadresse für Datenschutzfragen angeben."),
+                       betreiber=betreiber.lesen(db))
     try:
         alter = int(min_age)
         if not 0 <= alter <= 99:
             raise ValueError
     except ValueError:
-        return _fehler(request, user, db, "verein", _("Mindestalter bitte als Zahl angeben (z. B. 16)."))
+        return _fehler(request, user, db, "verein", _("Mindestalter bitte als Zahl angeben (z. B. 16)."),
+                       betreiber=betreiber.lesen(db))
     speichern(db, server_name=(server_name.strip() or verein_name.strip())[:100],
               server_operator=verein_name.strip()[:200], server_contact=kontakt[:200], min_age=alter)
+    betreiber.speichern(db, art, anschrift, vertretung, registereintrag)
     orgs = db.scalars(select(Organization).order_by(Organization.created_at)).all()
     if len(orgs) == 1:
         orgs[0].name = verein_name.strip()[:200]
@@ -374,8 +387,76 @@ def datenschutz_oeffentlich(request: Request, db: Session = Depends(get_db)):
 
     text = meta_lesen(db, "datenschutz.text")
     if not text:
-        raise errors.not_found()
+        _ = tr(request)
+        return _seite(request, "hinweis_seite.html", None, db, status_code=404, titel=_("Datenschutz"),
+                      text=_("Für diesen Server ist hier noch kein Datenschutzhinweis veröffentlicht. Frag bitte die Person, die den Server betreibt oder dich eingeladen hat."))
     return _seite(request, "datenschutz.html", None, db, inhalt=html(text))
+
+
+# -- Impressum
+@router.get("/assistent/impressum", response_class=HTMLResponse)
+def impressum(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)):
+    from app.betreiber import impressum_vorlage
+
+    return _schritt(request, user, db, "impressum",
+                    text=meta_lesen(db, "impressum.text") or impressum_vorlage(db, sprache_von(request)),
+                    eigener_link=meta_lesen(db, "impressum.url") or "",
+                    veroeffentlicht=bool(meta_lesen(db, "impressum.text")))
+
+
+@router.post("/assistent/impressum", dependencies=[Depends(csrf_pruefen)])
+def impressum_speichern(request: Request, aktion: str = Form(""), text: str = Form(""), eigener_link: str = Form(""),
+                        user: User = Depends(verwalter), db: Session = Depends(get_db)):
+    from app.betreiber import impressum_vorlage
+
+    _ = tr(request)
+
+    def fehler(t: str):
+        return _fehler(request, user, db, "impressum", t, text=text, eigener_link=eigener_link,
+                       veroeffentlicht=bool(meta_lesen(db, "impressum.text")))
+
+    if aktion == "neu":
+        meta_schreiben(db, "impressum.text", "")
+        db.commit()
+        return _schritt(request, user, db, "impressum", text=impressum_vorlage(db, sprache_von(request)),
+                        eigener_link=meta_lesen(db, "impressum.url") or "", veroeffentlicht=False)
+    if aktion == "ohne":  # kein Impressum auf diesem Server
+        meta_schreiben(db, "impressum.text", "")
+        meta_schreiben(db, "impressum.url", "")
+        db.commit()
+        return _weiter("impressum")
+    if aktion == "link":
+        link = eigener_link.strip()
+        if not link.startswith("https://"):
+            return fehler(_("Links müssen mit https:// beginnen."))
+        meta_schreiben(db, "impressum.url", link[:500])
+        meta_schreiben(db, "impressum.text", "")
+        db.commit()
+        return _weiter("impressum")
+    inhalt = text.strip()
+    if len(inhalt) < 40:
+        return fehler(_("Das Impressum ist zu kurz."))
+    offen = inhalt.count("[")
+    if offen:
+        return fehler(_("Es sind noch {n} Stellen in eckigen Klammern offen. Bitte ausfüllen oder entfernen.", n=offen))
+    meta_schreiben(db, "impressum.text", inhalt[:20000])
+    meta_schreiben(db, "impressum.url", "")
+    db.commit()
+    return _weiter("impressum")
+
+
+@oeffentlich.get("/impressum", response_class=HTMLResponse)
+def impressum_oeffentlich(request: Request, db: Session = Depends(get_db)):
+    from app.datenschutz import html
+
+    text, link = meta_lesen(db, "impressum.text"), meta_lesen(db, "impressum.url")
+    if text:
+        return _seite(request, "datenschutz.html", None, db, inhalt=html(text), titel_seite=tr(request)("Impressum"))
+    if link and link.startswith("https://"):
+        return RedirectResponse(link, status_code=303)
+    _ = tr(request)
+    return _seite(request, "hinweis_seite.html", None, db, status_code=404, titel=_("Impressum"),
+                  text=_("Für diesen Server ist hier kein Impressum veröffentlicht. Frag bitte die Person, die den Server betreibt oder dich eingeladen hat."))
 
 
 # -- Sicherung
