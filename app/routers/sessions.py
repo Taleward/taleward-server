@@ -2,19 +2,41 @@
 
 Stimmen bestätigen, Recap, Vorschläge und Veröffentlichen: routers/pruefung.py
 """
-from fastapi import APIRouter, Depends, Request, Response
+import json
+
+from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import errors, queue, schemas, storage
-from app.access import current_user, load_session, load_session_gm, require_gm, require_member
+from app.access import (
+    current_user,
+    load_session,
+    load_session_gm,
+    require_gm,
+    require_member,
+)
 from app.db import get_db, utcnow
 from app.errors import sprache
-from app.models import Campaign, GameSession, GmNote, SessionSeen, Speaker, TranscriptSegment, Upload, User
+from app.models import (
+    Campaign,
+    GameSession,
+    GmNote,
+    Member,
+    SessionSeen,
+    Speaker,
+    TranscriptSegment,
+    Upload,
+    User,
+)
 from app.services import (
-    build_attendees, log_on_site_consents, next_session_number, processing_status,
-    session_out, session_summary_out,
+    build_attendees,
+    log_on_site_consents,
+    next_session_number,
+    processing_status,
+    session_out,
+    session_summary_out,
 )
 
 router = APIRouter()
@@ -149,24 +171,63 @@ def list_speakers(sessionId: str, user: User = Depends(current_user), db: Sessio
     """Auch nach der Bestätigung (0.4.10): dann mit assignedMemberId; vorher fehlt das Feld."""
     s = load_session_gm(db, sessionId, user).session
     bestaetigt = s.state in BESTAETIGT
+    stimmen = list(db.scalars(select(Speaker).where(Speaker.session_id == s.id).order_by(Speaker.position)))
+    hinweise = _anrede_hinweise(db, s, stimmen, bestaetigt)
     aus = []
-    for sp in db.scalars(select(Speaker).where(Speaker.session_id == s.id).order_by(Speaker.position)):
+    for sp in stimmen:
         daten = dict(id=sp.id, label=sp.label, speaking_seconds=sp.speaking_seconds, sample_text=sp.sample_text,
                      suggested_member_id=sp.suggested_member_id, confidence=sp.confidence, source=sp.source,
-                     assigned_guest_name=sp.assigned_guest_name)
+                     assigned_guest_name=sp.assigned_guest_name, hint=None,
+                     samples=[schemas.SpeakerSample(**pr) for pr in _proben(sp)])  # 0.4.21
         if bestaetigt:
             daten["assigned_member_id"] = sp.assigned_member_id
+        if sp.id in hinweise:  # 0.4.21: Anrede oder Selbstnennung widerspricht der Zuordnung
+            h = hinweise[sp.id]
+            daten["hint"] = schemas.SpeakerHint(code=h["code"], name=h["name"], member_id=h["memberId"],
+                                                count=h["count"])
         aus.append(schemas.SpeakerOut(**daten))
     return aus
 
 
+def _proben(sp: Speaker) -> list[dict]:
+    """Textproben (0.4.21) aus dem JSON am Sprecher; leer bei älteren Workern."""
+    try:
+        liste = json.loads(sp.samples_json or "[]")
+    except ValueError:
+        return []
+    return [{"start": float(p["start"]), "end": p.get("end"), "text": str(p.get("text") or "")}
+            for p in liste if isinstance(p, dict) and isinstance(p.get("start"), (int, float))][:3]
+
+
+def _anrede_hinweise(db: Session, s: GameSession, stimmen: list[Speaker], bestaetigt: bool) -> dict[str, dict]:
+    """0.4.21: ohne Sprachmodell gezählt; Zuordnung = Vorschlag vor, Bestätigung nach PUT."""
+    from app import zuordnung
+
+    zuordnung_map = {sp.id: (sp.assigned_member_id if bestaetigt else sp.suggested_member_id) for sp in stimmen}
+    if not any(zuordnung_map.values()):
+        return {}
+    mitglieder = list(db.scalars(select(Member).where(Member.campaign_id == s.campaign_id, Member.left_at.is_(None))))
+    segmente = list(db.scalars(select(TranscriptSegment).where(TranscriptSegment.session_id == s.id)
+                               .order_by(TranscriptSegment.position)))
+    return zuordnung.anrede_hinweise(segmente, mitglieder, zuordnung_map)
+
+
 @router.get("/sessions/{sessionId}/speakers/{speakerId}/sample", tags=["Stimmen"])
-def speaker_sample(sessionId: str, speakerId: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def speaker_sample(sessionId: str, speakerId: str, index: str | None = Query(default=None, max_length=4),
+                   user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """index (0.4.21): Hörprobe zu Speaker.samples[index]; ohne index die bisherige Hörprobe (= samples[0]).
+    Alles außer 0–2 innerhalb der Liste → 404. Der Dateipfad entsteht nur aus den geprüften Kennungen der Datenbank
+    und der kleinen Zahl."""
     s = load_session_gm(db, sessionId, user).session
     sp = db.get(Speaker, speakerId)
     if sp is None or sp.session_id != s.id:
         raise errors.not_found()
-    pfad = storage.sample_path(s.id, sp.id)
+    nr = 0
+    if index not in (None, ""):
+        if not index.isdigit() or int(index) > 2 or int(index) >= max(1, len(_proben(sp))):
+            raise errors.not_found()
+        nr = int(index)
+    pfad = storage.sample_path(s.id, sp.id, nr) if nr else storage.sample_path(s.id, sp.id)
     if not pfad.exists():
         raise errors.ApiError(410, "audio_deleted")  # seit 0.3.8 mit Fehlerkörper
     return FileResponse(pfad, media_type="audio/ogg")

@@ -78,6 +78,14 @@ class SegmentIn(ApiModel):
     low_words: list[LowWordIn] = Field(default=[], max_length=500)  # 0.4.6: unsicher ausgerichtete Wörter
 
 
+class SampleIn(ApiModel):
+    """0.4.21: eine Textprobe mit Hörprobe."""
+    start: float = Field(ge=0)
+    end: float | None = Field(default=None, ge=0)
+    text: str = Field(default="", max_length=2000)
+    ogg_base64: str | None = None
+
+
 class SpeakerIn(ApiModel):
     label: str = Field(max_length=50)  # Kennung des Workers, z. B. SPEAKER_01 oder die fileId bei Discord
     speaking_seconds: float = Field(ge=0)
@@ -85,6 +93,7 @@ class SpeakerIn(ApiModel):
     sample_ogg_base64: str | None = None
     embedding: list[float] | None = Field(default=None, max_length=4096)
     track_member_id: str | None = None
+    samples: list[SampleIn] = Field(default=[], max_length=3)  # 0.4.21; ältere Worker lassen es weg
 
 
 class ResultIn(ApiModel):
@@ -362,6 +371,7 @@ def ergebnis_uebernehmen(db: Session, job: Job, body: ResultIn, engine: str, wor
             if len(daten) <= MAX_SAMPLE_BYTES:
                 storage.write_atomic(storage.sample_path(s.id, obj.id), daten)
                 obj.sample_path = str(storage.sample_path(s.id, obj.id))
+        _proben_speichern(s.id, obj, sp.samples)
     for pos, seg in enumerate(sorted(body.segments, key=lambda x: x.start)):
         db.add(TranscriptSegment(session_id=s.id, position=pos, start=round(seg.start, 2), end=round(seg.end, 2),
                                  speaker_id=zuordnung.get(seg.speaker or ""), text=seg.text.strip(),
@@ -403,6 +413,27 @@ def _unsicher_json(seg: SegmentIn) -> str | None:
         return None
     return json.dumps([{"word": w.word, "start": round(w.start, 2), "score": round(w.score, 3), "anfang": w.anfang}
                        for w in seg.low_words], ensure_ascii=False)
+
+
+def _proben_speichern(session_id: str, obj: Speaker, proben: list[SampleIn]) -> None:
+    """0.4.21: Textproben als JSON am Sprecher, Hörproben als Dateien (Index 0 teilt sich die Datei mit sampleText)."""
+    liste = []
+    for i, pr in enumerate(proben[:3]):
+        text = pr.text.strip()[:300]
+        if not text:
+            continue
+        if pr.ogg_base64:
+            try:
+                daten = base64.b64decode(pr.ogg_base64)
+            except ValueError:
+                daten = b""
+            if daten and len(daten) <= MAX_SAMPLE_BYTES:
+                storage.write_atomic(storage.sample_path(session_id, obj.id, i), daten)
+                if i == 0:
+                    obj.sample_path = str(storage.sample_path(session_id, obj.id))
+        liste.append({"start": round(pr.start, 2), "end": round(pr.end, 2) if pr.end is not None else None,
+                      "text": text})
+    obj.samples_json = json.dumps(liste, ensure_ascii=False) if liste else None
 
 
 def _nachtranskription_uebernehmen(db: Session, s: GameSession, job: Job, body: ResultIn, engine: str,

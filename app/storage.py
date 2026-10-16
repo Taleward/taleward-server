@@ -21,8 +21,12 @@ def samples_dir(session_id: str) -> Path:
     return get_settings().data_dir / "samples" / session_id
 
 
-def sample_path(session_id: str, speaker_id: str) -> Path:
-    return samples_dir(session_id) / f"{speaker_id}.ogg"
+def sample_path(session_id: str, speaker_id: str, index: int = 0) -> Path:
+    """Hörprobe einer Stimme; index 1–2 (0.4.21) sind die weiteren Textproben, 0 die bisherige Hörprobe.
+    Beide Kennungen sind geprüfte Datenbank-IDs, der Index eine kleine Zahl – nichts davon kommt roh aus der Anfrage."""
+    if index <= 0:
+        return samples_dir(session_id) / f"{speaker_id}.ogg"
+    return samples_dir(session_id) / f"{speaker_id}-{int(index)}.ogg"
 
 
 def delete_upload_files(upload_id: str) -> None:

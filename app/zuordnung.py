@@ -185,6 +185,75 @@ def vorstellungsrunde(segmente: list[TranscriptSegment], mitglieder: list[Member
     return hinweise
 
 
+# ---------------------------------------------------------------- Anrede und Selbstnennung (0.4.21, Speaker.hint)
+ANREDE_MINDESTENS = 2  # so oft muss die Abschrift widersprechen …
+ANREDE_FAKTOR = 2  # … und mindestens doppelt so oft wie sie die Zuordnung stützt
+ANREDE_ABSTAND = 6.0  # Sekunden: so schnell muss die angesprochene Stimme antworten
+
+
+def _figurennamen(mitglieder: list[Member]) -> list[tuple[Member, str, re.Pattern]]:
+    """Je Spielerfigur ein Muster für die Anrede: Name am Satzanfang mit Komma/Frage/Ausruf oder am Satzende."""
+    aus = []
+    for m in mitglieder:
+        if m.role == "gm" or not m.character_name:
+            continue
+        vorname = m.character_name.strip().split()[0]
+        if len(vorname) < 3:
+            continue
+        n = re.escape(vorname)
+        muster = re.compile(rf"(?:^|[.!?…]\s+|,\s+){n}\s*[,!?…]|,\s+{n}\s*[.!?…]?\s*$|^{n}\s*$", re.IGNORECASE)
+        aus.append((m, vorname, muster))
+    return aus
+
+
+def anrede_hinweise(segmente: list[TranscriptSegment], mitglieder: list[Member],
+                    zuordnung: dict[str, str | None]) -> dict[str, dict]:
+    """Je Stimme höchstens ein Hinweis {code, name, memberId, count}: Die Abschrift spricht die Stimme mehrfach mit
+    dem Namen einer anderen Figur an (addressed_as) oder sie nennt sich selbst so (self_named) – und das klar öfter,
+    als sie die zugeordnete Figur stützt. zuordnung: Stimme → Mitglied (Vorschlag oder Bestätigung); Stimmen ohne
+    Zuordnung bekommen keinen Hinweis (kein Widerspruch)."""
+    figuren = _figurennamen(mitglieder)
+    if not figuren:
+        return {}
+    pers = personen([m for m, _, _ in figuren])
+    zaehler: dict[str, dict[str, dict[str, int]]] = {}  # Stimme → Mitglied → code → Anzahl
+    reihe = [seg for seg in segmente if seg.speaker_id]
+    for i, seg in enumerate(reihe):
+        text = seg.text or ""
+        for m in (*_PERSON.finditer(text), *_FIGUR.finditer(text)):
+            p, _ = _bester(m.group("rest"), pers, "figuren", n=2)
+            if p is not None and p.member is not None:
+                z = zaehler.setdefault(seg.speaker_id, {}).setdefault(p.member.id, {})
+                z["self_named"] = z.get("self_named", 0) + 1
+        if i + 1 >= len(reihe):
+            continue
+        naechste = reihe[i + 1]
+        if naechste.speaker_id == seg.speaker_id or naechste.start - seg.end > ANREDE_ABSTAND:
+            continue
+        for m, _, muster in figuren:
+            if muster.search(text.strip()):
+                z = zaehler.setdefault(naechste.speaker_id, {}).setdefault(m.id, {})
+                z["addressed_as"] = z.get("addressed_as", 0) + 1
+    namen = {m.id: vorname for m, vorname, _ in figuren}
+    aus: dict[str, dict] = {}
+    for speaker_id, je_mitglied in zaehler.items():
+        zugeordnet = zuordnung.get(speaker_id)
+        if not zugeordnet:
+            continue
+        stuetzt = sum(je_mitglied.get(zugeordnet, {}).values())
+        beste = None
+        for member_id, codes in je_mitglied.items():
+            if member_id == zugeordnet:
+                continue
+            code, anzahl = max(codes.items(), key=lambda kv: kv[1])
+            gesamt = sum(codes.values())
+            if beste is None or gesamt > beste[0]:
+                beste = (gesamt, code, member_id, anzahl)
+        if beste and beste[0] >= ANREDE_MINDESTENS and beste[0] >= ANREDE_FAKTOR * stuetzt:
+            aus[speaker_id] = {"code": beste[1], "name": namen[beste[2]], "memberId": beste[2], "count": beste[3]}
+    return aus
+
+
 # ---------------------------------------------------------------- Verteilen
 def verteilen(hinweise: list[Hinweis]) -> dict[str, Hinweis]:
     """Hinweise je (Stimme, Mitglied) zusammenfassen (1 − Π(1 − c)), dann gierig nach Sicherheit verteilen:

@@ -136,9 +136,14 @@ def verarbeite_attrappe(auftrag: dict, dateien: list[Path], arbeit: Path, fortsc
             if nr not in erste or sitzung.get("nurText"):
                 continue
             probe = audio.hoerprobe(wav, erste[nr], 5.0, arbeit / f"probe-{nr}.ogg")
+            eigene = [sg for sg in segmente if sg["speaker"] == f"SPEAKER_{nr:02d}"]
+            # 0.4.21: bis zu drei Textproben über die Runde verteilt, wie beim echten Motor
+            proben = [eigene[i] for i in sorted({0, len(eigene) // 2, len(eigene) - 1})]
             sprecher.append({"label": f"SPEAKER_{nr:02d}", "speakingSeconds": redezeit[nr],
                              "sampleText": f"Platzhalter (Testmodus): Stimme {nr + 1}.",
-                             "sampleOggBase64": base64.b64encode(probe).decode()})
+                             "sampleOggBase64": base64.b64encode(probe).decode(),
+                             "samples": [{"start": sg["start"], "end": sg["end"], "text": sg["text"],
+                                          "oggBase64": base64.b64encode(probe).decode()} for sg in proben]})
         fortschritt(1.0)
     return {"audioSeconds": gesamt, "computeSeconds": time.monotonic() - t0, "model": "attrappe",
             "segments": segmente, "speakers": sprecher}

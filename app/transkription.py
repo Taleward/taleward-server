@@ -41,6 +41,7 @@ MIN_REDEZEIT = 5.0  # Sekunden; kleinere Cluster werden keiner Stimme zugeordnet
 PROBE_ZIEL = 6.0  # gewünschte Länge einer Hörprobe
 PROBE_MAX = 8.0
 PROBE_TEXT_MAX = 300
+PROBEN_ANZAHL = 3  # 0.4.21: Textproben je Stimme, über die Runde verteilt
 UNSICHER_UNTER = 0.5  # Wörter, die die Ausrichtung schlechter als so trifft, meldet der Worker als unsicher (0.4.6)
 MAX_UNSICHER = 50     # je Abschnitt
 
@@ -87,12 +88,38 @@ def _bereinigen(segmente: list[dict], hotwords: list[str]) -> list[dict]:
     return [s for s in segmente if (s.get("text") or "").strip() and s.get("end", 0) > s.get("start", 0)]
 
 
-def _probe_segment(segs: list[dict]) -> dict:
-    """Ein gut hörbarer Abschnitt: möglichst nahe an 6 s, mindestens 2 s, sonst der längste."""
+def _probe_segment(segs: list[dict], namen: tuple[str, ...] = ()) -> dict:
+    """Ein gut hörbarer Abschnitt: möglichst nahe an 6 s, mindestens 2 s, sonst der längste. Mit Namen (Schreibhilfe
+    der Kampagne): Sätze, in denen ein Name vorkommt, zuerst – sie helfen der SL beim Zuordnen (0.4.21)."""
     brauchbar = [s for s in segs if s["end"] - s["start"] >= 2.0]
     if brauchbar:
-        return min(brauchbar, key=lambda s: (abs((s["end"] - s["start"]) - PROBE_ZIEL), -len(s["text"])))
+        return min(brauchbar, key=lambda s: (0 if _nennt_namen(s["text"], namen) else 1,
+                                             abs((s["end"] - s["start"]) - PROBE_ZIEL), -len(s["text"])))
     return max(segs, key=lambda s: s["end"] - s["start"])
+
+
+def _nennt_namen(text: str, namen: tuple[str, ...]) -> bool:
+    klein = (text or "").casefold()
+    return any(n and n.casefold() in klein for n in namen)
+
+
+def proben_waehlen(segs: list[dict], namen: tuple[str, ...] = (), anzahl: int = PROBEN_ANZAHL) -> list[dict]:
+    """Bis zu drei Textproben einer Stimme, über die Runde verteilt (0.4.21, Speaker.samples): Die Redezeit wird in
+    gleich lange Abschnitte geteilt, aus jedem kommt die beste Probe; aufsteigend nach Beginn, ohne Doppelte."""
+    if not segs:
+        return []
+    segs = sorted(segs, key=lambda s: s["start"])
+    t0, t1 = segs[0]["start"], segs[-1]["end"]
+    aus: list[dict] = []
+    for i in range(anzahl):
+        von, bis = t0 + (t1 - t0) * i / anzahl, t0 + (t1 - t0) * (i + 1) / anzahl
+        teil = [s for s in segs if von <= s["start"] < bis or (i == anzahl - 1 and s["start"] >= von)]
+        if not teil:
+            continue
+        probe = _probe_segment(teil, namen)
+        if all(probe is not p for p in aus):
+            aus.append(probe)
+    return sorted(aus, key=lambda s: s["start"])
 
 
 def unsichere_woerter(seg: dict) -> list[dict]:
@@ -112,8 +139,9 @@ def unsichere_woerter(seg: dict) -> list[dict]:
 
 
 def sprecher_auswerten(segmente: list[dict], wav: Path, arbeit: Path, embeddings: dict | None = None,
-                       track_member_id: str | None = None) -> tuple[list[dict], list[dict]]:
-    """Segmente → (Segmente für die Zentrale, Stimmen mit Redezeit, Hörprobe, Beispieltext, Abdruck)."""
+                       track_member_id: str | None = None, namen: tuple[str, ...] = ()) -> tuple[list[dict], list[dict]]:
+    """Segmente → (Segmente für die Zentrale, Stimmen mit Redezeit, Hörproben, Textproben, Abdruck).
+    namen: Schreibhilfe der Kampagne – Proben mit Figurennamen zuerst (0.4.21)."""
     nach_sprecher: dict[str, list[dict]] = {}
     for s in segmente:
         label = s.get("speaker")
@@ -125,7 +153,8 @@ def sprecher_auswerten(segmente: list[dict], wav: Path, arbeit: Path, embeddings
     for nr, (label, segs) in enumerate(sorted(nach_sprecher.items())):
         if label in zu_klein:
             continue
-        probe = _probe_segment(segs)
+        proben = proben_waehlen(segs, namen) or [_probe_segment(segs, namen)]
+        probe = proben[0]
         dauer = min(PROBE_MAX, probe["end"] - probe["start"])
         ogg = audio.hoerprobe(wav, probe["start"], dauer, arbeit / f"probe-{nr}.ogg")
         eintrag = {
@@ -133,6 +162,13 @@ def sprecher_auswerten(segmente: list[dict], wav: Path, arbeit: Path, embeddings
             "speakingSeconds": round(sum(s["end"] - s["start"] for s in segs), 1),
             "sampleText": probe["text"].strip()[:PROBE_TEXT_MAX],
             "sampleOggBase64": base64.b64encode(ogg).decode(),
+            # 0.4.21: bis zu drei Proben mit eigener Hörprobe; die erste ist dieselbe wie sampleText
+            "samples": [{
+                "start": round(float(p["start"]), 2), "end": round(float(p["end"]), 2),
+                "text": p["text"].strip()[:PROBE_TEXT_MAX],
+                "oggBase64": base64.b64encode(ogg if i == 0 else audio.hoerprobe(
+                    wav, p["start"], min(PROBE_MAX, p["end"] - p["start"]), arbeit / f"probe-{nr}-{i}.ogg")).decode(),
+            } for i, p in enumerate(proben)],
         }
         if embeddings and label in embeddings and track_member_id is None:
             eintrag["embedding"] = [float(x) for x in embeddings[label]]
@@ -216,7 +252,7 @@ def _tisch(motor, sitzung, dateien, arbeit, fortschritt, sprache, hotwords) -> d
     segs, embeddings = motor.sprecher_trennen(daten, segs, max(1, n - 1) if n else None, n + 1 if n else None,
                                               _bereich(fortschritt, 0.70, 0.95))
     segs = halluzinationen_entfernen(segs)
-    segmente, stimmen = sprecher_auswerten(segs, wav, arbeit, embeddings)
+    segmente, stimmen = sprecher_auswerten(segs, wav, arbeit, embeddings, namen=tuple(hotwords))
     fortschritt(1.0)
     return {"audioSeconds": round(gesamt, 1), "segments": segmente, "speakers": stimmen,
             "embeddingModel": getattr(motor, "abdruck_modell", None)}
