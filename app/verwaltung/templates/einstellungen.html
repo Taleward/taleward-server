@@ -4,21 +4,30 @@
 <h1>{{ _("Einstellungen") }}</h1>
 <form method="post" action="/verwaltung/einstellungen">
 <input type="hidden" name="csrf" value="{{ csrf }}">
-<div class="karte">
+<div class="karte" id="betreiber">
   <h2>{{ _("Angaben für die App") }}</h2>
-  <p class="leise">{{ _("Die App zeigt sie beim Hinzufügen des Servers (Betreiber, Kontakt, Datenschutzhinweis).") }}</p>
+  <p class="leise">{{ _("Die App zeigt sie beim Hinzufügen des Servers (Betreiber, Kontakt, Datenschutzhinweis). Daraus füllen sich auch die Vorlagen für Datenschutzhinweis und Impressum.") }}</p>
   <div class="formular">
     <label>{{ _("Name des Servers") }} <input type="text" name="server_name" value="{{ angaben.server_name }}" required maxlength="100"></label>
-    <label>{{ _("Betreiber") }} <input type="text" name="server_operator" value="{{ angaben.server_operator }}" required maxlength="200"></label>
+    <fieldset><legend>{{ _("Betrieben von") }}</legend>
+      <label class="haken"><input type="radio" name="betreiber_art" value="privat" {% if betreiber.art == "privat" %}checked{% endif %}> {{ _("Privat, für die eigene Runde") }}</label>
+      <label class="haken"><input type="radio" name="betreiber_art" value="verein" {% if betreiber.art in ("verein", "") %}checked{% endif %}> {{ _("Einem Verein") }}</label>
+      <label class="haken"><input type="radio" name="betreiber_art" value="firma" {% if betreiber.art == "firma" %}checked{% endif %}> {{ _("Einer Firma oder anderen Organisation") }}</label>
+    </fieldset>
+    <label>{{ _("Name (Betreiber)") }} <input type="text" name="server_operator" value="{{ angaben.server_operator }}" required maxlength="200"></label>
+    <label>{{ _("Anschrift") }} <textarea name="betreiber_anschrift" rows="3" maxlength="500">{{ betreiber.anschrift }}</textarea></label>
     <label>{{ _("Kontakt") }} <input type="text" name="server_contact" value="{{ angaben.server_contact or '' }}" maxlength="200">
       <span class="hilfe">{{ _("E-Mail-Adresse oder Webseite für Fragen zum Datenschutz.") }}</span></label>
+    <details{% if betreiber.vertretung or betreiber.register %} open{% endif %}><summary>{{ _("Bei Verein oder Firma: weitere Angaben (freiwillig)") }}</summary>
+      <div class="formular">
+      <label>{{ _("Vertreten durch") }} <input type="text" name="betreiber_vertretung" value="{{ betreiber.vertretung }}" maxlength="300"></label>
+      <label>{{ _("Registereintrag") }} <input type="text" name="betreiber_register" value="{{ betreiber.register }}" maxlength="300"></label>
+      </div></details>
     <label>{{ _("Link zum Datenschutzhinweis") }} <input type="url" name="privacy_policy_url" value="{{ angaben.privacy_policy_url or '' }}" maxlength="500" placeholder="https://…"></label>
-    <label>{{ _("Öffentliche Adresse des Servers") }} <input type="url" name="public_url" value="{{ angaben.public_url or '' }}" maxlength="300" placeholder="https://taleward.meinverein.de">
+    <p class="hilfe">{{ _("Impressum:") }} {% if impressum_text %}<a href="/impressum">{{ _("veröffentlicht") }}</a>{% elif impressum_url %}<a href="{{ impressum_url }}" rel="noopener noreferrer">{{ _("eigener Link") }}</a>{% else %}{{ _("keins") }}{% endif %} · <a href="/verwaltung/assistent/impressum">{{ _("Bearbeiten") }}</a></p>
+    <label>{{ _("Öffentliche Adresse des Servers") }} <input type="url" name="public_url" value="{{ angaben.public_url or '' }}" maxlength="300" placeholder="https://taleward.meinverein.example">
       <span class="hilfe">{{ _("Für Links in E-Mails und für Anmeldedienste. Leer = die Adresse, unter der die Verwaltung gerade aufgerufen wird.") }}</span></label>
     <label>{{ _("Mindestalter") }} <input type="number" name="min_age" value="{{ angaben.min_age }}" min="0" max="99"></label>
-    {% if orgs|length == 1 %}
-    <label>{{ _("Name der Organisation (Verein)") }} <input type="text" name="org_name" value="{{ orgs[0].name }}" maxlength="200"></label>
-    {% endif %}
   </div>
 </div>
 <div class="karte">
@@ -56,15 +65,20 @@
   </div>
 </div>
 <div class="karte">
-  <h2>{{ _("App-Versionen") }}</h2>
-  <p class="leise">{{ _("Die App fragt das ab: bei neuerer Version zeigt sie „Neue Version“, bei zu alter Version sperrt sie diesen Server bis zum Update.") }}</p>
+  <h2>{{ _("App im Browser und App-Fassungen") }}</h2>
   <div class="formular">
+    <details{% if angaben.app_min_version or angaben.app_latest_version or angaben.app_download_url %} open{% endif %}>
+    <summary>{{ _("App-Fassung von Hand festlegen (selten nötig)") }}</summary>
+    <p class="leise">{{ _("Normalerweise bietet der Server neue App-Fassungen selbst an, siehe „Updates“. Was du hier einträgst, gilt vorrangig.") }}</p>
+    <div class="formular">
     <label>{{ _("Mindestversion der App") }} <input type="text" name="app_min_version" value="{{ angaben.app_min_version or '' }}" maxlength="20" placeholder="0.9.0" pattern="[0-9]+(\.[0-9]+)*">
       <span class="hilfe">{{ _("Leer = keine Grenze. Ältere Apps bekommen dann keinen Zugang mehr (426).") }}</span></label>
     <label>{{ _("Neueste Version") }} <input type="text" name="app_latest_version" value="{{ angaben.app_latest_version or '' }}" maxlength="20" placeholder="0.9.1" pattern="[0-9]+(\.[0-9]+)*"></label>
     <label>{{ _("Download-Link") }} <input type="url" name="app_download_url" value="{{ angaben.app_download_url or '' }}" maxlength="500" placeholder="https://…">
       <span class="hilfe">{{ _("APK- oder Store-Link. Erscheint auch auf der Einladungsseite („App herunterladen“).") }}</span></label>
     <label>{{ _("Was ist neu") }} <textarea name="app_release_notes" rows="3" maxlength="1000">{{ angaben.app_release_notes or '' }}</textarea></label>
+    </div>
+    </details>
     {% if zentrale_webapp %}
     <input type="hidden" name="web_zentral_feld" value="1">
     <label class="haken"><input type="checkbox" name="web_zentral" value="an" {% if web_zentral %}checked{% endif %}>
