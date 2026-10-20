@@ -1,0 +1,187 @@
+From 921a2719ab6f027060f0174d88497dbb7ac00318 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 10:41:43 +0200
+Subject: [PATCH 175/176] =?UTF-8?q?Unterlagen:=20Pr=C3=BCfung=20des=20Welt?=
+ =?UTF-8?q?-Vorschlags=20vereinheitlicht,=20Tests=200.4.109?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ app/unterlagen.py          |  10 ++-
+ tests/test_server_04109.py | 135 +++++++++++++++++++++++++++++++++++++
+ 2 files changed, 143 insertions(+), 2 deletions(-)
+ create mode 100644 tests/test_server_04109.py
+
+diff --git a/app/unterlagen.py b/app/unterlagen.py
+index 47eb88a..b1d612d 100644
+--- a/app/unterlagen.py
++++ b/app/unterlagen.py
+@@ -185,9 +185,13 @@ def text_laden(doc_id: str) -> list[dict]:
+ 
+ 
++# Absatzgrenzen: Leerzeile oder eine neue Zeile, die mit einer Geheim-Markierung beginnt (wie MARKER, ohne Groß/klein)
++_ABSATZ = re.compile(r"\n\s*\n|\n(?=\s*(?:\[(?:SL|GM)\]|(?:Geheim|Secret|SL-Info|GM-Info)\s*:))", re.I)
++
++
+ def geheime_abschnitte(abschnitte: list[dict]) -> list[str]:
+     """Absätze, die ausdrücklich als geheim markiert sind (für die Prüfung der Vorschläge)."""
+     out = []
+     for a in abschnitte:
+-        for absatz in re.split(r"\n\s*\n|\n(?=\s*(?:\[(?:SL|GM)\]|Geheim:|Secret:))", a["text"]):
++        for absatz in _ABSATZ.split(a["text"]):
+             if MARKER.match(absatz):
+                 out.append(absatz)
+@@ -395,5 +399,7 @@ def speichern(db: Session, doc: CampaignDocument, d: dict, engine: str, worker_i
+         ))
+     welt = (d.get("worldInfoSuggestion") or "").strip()[:1500] or None
+-    if welt and markiert and _geheimes_im_detail(welt, markiert):
++    # Die Welt-Info lesen alle und das Modell kannte die ganze Bibel: hier auch bei Handouts gegen Geheimes prüfen
++    welt_geheim = markiert if doc.kind != "handout" else markiert + geheime_bibeltexte(eintraege.values())
++    if welt and welt_geheim and _geheimes_im_detail(welt, welt_geheim):
+         welt = None  # Die Welt-Info lesen alle: Geheimes darin wird gar nicht erst vorgeschlagen
+     doc.world_info_suggestion = None if doc.kind == "gm" else welt
+diff --git a/tests/test_server_04109.py b/tests/test_server_04109.py
+new file mode 100644
+index 0000000..bf15fe6
+--- /dev/null
++++ b/tests/test_server_04109.py
+@@ -0,0 +1,135 @@
++"""Server 0.4.109: Ohne Zustimmung zu den Nutzungsbedingungen geht alles weiter, was Daten zurücknimmt, löscht oder das
++Konto absichert. Erteilen und Neues anlegen bleiben gesperrt."""
++from sqlalchemy import select
++
++API = "/api/v1"
++
++
++def _ohne_zustimmung(dbs, username):
++    from app.models import User
++
++    u = dbs.scalar(select(User).where(User.username == username))
++    u.terms_accepted_version = None  # wie ein Konto von vor dem Update oder nach einer neuen Fassung
++    dbs.commit()
++
++
++def _gesperrt(r):
++    return r.status_code == 403 and r.json().get("code") == "terms_required"
++
++
++def test_widerrufen_geht_erteilen_nicht(client, world, dbs):
++    w = world
++    assert client.put(f"{API}/campaigns/{w['cid']}/members/me/move-consent", json={"granted": True},
++                      headers=w["pl"]).status_code == 200
++    assert client.patch(f"{API}/me/voice-profile", json={"learnFromSessions": True}, headers=w["pl"]).status_code == 200
++    _ohne_zustimmung(dbs, "ben")
++    # Zurücknehmen
++    r = client.put(f"{API}/campaigns/{w['cid']}/members/me/move-consent", json={"granted": False}, headers=w["pl"])
++    assert r.status_code == 200, r.text
++    r = client.patch(f"{API}/me/voice-profile", json={"learnFromSessions": False}, headers=w["pl"])
++    assert r.status_code == 200, r.text
++    # Erteilen bleibt gesperrt
++    assert _gesperrt(client.put(f"{API}/campaigns/{w['cid']}/members/me/move-consent", json={"granted": True},
++                                headers=w["pl"]))
++    assert _gesperrt(client.patch(f"{API}/me/voice-profile", json={"learnFromSessions": True}, headers=w["pl"]))
++
++
++def test_cloud_freigabe_ausschalten_geht_einschalten_nicht(client, world, dbs):
++    w = world
++    an = {"allowCloudSummary": True, "allowExternalTranscription": True}
++    assert client.patch(f"{API}/campaigns/{w['cid']}", json=an, headers=w["gm"]).status_code == 200
++    _ohne_zustimmung(dbs, "anna")
++    r = client.patch(f"{API}/campaigns/{w['cid']}", json={"allowCloudSummary": False,
++                                                         "allowExternalTranscription": False}, headers=w["gm"])
++    assert r.status_code == 200, r.text
++    assert r.json()["allowCloudSummary"] is False
++    assert _gesperrt(client.patch(f"{API}/campaigns/{w['cid']}", json={"allowCloudSummary": True}, headers=w["gm"]))
++    # Ausschalten zusammen mit einer anderen Änderung: gesperrt, und nichts davon wird gespeichert
++    r = client.patch(f"{API}/campaigns/{w['cid']}", json={"allowCloudSummary": False, "title": "Anders"},
++                     headers=w["gm"])
++    assert _gesperrt(r)
++    c = client.get(f"{API}/campaigns/{w['cid']}", headers=w["gm"]).json()
++    assert c["title"] == "Rabenfels"
++
++
++def test_verlassen_und_eigenes_loeschen(client, world, dbs, make_user, login):
++    w = world
++    r = client.patch(f"{API}/campaigns/{w['cid']}/members/{w['pl_member']}",
++                     json={"characterBackstory": "Aufgewachsen am Fluss."}, headers=w["pl"])
++    assert r.status_code == 200, r.text
++    _ohne_zustimmung(dbs, "ben")
++    # Hintergrund leeren geht, ändern nicht
++    assert _gesperrt(client.patch(f"{API}/campaigns/{w['cid']}/members/{w['pl_member']}",
++                                  json={"characterBackstory": "Neu"}, headers=w["pl"]))
++    r = client.patch(f"{API}/campaigns/{w['cid']}/members/{w['pl_member']}", json={"characterBackstory": None},
++                     headers=w["pl"])
++    assert r.status_code == 200, r.text
++    assert not _gesperrt(client.delete(f"{API}/campaigns/{w['cid']}/members/me/character", headers=w["pl"]))
++    assert not _gesperrt(client.delete(f"{API}/me/email", headers=w["pl"]))
++    assert not _gesperrt(client.delete(f"{API}/campaigns/{w['cid']}/members/{w['pl_member']}/portrait",
++                                       headers=w["pl"]))
++    # Verlassen
++    r = client.delete(f"{API}/campaigns/{w['cid']}/members/{w['pl_member']}", headers=w["pl"])
++    assert r.status_code == 204, r.text
++
++
++def test_sl_entfernt_andere_nur_mit_zustimmung(client, world, dbs):
++    w = world
++    _ohne_zustimmung(dbs, "anna")
++    assert _gesperrt(client.delete(f"{API}/campaigns/{w['cid']}/members/{w['pl_member']}", headers=w["gm"]))
++
++
++def test_passwort_aendern_geht(client, world, dbs):
++    w = world
++    _ohne_zustimmung(dbs, "ben")
++    r = client.put(f"{API}/me/password", json={"currentPassword": "geheim123", "newPassword": "Ein-ganz-neues-Wort-42"},
++                   headers=w["pl"])
++    assert r.status_code == 204, r.text
++
++
++def test_kommentar_loeschen_geht_schreiben_nicht(client, world, dbs):
++    from tests.test_step2a import neue_session
++
++    w = world
++    s = neue_session(client, w)
++    k = client.post(f"{API}/sessions/{s['id']}/comments", json={"text": "Schöner Abend"}, headers=w["gm"])
++    assert k.status_code == 201, k.text
++    _ohne_zustimmung(dbs, "anna")
++    assert _gesperrt(client.post(f"{API}/sessions/{s['id']}/comments", json={"text": "Noch einer"}, headers=w["gm"]))
++    assert client.delete(f"{API}/comments/{k.json()['id']}", headers=w["gm"]).status_code == 204
++
++
++# ---------------------------------------------------------------- Welt-Vorschlag aus Unterlagen
++import pytest  # noqa: E402
++
++from tests.test_unterlagen import Unterlagenmodell, api, bibel, hochladen, verarbeiten, vorschlag  # noqa: E402,F401
++
++
++@pytest.mark.parametrize("kind", ["handout", "mixed"])
++def test_welt_vorschlag_nie_mit_geheimem_der_bibel(client, world, dbs, api, kind):  # noqa: F811
++    from app.models import Entry
++    from tests.dateien import pdf
++    from tests.test_step5 import einstellen
++
++    w = world
++    bibel(client, w)
++    e = dbs.query(Entry).filter_by(name="Rabenfels").one()
++    e.gm_notes = "Unter dem alten Leuchtturm liegt der Eingang zur Schmugglerhöhle."
++    dbs.commit()
++    api["modell"] = Unterlagenmodell([vorschlag()], welt="Küste. Unter dem alten Leuchtturm liegt der Eingang zur "
++                                                          "Schmugglerhöhle.")
++    einstellen(dbs, art="api", api_key="sk-test-schluessel-1234")
++    d = hochladen(client, w, "a.pdf", pdf(["Der Wirt heisst Borin."]), kind).json()
++    assert verarbeiten(dbs)
++    assert client.get(f"{API}/documents/{d['id']}", headers=w["gm"]).json()["worldInfoSuggestion"] is None
++
++
++def test_sl_info_klein_geschrieben_mitten_im_absatz():
++    from app.unterlagen import geheime_abschnitte
++
++    text = ("Der Wirt heisst Borin.\nsl-info: Borin ist ein Spion der Krone.\n\nGM-INFO: Der Schatz liegt im Brunnen.\n"
++            "Ganz normaler Absatz.")
++    gefunden = geheime_abschnitte([{"text": text}])
++    assert any(g.startswith("sl-info: Borin ist ein Spion") for g in gefunden)
++    assert any(g.startswith("GM-INFO: Der Schatz") for g in gefunden)
++    assert not any("Der Wirt heisst Borin" in g for g in gefunden)
+-- 
+2.43.0
