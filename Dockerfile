@@ -12,11 +12,13 @@ ENV PYTHONUNBUFFERED=1 \
     DATA_DIR=/data \
     TALEWARD_DOCKER=1
 
-# ffmpeg: Länge von Stimmprofil-Aufnahmen, Audio für die Cloud-Transkription zusammensetzen, Hörproben schneiden
+# ffmpeg: Länge von Stimmprofil-Aufnahmen, Audio für die Cloud-Transkription zusammensetzen, Hörproben schneiden.
+# uv in fester Fassung mit Prüfsumme; uv sync --frozen prüft die Pakete gegen uv.lock.
+COPY deploy/uv-werkzeug.txt /tmp/uv-werkzeug.txt
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg \
  && rm -rf /var/lib/apt/lists/* \
- && pip install --no-cache-dir uv
+ && pip install --no-cache-dir --no-deps --require-hashes -r /tmp/uv-werkzeug.txt
 
 WORKDIR /app
 # Erst nur die Abhängigkeiten (ändern sich selten → schnelle Updates dank Zwischenspeicher)

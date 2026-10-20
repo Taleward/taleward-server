@@ -1,0 +1,7 @@
+# Paketwerkzeug uv für die Container, fest mit Prüfsummen (pip installiert es mit --require-hashes).
+# Neue Fassung: Prüfsummen der Linux-Räder (x86_64, aarch64) von https://pypi.org/pypi/uv/<fassung>/json übernehmen.
+uv==0.11.32 \
+    --hash=sha256:3da76cd4e2697de30928b8a8524bd39183ac1e08cb7e72833807c022b7cba6c4 \
+    --hash=sha256:77f4356548ee8dc47efae154efd4e930c65570e7d4971c57bdef592f6eefb39c \
+    --hash=sha256:125c142363d0842c8506a057da56bae182e2aa3957344f57dd9ef20ea10f06b0 \
+    --hash=sha256:be0799f1ad70c755d10de5aaf46af94199d4f16a992f90278f2662350cd3f4fe

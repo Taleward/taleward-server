@@ -7,6 +7,23 @@
 # Gestartet wird er über das Compose-Profil „worker“ bzw. „worker-cpu“ (deploy/docker-compose.yml). Für die
 # Grafikkarte braucht der Server den NVIDIA-Treiber und das nvidia-container-toolkit – die CUDA-Bibliotheken selbst
 # bringt PyTorch mit, deshalb reicht ein schlankes Grundbild.
+#
+# Installiert wird nur mit Prüfsummen (wie in der Worker-App): Pakete aus uv.lock, PyTorch aus
+# deploy/pytorch-pruefsummen.txt, uv und das Bauwerkzeug aus festen Listen unter deploy/.
+
+# Erste Stufe: nur die Paketlisten. Sie läuft bei jeder neuen uv.lock (schnell); die große Installation darunter
+# kommt aus dem Zwischenspeicher, solange die Listen gleich bleiben.
+FROM python:3.11-slim-bookworm AS listen
+ARG TORCH_BACKEND=cu128
+COPY deploy/uv-werkzeug.txt /tmp/uv-werkzeug.txt
+RUN pip install --no-cache-dir --no-deps --require-hashes -r /tmp/uv-werkzeug.txt
+WORKDIR /quelle
+COPY pyproject.toml uv.lock ./
+COPY deploy/ki_pakete.py deploy/pytorch-pruefsummen.txt deploy/bauwerkzeug.txt ./deploy/
+RUN uv export --frozen --format requirements-txt --extra ki --no-dev --no-emit-project --no-header --no-annotate \
+      -q -o /tmp/ki.txt \
+ && python deploy/ki_pakete.py /tmp/ki.txt deploy/pytorch-pruefsummen.txt deploy/bauwerkzeug.txt "$TORCH_BACKEND" /listen
+
 FROM python:3.11-slim-bookworm
 
 # cu128 = CUDA 12.8 (NVIDIA-Treiber ab 525, wie in der Worker-App), cpu = ohne Grafikkarte (kleiner)
@@ -28,22 +45,25 @@ ENV PYTHONUNBUFFERED=1 \
     XDG_CACHE_HOME=/modelle/cache
 
 # ffmpeg: Aufnahmen dekodieren; libgomp1: Rechnen auf dem Prozessor (CTranslate2)
+COPY deploy/uv-werkzeug.txt /tmp/uv-werkzeug.txt
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg libgomp1 \
  && rm -rf /var/lib/apt/lists/* \
- && pip install --no-cache-dir uv \
+ && pip install --no-cache-dir --no-deps --require-hashes -r /tmp/uv-werkzeug.txt \
  && uv venv /opt/venv
 
 WORKDIR /app
 # Erst nur das KI-Paket (mehrere GB, ändert sich selten → bei Updates meist aus dem Zwischenspeicher).
-# Feste Versionen aus uv.lock; torchcodec kommt wie in der Worker-App von PyPI (gibt es nicht für jede CUDA-Fassung).
-COPY engine-requirements.txt ./
-RUN grep -viE '^torchcodec==' engine-requirements.txt > /tmp/basis.txt \
- && (grep -iE '^torchcodec==' engine-requirements.txt > /tmp/extra.txt || true) \
- && uv pip install --no-cache --no-deps --torch-backend "$TORCH_BACKEND" -r /tmp/basis.txt \
- && if [ -s /tmp/extra.txt ]; then uv pip install --no-cache --no-deps -r /tmp/extra.txt; fi
+# Feste Versionen und Prüfsummen; torchcodec kommt wie in der Worker-App von PyPI (steht in geprueft.txt).
+COPY --from=listen /listen/ /listen/
+RUN uv pip install --no-cache --no-deps --require-hashes -r /listen/geprueft.txt \
+ && uv pip install --no-cache --no-deps --require-hashes --torch-backend "$TORCH_BACKEND" -r /listen/pytorch.txt \
+ && if [ -s /listen/bauwerkzeug.txt ]; then \
+      uv pip install --no-cache --no-deps --require-hashes -r /listen/bauwerkzeug.txt; fi
 COPY . .
-RUN uv pip install --no-cache --no-deps . \
+# Der Taleward-Code selbst: ohne Abhängigkeiten, ohne Bau-Umgebung und ohne Paketverzeichnis (nur das Bauwerkzeug
+# mit bekannter Prüfsumme läuft)
+RUN uv pip install --no-cache --no-deps --no-build-isolation --no-index . \
  && python -c "import app.cli, torch; print('torch', torch.__version__)" \
  && useradd --system --uid 1000 --create-home taleward \
  && mkdir -p /arbeit /modelle /kopplung \

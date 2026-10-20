@@ -240,6 +240,15 @@ den KI-Abhängigkeiten `engine-requirements.txt` neu erzeugen:
 uv export --format requirements-txt --extra ki --no-dev --no-hashes --no-emit-project --no-header -o engine-requirements.txt
 ```
 
+Der Worker-Container (`Dockerfile.worker`) installiert nur mit Prüfsummen: Die Pakete kommen aus `uv.lock`,
+PyTorch aus `deploy/pytorch-pruefsummen.txt`, uv und das Bauwerkzeug aus `deploy/uv-werkzeug.txt` und
+`deploy/bauwerkzeug.txt`; `deploy/ki_pakete.py` stellt die Listen zusammen und bricht bei einer fehlenden Prüfsumme
+ab. Nach einem PyTorch-Wechsel die Liste neu erzeugen (braucht Zugang zu download.pytorch.org):
+
+```bash
+python3 deploy/pytorch_pruefsummen.py uv.lock deploy/pytorch-pruefsummen.txt
+```
+
 ## Fassungen und Veröffentlichung
 
 - Die Fassung steht in `pyproject.toml`. Jede Änderung, die auf Server ankommen soll, erhöht sie (Tests, die die

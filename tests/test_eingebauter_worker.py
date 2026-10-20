@@ -108,8 +108,8 @@ def test_compose_profile_fuer_den_worker():
 
 def test_dockerfile_worker():
     text = (WURZEL / "Dockerfile.worker").read_text(encoding="utf-8")
-    assert "engine-requirements.txt" in text and "ARG TORCH_BACKEND=cu128" in text
-    assert text.index("COPY engine-requirements.txt") < text.index("COPY . .")  # KI-Paket zuerst (Zwischenspeicher)
+    assert "ARG TORCH_BACKEND=cu128" in text
+    assert text.index("COPY --from=listen") < text.index("COPY . .")  # KI-Paket zuerst (Zwischenspeicher)
     assert '"--automatisch"' in text and "USER taleward" in text
     assert "/kopplung" in (WURZEL / "Dockerfile").read_text(encoding="utf-8")
 

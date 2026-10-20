@@ -196,7 +196,7 @@ fi
 
 version_setzen "$NEU" "$COMMIT"
 # Server mit frischem Grundbild; ein eingebauter Worker (COMPOSE_PROFILES) ohne --pull, damit sein mehrere GB großes
-# KI-Paket aus dem Zwischenspeicher kommt, solange sich engine-requirements.txt nicht ändert
+# KI-Paket aus dem Zwischenspeicher kommt, solange sich die Paketlisten (uv.lock, PyTorch-Prüfsummen) nicht ändern
 # Fertige Bilder (Caddy, Ollama) bei der Gelegenheit auch auffrischen – schlägt das fehl, läuft das alte weiter
 # Ist Docker Hub gerade nicht erreichbar oder begrenzt (429 Too Many Requests), mit dem vorhandenen Grundbild bauen
 grundbild_bauen() {
