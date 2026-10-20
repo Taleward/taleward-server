@@ -220,9 +220,10 @@ info:
     (Vorlage aus dem Einrichtungsassistenten oder eigener Link) und meldet sie in ServerInfo.termsUrl und termsVersion,
     dazu ServerInfo.legalNoticeUrl (Impressum). Registrieren nur mit acceptTerms und der gezeigten termsVersion (beides
     mit Zeitpunkt protokollieren). User.termsAcceptedVersion/termsAcceptedAt; PUT /me/terms für die Zustimmung zu einer
-    neuen Fassung. Solange sie fehlt, antwortet der Server auf ändernde Anfragen mit 403 `terms_required` – lesen,
-    Zustimmungen widerrufen, laufende Aufnahmen fertig hochladen, Daten herunterladen und das Konto löschen gehen weiter.
-    Das gilt auch für Konten, die vor dem Update angelegt wurden (termsAcceptedVersion null).
+    neuen Fassung. Solange sie fehlt, antwortet der Server auf ändernde Anfragen mit 403 `terms_required`. Alles, was
+    Daten zurücknimmt, löscht oder das Konto absichert, geht weiter (Liste bei User.termsAcceptedVersion), dazu Lesen,
+    das Hochladen laufender Aufnahmen und das Herunterladen der eigenen Daten. Das gilt auch für Konten, die vor dem
+    Update angelegt wurden (termsAcceptedVersion null).
 
 servers:
   - url: https://taleward.example.org/api/v1
@@ -2089,7 +2090,8 @@ paths:
                   description: |
                     Ab 0.4.21, nur bei action create: bei diesem Eintrag ergänzen statt neu anlegen (meist match.entryId,
                     jeder Eintrag der Kampagne ist erlaubt); null nimmt es zurück. Anderer Eintrag oder andere action → 400
-                    `invalid_input`. Die App schickt dabei in der Regel decision accepted mit.
+                    `invalid_input`. Die App schickt dabei in der Regel decision accepted mit. Ist der Vorschlag weniger
+                    sichtbar als der Eintrag, gilt die Umleitung in gmNotes (siehe Proposal.mergeIntoEntryId).
       responses:
         "200":
           description: OK
@@ -3426,9 +3428,18 @@ components:
           type: [integer, "null"]
           description: |
             Ab 0.4.22: zuletzt zugestimmte Fassung der Nutzungsbedingungen; null = noch nie (z. B. Konto von vor dem Update).
-            Kleiner als ServerInfo.termsVersion → ändernde Anfragen enden mit 403 `terms_required`, außer: PUT /me/terms,
-            DELETE /me, GET /me/export, alles unter /auth, Zustimmung zu Aufnahmen widerrufen (PUT …/recording-consent mit
-            granted false), Hochladen einer schon begonnenen Aufnahme (/uploads/…) und Abmelden. Lesen geht immer.
+            Kleiner als ServerInfo.termsVersion → ändernde Anfragen enden mit 403 `terms_required`. Lesen geht immer.
+            Ohne Bedingung erlaubt: PUT /me/terms, DELETE /me, GET /me/export, alles unter /auth/ (auch Abmelden) und
+            /uploads/ (begonnene Aufnahmen fertig hochladen), DELETE /me/voice-profile, DELETE /me/email,
+            DELETE /me/providers/{provider}, PUT /me/password, DELETE /campaigns/{id}/members/me/character,
+            DELETE /campaigns/{id}/members/{memberId}/portrait, DELETE /comments/{id}, DELETE /documents/{id}.
+            Nur zum Zurücknehmen erlaubt (sonst 403 `terms_required`): PUT …/recording-consent und
+            PUT …/members/me/move-consent mit granted false; PATCH /me/voice-profile mit learnFromSessions false;
+            PATCH /campaigns/{id} nur mit allowExternalTranscription, allowCloudSummary bzw. allowCharacterAnalysis auf
+            false (jede andere Änderung im selben Aufruf → 403, nichts gespeichert); PATCH …/members/{eigene Id} nur, um
+            characterBackstory bzw. characterSummary zu leeren; DELETE …/members/{eigene Id} (Kampagne verlassen – andere
+            entfernen braucht die Zustimmung). Die App zeigt bei 403 `terms_required` den Weg zum Zustimmen; bei Widerrufen
+            und beim Verlassen fragt sie nicht erst danach.
         termsAcceptedAt: { type: [string, "null"], format: date-time, description: "Ab 0.4.22, Zeitpunkt dieser Zustimmung" }
 
     VoiceProfile:
@@ -3826,7 +3837,10 @@ components:
             Ab 0.4.21: Die SL hat entschieden, den create-Vorschlag bei diesem Eintrag zu ergänzen (PATCH). Gesetzt wirkt er
             wie update auf diesen Eintrag (beim Veröffentlichen bzw. Übernehmen wie bei update angehängt); der Titel des
             Vorschlags kommt zu aliases, wenn er weder Name noch Alias ist. Die Sichtbarkeit des Eintrags ändert sich
-            dadurch nicht. null = als neuer Eintrag.
+            dadurch nicht. Ausnahme: Ist der Vorschlag weniger sichtbar als der Eintrag (Vorschlag gm_only, Eintrag
+            public; oder der Vorschlag ist vor Mitgliedern verborgen, die den Eintrag sehen), kommen Titel und Text nur
+            in die gmNotes des Eintrags – kein Alias, kein öffentlicher Text, keine Erwähnung für Spieler. Die App sagt
+            das in der Rückfrage. null = als neuer Eintrag.
         title: { type: string }
         detail: { type: string, description: "Spielerwissen (öffentlicher Teil)" }
         gmNotes: { type: [string, "null"], description: "Geheimer Teil, nur für die SL" }

@@ -34,7 +34,7 @@ def test_ereignisse_eines_auftrags(client, world, dbs, tmp_path):
     assert p == sorted(p) and p[-1] <= 1.0
     # Keine Inhalte: nur bekannte Felder
     erlaubt = {"ereignis", "zeit", "jobId", "typ", "dateien", "p", "sekunden", "audioSekunden", "peakVramMb", "tokenS",
-               "text", "schritt"}
+               "text", "schritt", "messwerte"}
     assert all(set(x) <= erlaubt for x in e)
     # Was der Worker gerade tut, kommt als Ereignis – nur mit dem Text der Tätigkeit, nie mit Inhalten
     from app import worker_prozess
@@ -112,7 +112,7 @@ def test_serverfassung_beim_koppeln(client, dbs):
     code, _ = code_erzeugen(dbs)
     dbs.commit()
     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.113"
+    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.114"
 
 
 def test_engine_requirements_passen_zu_uv_lock(tmp_path):
