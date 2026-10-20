@@ -36,7 +36,7 @@ from app.db import get_db, server_id, utcnow
 from app.einstellungen import angaben, meta_lesen, meta_schreiben, speichern
 from app.models import (
     CampaignDocument,
-    AuthMethod, Campaign, GameSession, Job, Member, Organization, OrgMember, User, Worker,
+    AuthMethod, Campaign, GameSession, Job, Member, Organization, OrgMember, ServerMeta, User, Worker,
 )
 from app.security import verify_password
 from app.verwaltung.i18n import SPRACHEN, sprache_von, uebersetzer
@@ -101,6 +101,7 @@ MELDUNGEN = {
     "pausiert": "Worker pausiert – er nimmt keine neuen Aufträge an.",
     "fortgesetzt": "Worker nimmt wieder Aufträge an.",
     "gesperrt": "Zugangsschlüssel gesperrt.",
+    "entfernt": "Worker aus der Liste entfernt.",
     "gestartet": "Lokaler Worker gestartet.",
     "beendet": "Lokaler Worker beendet.",
     "neustart": "Verarbeitung neu eingereiht.",
@@ -834,6 +835,23 @@ def knecht_sperren(worker_id: str, user: User = Depends(verwalter), db: Session 
     return _zurueck("/transkription", "gesperrt")
 
 
+@router.post("/worker/{worker_id}/entfernen", dependencies=[Depends(csrf_pruefen)])
+def knecht_entfernen(request: Request, worker_id: str, user: User = Depends(verwalter), db: Session = Depends(get_db)):
+    """Gesperrten Worker aus der Liste nehmen. Aufträge und Protokoll behalten ihren Eintrag („entfernter Worker“)."""
+    w = _knecht(db, worker_id)
+    if w.local or w.revoked_at is None:
+        _ = tr(request)
+        antwort = transkription(request, user, db, fehler=_("Bitte den Worker zuerst sperren."))
+        antwort.status_code = 409
+        return antwort
+    db.delete(w)
+    messung = db.get(ServerMeta, f"worker.messung.{w.id}")  # Messwerte des eingebauten Workers
+    if messung is not None:
+        db.delete(messung)
+    db.commit()
+    return _zurueck("/transkription", "entfernt")
+
+
 @router.post("/worker/lokal/start", dependencies=[Depends(csrf_pruefen)])
 def lokal_starten(modus: str = Form("echt"), autostart: str = Form(""), user: User = Depends(verwalter),
                   db: Session = Depends(get_db)):
@@ -1222,7 +1240,8 @@ def warteschlange(request: Request, user: User = Depends(verwalter), db: Session
         dok = db.get(CampaignDocument, j.document_id) if j.document_id else None
         c = db.get(Campaign, s.campaign_id) if s else (db.get(Campaign, dok.campaign_id) if dok else None)
         aktuell = s is not None and queue.current_job(db, s.id, None) is j
-        zeilen.append({"j": j, "s": s, "c": c, "dok": dok, "knecht": namen.get(j.lease_worker_id or ""),
+        knecht = namen.get(j.lease_worker_id or "") or (_("entfernter Worker") if j.lease_worker_id else None)
+        zeilen.append({"j": j, "s": s, "c": c, "dok": dok, "knecht": knecht,
                        "neustart": aktuell and s.state == "failed",
                        "haengt": j.state == "leased" and j.lease_expires_at is not None
                                  and j.lease_expires_at < utcnow()})

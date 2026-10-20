@@ -224,6 +224,9 @@ article.text h2 { margin-top:var(--space-6); }
 .koppelcode { font:700 24px/30px ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing:.12em; }
 .notizen { white-space:pre-line; }
 .aktionen form { display:inline; margin:0; }
+.bestaetigen { flex-basis:100%; }
+.bestaetigen p { margin:0 0 var(--space-2); }
+.koppeldaten dd .tw-btn { margin-left:var(--space-3); vertical-align:middle; }
 input[type="range"] { width:100%; accent-color:var(--tinte); }
 
 /* Zweiter Faktor: Wiederherstellungscodes (0.4.84) */

@@ -177,6 +177,12 @@
             {% if not k.w.local %}
             <form method="post" action="/verwaltung/worker/{{ k.w.id }}/sperren"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="tw-btn tw-btn--quiet tw-btn--klein" type="submit">{{ _("Schlüssel sperren") }}</button></form>
             {% endif %}
+          {% elif not k.w.local %}
+            <details class="bestaetigen"><summary>{{ _("Aus der Liste entfernen") }}</summary>
+              <p>{{ _("„{name}“ aus der Liste entfernen?", name=k.w.name) }}</p>
+              <p class="hilfe">{{ _("Aufträge und Protokoll behalten ihren Eintrag. Zum Wiederverbinden den Worker neu koppeln.") }}</p>
+              <form method="post" action="/verwaltung/worker/{{ k.w.id }}/entfernen"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit">{{ _("Aus der Liste entfernen") }}</button></form>
+            </details>
           {% endif %}
         </div></td>
       </tr>
@@ -198,9 +204,11 @@
   <p>{{ _("In der Worker-App eintragen:") }}</p>
   <dl class="koppeldaten">
     <dt>{{ _("Adresse des Servers") }}</dt><dd><code>{{ server_url }}</code></dd>
-    <dt>{{ _("Kopplungscode") }}</dt><dd><code class="koppelcode">{{ koppel[0] }}</code></dd>
+    <dt>{{ _("Kopplungscode") }}</dt><dd><code class="koppelcode ganz" id="koppelcode">{{ koppel[0] }}</code>
+      <button class="tw-btn tw-btn--quiet tw-btn--klein" type="button" data-kopieren="koppelcode" data-fertig="{{ _("Kopiert") }}" hidden>{{ _("Kopieren") }}</button></dd>
   </dl>
   <p class="hilfe">{{ _("Der Code gilt bis {zeit} und nur einmal. Schlüssel und Adresse trägt der Worker selbst ein.", zeit=zeit(koppel[1])) }}</p>
+  <script src="/verwaltung/static/kopieren.js" defer></script>
   <details><summary>{{ _("Ohne App: Befehl für die Kommandozeile") }}</summary>
   <div class="geheim"><code>uv run chronik worker --koppeln {{ koppel[0] }} --server {{ server_url }}</code></div></details>
   {% else %}
