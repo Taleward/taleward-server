@@ -184,11 +184,15 @@ def text_laden(doc_id: str) -> list[dict]:
         return []
 
 
+# Absatzgrenzen: Leerzeile oder eine neue Zeile, die mit einer Geheim-Markierung beginnt (wie MARKER, ohne Groß/klein)
+_ABSATZ = re.compile(r"\n\s*\n|\n(?=\s*(?:\[(?:SL|GM)\]|(?:Geheim|Secret|SL-Info|GM-Info)\s*:))", re.I)
+
+
 def geheime_abschnitte(abschnitte: list[dict]) -> list[str]:
     """Absätze, die ausdrücklich als geheim markiert sind (für die Prüfung der Vorschläge)."""
     out = []
     for a in abschnitte:
-        for absatz in re.split(r"\n\s*\n|\n(?=\s*(?:\[(?:SL|GM)\]|Geheim:|Secret:))", a["text"]):
+        for absatz in _ABSATZ.split(a["text"]):
             if MARKER.match(absatz):
                 out.append(absatz)
     return out
@@ -394,7 +398,9 @@ def speichern(db: Session, doc: CampaignDocument, d: dict, engine: str, worker_i
             if v["action"] == "create" else None,
         ))
     welt = (d.get("worldInfoSuggestion") or "").strip()[:1500] or None
-    if welt and markiert and _geheimes_im_detail(welt, markiert):
+    # Die Welt-Info lesen alle und das Modell kannte die ganze Bibel: hier auch bei Handouts gegen Geheimes prüfen
+    welt_geheim = markiert if doc.kind != "handout" else markiert + geheime_bibeltexte(eintraege.values())
+    if welt and welt_geheim and _geheimes_im_detail(welt, welt_geheim):
         welt = None  # Die Welt-Info lesen alle: Geheimes darin wird gar nicht erst vorgeschlagen
     doc.world_info_suggestion = None if doc.kind == "gm" else welt
     doc.state, doc.progress = "awaiting_review", 1.0
