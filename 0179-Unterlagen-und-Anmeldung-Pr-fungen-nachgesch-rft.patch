@@ -1,0 +1,151 @@
+From 4432d8f4eb257ecfa94b5b4fbde8963754b33cb2 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 14:46:33 +0200
+Subject: [PATCH 179/180] =?UTF-8?q?Unterlagen=20und=20Anmeldung:=20Pr?=
+ =?UTF-8?q?=C3=BCfungen=20nachgesch=C3=A4rft?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ app/routers/anmeldung.py   |  4 +++
+ app/unterlagen.py          | 18 ++++++++---
+ tests/test_server_04111.py | 65 ++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 82 insertions(+), 5 deletions(-)
+ create mode 100644 tests/test_server_04111.py
+
+diff --git a/app/routers/anmeldung.py b/app/routers/anmeldung.py
+index d66ed30..322c272 100644
+--- a/app/routers/anmeldung.py
++++ b/app/routers/anmeldung.py
+@@ -224,4 +224,8 @@ def passwort_aendern(body: schemas.PasswordChangeRequest, request: Request, user
+ 
+     methode = db.scalar(select(AuthMethod).where(AuthMethod.user_id == user.id, AuthMethod.kind == "password"))
++    if methode is None:  # neue Anmeldeart anlegen ist kein Absichern des Bestehenden: braucht die Nutzungsbedingungen
++        from app.access import terms_verlangen
++
++        terms_verlangen(user, db)
+     if methode is not None and not verify_password(body.current_password or "", methode.secret):
+         raise errors.ApiError(401, "wrong_password")
+diff --git a/app/unterlagen.py b/app/unterlagen.py
+index b1d612d..3656da9 100644
+--- a/app/unterlagen.py
++++ b/app/unterlagen.py
+@@ -41,5 +41,8 @@ MAX_SEITEN = 2000
+ MAX_DOCX_XML = 100 * 1024 * 1024
+ ENDUNGEN = {".pdf": "pdf", ".docx": "docx", ".txt": "text", ".md": "text", ".markdown": "text"}
+-MARKER = re.compile(r"^\s*(\[(SL|GM)\]|(Geheim|Secret|SL-Info|GM-Info)\s*:)", re.I)
++# Markierung am Anfang eines Absatzes, auch als Aufzählung oder fett: „[SL]“, „Geheim:“, „SL Info:“, „**SL-Notiz:**“ …
++_MARKE = (r"(?:[-*•>]\s*)?(?:\*\*|__)?(?:\[(?:SL|GM)\]|(?:Geheim|Secret|SL[- ]?Info|GM[- ]?Info|SL[- ]?Notiz|"
++          r"GM[- ]?Notes?)\s*(?:\*\*|__)?\s*:)")
++MARKER = re.compile(r"^\s*" + _MARKE, re.I)
+ 
+ 
+@@ -186,5 +189,5 @@ def text_laden(doc_id: str) -> list[dict]:
+ 
+ # Absatzgrenzen: Leerzeile oder eine neue Zeile, die mit einer Geheim-Markierung beginnt (wie MARKER, ohne Groß/klein)
+-_ABSATZ = re.compile(r"\n\s*\n|\n(?=\s*(?:\[(?:SL|GM)\]|(?:Geheim|Secret|SL-Info|GM-Info)\s*:))", re.I)
++_ABSATZ = re.compile(r"\n\s*\n|\n(?=\s*" + _MARKE + ")", re.I)
+ 
+ 
+@@ -361,6 +364,7 @@ def speichern(db: Session, doc: CampaignDocument, d: dict, engine: str, worker_i
+     # Bibel nicht alle Spieler kennen
+     markiert = geheime_abschnitte(text_laden(doc.id))
++    bibel_geheim = geheime_bibeltexte(eintraege.values())
+     if doc.kind != "handout":
+-        markiert += geheime_bibeltexte(eintraege.values())
++        markiert += bibel_geheim
+     db.execute(delete(Proposal).where(Proposal.document_id == doc.id))
+     from app import dubletten, woerterbuch
+@@ -377,5 +381,9 @@ def speichern(db: Session, doc: CampaignDocument, d: dict, engine: str, worker_i
+             oeffentlich_vorgeschlagen = False
+         if doc.kind == "handout":
+-            sichtbar, gm_notes, oeffentlich_vorgeschlagen = "public", None, False
++            if detail and bibel_geheim and _geheimes_im_detail(detail, bibel_geheim):
++                # Das Modell kannte die SL-Notizen der Bibel: Geheimes daraus nie öffentlich vorschlagen
++                sichtbar, gm_notes, detail, oeffentlich_vorgeschlagen = "gm_only", detail, "", False
++            else:
++                sichtbar, gm_notes, oeffentlich_vorgeschlagen = "public", None, False
+         else:
+             sichtbar = "gm_only"
+@@ -400,5 +408,5 @@ def speichern(db: Session, doc: CampaignDocument, d: dict, engine: str, worker_i
+     welt = (d.get("worldInfoSuggestion") or "").strip()[:1500] or None
+     # Die Welt-Info lesen alle und das Modell kannte die ganze Bibel: hier auch bei Handouts gegen Geheimes prüfen
+-    welt_geheim = markiert if doc.kind != "handout" else markiert + geheime_bibeltexte(eintraege.values())
++    welt_geheim = markiert if doc.kind != "handout" else markiert + bibel_geheim
+     if welt and welt_geheim and _geheimes_im_detail(welt, welt_geheim):
+         welt = None  # Die Welt-Info lesen alle: Geheimes darin wird gar nicht erst vorgeschlagen
+diff --git a/tests/test_server_04111.py b/tests/test_server_04111.py
+new file mode 100644
+index 0000000..65fef07
+--- /dev/null
++++ b/tests/test_server_04111.py
+@@ -0,0 +1,65 @@
++"""Server 0.4.111: Vorschläge aus Handouts nie mit Geheimem der Bibel, mehr Schreibweisen der Geheim-Markierung,
++erstes Passwort nur mit Zustimmung zu den Nutzungsbedingungen."""
++import pytest
++
++from tests.test_unterlagen import api  # noqa: F401  (Fixture)
++
++API = "/api/v1"
++
++
++# ---------------------------------------------------------------- Sicherheit: Vorschläge aus Handouts, Markierungen
++def test_handout_vorschlag_mit_geheimem_der_bibel_bleibt_geheim(client, world, dbs, api):  # noqa: F811
++    from app.models import Entry
++    from tests.dateien import pdf
++    from tests.test_step5 import einstellen
++    from tests.test_unterlagen import Unterlagenmodell, bibel, hochladen, verarbeiten, vorschlag
++
++    w = world
++    bibel(client, w)
++    e = dbs.query(Entry).filter_by(name="Rabenfels").one()
++    e.gm_notes = "Unter dem alten Leuchtturm liegt der Eingang zur Schmugglerhöhle."
++    dbs.commit()
++    geheim = vorschlag(entryType="location", title="Alter Leuchtturm", gmNotes="",
++                       detail="Unter dem alten Leuchtturm liegt der Eingang zur Schmugglerhöhle.")
++    harmlos = vorschlag(title="Borin", detail="Wirt mit rotem Bart.", gmNotes="")
++    api["modell"] = Unterlagenmodell([geheim, harmlos])
++    einstellen(dbs, art="api", api_key="sk-test-schluessel-1234")
++    d = hochladen(client, w, "a.pdf", pdf(["Der Wirt heisst Borin."]), "handout").json()
++    assert verarbeiten(dbs)
++    vs = {v["title"]: v for v in client.get(f"{API}/documents/{d['id']}/proposals", headers=w["gm"]).json()}
++    lt = vs["Alter Leuchtturm"]
++    assert lt["suggestedVisibility"] == "gm_only" and lt["detail"] == "" and "Schmugglerhöhle" in lt["gmNotes"]
++    assert not lt["publicSuggested"]
++    assert vs["Borin"]["suggestedVisibility"] == "public"  # Unverfängliches aus Handouts bleibt öffentlich
++
++
++@pytest.mark.parametrize("text", [
++    "SL Info: Borin ist ein Spion.", "GM Info: Borin ist ein Spion.", "SL-Notiz: Borin ist ein Spion.",
++    "- [SL] Borin ist ein Spion.", "* Geheim: Borin ist ein Spion.", "**SL-Info:** Borin ist ein Spion.",
++    "• GM-Notes: Borin ist ein Spion.", "> secret: Borin ist ein Spion.",
++])
++def test_weitere_schreibweisen_der_markierung(text):
++    from app.unterlagen import geheime_abschnitte
++
++    gefunden = geheime_abschnitte([{"text": "Der Wirt heisst Borin.\n" + text + "\nNoch ein Satz."}])
++    assert any("Spion" in g for g in gefunden), text
++    assert not any("Der Wirt heisst" in g for g in gefunden)
++
++
++def test_kein_falscher_treffer_ohne_doppelpunkt():
++    from app.unterlagen import geheime_abschnitte
++
++    assert geheime_abschnitte([{"text": "Geheimnisse gibt es viele.\n\nSL ist heute Anna."}]) == []
++
++
++def test_passwort_neu_anlegen_braucht_die_bedingungen(client, world, dbs):
++    from sqlalchemy import delete, select
++
++    from app.models import AuthMethod, User
++
++    u = dbs.scalar(select(User).where(User.username == "ben"))
++    dbs.execute(delete(AuthMethod).where(AuthMethod.user_id == u.id))  # wie ein Konto nur mit Google/Discord
++    u.terms_accepted_version = None
++    dbs.commit()
++    r = client.put(f"{API}/me/password", json={"newPassword": "Ein-ganz-neues-Wort-42"}, headers=world["pl"])
++    assert r.status_code == 403 and r.json()["code"] == "terms_required"
+-- 
+2.43.0
