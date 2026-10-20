@@ -57,3 +57,18 @@ def grafikspeicher_mb() -> int | None:
     except Exception:  # noqa: BLE001 – ohne KI-Paket oder Treiber: keine Karte
         return None
     return None
+
+
+def grafikkarte() -> dict:
+    """Name und Grafikspeicher der ersten NVIDIA-Karte für die Messwerte eines Auftrags – nur über nvidia-smi (PyTorch
+    würde im Worker-Prozess Grafikspeicher belegen, während Ollama rechnet). Ohne Karte: {}."""
+    programm = shutil.which("nvidia-smi")
+    if not programm:
+        return {}
+    try:
+        aus = subprocess.run([programm, "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+                             capture_output=True, text=True, timeout=15).stdout.strip().splitlines()
+        name, mb = (x.strip() for x in aus[0].rsplit(",", 1))
+        return {"karte": name[:80], "kartenspeicherMb": int(float(mb))}
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return {}

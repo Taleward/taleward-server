@@ -433,7 +433,7 @@ EN: dict[str, str] = {
     "Leer lassen: Es gilt der Mistral-Schlüssel der externen Transkription.": "Leave empty: the Mistral key of the external transcription is used.",
     "Modell": "Model",
     "Modell in Ollama": "Model in Ollama",
-    "Noch kein Worker mit Ollama. In der Worker-App „Recaps auch auf diesem PC schreiben“ einschalten oder den Ollama-Container starten (INSTALLATION.md).": "No worker with Ollama yet. Turn on “Also write recaps on this PC” in the worker app or start the Ollama container (INSTALLATION.md).",
+    "Noch kein Worker mit Ollama. In der Worker-App „Kapitel auch auf diesem PC schreiben“ einschalten oder den Ollama-Container starten (INSTALLATION.md).": "No worker with Ollama yet. Turn on “Write chapters on this PC too” in the worker app or start the Ollama container (INSTALLATION.md).",
     "Nur für die Verbrauchsanzeige. Leer = bekannte Preise der Mistral-Modelle.": "Only used for the usage display. Empty = known prices of the Mistral models.",
     "Ohne eigenen Schlüssel gilt der Mistral-Schlüssel der externen Transkription.": "Without its own key, the Mistral key of the external transcription is used.",
     "Platzhaltertext statt echter Zusammenfassung (zum Testen).": "Placeholder text instead of a real summary (for testing).",

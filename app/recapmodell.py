@@ -40,6 +40,22 @@ def wahl(vram_mb: int | None, grenze_mb: int | None = 0) -> tuple[str, int]:
     return next((m, k) for ab, m, k in STUFEN if b >= ab)
 
 
+_GROESSE = {GROSS: 2, KLEIN: 1}
+
+
+def kleinere(modell: str, hoechstens: int) -> list[tuple[str, int]]:
+    """Stufen unterhalb von (Modell, höchster Kontext), größte zuerst – für „auto“, wenn das Modell nicht ganz auf die
+    Grafikkarte passt (dann rechnet Ollama teils im Arbeitsspeicher und wird um ein Vielfaches langsamer)."""
+    g = _GROESSE.get(modell)
+    if g is None:
+        return []
+    aus: list[tuple[str, int]] = []
+    for _ab, m, k in STUFEN:
+        if (_GROESSE[m], k) < (g, hoechstens) and (m, k) not in aus:
+            aus.append((m, k))
+    return aus
+
+
 def kontext_fuer(bedarf_tokens: int, hoechstens: int) -> int:
     """Kontext für einen Auftrag: Bedarf + Reserve, in Stufen gerundet, zwischen MIN_KONTEXT und hoechstens.
     Ist hoechstens kleiner als MIN_KONTEXT (von Hand so eingestellt), gilt hoechstens."""

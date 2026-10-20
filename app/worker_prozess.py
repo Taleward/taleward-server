@@ -171,6 +171,52 @@ def _ollama_passt(modell: str, version: str | None) -> None:
                                  "Worker-App aktualisieren oder das eigene Ollama auf diesem PC.")
 
 
+def modell_laden(url: str, version: str, z: dict, kontext_von: Callable[[int], int],
+                 client: httpx.Client | None = None):
+    """Modell bereitstellen. Bei „auto“ vorher laden und prüfen, ob es ganz auf die Grafikkarte passt – sonst eine
+    Stufe kleiner (erst weniger Kontext, dann das kleinere Modell). → (Klient, Kennung, abgestuft)."""
+    from app import recapmodell
+    from app.sprachmodell import OllamaKlient
+
+    auto = bool(z.get("auto")) or z["model"] == recapmodell.AUTO
+    modell, hoechstens = recapmodell.aufloesen(z["model"], int(z.get("context") or 12288), auto)
+    stufen = [(modell, hoechstens)] + (recapmodell.kleinere(modell, hoechstens) if auto else [])
+    versucht: set[tuple[str, int]] = set()
+    klient, kennung, abgestuft = None, "", False
+    for m, h in stufen:
+        kontext = kontext_von(h)
+        if (m, kontext) in versucht:
+            continue
+        if klient is not None:
+            klient.entladen()
+            abgestuft = True
+            taetigkeit(f"{klient.modell} passt mit Kontext {klient.kontext} nicht ganz auf die Grafikkarte – "
+                       f"nehme {m} mit Kontext {kontext}")
+        versucht.add((m, kontext))
+        _ollama_passt(m, version)
+        klient = OllamaKlient(url, m, kontext, client=client)
+        taetigkeit(f"Sprachmodell {m}, Kontext {kontext}")
+        kennung = klient.bereitstellen(lambda text: log.info(text))
+        if not auto or not klient.vorladen():
+            break
+        b = klient.belegung()
+        if b is None or b["ganzAufKarte"]:
+            break
+    return klient, kennung, abgestuft
+
+
+def llm_messwerte(klient, zaehler, abgestuft: bool) -> dict:
+    """Kennzahlen für Worker-App und Verwaltung – vor dem Entladen, solange Ollama das Modell noch zeigt."""
+    from app.arbeitsweise import grafikkarte
+
+    b = klient.belegung() or {}
+    m = {"art": "kapitel", "modell": klient.modell, "kontext": klient.kontext,
+         "einlesenTokS": zaehler.einlesen_s_mittel, "schreibenTokS": zaehler.token_s_mittel,
+         "quantisierung": b.get("quantisierung"), "ganzAufKarte": b.get("ganzAufKarte"), "abgestuft": abgestuft,
+         **grafikkarte()}
+    return {k: v for k, v in m.items() if v is not None}
+
+
 def lokales_sprachmodell(url: str, client: httpx.Client | None = None):
     """Läuft Ollama auf diesem Worker? Dann (Funktion für Zusammenfassungs-Aufträge, Angabe für die Zentrale).
     Sonst (None, None) – der Worker übernimmt dann nur Transkriptionen."""
@@ -182,6 +228,9 @@ def lokales_sprachmodell(url: str, client: httpx.Client | None = None):
     if version is None:
         return None, None
 
+    def laden(z: dict, kontext_von: Callable[[int], int]):
+        return modell_laden(url, version, z, kontext_von, client)
+
     def zusammenfassen(auftrag: dict, fortschritt: Fortschritt) -> dict:
         if auftrag.get("type") == "document":
             return unterlage(auftrag, fortschritt)
@@ -189,18 +238,15 @@ def lokales_sprachmodell(url: str, client: httpx.Client | None = None):
             return korrigieren(auftrag, fortschritt)
         z = auftrag["summarize"]
         t0 = time.monotonic()
-        modell, hoechstens = recapmodell.aufloesen(z["model"], int(z.get("context") or 12288), bool(z.get("auto")))
-        kontext = recapmodell.kontext_fuer(recapmodell.bedarf(z["recap"]), hoechstens)
-        _ollama_passt(modell, version)
-        klient = OllamaKlient(url, modell, kontext, client=client)
-        taetigkeit(f"Sprachmodell {modell}, Kontext {kontext}")
-        kennung = klient.bereitstellen(lambda text: log.info(text))
+        bedarf = recapmodell.bedarf(z["recap"])
+        klient, kennung, abgestuft = laden(z, lambda h: recapmodell.kontext_fuer(bedarf, h))
         fortschritt(0.05)
         # Stückgröße so, dass Anweisung, Stück und Antwort in den Kontext passen
         ablauf = Ablauf(klient, max_transkript_tokens=max(2000, klient.kontext - 5000),
                         stueck_tokens=max(1500, (klient.kontext - 4000) // 2))
         try:
             d = ablauf.ausfuehren(z["recap"], z["proposals"], fortschritt, gegenpruefen=bool(z.get("review")))
+            d["metrics"] = _messung["messwerte"] = llm_messwerte(klient, ablauf.zaehler, abgestuft)
         finally:
             klient.entladen()
         _messung["tokenS"] = ablauf.zaehler.token_s_mittel
@@ -213,15 +259,13 @@ def lokales_sprachmodell(url: str, client: httpx.Client | None = None):
 
         z = auftrag["document"]
         t0 = time.monotonic()
-        modell, kontext = recapmodell.aufloesen(z["model"], int(z.get("context") or 12288), bool(z.get("auto")))
-        _ollama_passt(modell, version)
-        klient = OllamaKlient(url, modell, kontext, client=client)
-        kennung = klient.bereitstellen(lambda text: log.info(text))
+        klient, kennung, abgestuft = laden(z, lambda h: h)
         fortschritt(0.05)
         # Anweisung, Bibel (Namen) und Antwort brauchen Platz – das Stück bekommt etwa die Hälfte des Kontexts
         ablauf = DokumentAblauf(klient, stueck_tokens=max(1500, (klient.kontext - 5000) // 2))
         try:
             d = ablauf.ausfuehren(z["input"], fortschritt)
+            d["metrics"] = _messung["messwerte"] = llm_messwerte(klient, ablauf.zaehler, abgestuft)
         finally:
             klient.entladen()
         _messung["tokenS"] = ablauf.zaehler.token_s_mittel
@@ -235,16 +279,14 @@ def lokales_sprachmodell(url: str, client: httpx.Client | None = None):
 
         z = auftrag["revise"]
         t0 = time.monotonic()
-        modell, kontext = recapmodell.aufloesen(z["model"], int(z.get("context") or 12288), bool(z.get("auto")))
-        _ollama_passt(modell, version)
-        klient = OllamaKlient(url, modell, kontext, client=client)
-        kennung = klient.bereitstellen(lambda text: log.info(text))
+        klient, kennung, abgestuft = laden(z, lambda h: h)
         fortschritt(0.1)
         ablauf = Ablauf(klient)
         # Anweisung, Kapitel und Antwort brauchen Platz – die Auszüge bekommen höchstens den Rest des Kontexts
         z = {**z, "auszuege": (z.get("auszuege") or "")[:max(0, (klient.kontext - 6000) * 3)]}
         try:
             d = korrektur.ausfuehren(ablauf, z)
+            d["metrics"] = _messung["messwerte"] = llm_messwerte(klient, ablauf.zaehler, abgestuft)
         finally:
             klient.entladen()
         d.update(model=f"ollama/{klient.modell}@{kennung}", tokensIn=ablauf.zaehler.tokens_in,
@@ -459,9 +501,13 @@ class WorkerProzess:
             else:
                 r.raise_for_status()
                 log.info("Auftrag %s fertig", job)
+                # Messwerte (0.4.114): nur Kennzahlen aus app/messwerte.py, nie Inhalte
+                from app.messwerte import bereinigen
+
+                messwerte = bereinigen(_messung.get("messwerte") or ergebnis.get("metrics"))
                 self.melden("fertig", jobId=job, sekunden=round(time.monotonic() - t0, 1),
                             audioSekunden=ergebnis.get("audioSeconds"), peakVramMb=ergebnis.get("peakVramMb"),
-                            tokenS=_messung.get("tokenS"))
+                            tokenS=_messung.get("tokenS"), **({"messwerte": messwerte} if messwerte else {}))
         except Abgebrochen:
             if not stand["verloren"]:
                 self._melde_fehler(job, "worker_stopped", "Der Worker wurde beendet.", True)

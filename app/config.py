@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     worker_work_dir: Path = Path("./data/worker")
     worker_token_file: Path | None = None  # Worker liest seinen Schlüssel aus dieser Datei (eingebauter Worker)
     worker_modell: str = "auto"  # nur mit „chronik worker --automatisch“: auto | large-v3 | large-v3-turbo
+    # Zum Messen (0.4.114): Sprechertrennung im exklusiven Modus von pyannote community-1 – je Zeitpunkt genau eine
+    # Stimme, Wörter lassen sich so eindeutiger zuordnen. Standard aus, bis Messungen zeigen, dass es besser ist.
+    sprecher_exklusiv: bool = False
     # Eingebauter Worker im Docker-Paket (Compose-Profil „worker“ oder „worker-cpu“): Der Server legt beim Start einen
     # frischen Schlüssel für ihn an und schreibt ihn in diese Datei (gemeinsames Volume, nur Server und Worker).
     eingebauter_worker: str = ""  # Inhalt von COMPOSE_PROFILES; leer = kein eingebauter Worker

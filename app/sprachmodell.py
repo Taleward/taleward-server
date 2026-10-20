@@ -64,6 +64,7 @@ class Antwort:
     text: str
     tokens_in: int = 0
     tokens_out: int = 0
+    tokens_zwischengespeichert: int = 0  # Teil von tokens_in, den der Anbieter aus seinem Zwischenspeicher nahm
 
 
 class Klient(Protocol):
@@ -113,6 +114,10 @@ class OpenAIKlient:
         self.client = client or httpx.Client(timeout=httpx.Timeout(300.0, connect=20.0))
         self.headers = {"Authorization": f"Bearer {api_key}"}
         self.cent_pro_mio = cent_pro_mio or PREISE.get(modell, (0, 0))
+        # Mistral berechnet Eingabe-Token aus dem Zwischenspeicher (gleicher Anfang wie ein früherer Aufruf) mit 10 %
+        # des Preises (docs.mistral.ai, Prompt caching, Stand 10/2026); bei anderen Anbietern rechnen wir vorsichtig
+        # mit dem vollen Preis.
+        self.zwischenspeicher_anteil = 0.1 if "api.mistral.ai" in self.url else 1.0
 
     def chat(self, system: str, nutzer: str) -> Antwort:
         body = {"model": self.modell, "temperature": 0.3, "response_format": {"type": "json_object"},
@@ -147,8 +152,11 @@ class OpenAIKlient:
                                          erneut=False)
             d = r.json()
             u = d.get("usage") or {}
-            return Antwort(d["choices"][0]["message"]["content"] or "", int(u.get("prompt_tokens") or 0),
-                           int(u.get("completion_tokens") or 0))
+            details = u.get("prompt_tokens_details")
+            gespeichert = details.get("cached_tokens") if isinstance(details, dict) else 0
+            ein = int(u.get("prompt_tokens") or 0)
+            return Antwort(d["choices"][0]["message"]["content"] or "", ein, int(u.get("completion_tokens") or 0),
+                           min(ein, max(0, int(gespeichert or 0))))
         raise SprachmodellFehler("Sprachmodell nicht erreichbar.")
 
     def kosten_cent(self, tokens_in: int, tokens_out: int) -> int:
@@ -203,7 +211,8 @@ class OllamaKlient:
     def __init__(self, url: str, modell: str, kontext: int = 12288, client: httpx.Client | None = None):
         self.url, self.modell, self.kontext = url.rstrip("/"), modell, kontext
         self.client = client or httpx.Client(timeout=httpx.Timeout(self.STILLSTAND_S, connect=10.0))
-        self.token_s: float | None = None  # gemessene Geschwindigkeit des letzten Aufrufs
+        self.token_s: float | None = None  # gemessene Geschwindigkeit des letzten Aufrufs (Schreiben)
+        self.einlesen_s: float | None = None  # gemessene Geschwindigkeit beim Einlesen der Anfrage (Token/s)
         self._denkt: bool | None = None  # Modell mit Denkmodus (Qwen3 u. a.)? Einmal bei Ollama nachgefragt
         self.temperatur: float | None = None  # Testoption: feste Temperatur für den ersten Versuch statt 0.3
 
@@ -317,12 +326,14 @@ class OllamaKlient:
                                      "Modell hilft – Verwaltung → Transkription → Lokales Sprachmodell.")
         if status >= 400 or fehler:
             raise SprachmodellFehler(f"Ollama meldet {status}: {fehler[:200]}")
+        tokens_ein, ein_ns = int(d.get("prompt_eval_count") or 0), int(d.get("prompt_eval_duration") or 0)
+        self.einlesen_s = tokens_ein / (ein_ns / 1e9) if tokens_ein >= 50 and ein_ns > 0 else None
         tokens_aus, dauer_ns = int(d.get("eval_count") or 0), int(d.get("eval_duration") or 0)
         if tokens_aus >= 50 and dauer_ns > 0:
             self.token_s = tokens_aus / (dauer_ns / 1e9)
             if self.token_s < self.LANGSAM_TOKEN_S:
                 log.warning("Sprachmodell sehr langsam (%.1f Token/s) – dieser Rechner sollte Recaps dem Server "
-                            "überlassen (Worker-App: „Recaps hier schreiben“ abschalten)", self.token_s)
+                            "überlassen (Worker-App: „Kapitel auch auf diesem PC schreiben“ abschalten)", self.token_s)
         return Antwort(d.get("inhalt", ""), int(d.get("prompt_eval_count") or 0), tokens_aus)
 
     def _streamen(self, body: dict) -> tuple[int, str, dict]:
@@ -353,6 +364,35 @@ class OllamaKlient:
                     letztes = d
         letztes["inhalt"] = "".join(teile)
         return 200, "", letztes
+
+    def vorladen(self) -> bool:
+        """Modell mit dem Kontext dieses Auftrags laden (ohne Text) – danach zeigt belegung(), ob es ganz auf die
+        Grafikkarte passt. Laden dauert bei großen Modellen eine Weile; ohne Antwort zählt es als nicht geladen."""
+        try:
+            r = self.client.post(f"{self.url}/api/generate", json={
+                "model": self.modell, "keep_alive": "2m", "options": {"num_ctx": self.kontext}},
+                timeout=httpx.Timeout(600.0, connect=10.0))
+            return r.status_code == 200
+        except httpx.HTTPError:
+            return False
+
+    def belegung(self) -> dict | None:
+        """Wie das geladene Modell liegt (Ollama /api/ps): {ganzAufKarte, quantisierung, groesseMb, aufKarteMb}.
+        None, wenn es nicht geladen ist oder Ollama die Angaben nicht kennt."""
+        try:
+            r = self.client.get(f"{self.url}/api/ps", timeout=5)
+            modelle = r.json().get("models", []) if r.status_code == 200 else []
+        except (httpx.HTTPError, ValueError):
+            return None
+        for m in modelle:
+            if self.modell not in (m.get("name"), m.get("model")) and m.get("name") != f"{self.modell}:latest":
+                continue
+            groesse, karte = int(m.get("size") or 0), int(m.get("size_vram") or 0)
+            if groesse <= 0:
+                return None
+            return {"ganzAufKarte": karte >= groesse, "groesseMb": groesse // 2 ** 20, "aufKarteMb": karte // 2 ** 20,
+                    "quantisierung": str((m.get("details") or {}).get("quantization_level") or "")[:20] or None}
+        return None
 
     def entladen(self, warten_s: float = 20.0) -> None:
         """Grafikspeicher sofort freigeben (der nächste Auftrag kann eine Transkription sein) – und kurz warten,
@@ -1928,9 +1968,11 @@ def _zahl(n: int) -> str:
 class Zaehler:
     tokens_in: int = 0
     tokens_out: int = 0
+    tokens_zwischengespeichert: int = 0  # davon aus dem Zwischenspeicher des Anbieters (günstiger)
     aufrufe: int = 0
 
     token_s: list[float] = field(default_factory=list)  # gemessene Geschwindigkeit je Aufruf (lokales Modell)
+    einlesen_s: list[float] = field(default_factory=list)  # Einlesen der Anfrage, Token/s je Aufruf
 
     letzte_antwort: str = ""  # Rohtext der letzten Antwort (nur für die Fehlersuche im Modellvergleich)
     kosten: float = 0.0  # Cent, je Aufruf mit dem Preis des jeweiligen Klienten (zwei Modelle möglich)
@@ -1952,9 +1994,15 @@ class Zaehler:
         self.tokens_in += a.tokens_in
         self.tokens_out += a.tokens_out
         self.aufrufe += 1
+        self.tokens_zwischengespeichert += a.tokens_zwischengespeichert
         preis = getattr(klient, "cent_pro_mio", None)
         if preis:
-            self.kosten += (a.tokens_in * preis[0] + a.tokens_out * preis[1]) / 1_000_000
+            anteil = getattr(klient, "zwischenspeicher_anteil", 1.0)
+            ein = (a.tokens_in - a.tokens_zwischengespeichert) + a.tokens_zwischengespeichert * anteil
+            self.kosten += (ein * preis[0] + a.tokens_out * preis[1]) / 1_000_000
+        einlesen = getattr(klient, "einlesen_s", None)
+        if einlesen:
+            self.einlesen_s.append(einlesen)
         rate = getattr(klient, "token_s", None)
         if rate:
             from app.worker_prozess import taetigkeit
@@ -1968,6 +2016,10 @@ class Zaehler:
     @property
     def token_s_mittel(self) -> float | None:
         return round(sum(self.token_s) / len(self.token_s), 1) if self.token_s else None
+
+    @property
+    def einlesen_s_mittel(self) -> float | None:
+        return round(sum(self.einlesen_s) / len(self.einlesen_s), 1) if self.einlesen_s else None
 
 
 def _notizkern(n: str) -> str:

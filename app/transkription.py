@@ -181,6 +181,36 @@ def sprecher_auswerten(segmente: list[dict], wav: Path, arbeit: Path, embeddings
     return aus, stimmen
 
 
+class Stufen:
+    """Laufzeit je Verarbeitungsschritt (Sekunden) – für die Messwerte: Wo bleibt die Zeit?"""
+
+    def __init__(self):
+        self.s: dict[str, float] = {}
+
+    def __call__(self, name: str):
+        stufen = self
+
+        class _Takt:
+            def __enter__(self):
+                self.t0 = time.monotonic()
+
+            def __exit__(self, *_a):
+                stufen.s[name] = round(stufen.s.get(name, 0.0) + time.monotonic() - self.t0, 1)
+                return False
+
+        return _Takt()
+
+
+def abschrift_messwerte(ergebnis: dict, stufen: Stufen) -> dict:
+    from app.arbeitsweise import grafikkarte
+
+    audio_s, rechen_s = float(ergebnis.get("audioSeconds") or 0), float(ergebnis.get("computeSeconds") or 0)
+    m = {"art": "abschrift", "stufen": dict(stufen.s), **grafikkarte()}
+    if audio_s > 0:
+        m["minutenJeStunde"] = round(rechen_s / 60 / (audio_s / 3600), 1)
+    return m
+
+
 def verarbeiter(motor: Motor):
     """Verarbeitungsfunktion für den Worker (gleiche Form wie `verarbeite_attrappe`)."""
 
@@ -198,16 +228,18 @@ def verarbeiter(motor: Motor):
         sitzung = auftrag["session"]
         sprache = sitzung.get("language") or "de"
         hotwords = [h for h in sitzung.get("hotwords") or [] if h.strip()]
+        stufen = Stufen()
         with VramMesser() as vram:
             try:
                 ergebnis = _mit_ausweichen(motor, lambda: (
-                    _discord(motor, auftrag, dateien, arbeit, fortschritt, sprache, hotwords)
+                    _discord(motor, auftrag, dateien, arbeit, fortschritt, sprache, hotwords, stufen)
                     if sitzung["source"] == "discord"
-                    else _tisch(motor, sitzung, dateien, arbeit, fortschritt, sprache, hotwords)))
+                    else _tisch(motor, sitzung, dateien, arbeit, fortschritt, sprache, hotwords, stufen)))
             finally:
                 gpu_freigeben()
         ergebnis.update(computeSeconds=round(time.monotonic() - t0, 1), model=f"whisperx/{motor.modell}",
                         peakVramMb=vram.max_mb or None)
+        ergebnis["metrics"] = abschrift_messwerte(ergebnis, stufen)
         return ergebnis
 
     return verarbeite
@@ -227,17 +259,22 @@ def _stimmabdruck(motor, datei: Path, arbeit: Path, fortschritt: Fortschritt, t0
             "model": getattr(motor, "abdruck_modell", motor.modell)}
 
 
-def _tisch(motor, sitzung, dateien, arbeit, fortschritt, sprache, hotwords) -> dict:
+def _tisch(motor, sitzung, dateien, arbeit, fortschritt, sprache, hotwords, stufen: Stufen | None = None) -> dict:
+    stufen = stufen or Stufen()
     wav = arbeit / "gesamt.wav"
-    audio.zusammenfuegen(dateien, wav, sitzung.get("maxAudioSeconds"))  # 0.4.99
-    gesamt = audio.dauer(wav)
+    with stufen("einlesen"):
+        audio.zusammenfuegen(dateien, wav, sitzung.get("maxAudioSeconds"))  # 0.4.99
+        gesamt = audio.dauer(wav)
     fortschritt(0.15)
     taetigkeit(f"Transkription läuft ({gesamt / 60:.0f} min Audio) …", schritt="transkription", audioSekunden=round(gesamt))
-    daten = motor.audio_laden(wav)
-    segs = motor.transkribieren(daten, sprache, hotwords, _bereich(fortschritt, 0.15, 0.55))
-    segs = _bereinigen(segs, hotwords)
+    with stufen("einlesen"):
+        daten = motor.audio_laden(wav)
+    with stufen("erkennung"):  # mit Stilleerkennung (in whisperx nicht getrennt messbar)
+        segs = motor.transkribieren(daten, sprache, hotwords, _bereich(fortschritt, 0.15, 0.55))
+        segs = _bereinigen(segs, hotwords)
     taetigkeit("Wörter werden zeitlich ausgerichtet …", schritt="ausrichten")
-    segs = motor.ausrichten(segs, daten, sprache, _bereich(fortschritt, 0.55, 0.70))
+    with stufen("ausrichtung"):
+        segs = motor.ausrichten(segs, daten, sprache, _bereich(fortschritt, 0.55, 0.70))
     if sitzung.get("nurText"):
         # Erneute Transkription mit korrigierter Namenshilfe: Stimmen sind schon zugeordnet, die Zentrale übernimmt
         # sie zeitlich – keine Sprechertrennung, keine Hörproben, kein Stimmabdruck
@@ -249,33 +286,40 @@ def _tisch(motor, sitzung, dateien, arbeit, fortschritt, sprache, hotwords) -> d
     n = int(sitzung.get("expectedSpeakers") or 0)
     # Anwesende ±1: jemand kann kaum reden, oder eine Stimme wird in zwei Gruppen geteilt
     taetigkeit("Stimmen werden getrennt …", schritt="sprecher")
-    segs, embeddings = motor.sprecher_trennen(daten, segs, max(1, n - 1) if n else None, n + 1 if n else None,
-                                              _bereich(fortschritt, 0.70, 0.95))
-    segs = halluzinationen_entfernen(segs)
-    segmente, stimmen = sprecher_auswerten(segs, wav, arbeit, embeddings, namen=tuple(hotwords))
+    with stufen("sprechertrennung"):
+        segs, embeddings = motor.sprecher_trennen(daten, segs, max(1, n - 1) if n else None, n + 1 if n else None,
+                                                  _bereich(fortschritt, 0.70, 0.95))
+    with stufen("auswertung"):
+        segs = halluzinationen_entfernen(segs)
+        segmente, stimmen = sprecher_auswerten(segs, wav, arbeit, embeddings, namen=tuple(hotwords))
     fortschritt(1.0)
     return {"audioSeconds": round(gesamt, 1), "segments": segmente, "speakers": stimmen,
             "embeddingModel": getattr(motor, "abdruck_modell", None)}
 
 
-def _discord(motor, auftrag, dateien, arbeit, fortschritt, sprache, hotwords) -> dict:
+def _discord(motor, auftrag, dateien, arbeit, fortschritt, sprache, hotwords, stufen: Stufen | None = None) -> dict:
     """Eine Spur pro Person: keine Sprechertrennung, kein Stimmabdruck (aus Discord wird nichts gelernt)."""
+    stufen = stufen or Stufen()
     alle_segmente, stimmen, laengste = [], [], 0.0
     anteil = 0.9 / max(1, len(dateien))
     spuren = sorted(auftrag["files"], key=lambda x: x["position"])  # gleiche Reihenfolge wie beim Herunterladen
     for nr, (f, pfad) in enumerate(zip(spuren, dateien)):
         start = 0.05 + nr * anteil
         wav = arbeit / f"spur-{nr}.wav"
-        audio.zusammenfuegen([pfad], wav, auftrag["session"].get("maxAudioSeconds"))  # 0.4.99
-        laengste = max(laengste, audio.dauer(wav))
-        daten = motor.audio_laden(wav)
-        segs = motor.transkribieren(daten, sprache, hotwords, _bereich(fortschritt, start, start + anteil * 0.7))
-        segs = _bereinigen(segs, hotwords)
-        segs = motor.ausrichten(segs, daten, sprache, _bereich(fortschritt, start + anteil * 0.7, start + anteil))
-        segs = halluzinationen_entfernen(segs, nur_ohne_sprecher=False)
-        for s in segs:
-            s["speaker"] = f["fileId"]
-        segmente, spur_stimmen = sprecher_auswerten(segs, wav, arbeit, track_member_id=f.get("trackMemberId"))
+        with stufen("einlesen"):
+            audio.zusammenfuegen([pfad], wav, auftrag["session"].get("maxAudioSeconds"))  # 0.4.99
+            laengste = max(laengste, audio.dauer(wav))
+            daten = motor.audio_laden(wav)
+        with stufen("erkennung"):
+            segs = motor.transkribieren(daten, sprache, hotwords, _bereich(fortschritt, start, start + anteil * 0.7))
+            segs = _bereinigen(segs, hotwords)
+        with stufen("ausrichtung"):
+            segs = motor.ausrichten(segs, daten, sprache, _bereich(fortschritt, start + anteil * 0.7, start + anteil))
+        with stufen("auswertung"):
+            segs = halluzinationen_entfernen(segs, nur_ohne_sprecher=False)
+            for s in segs:
+                s["speaker"] = f["fileId"]
+            segmente, spur_stimmen = sprecher_auswerten(segs, wav, arbeit, track_member_id=f.get("trackMemberId"))
         alle_segmente += segmente
         stimmen += spur_stimmen
         wav.unlink(missing_ok=True)
@@ -328,6 +372,26 @@ def _uebersetzen(e: Exception) -> AudioFehler:
 # ---------------------------------------------------------------- WhisperX (nur mit Grafikkarte)
 class EinrichtungsFehler(Exception):
     """Worker kann nicht starten – verständliche Meldung für die Kommandozeile."""
+
+
+def exklusiv_trennen(pipe, daten, min_n, max_n, fortschritt):
+    """Wie whisperx' DiarizationPipeline.__call__, aber mit der exklusiven Sprechertrennung von community-1 (keine
+    Überlappungen). Abdrücke wie bei whisperx in der Reihenfolge der Stimmen der normalen Trennung."""
+    import pandas as pd
+    import torch
+    from whisperx.audio import SAMPLE_RATE
+
+    aus = pipe.model({"waveform": torch.from_numpy(daten[None, :]), "sample_rate": SAMPLE_RATE},
+                     min_speakers=min_n, max_speakers=max_n)
+    diar = getattr(aus, "exclusive_speaker_diarization", None) or aus.speaker_diarization
+    df = pd.DataFrame(diar.itertracks(yield_label=True), columns=["segment", "label", "speaker"])
+    df["start"] = df["segment"].apply(lambda x: x.start)
+    df["end"] = df["segment"].apply(lambda x: x.end)
+    abdruecke = getattr(aus, "speaker_embeddings", None)
+    embeddings = ({s: abdruecke[i].tolist() for i, s in enumerate(aus.speaker_diarization.labels())}
+                  if abdruecke is not None else None)
+    fortschritt(100.0)
+    return df, embeddings
 
 
 class WhisperXMotor:
@@ -489,11 +553,16 @@ class WhisperXMotor:
     def sprecher_trennen(self, daten, segmente, min_n, max_n, fortschritt):
         from whisperx.diarize import DiarizationPipeline, assign_word_speakers
 
+        from app.config import get_settings
+
         pipe = DiarizationPipeline(model_name=self._pfad("sprecher", "pyannote/speaker-diarization-community-1"),
                                    token=self.hf_token, device=self.geraet_sprecher)
         try:
-            diar, embeddings = pipe(daten, min_speakers=min_n, max_speakers=max_n, return_embeddings=True,
-                                    progress_callback=fortschritt)
+            if get_settings().sprecher_exklusiv:
+                diar, embeddings = exklusiv_trennen(pipe, daten, min_n, max_n, fortschritt)
+            else:
+                diar, embeddings = pipe(daten, min_speakers=min_n, max_speakers=max_n, return_embeddings=True,
+                                        progress_callback=fortschritt)
             return assign_word_speakers(diar, {"segments": segmente})["segments"], embeddings
         finally:
             del pipe
