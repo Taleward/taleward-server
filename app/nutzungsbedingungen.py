@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from app.einstellungen import meta_lesen, meta_schreiben
+from app.links import betreiber_link
 
 META_TEXT = "nutzungsbedingungen.text"  # eigener Text (leer = Vorlage)
 META_URL = "nutzungsbedingungen.url"  # eigener Link (leer = Text bzw. Vorlage auf diesem Server)
@@ -46,7 +47,7 @@ def stand(db: Session, sprache: str = "de") -> Stand:
     text = (meta_lesen(db, META_TEXT) or "").strip()
     url = (meta_lesen(db, META_URL) or "").strip()
     return Stand(text=text or vorlage(db, sprache), eigener_text=bool(text),
-                 url=url if url.startswith("https://") else None, version=version(db))
+                 url=url if betreiber_link(url) else None, version=version(db))
 
 
 def adresse(db: Session, basis: str) -> str:
@@ -58,7 +59,7 @@ def adresse(db: Session, basis: str) -> str:
 def impressum_adresse(db: Session, basis: str) -> str | None:
     """legalNoticeUrl für /info: eigener Link, Vorlage unter /impressum oder null."""
     text, link = meta_lesen(db, "impressum.text"), (meta_lesen(db, "impressum.url") or "").strip()
-    if link.startswith("https://"):
+    if betreiber_link(link):
         return link
     return basis.rstrip("/") + "/impressum" if text else None
 

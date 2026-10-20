@@ -34,6 +34,14 @@ def adresse_ok(url: str) -> bool:
     return "@" not in teile.netloc
 
 
+def betreiber_link(url: str | None, nur_https: bool = True) -> bool:
+    """Links des Betreibers (Impressum, Datenschutz, Nutzungsbedingungen; die App bekommt sie über /info): wie
+    adresse_ok, dazu höchstens 500 Zeichen, kein „\\“ und – außer bei nur_https=False – nur https."""
+    if not url or len(url) > 500 or "\\" in url or not adresse_ok(url):
+        return False
+    return not nur_https or urlsplit(url).scheme.lower() == "https"
+
+
 def pruefen(links) -> list[dict]:
     """Eingabe aus der Schnittstelle (schemas.Link) prüfen → Liste zum Speichern. Fehler → 400 invalid_input."""
     aus, ids = [], set()

@@ -34,6 +34,7 @@ from app.abrechnung import TOKENS_SCHAETZUNG
 from app.config import get_settings
 from app.db import get_db, server_id, utcnow
 from app.einstellungen import angaben, meta_lesen, meta_schreiben, speichern
+from app.links import betreiber_link
 from app.models import (
     CampaignDocument,
     AuthMethod, Campaign, GameSession, Job, Member, Organization, OrgMember, ServerMeta, User, Worker,
@@ -1323,7 +1324,7 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
     download = app_download_url.strip()
     oeffentlich = public_url.strip().rstrip("/")
     for link in (url, download, oeffentlich):
-        if link and not link.startswith(("https://", "http://")):
+        if link and not betreiber_link(link, nur_https=False):
             return fehler(_("Links müssen mit https:// beginnen."))
     try:
         alter = int(min_age)

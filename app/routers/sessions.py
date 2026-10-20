@@ -3,6 +3,7 @@
 Stimmen bestätigen, Recap, Vorschläge und Veröffentlichen: routers/pruefung.py
 """
 import json
+import re
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import FileResponse
@@ -224,13 +225,13 @@ def speaker_sample(sessionId: str, speakerId: str, index: str | None = Query(def
         raise errors.not_found()
     nr = 0
     if index not in (None, ""):
-        if not index.isdigit() or int(index) > 2 or int(index) >= max(1, len(_proben(sp))):
+        if not re.fullmatch("[0-2]", index) or int(index) >= max(1, len(_proben(sp))):
             raise errors.not_found()
         nr = int(index)
     pfad = storage.sample_path(s.id, sp.id, nr) if nr else storage.sample_path(s.id, sp.id)
     if not pfad.exists():
         raise errors.ApiError(410, "audio_deleted")  # seit 0.3.8 mit Fehlerkörper
-    return FileResponse(pfad, media_type="audio/ogg")
+    return FileResponse(pfad, media_type="audio/ogg", headers={"X-Content-Type-Options": "nosniff"})
 
 
 @router.get("/sessions/{sessionId}/gm-note", tags=["Chronik"], response_model=schemas.GmNoteOut)

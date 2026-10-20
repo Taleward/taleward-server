@@ -501,7 +501,7 @@ def apply_entry_input(db: Session, e: Entry, data: schemas.EntryInput, require_p
             raise errors.bad_request("validation_error", "validation_error.pc")  # pc legt nur der Server an
         e.type = data.type
     if "name" in fields:
-        name = (data.name or "").strip()
+        name = aliasse.zeichen_bereinigen(data.name or "")
         if not name:
             raise errors.bad_request("validation_error", "validation_error.name")
         e.name = name

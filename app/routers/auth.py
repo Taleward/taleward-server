@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import begrenzung, errors, schemas
+from app.links import betreiber_link
 from app.access import current_user
 from app.einstellungen import angaben, mail_adresse
 from app.extern import anbieter
@@ -39,7 +40,7 @@ def info(request: Request, db: Session = Depends(get_db)):
     return schemas.ServerInfoOut(
         name=a.server_name, operator=a.server_operator, contact=a.server_contact, api_version=API_VERSION,
         registration=registrierung(db), auth_methods=["password"] + (["oidc"] if dienste else []),
-        privacy_policy_url=a.privacy_policy_url,
+        privacy_policy_url=a.privacy_policy_url if betreiber_link(a.privacy_policy_url, nur_https=False) else None,
         min_age=a.min_age, external_transcription=extern, min_app_version=a.app_min_version,
         latest_app_version=a.app_latest_version or (neu and neu["version"]),
         app_download_url=a.app_download_url or (neu and neu["url"]),

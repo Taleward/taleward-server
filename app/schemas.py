@@ -670,7 +670,8 @@ class EntryInput(ApiModel):
     gm_notes: str | None = Field(default=None, max_length=20000)
     hidden_from_member_ids: list[str] | None = None
     links: list[Link] | None = Field(default=None, max_length=3)  # 0.4.13
-    aliases: list[str] | None = Field(default=None, max_length=10)  # 0.4.21: „Auch genannt“, sichtbar wie der Name
+    # 0.4.21: „Auch genannt“, sichtbar wie der Name; je Eintrag 1–40 Zeichen (sonst 400)
+    aliases: list[Annotated[str, Field(min_length=1, max_length=40)]] | None = Field(default=None, max_length=10)
 
 
 class MentionOut(ApiModel):

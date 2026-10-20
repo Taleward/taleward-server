@@ -45,8 +45,9 @@ SCHLUESSEL_MIN_BYTES = 32
 SCHLUESSEL_FRIST_S = 15 * 60
 LOKALE_NAMEN = ("localhost", "127.0.0.1", "::1")
 # Aus dem Heimnetz erreichbar (alles andere nur vom PC selbst)
-AUS_DEM_NETZ = ("/api/v1/", "/einladung/", "/app/", "/downloads/", "/datenschutz", "/konto/", "/konto-loeschen",
-                "/passwort/", "/verwaltung/static/", "/verwaltung/sprache/", "/favicon.ico", "/apple-touch-icon")
+AUS_DEM_NETZ = ("/api/v1/", "/einladung/", "/app/", "/downloads/", "/datenschutz", "/impressum", "/nutzungsbedingungen",
+                "/konto/", "/konto-loeschen", "/passwort/", "/verwaltung/static/", "/verwaltung/sprache/",
+                "/favicon.ico", "/apple-touch-icon")
 AUS_DEM_NETZ_GENAU = ("/app", "/")
 # Heimnetz im engen Sinn (RFC 1918, link-lokal, IPv6 ULA). Bewusst nicht ipaddress.is_private: das zählt auch
 # Dokumentations- und Testnetze dazu.

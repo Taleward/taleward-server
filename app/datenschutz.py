@@ -72,7 +72,8 @@ def vorlage(db: Session, hosting: str = "") -> str:
           f"die Spielleitung das Kapitel freigibt, höchstens {frist.tage} {'Tag' if frist.tage == 1 else 'Tage'}, und "
           "werden dann gelöscht." if frist.bis_freigabe else
           f"- Aufnahmen: werden gelöscht, sobald sie in Text umgewandelt sind, spätestens nach {tage} Tagen.")
-         + " Kurze Hörproben je Stimme bleiben nur, bis die Spielleitung die Stimmen zugeordnet hat.",
+         + " Kurze Hörproben je Stimme bleiben nur, bis die Spielleitung die Stimmen zugeordnet hat, höchstens "
+         + (f"{frist.tage} {'Tag' if frist.tage == 1 else 'Tage'}." if frist.bis_freigabe else f"{tage} Tage."),
          "- Stimmprofile: bis zum Widerruf; Löschen entfernt auch alles daraus Gelernte.",
          "- Konto und Inhalte: bis zur Löschung des Kontos (in der App oder unter /konto-loeschen auf diesem Server). "
          "Beiträge zu gemeinsamen "

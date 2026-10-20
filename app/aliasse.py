@@ -7,19 +7,31 @@ bekommt nur Aliasse allgemein bekannter Einträge, Vorschlags-Pipeline, Dublette
 from __future__ import annotations
 
 import json
+import re
 
 MAX_ANZAHL = 10
 MAX_LAENGE = 40
 
 
+# Steuerzeichen und Richtungszeichen (z. B. U+202E) verdrehen die Anzeige bei Spielenden – nie speichern.
+# ZWJ/ZWNJ bleiben (gehören zu manchen Schriften und Emoji).
+_UNSICHTBAR = re.compile("[" + "".join(f"{chr(a)}-{chr(b)}" for a, b in (
+    (0x00, 0x1F), (0x7F, 0x9F), (0x61C, 0x61C), (0x200E, 0x200F), (0x202A, 0x202E), (0x2066, 0x2069))) + "]")
+
+
+def zeichen_bereinigen(text: str) -> str:
+    """Steuer- und Richtungszeichen entfernen, Leerraum zusammenziehen (für Aliasse und Namen)."""
+    return " ".join(_UNSICHTBAR.sub(" ", text or "").split())
+
+
 def bereinigen(name: str, roh) -> list[str]:
     """Leerraum zusammenziehen, kürzen, Doppelte (ohne Groß-/Kleinschreibung) und den Namen selbst entfernen."""
-    gesehen = {" ".join((name or "").split()).casefold()}
+    gesehen = {zeichen_bereinigen(name).casefold()}
     aus: list[str] = []
     for x in roh or []:
         if not isinstance(x, str):
             continue
-        a = " ".join(x.split())[:MAX_LAENGE]
+        a = zeichen_bereinigen(x)[:MAX_LAENGE].strip()
         if a and a.casefold() not in gesehen:
             gesehen.add(a.casefold())
             aus.append(a)

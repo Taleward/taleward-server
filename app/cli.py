@@ -65,6 +65,13 @@ def create_user(
     if db.scalar(select(User).where(User.username == uname)):
         typer.echo(f"Den Benutzer '{uname}' gibt es schon.", err=True)
         raise typer.Exit(1)
+    if zugestimmt and db.scalar(select(User.id).limit(1)) is not None:
+        # Nur das erste Konto (das des Betreibers) ohne Rückfrage – für andere stimmt niemand stellvertretend zu
+        typer.echo("Die Zustimmung zu den Nutzungsbedingungen gilt nur für dein eigenes Konto. Für eine andere "
+                   "Person stimmt niemand stellvertretend zu – sie stimmt selbst in der App zu.")
+        if not typer.confirm("Ist das dein eigenes Konto?", default=False):
+            typer.echo("Abgebrochen – ohne --zugestimmt anlegen, dann stimmt die Person in der App zu.", err=True)
+            raise typer.Exit(1)
     pw = _ask_password()
     _neues_konto(db, uname, display_name.strip(), pw, admin=admin, zugestimmt=zugestimmt)
     db.commit()

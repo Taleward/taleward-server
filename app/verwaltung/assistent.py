@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import begrenzung, einrichtung, kosten, schluessel
+from app.links import betreiber_link
 from app.db import get_db, utcnow
 from app.einstellungen import angaben, extern_konfig, llm_konfig, meta_lesen, meta_schreiben, speichern
 from app.models import Organization, OrgMember, User, Worker
@@ -363,7 +364,7 @@ def datenschutz_speichern(request: Request, aktion: str = Form(""), text: str = 
         return _schritt(request, user, db, "datenschutz", text=vorlage(db), eigener_link="", veroeffentlicht=False)
     if aktion == "link":
         link = eigener_link.strip()
-        if not link.startswith("https://"):
+        if not betreiber_link(link):
             return fehler(_("Links müssen mit https:// beginnen."), text)
         speichern(db, privacy_policy_url=link[:500])
         db.commit()
@@ -427,7 +428,7 @@ def impressum_speichern(request: Request, aktion: str = Form(""), text: str = Fo
         return _weiter("impressum")
     if aktion == "link":
         link = eigener_link.strip()
-        if not link.startswith("https://"):
+        if not betreiber_link(link):
             return fehler(_("Links müssen mit https:// beginnen."))
         meta_schreiben(db, "impressum.url", link[:500])
         meta_schreiben(db, "impressum.text", "")
@@ -452,7 +453,7 @@ def impressum_oeffentlich(request: Request, db: Session = Depends(get_db)):
     text, link = meta_lesen(db, "impressum.text"), meta_lesen(db, "impressum.url")
     if text:
         return _seite(request, "datenschutz.html", None, db, inhalt=html(text), titel_seite=tr(request)("Impressum"))
-    if link and link.startswith("https://"):
+    if betreiber_link(link):
         return RedirectResponse(link, status_code=303)
     _ = tr(request)
     return _seite(request, "hinweis_seite.html", None, db, status_code=404, titel=_("Impressum"),
@@ -493,7 +494,7 @@ def nutzungsbedingungen_speichern(request: Request, aktion: str = Form(""), text
         return _nb_schritt(request, user, db, text=nutzungsbedingungen.vorlage(db, sprache_von(request)))
     if aktion == "link":
         link = eigener_link.strip()
-        if not link.startswith("https://"):
+        if not betreiber_link(link):
             return fehler(_("Links müssen mit https:// beginnen."))
         nutzungsbedingungen.link_speichern(db, link)
         db.commit()
@@ -518,7 +519,8 @@ def nutzungsbedingungen_neue_fassung(request: Request, bestaetigung: str = Form(
     from app import nutzungsbedingungen
     from app.einstellungen import angaben
 
-    if bestaetigung.strip() != (angaben(db).server_name or "").strip():
+    name = (angaben(db).server_name or "").strip()
+    if not name or bestaetigung.strip() != name:  # ohne Servernamen gäbe es nichts zu bestätigen
         return RedirectResponse("/verwaltung/einstellungen?nb=falsch#nutzungsbedingungen", status_code=303)
     nutzungsbedingungen.hochzaehlen(db)
     db.commit()

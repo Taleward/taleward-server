@@ -238,7 +238,9 @@ def patch_proposal(proposalId: str, body: schemas.ProposalPatch, user: User = De
         else:
             ziel = db.get(Entry, body.merge_into_entry_id)
             # Nur action create und nur Einträge derselben Kampagne; fremde wie unbekannte behandeln
-            if p.action != "create" or ziel is None or ziel.campaign_id != campaign_id or ziel.type == "pc":
+            # Charakter-Vorschläge kennen kein „Dort ergänzen“ (sie wirken sofort, ohne Veröffentlichen)
+            if (p.action != "create" or p.source == "character" or ziel is None or ziel.campaign_id != campaign_id
+                    or ziel.type == "pc"):
                 raise errors.bad_request("invalid_input", "invalid_input.merge_target")
             p.merge_into_entry_id = ziel.id
     if "decision" in felder and body.decision is not None:
@@ -472,9 +474,13 @@ def _ergaenzen(db: Session, e: Entry, p: Proposal, s: GameSession | None, public
     """„Dort ergänzen“ (0.4.21): Vorschlagstext an den Eintrag anhängen, Titel als Alias. Geheimes wandert nie in
     einen sichtbareren Eintrag: dann kommen Titel und Text nur in die SL-Notizen, der Eintrag selbst bleibt wie er ist."""
     if _weniger_sichtbar(p, e, public, verborgen):
+        # Nur die SL-Notizen ändern sich: keine Erwähnung und kein neues Änderungsdatum, sonst sähen Spielende, dass
+        # in diesem Kapitel etwas Geheimes zu dem Eintrag dazukam
         geheim = _anhaengen(_anhaengen(e.gm_notes, f"{p.title}: {p.detail}".strip(": ")), p.gm_notes)
-        daten = dict(gm_notes=geheim)
-        notiz = ""
+        geaendert = e.updated_at
+        apply_entry_input(db, e, schemas.EntryInput(gm_notes=geheim))
+        e.updated_at = geaendert
+        return
     else:
         aliasse.hinzufuegen(e, p.title)
         if e.visibility == "public":
@@ -484,6 +490,8 @@ def _ergaenzen(db: Session, e: Entry, p: Proposal, s: GameSession | None, public
             notiz = p.detail
         else:  # geheimer Eintrag: alles bleibt geheim, Text als öffentlicher Teil für später
             daten = dict(summary=_anhaengen(e.summary, p.detail), gm_notes=_anhaengen(e.gm_notes, p.gm_notes))
+            if public and verborgen:  # wird der Eintrag später aufgedeckt, bleiben die Ausgenommenen ausgenommen
+                daten["hidden_from_member_ids"] = sorted(set(e.hidden_member_ids) | set(verborgen))
             notiz = ""
     apply_entry_input(db, e, schemas.EntryInput(**daten))
     if s is not None:
@@ -507,8 +515,10 @@ def _uebernehmen(db: Session, campaign_id: str, s: GameSession | None, p: Propos
         e = Entry(campaign_id=campaign_id, type=p.entry_type, name=p.title)
         db.add(e)
         db.flush()
+        if public and not p.detail.strip():  # „Dort ergänzen“ ins Leere (Ziel inzwischen weg): ohne Text nur für die SL
+            public, verborgen = False, []
         daten = dict(type=p.entry_type, name=p.title, summary=p.detail[:MAX_TEXT], gm_notes=p.gm_notes or "",
-                     visibility=p.suggested_visibility, hidden_from_member_ids=verborgen)
+                     visibility=p.suggested_visibility if public else "gm_only", hidden_from_member_ids=verborgen)
         notiz = p.detail if public else ""
     else:
         e = db.get(Entry, p.target_entry_id or "")

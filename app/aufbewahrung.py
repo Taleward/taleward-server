@@ -5,6 +5,9 @@
 - immediate: Die Aufnahme wird gelöscht, sobald sie in Text umgewandelt ist (Verhalten bis Server 0.4.10). Scheitert
   die Transkription, bleibt sie für „Erneut versuchen“ höchstens AUDIO_RETENTION_DAYS Tage.
 
+Hörproben der Stimmen bleiben bis zur bestätigten Zuordnung, höchstens so lange wie die Aufnahme bleiben dürfte
+(bis_freigabe: maxDays, sonst AUDIO_RETENTION_DAYS ab dem Hochladen) – auch wenn die Aufnahme selbst schon weg ist.
+
 Server, die schon Aufnahmen oder Zustimmungen haben, starten nach dem Update mit immediate – ihre Mitglieder haben
 „wird danach gelöscht“ zugestimmt. Wird die Aufbewahrung verlängert, gelten die bisherigen Zustimmungen nicht mehr:
 Der Server setzt sie zurück (mit Eintrag im Zustimmungsprotokoll), die App fragt dann neu.
@@ -114,7 +117,7 @@ def nach_transkription_loeschen(db: Session) -> int:
 
 def abgelaufene_loeschen(db: Session, standard_tage: int) -> int:
     """Wartung: Aufnahmen spätestens nach der Frist löschen – bis_freigabe: maxDays, sonst standard_tage
-    (nur fehlgeschlagene Transkriptionen haben dann noch Audio)."""
+    (nur fehlgeschlagene Transkriptionen haben dann noch Audio). Hörproben nach derselben Frist."""
     a = lesen(db)
     zahl = nach_transkription_loeschen(db) if not a.bis_freigabe else 0
     grenze = utcnow() - timedelta(days=a.tage if a.bis_freigabe else standard_tage)
@@ -122,4 +125,28 @@ def abgelaufene_loeschen(db: Session, standard_tage: int) -> int:
         s = db.get(GameSession, up.session_id)
         if s is not None and s.audio_deleted_at is None:
             zahl += audio_loeschen(db, s)
+    hoerproben_loeschen(db, grenze)
     return zahl
+
+
+def hoerproben_loeschen(db: Session, grenze) -> int:
+    """Hörproben von Sessions, deren letzte Aufnahme vor der Grenze hochgeladen wurde (Textproben bleiben als Text)."""
+    from app.models import Speaker
+
+    zahl = 0
+    for sid in db.scalars(select(Speaker.session_id).where(Speaker.sample_path.is_not(None)).distinct()):
+        letzte = db.scalar(select(Upload.completed_at).where(Upload.session_id == sid, Upload.state == "completed")
+                           .order_by(Upload.completed_at.desc()).limit(1))
+        if letzte is None or _utc(letzte) >= _utc(grenze):
+            continue
+        storage.delete_samples(sid)
+        for sp in db.scalars(select(Speaker).where(Speaker.session_id == sid)):
+            sp.sample_path = None
+        zahl += 1
+    return zahl
+
+
+def _utc(t):
+    from datetime import timezone
+
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)

@@ -80,15 +80,15 @@ class SegmentIn(ApiModel):
 
 class SampleIn(ApiModel):
     """0.4.21: eine Textprobe mit Hörprobe."""
-    start: float = Field(ge=0)
-    end: float | None = Field(default=None, ge=0)
+    start: float = Field(ge=0, allow_inf_nan=False)
+    end: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     text: str = Field(default="", max_length=2000)
     ogg_base64: str | None = None
 
 
 class SpeakerIn(ApiModel):
     label: str = Field(max_length=50)  # Kennung des Workers, z. B. SPEAKER_01 oder die fileId bei Discord
-    speaking_seconds: float = Field(ge=0)
+    speaking_seconds: float = Field(ge=0, allow_inf_nan=False)
     sample_text: str = Field(default="", max_length=2000)
     sample_ogg_base64: str | None = None
     embedding: list[float] | None = Field(default=None, max_length=4096)
@@ -366,11 +366,10 @@ def ergebnis_uebernehmen(db: Session, job: Job, body: ResultIn, engine: str, wor
         db.add(obj)
         db.flush()
         zuordnung[sp.label] = obj.id
-        if sp.sample_ogg_base64:
-            daten = base64.b64decode(sp.sample_ogg_base64)
-            if len(daten) <= MAX_SAMPLE_BYTES:
-                storage.write_atomic(storage.sample_path(s.id, obj.id), daten)
-                obj.sample_path = str(storage.sample_path(s.id, obj.id))
+        daten = _hoerprobe(sp.sample_ogg_base64)
+        if daten:
+            storage.write_atomic(storage.sample_path(s.id, obj.id), daten)
+            obj.sample_path = str(storage.sample_path(s.id, obj.id))
         _proben_speichern(s.id, obj, sp.samples)
     for pos, seg in enumerate(sorted(body.segments, key=lambda x: x.start)):
         db.add(TranscriptSegment(session_id=s.id, position=pos, start=round(seg.start, 2), end=round(seg.end, 2),
@@ -415,22 +414,32 @@ def _unsicher_json(seg: SegmentIn) -> str | None:
                        for w in seg.low_words], ensure_ascii=False)
 
 
+def _hoerprobe(ogg_base64: str | None) -> bytes | None:
+    """Hörprobe des Workers: nur echtes Ogg (Kennung „OggS“) bis MAX_SAMPLE_BYTES, sonst verworfen."""
+    if not ogg_base64 or len(ogg_base64) > MAX_SAMPLE_BYTES * 4 // 3 + 8:
+        return None
+    try:
+        daten = base64.b64decode(ogg_base64, validate=True)
+    except ValueError:
+        return None
+    return daten if daten.startswith(b"OggS") and len(daten) <= MAX_SAMPLE_BYTES else None
+
+
 def _proben_speichern(session_id: str, obj: Speaker, proben: list[SampleIn]) -> None:
-    """0.4.21: Textproben als JSON am Sprecher, Hörproben als Dateien (Index 0 teilt sich die Datei mit sampleText)."""
+    """0.4.21: Textproben als JSON am Sprecher, Hörproben als Dateien (Index 0 teilt sich die Datei mit sampleText).
+    Nur Proben mit Text und gültiger Hörprobe zählen; der Index entsteht erst danach, damit samples[i] immer zur Datei
+    -i.ogg passt."""
+    gueltig = []
+    for pr in proben[:3]:
+        text, daten = pr.text.strip()[:300], _hoerprobe(pr.ogg_base64)
+        if text and daten:
+            gueltig.append((pr, text, daten))
     liste = []
-    for i, pr in enumerate(proben[:3]):
-        text = pr.text.strip()[:300]
-        if not text:
-            continue
-        if pr.ogg_base64:
-            try:
-                daten = base64.b64decode(pr.ogg_base64)
-            except ValueError:
-                daten = b""
-            if daten and len(daten) <= MAX_SAMPLE_BYTES:
-                storage.write_atomic(storage.sample_path(session_id, obj.id, i), daten)
-                if i == 0:
-                    obj.sample_path = str(storage.sample_path(session_id, obj.id))
+    for i, (pr, text, daten) in enumerate(gueltig):
+        storage.write_atomic(storage.sample_path(session_id, obj.id, i), daten)
+        if i == 0:
+            obj.sample_path = str(storage.sample_path(session_id, obj.id))
+            obj.sample_text = text
         liste.append({"start": round(pr.start, 2), "end": round(pr.end, 2) if pr.end is not None else None,
                       "text": text})
     obj.samples_json = json.dumps(liste, ensure_ascii=False) if liste else None
