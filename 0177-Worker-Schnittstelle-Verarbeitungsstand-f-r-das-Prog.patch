@@ -1,0 +1,317 @@
+From aaf0fc17e76531846512473b6b2759335929196b Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 14:17:00 +0200
+Subject: [PATCH 177/178] =?UTF-8?q?Worker-Schnittstelle:=20Verarbeitungsst?=
+ =?UTF-8?q?and=20f=C3=BCr=20das=20Programm=20auf=20dem=20PC?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ app/desktop.py             |  81 +++++++++++++++++++
+ app/einzelplatz.py         |   5 +-
+ app/routers/worker.py      |  14 +++-
+ tests/test_server_04110.py | 161 +++++++++++++++++++++++++++++++++++++
+ 4 files changed, 259 insertions(+), 2 deletions(-)
+ create mode 100644 app/desktop.py
+ create mode 100644 tests/test_server_04110.py
+
+diff --git a/app/desktop.py b/app/desktop.py
+new file mode 100644
+index 0000000..416d90e
+--- /dev/null
++++ b/app/desktop.py
+@@ -0,0 +1,81 @@
++"""Verarbeitungsstand für das Taleward-Programm auf dem PC (Einzelplatz, Übersicht und Verarbeitung).
++
++Nur Zahlen, Zeiten und Schritte. Titel, Kapitelnummer, Datum und Länge einer Runde nur für Kampagnen, die das Konto des
++Programms leitet – alles andere erscheint als Runde einer anderen Spielleitung, ohne Angaben. Nie Abschriften, Notizen,
++Namen von Unterlagen oder andere Inhalte.
++"""
++from datetime import datetime
++
++from sqlalchemy import func, select
++from sqlalchemy.orm import Session
++
++from app.models import Campaign, CampaignDocument, GameSession, Job, Member, OrgMember, User
++
++META_KONTO = "einzelplatz.konto"
++SCHRITTE = {"transcribe": "transcribing", "summarize": "summarizing", "revise": "revising", "document": "document",
++            "voice_enroll": "voice"}
++ZULETZT = 10
++
++
++def konto_id(db: Session) -> str | None:
++    """Konto des Programms: beim Einrichten gemerkt; bei älteren Einrichtungen das älteste Verwalter-Konto."""
++    from app.einstellungen import meta_lesen
++
++    gemerkt = meta_lesen(db, META_KONTO)
++    if gemerkt and db.get(User, gemerkt) is not None:
++        return gemerkt
++    return db.scalar(select(User.id).join(OrgMember, OrgMember.user_id == User.id)
++                     .where(OrgMember.role == "admin", User.setup_account.is_(False))
++                     .order_by(User.created_at).limit(1))
++
++
++def _geleitet(db: Session, konto: str | None) -> set[str]:
++    if konto is None:
++        return set()
++    return set(db.scalars(select(Member.campaign_id).where(Member.user_id == konto, Member.role == "gm",
++                                                           Member.left_at.is_(None))))
++
++
++def _zeit(t: datetime | None) -> str | None:
++    return t.isoformat().replace("+00:00", "Z") if t is not None else None
++
++
++def _auftrag(db: Session, j: Job, geleitet: set[str], konto: str | None) -> dict:
++    s = db.get(GameSession, j.session_id) if j.session_id else None
++    kampagne = s.campaign_id if s else None
++    if kampagne is None and j.document_id:
++        dok = db.get(CampaignDocument, j.document_id)
++        kampagne = dok.campaign_id if dok else None
++    eigen = kampagne in geleitet if kampagne else (j.type == "voice_enroll" and j.owner_user_id == konto)
++    c = db.get(Campaign, kampagne) if eigen and kampagne else None
++    return {
++        "step": SCHRITTE.get(j.type, "other"),
++        "own": bool(eigen),
++        "campaignTitle": c.title if c else None,
++        "chapterNumber": s.number if eigen and s else None,
++        "playedAt": _zeit(s.played_at) if eigen and s else None,
++        "durationSeconds": s.duration_seconds if eigen and s else None,
++    }
++
++
++def uebersicht(db: Session) -> dict:
++    konto = konto_id(db)
++    geleitet = _geleitet(db, konto)
++    laufend = db.scalar(select(Job).where(Job.state == "leased").order_by(Job.started_at.is_(None), Job.started_at)
++                        .limit(1))
++    aktuell = None
++    if laufend is not None:
++        aktuell = _auftrag(db, laufend, geleitet, konto) | {
++            # nur, was der Worker selbst gemeldet hat – ohne verlässlichen Wert zeigt das Programm nur den Schritt
++            "progress": laufend.progress, "startedAt": _zeit(laufend.started_at)}
++    fertig = []
++    for j in db.scalars(select(Job).where(Job.state.in_(("done", "failed")), Job.finished_at.is_not(None))
++                        .order_by(Job.finished_at.desc()).limit(ZULETZT)):
++        dauer = (int(round((j.finished_at - j.started_at).total_seconds()))
++                 if j.started_at is not None and j.finished_at >= j.started_at else None)
++        fertig.append(_auftrag(db, j, geleitet, konto) | {
++            "result": j.state, "finishedAt": _zeit(j.finished_at), "seconds": dauer})
++    warten = db.scalar(select(func.count()).select_from(Job).where(Job.state == "queued")) or 0
++    pruefen = (db.scalar(select(func.count()).select_from(GameSession).where(
++        GameSession.campaign_id.in_(geleitet), GameSession.state == "awaiting_review")) or 0) if geleitet else 0
++    return {"current": aktuell, "queued": warten, "recent": fertig, "awaitingReview": pruefen}
+diff --git a/app/einzelplatz.py b/app/einzelplatz.py
+index b9f97aa..f47c6af 100644
+--- a/app/einzelplatz.py
++++ b/app/einzelplatz.py
+@@ -417,5 +417,8 @@ def _erstes_konto(body: KontoIn, db: Session) -> JSONResponse:
+     if body.betriebsart is not None and body.betriebsart not in BETRIEBSARTEN:
+         return _fehler(400, "validation_error")
+-    _neues_konto(db, anmeldename, name, body.passwort, admin=True, zugestimmt=True)  # die Person ist der Betreiber
++    konto = _neues_konto(db, anmeldename, name, body.passwort, admin=True, zugestimmt=True)  # die Person ist der Betreiber
++    from app.desktop import META_KONTO
++
++    meta_schreiben(db, META_KONTO, konto.id)  # Konto des Programms (Übersicht im Programm zeigt nur dessen Kampagnen)
+     if meta_lesen(db, "angabe.server_name") is None:
+         meta_schreiben(db, "angabe.server_name", f"Taleward – {name}"[:128])
+diff --git a/app/routers/worker.py b/app/routers/worker.py
+index 24ed228..a6391d9 100644
+--- a/app/routers/worker.py
++++ b/app/routers/worker.py
+@@ -12,5 +12,5 @@ from typing import Literal
+ 
+ from fastapi import APIRouter, Depends, Header, Request, Response
+-from fastapi.responses import FileResponse
++from fastapi.responses import FileResponse, JSONResponse
+ from pydantic import Field
+ from sqlalchemy import delete, select
+@@ -645,4 +645,16 @@ def busy(worker: Worker = Depends(current_worker), db: Session = Depends(get_db)
+ 
+ 
++@router.get("/overview")
++def overview(request: Request, worker: Worker = Depends(current_worker), db: Session = Depends(get_db)):
++    """Taleward Desktop: Verarbeitungsstand für Übersicht und Verarbeitung. Nur der Worker des Programms und nur vom
++    PC selbst; allen anderen 404, als gäbe es den Weg nicht. Inhalte gibt es hier nie (app/desktop.py)."""
++    from app import desktop, einzelplatz
++
++    if (not einzelplatz.programm_worker() or not worker.local
++            or not einzelplatz.vom_pc(request.client.host if request.client else None)):
++        raise errors.not_found()
++    return JSONResponse(desktop.uebersicht(db), headers={"Cache-Control": "no-store"})
++
++
+ @router.get("/app-update")
+ def app_update(request: Request, system: str = "windows", worker: Worker = Depends(current_worker),
+diff --git a/tests/test_server_04110.py b/tests/test_server_04110.py
+new file mode 100644
+index 0000000..23f58e2
+--- /dev/null
++++ b/tests/test_server_04110.py
+@@ -0,0 +1,161 @@
++"""Server 0.4.110: Verarbeitungsstand für Taleward Desktop (GET /worker/v1/overview).
++
++Nur für den Worker des Programms und nur vom PC selbst. Titel und Kapitelnummer nur für Kampagnen, die das Konto des
++Programms leitet; alles andere als „Runde einer anderen Spielleitung“ ohne Angaben. Keine Inhalte.
++"""
++from datetime import datetime, timedelta, timezone
++
++import pytest
++
++from tests.test_server_0495 import _konto, _von
++from tests.test_server_0496 import _token, ep  # noqa: F401  (Fixture)
++
++PFAD = "/worker/v1/overview"
++
++
++def _welt(db):
++    """Kampagnen der Programm-Person (Anna) und einer anderen Spielleitung (Ben), dazu Aufträge."""
++    from sqlalchemy import select
++
++    from app.cli import _neues_konto
++    from app.models import Campaign, CampaignDocument, GameSession, Job, Member, User
++
++    anna = db.scalar(select(User).where(User.username == "anna.muller"))
++    ben = _neues_konto(db, "ben", "Ben", "Lindwurm-Kessel-8")
++    eigen = Campaign(title="Die Schatten von Grauwacht")
++    fremd = Campaign(title="Geheime Kampagne von Ben")
++    db.add_all([eigen, fremd])
++    db.flush()
++    db.add_all([Member(campaign_id=eigen.id, user_id=anna.id, role="gm"),
++                Member(campaign_id=fremd.id, user_id=ben.id, role="gm"),
++                Member(campaign_id=fremd.id, user_id=anna.id, role="player")])  # Anna spielt bei Ben nur mit
++    jetzt = datetime.now(timezone.utc)
++    s13 = GameSession(campaign_id=eigen.id, number=13, played_at=jetzt - timedelta(days=1), state="transcribing",
++                      duration_seconds=3 * 3600, progress=0.4)
++    s12 = GameSession(campaign_id=eigen.id, number=12, played_at=jetzt - timedelta(days=8), state="awaiting_review",
++                      duration_seconds=4 * 3600)
++    s11 = GameSession(campaign_id=eigen.id, number=11, played_at=jetzt - timedelta(days=15), state="published")
++    sf = GameSession(campaign_id=fremd.id, number=5, played_at=jetzt - timedelta(days=2), state="awaiting_review",
++                     duration_seconds=7200)
++    db.add_all([s13, s12, s11, sf])
++    db.flush()
++    doc = CampaignDocument(campaign_id=fremd.id, title="Geheime Notizen", file_name="n.pdf", kind="gm", size_bytes=1)
++    db.add(doc)
++    db.flush()
++    db.add_all([
++        Job(type="transcribe", session_id=s13.id, state="leased", required_capability="asr", progress=0.4,
++            started_at=jetzt - timedelta(minutes=12)),
++        Job(type="summarize", session_id=sf.id, state="queued", required_capability="llm"),
++        Job(type="document", document_id=doc.id, state="queued", required_capability="llm"),
++        Job(type="summarize", session_id=s12.id, state="done", required_capability="llm",
++            started_at=jetzt - timedelta(hours=2, minutes=5), finished_at=jetzt - timedelta(hours=2)),
++        Job(type="transcribe", session_id=s12.id, state="done", required_capability="asr",
++            started_at=jetzt - timedelta(hours=3), finished_at=jetzt - timedelta(hours=2, minutes=20)),
++        Job(type="transcribe", session_id=sf.id, state="failed", required_capability="asr",
++            started_at=jetzt - timedelta(days=1, minutes=30), finished_at=jetzt - timedelta(days=1)),
++        Job(type="document", document_id=doc.id, state="done", required_capability="llm",
++            started_at=jetzt - timedelta(days=3, minutes=2), finished_at=jetzt - timedelta(days=3)),
++    ])
++    db.commit()
++
++
++@pytest.fixture()
++def bereit(ep, tmp_path):  # noqa: F811
++    from app.db import session_factory
++
++    assert _konto(ep).status_code == 201
++    with session_factory()() as db:
++        _welt(db)
++    return {"Authorization": f"Bearer {_token(tmp_path)}"}
++
++
++def test_laufender_auftrag_und_zaehler(ep, bereit):  # noqa: F811
++    r = ep.get(PFAD, headers=bereit)
++    assert r.status_code == 200, r.text
++    d = r.json()
++    assert r.headers["cache-control"] == "no-store"
++    lauf = d["current"]
++    assert lauf["step"] == "transcribing" and lauf["own"] is True
++    assert lauf["campaignTitle"] == "Die Schatten von Grauwacht" and lauf["chapterNumber"] == 13
++    assert lauf["durationSeconds"] == 3 * 3600 and lauf["playedAt"]
++    assert lauf["progress"] == pytest.approx(0.4) and lauf["startedAt"]
++    assert d["queued"] == 2
++    assert d["awaitingReview"] == 1  # nur die eigene Kampagne; Bens Kapitel zählt nicht
++
++
++def test_zuletzt_fertig_ohne_fremde_angaben(ep, bereit):  # noqa: F811
++    d = ep.get(PFAD, headers=bereit).json()
++    fertig = d["recent"]
++    assert [f["step"] for f in fertig] == ["summarizing", "transcribing", "transcribing", "document"]
++    assert fertig[0]["result"] == "done" and fertig[0]["seconds"] == 300
++    assert fertig[0]["campaignTitle"] == "Die Schatten von Grauwacht" and fertig[0]["chapterNumber"] == 12
++    fremd = [f for f in fertig if not f["own"]]
++    assert len(fremd) == 2 and {f["result"] for f in fremd} == {"failed", "done"}
++    for f in fremd:  # Runde einer anderen Spielleitung: nichts, woraus man etwas ablesen könnte
++        assert f["campaignTitle"] is None and f["chapterNumber"] is None
++        assert f["playedAt"] is None and f["durationSeconds"] is None
++    text = str(d)
++    for geheim in ("Geheime Kampagne", "Geheime Notizen", "Ben"):
++        assert geheim not in text
++
++
++def test_hoechstens_zehn(ep, bereit):  # noqa: F811
++    from sqlalchemy import select
++
++    from app.db import session_factory
++    from app.models import GameSession, Job
++
++    jetzt = datetime.now(timezone.utc)
++    with session_factory()() as db:
++        s = db.scalar(select(GameSession).where(GameSession.number == 11))
++        for i in range(15):
++            db.add(Job(type="transcribe", session_id=s.id, state="done", required_capability="asr",
++                       started_at=jetzt - timedelta(days=30, minutes=i + 1), finished_at=jetzt - timedelta(days=30, minutes=i)))
++        db.commit()
++    assert len(ep.get(PFAD, headers=bereit).json()["recent"]) == 10
++
++
++def test_nichts_zu_tun(ep, tmp_path):  # noqa: F811
++    assert _konto(ep).status_code == 201
++    d = ep.get(PFAD, headers={"Authorization": f"Bearer {_token(tmp_path)}"}).json()
++    assert d == {"current": None, "queued": 0, "recent": [], "awaitingReview": 0}
++
++
++def test_nur_programm_worker_und_nur_vom_pc(ep, bereit):  # noqa: F811
++    from app.db import session_factory
++    from app.models import Worker
++    from app.routers.worker import token_hash
++
++    assert ep.get(PFAD).status_code == 401
++    # aus dem Heimnetz gibt es die Worker-Schnittstelle gar nicht
++    assert _von(ep, "192.168.178.50", "GET", PFAD, headers=bereit).status_code == 404
++    # ein anderer (gekoppelter) Worker bekommt nichts – 404, als gäbe es den Weg nicht
++    with session_factory()() as db:
++        w = Worker(name="anderer-pc", token_hash=token_hash("geheim-geheim"))
++        db.add(w)
++        db.commit()
++        anderer = {"Authorization": f"Bearer wk.{w.id}.geheim-geheim"}
++    assert ep.get(PFAD, headers=anderer).status_code == 404
++
++
++def test_ohne_einzelplatz_gibt_es_den_weg_nicht(client, dbs):
++    from app.models import Worker
++    from app.routers.worker import token_hash
++
++    w = Worker(name="lokal", token_hash=token_hash("geheim-geheim"), local=True)
++    dbs.add(w)
++    dbs.commit()
++    r = client.get(PFAD, headers={"Authorization": f"Bearer wk.{w.id}.geheim-geheim"})
++    assert r.status_code == 404
++
++
++def test_aeltere_einrichtung_ohne_gemerktes_konto(ep, bereit):  # noqa: F811
++    from app.db import session_factory
++    from app.desktop import META_KONTO
++    from app.models import ServerMeta
++
++    with session_factory()() as db:
++        db.delete(db.get(ServerMeta, META_KONTO))
++        db.commit()
++    d = ep.get(PFAD, headers=bereit).json()  # ältestes Verwalter-Konto = Anna
++    assert d["current"]["own"] is True and d["awaitingReview"] == 1
+-- 
+2.43.0
