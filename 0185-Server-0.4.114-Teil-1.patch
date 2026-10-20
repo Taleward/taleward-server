@@ -1,0 +1,251 @@
+From ec097aeca2d368a6d62078e30aa1e8e7ede43cff Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 21:51:57 +0200
+Subject: [PATCH 185/187] Server 0.4.114, Teil 1: Messwerte je Auftrag
+ speichern und zeigen
+
+---
+ app/messwerte.py                              | 85 +++++++++++++++++++
+ app/models.py                                 |  1 +
+ app/routers/worker.py                         | 17 +++-
+ app/verwaltung/i18n.py                        |  8 ++
+ app/verwaltung/router.py                      |  3 +
+ app/verwaltung/templates/warteschlange.html   |  1 +
+ migrations/versions/b7d1e5f3a9c2_messwerte.py | 22 +++++
+ 7 files changed, 136 insertions(+), 1 deletion(-)
+ create mode 100644 app/messwerte.py
+ create mode 100644 migrations/versions/b7d1e5f3a9c2_messwerte.py
+
+diff --git a/app/messwerte.py b/app/messwerte.py
+new file mode 100644
+index 0000000..1a7abff
+--- /dev/null
++++ b/app/messwerte.py
+@@ -0,0 +1,85 @@
++"""Messwerte je Auftrag (0.4.114): Was ein Worker beim Verarbeiten gemessen hat – damit Worker und Modelle
++vergleichbar werden. Abschrift: Rechenzeit je Aufnahmestunde und Laufzeit je Schritt; Kapitel, Unterlagen und
++Korrektur: Modell, Kontext, Token/s beim Einlesen und Schreiben, ob das Modell ganz auf der Grafikkarte lag.
++
++Nur für die Verwaltung (und die Worker-App), nie für Spielende. Gespeichert wird nur, was hier bekannt ist."""
++from __future__ import annotations
++
++import json
++import math
++
++ZAHLEN = ("minutenJeStunde", "einlesenTokS", "schreibenTokS", "kontext", "kartenspeicherMb")
++TEXTE = ("art", "modell", "quantisierung", "karte")
++WAHRHEITEN = ("ganzAufKarte", "abgestuft")
++STUFEN = ("einlesen", "erkennung", "ausrichtung", "sprechertrennung", "auswertung")
++
++
++# Texte der Verwaltung (Übersetzung in app/verwaltung/i18n.py, tests/test_server_04114.py prüft sie)
++TEXTE_UI = ("{n} min Rechenzeit je Aufnahmestunde", "Einlesen", "Erkennung", "Ausrichtung", "Sprechertrennung",
++            "Auswertung", "Kontext {n}", "Einlesen {n} Token/s", "Schreiben {n} Token/s", "ganz auf der Grafikkarte",
++            "teils im Arbeitsspeicher", "kleiner gewählt, damit es auf die Grafikkarte passt", "Messwerte")
++
++
++def _zahl(v) -> bool:
++    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and 0 <= v < 1e7
++
++
++def bereinigen(m) -> dict:
++    if not isinstance(m, dict):
++        return {}
++    aus: dict = {k: round(float(m[k]), 1) for k in ZAHLEN if _zahl(m.get(k))}
++    aus |= {k: str(m[k]).strip()[:80] for k in TEXTE if isinstance(m.get(k), str) and m[k].strip()}
++    aus |= {k: m[k] for k in WAHRHEITEN if isinstance(m.get(k), bool)}
++    if isinstance(m.get("stufen"), dict):
++        s = {k: round(float(m["stufen"][k]), 1) for k in STUFEN if _zahl(m["stufen"].get(k))}
++        if s:
++            aus["stufen"] = s
++    return aus
++
++
++def speichern(job, m) -> None:
++    werte = bereinigen(m)
++    job.messwerte = json.dumps(werte, ensure_ascii=False) if werte else None
++
++
++def lesen(job) -> dict:
++    try:
++        return bereinigen(json.loads(job.messwerte or "{}"))
++    except ValueError:
++        return {}
++
++
++def _de(x: float, stellen: int = 1) -> str:
++    return f"{x:.{stellen}f}".replace(".", ",")
++
++
++def zeilen(m: dict, _=lambda s, **k: s.format(**k)) -> list[str]:
++    """Für die Warteschlange der Verwaltung; _ übersetzt (tr der Verwaltung)."""
++    if not m:
++        return []
++    z = []
++    if m.get("art") == "abschrift":
++        if "minutenJeStunde" in m:
++            z.append(_("{n} min Rechenzeit je Aufnahmestunde", n=_de(m["minutenJeStunde"])))
++        namen = {"einlesen": _("Einlesen"), "erkennung": _("Erkennung"), "ausrichtung": _("Ausrichtung"),
++                 "sprechertrennung": _("Sprechertrennung"), "auswertung": _("Auswertung")}
++        teile = [f"{namen[k]} {_de(v / 60)} min" for k, v in (m.get("stufen") or {}).items()]
++        if teile:
++            z.append(" · ".join(teile))
++    elif m.get("modell"):
++        z.append(m["modell"] + (f" ({m['quantisierung']})" if m.get("quantisierung") else "")
++                 + (", " + _("Kontext {n}", n=int(m["kontext"])) if m.get("kontext") else ""))
++        tempo = []
++        if "einlesenTokS" in m:
++            tempo.append(_("Einlesen {n} Token/s", n=_de(m["einlesenTokS"], 0)))
++        if "schreibenTokS" in m:
++            tempo.append(_("Schreiben {n} Token/s", n=_de(m["schreibenTokS"])))
++        if tempo:
++            z.append(" · ".join(tempo))
++        if "ganzAufKarte" in m:
++            z.append(_("ganz auf der Grafikkarte") if m["ganzAufKarte"] else _("teils im Arbeitsspeicher"))
++        if m.get("abgestuft"):
++            z.append(_("kleiner gewählt, damit es auf die Grafikkarte passt"))
++    if m.get("karte"):
++        z.append(m["karte"] + (f" ({_de(m['kartenspeicherMb'] / 1024)} GB)" if m.get("kartenspeicherMb") else ""))
++    return z
+diff --git a/app/models.py b/app/models.py
+index e1b7b19..34319ab 100644
+--- a/app/models.py
++++ b/app/models.py
+@@ -436,4 +436,5 @@ class Job(Base):
+     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
++    messwerte: Mapped[str | None] = mapped_column(Text, nullable=True)  # 0.4.114: JSON, app/messwerte.py
+     # 0.4.85 (Abrechnung): Die SL hat den Auftrag über ihrem Betrag für „Verarbeiten“ freigegeben
+     kosten_freigegeben_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+diff --git a/app/routers/worker.py b/app/routers/worker.py
+index 486cacd..31fdc21 100644
+--- a/app/routers/worker.py
++++ b/app/routers/worker.py
+@@ -105,4 +105,5 @@ class ResultIn(ApiModel):
+     speakers: list[SpeakerIn] = Field(max_length=50)
+     embedding_model: str | None = Field(default=None, max_length=100)  # Sprechermodell samt Fassung
++    metrics: dict | None = None  # 0.4.114: Messwerte (app/messwerte.py bereinigt)
+ 
+ 
+@@ -330,5 +331,7 @@ def result(jobId: str, body: ResultIn, worker: Worker = Depends(current_worker),
+         raise errors.not_found()
+     ergebnis_uebernehmen(db, job, body, engine="local", worker_id=worker.id)
+-    from app import eingebaut
++    from app import eingebaut, messwerte
++
++    messwerte.speichern(job, body.metrics)
+ 
+     eingebaut.messung_merken(db, worker.id, body.audio_seconds, body.compute_seconds, body.model, body.peak_vram_mb)
+@@ -515,4 +518,5 @@ class SummaryResultIn(ApiModel):
+     tokens_out: int = Field(default=0, ge=0)
+     compute_seconds: float = Field(default=0, ge=0)
++    metrics: dict | None = None  # 0.4.114
+ 
+ 
+@@ -537,4 +541,7 @@ def summary_result(jobId: str, body: SummaryResultIn, worker: Worker = Depends(c
+     speichern(db, s, ergebnis_aus(d), body.compute_seconds, engine="local", worker_id=worker.id)
+     job.state, job.finished_at, job.progress, job.lease_expires_at = "done", utcnow(), 1.0, None
++    from app import messwerte
++
++    messwerte.speichern(job, body.metrics)
+     db.commit()
+     return Response(status_code=204)
+@@ -560,4 +567,5 @@ class RevisionResultIn(ApiModel):
+     tokens_out: int = Field(default=0, ge=0)
+     compute_seconds: float = Field(default=0, ge=0)
++    metrics: dict | None = None  # 0.4.114
+ 
+ 
+@@ -573,4 +581,7 @@ def revision_result(jobId: str, body: RevisionResultIn, worker: Worker = Depends
+     korrektur.ergebnis_speichern(db, job, body.model_dump(), "local", worker.id, body.model, body.tokens_in,
+                                  body.tokens_out, None, body.compute_seconds)
++    from app import messwerte
++
++    messwerte.speichern(job, body.metrics)
+     db.commit()
+     return Response(status_code=204)
+@@ -584,4 +595,5 @@ class DocumentResultIn(ApiModel):
+     tokens_out: int = Field(default=0, ge=0)
+     compute_seconds: float = Field(default=0, ge=0)
++    metrics: dict | None = None  # 0.4.114
+ 
+ 
+@@ -607,4 +619,7 @@ def document_result(jobId: str, body: DocumentResultIn, worker: Worker = Depends
+         speichern(db, doc, d, "local", worker.id, body.compute_seconds)
+     job.state, job.finished_at, job.progress, job.lease_expires_at = "done", utcnow(), 1.0, None
++    from app import messwerte
++
++    messwerte.speichern(job, body.metrics)
+     db.commit()
+     return Response(status_code=204)
+diff --git a/app/verwaltung/i18n.py b/app/verwaltung/i18n.py
+index 6ff4ecc..113b347 100644
+--- a/app/verwaltung/i18n.py
++++ b/app/verwaltung/i18n.py
+@@ -18,4 +18,12 @@ COOKIE = "tw_sprache"
+ 
+ EN: dict[str, str] = {
++    # 0.4.114: Messwerte je Auftrag (Warteschlange)
++    "{n} min Rechenzeit je Aufnahmestunde": "{n} min of computing per hour of recording",
++    "Einlesen": "Reading in", "Erkennung": "Recognition", "Ausrichtung": "Alignment",
++    "Sprechertrennung": "Speaker separation", "Auswertung": "Evaluation", "Kontext {n}": "context {n}",
++    "Einlesen {n} Token/s": "reading {n} tokens/s", "Schreiben {n} Token/s": "writing {n} tokens/s",
++    "ganz auf der Grafikkarte": "entirely on the graphics card", "teils im Arbeitsspeicher": "partly in main memory",
++    "kleiner gewählt, damit es auf die Grafikkarte passt": "chosen smaller so it fits on the graphics card",
++    "Messwerte": "Measurements",
+     "Probelauf": "Trial run",
+     "Kapitel und Vorschläge für eine Runde mit Abschrift neu schreiben lassen, ohne die Runde zu verändern – zum Vergleichen von Modellen und Fassungen. Rechnet mit der Einstellung oben (Cloud-API oder Testmodus) direkt auf dem Server, auch ohne Worker. Kosten zählen zum Monatslimit, nicht zur Kampagne.": "Have chapter and suggestions written again for a session that has a transcript, without changing the session – to compare models and versions. Runs with the setting above (cloud API or test mode) directly on the server, no worker needed. Costs count towards the monthly limit, not the campaign.",
+diff --git a/app/verwaltung/router.py b/app/verwaltung/router.py
+index 1733f0e..3f31637 100644
+--- a/app/verwaltung/router.py
++++ b/app/verwaltung/router.py
+@@ -1243,5 +1243,8 @@ def warteschlange(request: Request, user: User = Depends(verwalter), db: Session
+         aktuell = s is not None and queue.current_job(db, s.id, None) is j
+         knecht = namen.get(j.lease_worker_id or "") or (_("entfernter Worker") if j.lease_worker_id else None)
++        from app import messwerte
++
+         zeilen.append({"j": j, "s": s, "c": c, "dok": dok, "knecht": knecht,
++                       "messwerte": messwerte.zeilen(messwerte.lesen(j), _) if j.state == "done" else [],
+                        "neustart": aktuell and s.state == "failed",
+                        "haengt": j.state == "leased" and j.lease_expires_at is not None
+diff --git a/app/verwaltung/templates/warteschlange.html b/app/verwaltung/templates/warteschlange.html
+index 4be4658..d8532fd 100644
+--- a/app/verwaltung/templates/warteschlange.html
++++ b/app/verwaltung/templates/warteschlange.html
+@@ -19,4 +19,5 @@
+           {% else %}<span class="marke-status marke-status--fehler">{{ _("fehlgeschlagen") }}</span>{% endif %}
+           {% if z.j.error_message and z.j.state != "done" %}<br><span class="leise">{{ z.j.error_message }}</span>{% endif %}
++          {% if z.messwerte %}<details class="messwerte"><summary class="leise">{{ _("Messwerte") }}</summary><ul class="leise">{% for zeile in z.messwerte %}<li>{{ zeile }}</li>{% endfor %}</ul></details>{% endif %}
+         </td>
+         <td class="leise" data-label="{{ _('Bearbeitet von') }}">{{ z.knecht or "–" }}</td>
+diff --git a/migrations/versions/b7d1e5f3a9c2_messwerte.py b/migrations/versions/b7d1e5f3a9c2_messwerte.py
+new file mode 100644
+index 0000000..2537127
+--- /dev/null
++++ b/migrations/versions/b7d1e5f3a9c2_messwerte.py
+@@ -0,0 +1,22 @@
++"""Messwerte je Auftrag (Server 0.4.114): Laufzeit je Schritt, Token/s, Grafikkarte
++
++Revision ID: b7d1e5f3a9c2
++Revises: a4e8c2b6d9f1
++"""
++from typing import Sequence, Union
++
++import sqlalchemy as sa
++from alembic import op
++
++revision: str = 'b7d1e5f3a9c2'
++down_revision: Union[str, Sequence[str], None] = 'a4e8c2b6d9f1'
++branch_labels: Union[str, Sequence[str], None] = None
++depends_on: Union[str, Sequence[str], None] = None
++
++
++def upgrade() -> None:
++    op.add_column("jobs", sa.Column("messwerte", sa.Text(), nullable=True))
++
++
++def downgrade() -> None:
++    op.drop_column("jobs", "messwerte")
+-- 
+2.43.0
