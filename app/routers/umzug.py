@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import errors, schemas, umzug
-from app.access import _bearer, current_user, membership, require_gm, require_member
+from app.access import _bearer, current_user, membership, require_gm, require_member, terms_verlangen
 from app.db import get_db
 from app.models import Campaign, CampaignExport, Member, User
 from app.services import campaign_out, member_out, set_move_consent
@@ -19,6 +19,8 @@ router = APIRouter(tags=["Umzug"])
 def move_consent(campaignId: str, body: schemas.MoveConsentIn, user: User = Depends(current_user),
                  db: Session = Depends(get_db)):
     me = require_member(db, campaignId, user)
+    if body.granted:  # Widerrufen geht immer, Zustimmen nur mit angenommenen Nutzungsbedingungen
+        terms_verlangen(user, db)
     set_move_consent(db, me, body.granted)
     db.commit()
     db.refresh(me)

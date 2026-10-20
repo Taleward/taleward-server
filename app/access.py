@@ -21,25 +21,49 @@ _bearer = HTTPBearer(auto_error=False)
 
 
 # 0.4.22: Ohne Zustimmung zur geltenden Fassung der Nutzungsbedingungen nur noch lesen. Ausnahmen laut Schnittstelle:
-# zustimmen, Konto löschen, Daten herunterladen (GET ohnehin), alles unter /auth, Zustimmung zu Aufnahmen widerrufen
-# (prüft der Endpunkt selbst, weil es auf den Körper ankommt), begonnene Aufnahmen fertig hochladen, Abmelden;
-# dazu das Stimmprofil löschen (ebenfalls ein Widerruf).
+# zustimmen, Konto löschen, Daten herunterladen (GET ohnehin), alles unter /auth, begonnene Aufnahmen fertig hochladen.
+# Dazu alles, was Daten zurücknimmt, löscht oder das Konto absichert (0.4.109): Stimmprofil löschen, E-Mail und
+# verknüpfte Anmeldedienste entfernen, Passwort ändern, eigene Figur, Porträts, Kommentare und Unterlagen löschen.
+# Bei den Wegen in _TERMS_IM_ENDPUNKT kommt es auf den Körper an: Der Endpunkt erlaubt dort nur das Zurücknehmen
+# (Einwilligung aus, Cloud-Freigabe aus, Hintergrund leeren, Kampagne selbst verlassen) und ruft sonst terms_verlangen.
 _SCHREIBEND = {"POST", "PUT", "PATCH", "DELETE"}
+_ID = r"[A-Za-z0-9_-]+"
 _TERMS_AUSNAHMEN = (
     (re.compile(r"^/me/terms$"), {"PUT"}),
     (re.compile(r"^/me$"), {"DELETE"}),
     (re.compile(r"^/me/voice-profile$"), {"DELETE"}),
+    (re.compile(r"^/me/email$"), {"DELETE"}),
+    (re.compile(rf"^/me/providers/{_ID}$"), {"DELETE"}),
+    (re.compile(r"^/me/password$"), {"PUT"}),
     (re.compile(r"^/auth/"), None),
     (re.compile(r"^/uploads/"), None),
-    (re.compile(r"^/campaigns/[A-Za-z0-9_-]+/recording-consent$"), {"PUT"}),
+    (re.compile(rf"^/campaigns/{_ID}/members/me/character$"), {"DELETE"}),
+    (re.compile(rf"^/campaigns/{_ID}/members/{_ID}/portrait$"), {"DELETE"}),
+    (re.compile(rf"^/comments/{_ID}$"), {"DELETE"}),
+    (re.compile(rf"^/documents/{_ID}$"), {"DELETE"}),
+)
+_TERMS_IM_ENDPUNKT = (
+    (re.compile(rf"^/campaigns/{_ID}/recording-consent$"), {"PUT"}),
+    (re.compile(rf"^/campaigns/{_ID}/members/me/move-consent$"), {"PUT"}),
+    (re.compile(r"^/me/voice-profile$"), {"PATCH"}),
+    (re.compile(rf"^/campaigns/{_ID}$"), {"PATCH"}),
+    (re.compile(rf"^/campaigns/{_ID}/members/{_ID}$"), {"PATCH", "DELETE"}),
 )
 
 
 def terms_ausnahme(pfad: str, methode: str) -> bool:
-    for muster, methoden in _TERMS_AUSNAHMEN:
+    for muster, methoden in _TERMS_AUSNAHMEN + _TERMS_IM_ENDPUNKT:
         if muster.search(pfad) and (methoden is None or methode in methoden):
             return True
     return False
+
+
+def terms_verlangen(user: User, db: Session) -> None:
+    """Für Endpunkte, in denen nur das Zurücknehmen ohne Zustimmung geht: alles andere → 403 terms_required."""
+    from app import nutzungsbedingungen
+
+    if not nutzungsbedingungen.zugestimmt(user, db):
+        raise errors.ApiError(403, "terms_required")
 
 
 def terms_pruefen(request: Request | None, user: User, db: Session) -> None:
@@ -51,10 +75,7 @@ def terms_pruefen(request: Request | None, user: User, db: Session) -> None:
         pfad = pfad[len("/api/v1"):]
     if terms_ausnahme(pfad, request.method):
         return
-    from app import nutzungsbedingungen
-
-    if not nutzungsbedingungen.zugestimmt(user, db):
-        raise errors.ApiError(403, "terms_required")
+    terms_verlangen(user, db)
 
 
 def current_user(

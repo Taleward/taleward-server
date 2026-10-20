@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFil
 from sqlalchemy.orm import Session
 
 from app import errors, queue, schemas, stimmprofile
-from app.access import current_user
+from app.access import current_user, terms_verlangen
 from app.db import get_db
 from app.errors import sprache
 from app.models import User, VoiceProfile
@@ -97,6 +97,8 @@ async def create_profile(
 @router.patch("/me/voice-profile", response_model=schemas.VoiceProfileOut)
 def patch_profile(request: Request, body: schemas.VoiceProfilePatch, user: User = Depends(current_user),
                   db: Session = Depends(get_db)):
+    if body.learn_from_sessions:  # Abschalten geht immer, Einschalten nur mit angenommenen Nutzungsbedingungen
+        terms_verlangen(user, db)
     vp = db.get(VoiceProfile, user.id)
     if vp is None:
         vp = VoiceProfile(user_id=user.id, status="none", learn_from_sessions=False, learned_session_count=0)

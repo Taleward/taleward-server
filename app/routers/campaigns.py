@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import begrenzung, charaktere, errors, schemas, umzug
-from app.access import aktive_sl_anzahl, current_user, membership, require_gm, require_member
+from app.access import aktive_sl_anzahl, current_user, membership, require_gm, require_member, terms_verlangen
 from app.db import get_db, utcnow
 from app.models import Campaign, Invite, Member, UsageLog, User
 from app.services import (
@@ -186,6 +186,9 @@ def get_campaign(campaignId: str, user: User = Depends(current_user), db: Sessio
     return campaign_out(db, c, me)
 
 
+_NUR_AUSSCHALTEN = {"allow_external_transcription", "allow_cloud_summary", "allow_character_analysis"}
+
+
 @router.patch("/campaigns/{campaignId}", response_model=schemas.CampaignOut, response_model_exclude_unset=True)
 def patch_campaign(
     campaignId: str, body: schemas.CampaignPatch, user: User = Depends(current_user), db: Session = Depends(get_db)
@@ -193,6 +196,9 @@ def patch_campaign(
     c, me = _load(db, campaignId, user)
     require_gm(me)
     f = body.model_fields_set
+    # Ohne Zustimmung zu den Nutzungsbedingungen nur Cloud-Dienste und Auswertung ausschalten
+    if not f <= _NUR_AUSSCHALTEN or any(getattr(body, n) for n in f):
+        terms_verlangen(user, db)
     if "title" in f:
         title = (body.title or "").strip()
         if not title:
@@ -268,6 +274,10 @@ def patch_member(
         raise errors.not_found("member")
     f = body.model_fields_set
     selbst = target.id == me.id
+    # Ohne Zustimmung zu den Nutzungsbedingungen nur den eigenen Hintergrund bzw. die eigene Kurzbeschreibung leeren
+    if not (selbst and f <= {"character_backstory", "character_summary"}
+            and not any((getattr(body, n) or "").strip() for n in f)):
+        terms_verlangen(user, db)
     if ("character_summary" in f or "character_backstory" in f) and not selbst:
         raise errors.forbidden("forbidden.character_self")
     if "character_name" in f and not selbst and me.role != "gm":
@@ -324,6 +334,8 @@ def remove_member(campaignId: str, memberId: str, user: User = Depends(current_u
         raise errors.not_found("member")
     if target.id != me.id and me.role != "gm":
         raise errors.forbidden()
+    if target.id != me.id:  # Andere entfernen ist kein Zurücknehmen eigener Daten
+        terms_verlangen(user, db)
     if target.role == "gm" and aktive_sl_anzahl(db, campaignId) <= 1:
         raise errors.conflict("last_gm")
     set_recording_consent(db, target, False)  # Widerruf bleibt als Nachweis im Protokoll
@@ -354,10 +366,7 @@ def recording_consent(
 ):
     _, me = _load(db, campaignId, user)
     if body.granted:  # 0.4.22: Widerrufen geht immer, Zustimmen nur mit angenommenen Nutzungsbedingungen
-        from app import nutzungsbedingungen
-
-        if not nutzungsbedingungen.zugestimmt(user, db):
-            raise errors.ApiError(403, "terms_required")
+        terms_verlangen(user, db)
     set_recording_consent(db, me, body.granted)
     db.commit()
     return member_out(me, me)
