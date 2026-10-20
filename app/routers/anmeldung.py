@@ -223,6 +223,10 @@ def passwort_aendern(body: schemas.PasswordChangeRequest, request: Request, user
     from app.konto import passwort_zu_schwach
 
     methode = db.scalar(select(AuthMethod).where(AuthMethod.user_id == user.id, AuthMethod.kind == "password"))
+    if methode is None:  # neue Anmeldeart anlegen ist kein Absichern des Bestehenden: braucht die Nutzungsbedingungen
+        from app.access import terms_verlangen
+
+        terms_verlangen(user, db)
     if methode is not None and not verify_password(body.current_password or "", methode.secret):
         raise errors.ApiError(401, "wrong_password")
     if passwort_zu_schwach(body.new_password or "", user.username, user.display_name):

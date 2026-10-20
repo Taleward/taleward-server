@@ -40,7 +40,10 @@ MAX_ZEICHEN = 1_500_000  # darüber wird abgeschnitten (≈ 450 000 Tokens)
 MAX_SEITEN = 2000
 MAX_DOCX_XML = 100 * 1024 * 1024
 ENDUNGEN = {".pdf": "pdf", ".docx": "docx", ".txt": "text", ".md": "text", ".markdown": "text"}
-MARKER = re.compile(r"^\s*(\[(SL|GM)\]|(Geheim|Secret|SL-Info|GM-Info)\s*:)", re.I)
+# Markierung am Anfang eines Absatzes, auch als Aufzählung oder fett: „[SL]“, „Geheim:“, „SL Info:“, „**SL-Notiz:**“ …
+_MARKE = (r"(?:[-*•>]\s*)?(?:\*\*|__)?(?:\[(?:SL|GM)\]|(?:Geheim|Secret|SL[- ]?Info|GM[- ]?Info|SL[- ]?Notiz|"
+          r"GM[- ]?Notes?)\s*(?:\*\*|__)?\s*:)")
+MARKER = re.compile(r"^\s*" + _MARKE, re.I)
 
 
 def ordner(doc_id: str) -> Path:
@@ -185,7 +188,7 @@ def text_laden(doc_id: str) -> list[dict]:
 
 
 # Absatzgrenzen: Leerzeile oder eine neue Zeile, die mit einer Geheim-Markierung beginnt (wie MARKER, ohne Groß/klein)
-_ABSATZ = re.compile(r"\n\s*\n|\n(?=\s*(?:\[(?:SL|GM)\]|(?:Geheim|Secret|SL-Info|GM-Info)\s*:))", re.I)
+_ABSATZ = re.compile(r"\n\s*\n|\n(?=\s*" + _MARKE + ")", re.I)
 
 
 def geheime_abschnitte(abschnitte: list[dict]) -> list[str]:
@@ -360,8 +363,9 @@ def speichern(db: Session, doc: CampaignDocument, d: dict, engine: str, worker_i
     # als geheim markierte Absätze der Unterlage und – außer bei Handouts, die die SL ohnehin zeigt – was in der
     # Bibel nicht alle Spieler kennen
     markiert = geheime_abschnitte(text_laden(doc.id))
+    bibel_geheim = geheime_bibeltexte(eintraege.values())
     if doc.kind != "handout":
-        markiert += geheime_bibeltexte(eintraege.values())
+        markiert += bibel_geheim
     db.execute(delete(Proposal).where(Proposal.document_id == doc.id))
     from app import dubletten, woerterbuch
 
@@ -376,7 +380,11 @@ def speichern(db: Session, doc: CampaignDocument, d: dict, engine: str, worker_i
             gm_notes, detail = "\n\n".join(t for t in (detail, gm_notes) if t), ""
             oeffentlich_vorgeschlagen = False
         if doc.kind == "handout":
-            sichtbar, gm_notes, oeffentlich_vorgeschlagen = "public", None, False
+            if detail and bibel_geheim and _geheimes_im_detail(detail, bibel_geheim):
+                # Das Modell kannte die SL-Notizen der Bibel: Geheimes daraus nie öffentlich vorschlagen
+                sichtbar, gm_notes, detail, oeffentlich_vorgeschlagen = "gm_only", detail, "", False
+            else:
+                sichtbar, gm_notes, oeffentlich_vorgeschlagen = "public", None, False
         else:
             sichtbar = "gm_only"
             if doc.kind == "gm" or not grund:
@@ -399,7 +407,7 @@ def speichern(db: Session, doc: CampaignDocument, d: dict, engine: str, worker_i
         ))
     welt = (d.get("worldInfoSuggestion") or "").strip()[:1500] or None
     # Die Welt-Info lesen alle und das Modell kannte die ganze Bibel: hier auch bei Handouts gegen Geheimes prüfen
-    welt_geheim = markiert if doc.kind != "handout" else markiert + geheime_bibeltexte(eintraege.values())
+    welt_geheim = markiert if doc.kind != "handout" else markiert + bibel_geheim
     if welt and welt_geheim and _geheimes_im_detail(welt, welt_geheim):
         welt = None  # Die Welt-Info lesen alle: Geheimes darin wird gar nicht erst vorgeschlagen
     doc.world_info_suggestion = None if doc.kind == "gm" else welt
