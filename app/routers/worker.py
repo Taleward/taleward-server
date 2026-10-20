@@ -11,7 +11,7 @@ import time
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import Field
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -642,6 +642,18 @@ def busy(worker: Worker = Depends(current_worker), db: Session = Depends(get_db)
 
     grund = ruhe.grund(db)
     return {"busy": grund is not None, "reason": grund}
+
+
+@router.get("/overview")
+def overview(request: Request, worker: Worker = Depends(current_worker), db: Session = Depends(get_db)):
+    """Taleward Desktop: Verarbeitungsstand für Übersicht und Verarbeitung. Nur der Worker des Programms und nur vom
+    PC selbst; allen anderen 404, als gäbe es den Weg nicht. Inhalte gibt es hier nie (app/desktop.py)."""
+    from app import desktop, einzelplatz
+
+    if (not einzelplatz.programm_worker() or not worker.local
+            or not einzelplatz.vom_pc(request.client.host if request.client else None)):
+        raise errors.not_found()
+    return JSONResponse(desktop.uebersicht(db), headers={"Cache-Control": "no-store"})
 
 
 @router.get("/app-update")
