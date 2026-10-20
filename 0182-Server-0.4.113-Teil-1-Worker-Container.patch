@@ -1,0 +1,333 @@
+From 2922678739545153ff1dd0960356d76c67bd0385 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 21:29:00 +0200
+Subject: [PATCH 182/184] Server 0.4.113, Teil 1: Worker-Container
+
+---
+ Dockerfile                       |   6 +-
+ Dockerfile.worker                |  36 +++++++--
+ deploy/aktualisieren.sh          |   2 +-
+ deploy/bauwerkzeug.txt           |  21 +++++
+ deploy/ki_pakete.py              | 127 +++++++++++++++++++++++++++++++
+ deploy/pytorch-pruefsummen.txt   |  12 +++
+ deploy/uv-werkzeug.txt           |   7 ++
+ docs/ENTWICKLUNG.md              |   9 +++
+ tests/test_eingebauter_worker.py |   4 +-
+ 9 files changed, 211 insertions(+), 13 deletions(-)
+ create mode 100644 deploy/bauwerkzeug.txt
+ create mode 100644 deploy/ki_pakete.py
+ create mode 100644 deploy/pytorch-pruefsummen.txt
+ create mode 100644 deploy/uv-werkzeug.txt
+
+diff --git a/Dockerfile b/Dockerfile
+index 4271844..e5617eb 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -13,9 +13,11 @@ ENV PYTHONUNBUFFERED=1 \
+     TALEWARD_DOCKER=1
+ 
+-# ffmpeg: Länge von Stimmprofil-Aufnahmen, Audio für die Cloud-Transkription zusammensetzen, Hörproben schneiden
++# ffmpeg: Länge von Stimmprofil-Aufnahmen, Audio für die Cloud-Transkription zusammensetzen, Hörproben schneiden.
++# uv in fester Fassung mit Prüfsumme; uv sync --frozen prüft die Pakete gegen uv.lock.
++COPY deploy/uv-werkzeug.txt /tmp/uv-werkzeug.txt
+ RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/* \
+- && pip install --no-cache-dir uv
++ && pip install --no-cache-dir --no-deps --require-hashes -r /tmp/uv-werkzeug.txt
+ 
+ WORKDIR /app
+diff --git a/Dockerfile.worker b/Dockerfile.worker
+index e47b3d5..e629afa 100644
+--- a/Dockerfile.worker
++++ b/Dockerfile.worker
+@@ -8,4 +8,21 @@
+ # Grafikkarte braucht der Server den NVIDIA-Treiber und das nvidia-container-toolkit – die CUDA-Bibliotheken selbst
+ # bringt PyTorch mit, deshalb reicht ein schlankes Grundbild.
++#
++# Installiert wird nur mit Prüfsummen (wie in der Worker-App): Pakete aus uv.lock, PyTorch aus
++# deploy/pytorch-pruefsummen.txt, uv und das Bauwerkzeug aus festen Listen unter deploy/.
++
++# Erste Stufe: nur die Paketlisten. Sie läuft bei jeder neuen uv.lock (schnell); die große Installation darunter
++# kommt aus dem Zwischenspeicher, solange die Listen gleich bleiben.
++FROM python:3.11-slim-bookworm AS listen
++ARG TORCH_BACKEND=cu128
++COPY deploy/uv-werkzeug.txt /tmp/uv-werkzeug.txt
++RUN pip install --no-cache-dir --no-deps --require-hashes -r /tmp/uv-werkzeug.txt
++WORKDIR /quelle
++COPY pyproject.toml uv.lock ./
++COPY deploy/ki_pakete.py deploy/pytorch-pruefsummen.txt deploy/bauwerkzeug.txt ./deploy/
++RUN uv export --frozen --format requirements-txt --extra ki --no-dev --no-emit-project --no-header --no-annotate \
++      -q -o /tmp/ki.txt \
++ && python deploy/ki_pakete.py /tmp/ki.txt deploy/pytorch-pruefsummen.txt deploy/bauwerkzeug.txt "$TORCH_BACKEND" /listen
++
+ FROM python:3.11-slim-bookworm
+ 
+@@ -29,20 +46,23 @@ ENV PYTHONUNBUFFERED=1 \
+ 
+ # ffmpeg: Aufnahmen dekodieren; libgomp1: Rechnen auf dem Prozessor (CTranslate2)
++COPY deploy/uv-werkzeug.txt /tmp/uv-werkzeug.txt
+ RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg libgomp1 \
+  && rm -rf /var/lib/apt/lists/* \
+- && pip install --no-cache-dir uv \
++ && pip install --no-cache-dir --no-deps --require-hashes -r /tmp/uv-werkzeug.txt \
+  && uv venv /opt/venv
+ 
+ WORKDIR /app
+ # Erst nur das KI-Paket (mehrere GB, ändert sich selten → bei Updates meist aus dem Zwischenspeicher).
+-# Feste Versionen aus uv.lock; torchcodec kommt wie in der Worker-App von PyPI (gibt es nicht für jede CUDA-Fassung).
+-COPY engine-requirements.txt ./
+-RUN grep -viE '^torchcodec==' engine-requirements.txt > /tmp/basis.txt \
+- && (grep -iE '^torchcodec==' engine-requirements.txt > /tmp/extra.txt || true) \
+- && uv pip install --no-cache --no-deps --torch-backend "$TORCH_BACKEND" -r /tmp/basis.txt \
+- && if [ -s /tmp/extra.txt ]; then uv pip install --no-cache --no-deps -r /tmp/extra.txt; fi
++# Feste Versionen und Prüfsummen; torchcodec kommt wie in der Worker-App von PyPI (steht in geprueft.txt).
++COPY --from=listen /listen/ /listen/
++RUN uv pip install --no-cache --no-deps --require-hashes -r /listen/geprueft.txt \
++ && uv pip install --no-cache --no-deps --require-hashes --torch-backend "$TORCH_BACKEND" -r /listen/pytorch.txt \
++ && if [ -s /listen/bauwerkzeug.txt ]; then \
++      uv pip install --no-cache --no-deps --require-hashes -r /listen/bauwerkzeug.txt; fi
+ COPY . .
+-RUN uv pip install --no-cache --no-deps . \
++# Der Taleward-Code selbst: ohne Abhängigkeiten, ohne Bau-Umgebung und ohne Paketverzeichnis (nur das Bauwerkzeug
++# mit bekannter Prüfsumme läuft)
++RUN uv pip install --no-cache --no-deps --no-build-isolation --no-index . \
+  && python -c "import app.cli, torch; print('torch', torch.__version__)" \
+  && useradd --system --uid 1000 --create-home taleward \
+diff --git a/deploy/aktualisieren.sh b/deploy/aktualisieren.sh
+index 29e8ab0..965f079 100755
+--- a/deploy/aktualisieren.sh
++++ b/deploy/aktualisieren.sh
+@@ -197,5 +197,5 @@ fi
+ version_setzen "$NEU" "$COMMIT"
+ # Server mit frischem Grundbild; ein eingebauter Worker (COMPOSE_PROFILES) ohne --pull, damit sein mehrere GB großes
+-# KI-Paket aus dem Zwischenspeicher kommt, solange sich engine-requirements.txt nicht ändert
++# KI-Paket aus dem Zwischenspeicher kommt, solange sich die Paketlisten (uv.lock, PyTorch-Prüfsummen) nicht ändern
+ # Fertige Bilder (Caddy, Ollama) bei der Gelegenheit auch auffrischen – schlägt das fehl, läuft das alte weiter
+ # Ist Docker Hub gerade nicht erreichbar oder begrenzt (429 Too Many Requests), mit dem vorhandenen Grundbild bauen
+diff --git a/deploy/bauwerkzeug.txt b/deploy/bauwerkzeug.txt
+new file mode 100644
+index 0000000..4ef3ec1
+--- /dev/null
++++ b/deploy/bauwerkzeug.txt
+@@ -0,0 +1,21 @@
++# Bauwerkzeug für den Taleward-Code ([build-system]: hatchling) mit seinen Abhängigkeiten, Python 3.11, fest mit
++# Prüfsummen (wie in der Worker-App). Neu erzeugen mit:
++#   echo hatchling | uv pip compile - --generate-hashes --universal --python-version 3.11 --no-header --no-annotate
++hatchling==1.32.4 \
++    --hash=sha256:08ecf7548fb48205e7f213d70c71e67b8271b7242093dc3f1da578b42c734a2c \
++    --hash=sha256:c4468f73144c054d2aab4ef0f0378c43b9878bf07f8ffd6b79690e970d375f07
++packaging==26.3 \
++    --hash=sha256:94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79 \
++    --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
++pathspec==1.1.1 \
++    --hash=sha256:17db5ecd524104a120e173814c90367a96a98d07c45b2e10c2f3919fff91bf5a \
++    --hash=sha256:a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189
++pluggy==1.6.0 \
++    --hash=sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3 \
++    --hash=sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746
++tomlkit==0.15.1 \
++    --hash=sha256:177a05aece5a8ca5266fd3c448abb47b8d352f09d477d3ca8332db4d89b24304 \
++    --hash=sha256:e25bbf38843005246210a12982776f27f99cb9be67160e14434d0c0d21ee1e97
++trove-classifiers==2026.9.21.13 \
++    --hash=sha256:0a9ebc8d4e2f3e8a22848c5258033035bec17a3012ac3fea16dbaa764489eb71 \
++    --hash=sha256:8b1ff4f9c191b1040b71c37f1e445ab99732911e3cd91de52838453a854d7a17
+diff --git a/deploy/ki_pakete.py b/deploy/ki_pakete.py
+new file mode 100644
+index 0000000..e29b78a
+--- /dev/null
++++ b/deploy/ki_pakete.py
+@@ -0,0 +1,127 @@
++"""Paketlisten mit Prüfsummen für den Worker-Container (Dockerfile.worker), wie in der Worker-App.
++
++Aus der Paketliste von uv.lock (uv export mit Prüfsummen, Extra „ki“) entstehen drei Dateien im Zielordner:
++  geprueft.txt     alle Pakete außer torch, torchaudio, torchvision – jede Zeile mit Prüfsumme aus uv.lock
++                   (bei „cpu“ ohne die reinen Grafikkarten-Pakete)
++  pytorch.txt      torch, torchaudio, torchvision in der Variante (cu128 oder cpu) mit den Prüfsummen aus
++                   deploy/pytorch-pruefsummen.txt (für diese Dateien stehen keine Prüfsummen in uv.lock)
++  bauwerkzeug.txt  das Bauwerkzeug für den Taleward-Code, soweit es nicht schon in geprueft.txt steht
++Fehlt irgendwo eine Prüfsumme, bricht das Skript ab – dann wird nichts installiert.
++Nur Standardbibliothek, ohne Abhängigkeiten.
++
++    python3 deploy/ki_pakete.py <export.txt> <pytorch-pruefsummen.txt> <bauwerkzeug.txt> <cu128|cpu> <zielordner>
++"""
++from __future__ import annotations
++
++import re
++import sys
++from pathlib import Path
++
++PYTORCH_VERZEICHNIS = ("torch", "torchaudio", "torchvision")
++NUR_CUDA = ("nvidia-", "triton", "cuda-")  # nur für die Grafikkarte nötig, bei „cpu“ weglassen
++VARIANTEN = ("cu128", "cpu")
++_PYTORCH_ZEILE = re.compile(r"^([a-z0-9]+) ([a-z0-9_.-]+)==([A-Za-z0-9.+!]+)((?: --hash=sha256:[0-9a-f]{64})+)$")
++_HASH = re.compile(r"--hash=sha256:[0-9a-f]{64}")
++
++
++class Fehler(Exception):
++    pass
++
++
++def eintraege(text: str) -> list[tuple[str, str]]:
++    """requirements.txt mit Fortsetzungszeilen → [(Paketname, ganzer Eintrag)]."""
++    liste: list[tuple[str, str]] = []
++    for zeile in text.splitlines():
++        if not zeile.strip() or zeile.lstrip().startswith("#"):
++            continue
++        if zeile[:1].isspace() and liste:
++            name, block = liste[-1]
++            liste[-1] = (name, block + "\n" + zeile)
++        else:
++            name = re.split(r"[=<>!~ ;\[]", zeile.strip(), maxsplit=1)[0].lower().replace("_", "-")
++            liste.append((name, zeile))
++    return liste
++
++
++def ohne_pruefsumme(text: str) -> list[str]:
++    """Namen aller Einträge ohne Prüfsumme (leer = alles in Ordnung)."""
++    return [name for name, block in eintraege(text) if not _HASH.search(block)]
++
++
++def pytorch_liste_lesen(text: str) -> dict[tuple[str, str, str], str]:
++    liste: dict[tuple[str, str, str], str] = {}
++    for zeile in text.splitlines():
++        if not zeile.strip() or zeile.startswith("#"):
++            continue
++        m = _PYTORCH_ZEILE.match(zeile.strip())
++        if not m:
++            raise Fehler("Liste der PyTorch-Prüfsummen ist nicht lesbar.")
++        liste[(m.group(1), m.group(2), m.group(3))] = m.group(4).strip()
++    return liste
++
++
++def aufteilen(export: str, liste: dict[tuple[str, str, str], str], variante: str) -> tuple[str, str]:
++    """→ (geprueft.txt, pytorch.txt) für die Variante."""
++    if variante not in VARIANTEN:
++        raise Fehler(f"Unbekannte Variante {variante!r} (erlaubt: {', '.join(VARIANTEN)}).")
++    geprueft, pytorch = [], []
++    for name, block in eintraege(export):
++        if name in PYTORCH_VERZEICHNIS:
++            anforderung, _, bedingung = block.split("\\")[0].strip().partition(";")
++            paket, _, fassung = anforderung.strip().partition("==")
++            if not fassung:
++                raise Fehler(f"{name} steht ohne feste Fassung in der Paketliste.")
++            voll = f"{fassung.strip()}+{variante}"
++            hashes = liste.get((variante, paket.strip().lower(), voll))
++            if not hashes:
++                raise Fehler(f"Keine Prüfsumme für {paket.strip()} {voll} in der Liste der PyTorch-Prüfsummen.")
++            pytorch.append(f"{paket.strip()}=={voll}" + (f" ; {bedingung.strip()}" if bedingung.strip() else "")
++                           + f" {hashes}")
++        elif variante == "cpu" and name.startswith(NUR_CUDA):
++            continue
++        else:
++            geprueft.append(block)
++    text_geprueft = "\n".join(geprueft) + "\n"
++    fehlt = ohne_pruefsumme(text_geprueft)
++    if fehlt:
++        raise Fehler("Ohne Prüfsumme in uv.lock: " + ", ".join(fehlt))
++    if len(pytorch) != len(PYTORCH_VERZEICHNIS):
++        raise Fehler("torch, torchaudio und torchvision müssen genau einmal in der Paketliste stehen.")
++    return text_geprueft, "\n".join(pytorch) + "\n"
++
++
++def bauwerkzeug(text: str, geprueft: str) -> str:
++    """Bauwerkzeug ohne die Pakete, die schon aus uv.lock kommen (die behalten deren Fassung)."""
++    vorhanden = {name for name, _ in eintraege(geprueft)}
++    bloecke = [block for name, block in eintraege(text) if name not in vorhanden]
++    ergebnis = "\n".join(bloecke) + ("\n" if bloecke else "")
++    fehlt = ohne_pruefsumme(ergebnis)
++    if fehlt:
++        raise Fehler("Bauwerkzeug ohne Prüfsumme: " + ", ".join(fehlt))
++    return ergebnis
++
++
++def main(argv: list[str]) -> int:
++    if len(argv) != 6:
++        print(__doc__.strip().splitlines()[-1].strip(), file=sys.stderr)
++        return 2
++    export, liste, werkzeug, variante, ziel = argv[1:]
++    try:
++        geprueft, pytorch = aufteilen(Path(export).read_text(encoding="utf-8"),
++                                      pytorch_liste_lesen(Path(liste).read_text(encoding="utf-8")), variante)
++        bau = bauwerkzeug(Path(werkzeug).read_text(encoding="utf-8"), geprueft)
++    except (Fehler, OSError) as e:
++        print(f"Fehler: {e}", file=sys.stderr)
++        return 1
++    ordner = Path(ziel)
++    ordner.mkdir(parents=True, exist_ok=True)
++    (ordner / "geprueft.txt").write_text(geprueft, encoding="utf-8")
++    (ordner / "pytorch.txt").write_text(pytorch, encoding="utf-8")
++    (ordner / "bauwerkzeug.txt").write_text(bau, encoding="utf-8")
++    print(f"{len(eintraege(geprueft))} Pakete aus uv.lock, PyTorch ({variante}) und "
++          f"{len(eintraege(bau))} Bauwerkzeug-Pakete – alle mit Prüfsumme.")
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main(sys.argv))
+diff --git a/deploy/pytorch-pruefsummen.txt b/deploy/pytorch-pruefsummen.txt
+new file mode 100644
+index 0000000..82c46ec
+--- /dev/null
++++ b/deploy/pytorch-pruefsummen.txt
+@@ -0,0 +1,12 @@
++# Prüfsummen der PyTorch-Dateien (aus uv.lock und https://download.pytorch.org/whl), Python 3.11
++cu128 torch==2.10.0+cu128 --hash=sha256:1d01ffaebf64715c0f507a39463149cb19e596ff702bd4bcf862601f2881dabc --hash=sha256:3523fda6e2cfab2b04ae09b1424681358e508bb3faa11ceb67004113d5e7acad --hash=sha256:85ed7944655ea6fd69377692e9cbfd7bba28d99696ceae79985e7caa99cf0a95
++cu128 torchaudio==2.10.0 --hash=sha256:4424c1360016a025b86e4c0ae4b05b5faf094138ee566ac849f355f2f8d20c6b
++cu128 torchaudio==2.10.0+cu128 --hash=sha256:502d5bcdbfde751fc8d79169f66da412d28570a09a86526136fe55708edee693 --hash=sha256:680fb8dd4e682ecb67c9465ffb3c08cf87926a08b2431eddfc527cc5facefdab --hash=sha256:c50ed1f4bf6743a82f8e621eed1108ffd66c5812d00a9f695c749f9ce5fecde4
++cu128 torchvision==0.25.0+cu128 --hash=sha256:5d576c65d40198627e0fad03bddeb0ef536371312f2bdfcc804c22fd28fa6018 --hash=sha256:af00b4e0cdb3f490f4393e9a335b622fe1b92fd5afb181033256ccba03b9637c --hash=sha256:ebf2b495c76097796b9a2eac9290efbcae96e0fd9e5ae52c40eff188610bb440
++cpu torch==2.10.0+cpu --hash=sha256:0e286fcf6ce0cc7b204396c9b4ea0d375f1f0c3e752f68ce3d3aeb265511db8c --hash=sha256:17a09465bab2aab8f0f273410297133d8d8fb6dd84dccbd252ca4a4f3a111847 --hash=sha256:1cfcb9b1558c6e52dffd0d4effce83b13c5ae5d97338164c372048c21f9cfccb --hash=sha256:b7cb1ec66cefb90fd7b676eac72cfda3b8d4e4d0cacd7a531963bc2e0a9710ab --hash=sha256:c35c0de592941d4944698dbfa87271ab85d3370eca3b694943a2ab307ac34b3f --hash=sha256:ce5c113d1f55f8c1f5af05047a24e50d11d293e0cbbb5bf7a75c6c761edd6eaa
++cpu torchaudio==2.10.0 --hash=sha256:28813664c4c86557921f0ae0ef0f624e065132b02c525bff599e7656e19ef727 --hash=sha256:d35900f4689cb0164195b31263a769987c8953412197a6b4b758218d2e2dbc86
++cpu torchaudio==2.10.0+cpu --hash=sha256:08981b656c71bcb990165f45b2421136df286de46ced976dba372fba5a627d2e --hash=sha256:2a78b81a7a21d39a309e5df6e7473c814f5e2de68ef054788a633e618fe5baa8 --hash=sha256:d578c9bc636623c83103054d797c3a889d7f733c1375fedf48d0be4dd9ff0031
++cpu torchvision==0.25.0 --hash=sha256:a76ce7b8d4fce291a25721ee2f921c783acc6dbd4fc32dc741ed2a1d5a8dde2f
++cpu torchvision==0.25.0+82df5f5 --hash=sha256:5d98aaa31bfc6bd4d674b928df2ad6d6e97d3f1fa815d258cdaf3b24f3cbb188
++cpu torchvision==0.25.0+8ac84ee --hash=sha256:3204639a6d707a5eb8116a9e32c1bec33ec9714b073759715e8e28d41c2581a7
++cpu torchvision==0.25.0+cpu --hash=sha256:59be99d1c470ef470b134468aa6afa6f968081a503acb4ee883d70332f822e35 --hash=sha256:aa016ab73e06a886f72edc8929ed2ed4c85aaaa6e10500ecdef921b03129b19e --hash=sha256:c7eb5f219fdfaf1f65e68c00eb81172ab4fa08a9874dae9dad2bca360da34d0f
+diff --git a/deploy/uv-werkzeug.txt b/deploy/uv-werkzeug.txt
+new file mode 100644
+index 0000000..3e3d597
+--- /dev/null
++++ b/deploy/uv-werkzeug.txt
+@@ -0,0 +1,7 @@
++# Paketwerkzeug uv für die Container, fest mit Prüfsummen (pip installiert es mit --require-hashes).
++# Neue Fassung: Prüfsummen der Linux-Räder (x86_64, aarch64) von https://pypi.org/pypi/uv/<fassung>/json übernehmen.
++uv==0.11.32 \
++    --hash=sha256:3da76cd4e2697de30928b8a8524bd39183ac1e08cb7e72833807c022b7cba6c4 \
++    --hash=sha256:77f4356548ee8dc47efae154efd4e930c65570e7d4971c57bdef592f6eefb39c \
++    --hash=sha256:125c142363d0842c8506a057da56bae182e2aa3957344f57dd9ef20ea10f06b0 \
++    --hash=sha256:be0799f1ad70c755d10de5aaf46af94199d4f16a992f90278f2662350cd3f4fe
+diff --git a/docs/ENTWICKLUNG.md b/docs/ENTWICKLUNG.md
+index cb4a383..b1f28b5 100644
+--- a/docs/ENTWICKLUNG.md
++++ b/docs/ENTWICKLUNG.md
+@@ -241,4 +241,13 @@ uv export --format requirements-txt --extra ki --no-dev --no-hashes --no-emit-pr
+ ```
+ 
++Der Worker-Container (`Dockerfile.worker`) installiert nur mit Prüfsummen: Die Pakete kommen aus `uv.lock`,
++PyTorch aus `deploy/pytorch-pruefsummen.txt`, uv und das Bauwerkzeug aus `deploy/uv-werkzeug.txt` und
++`deploy/bauwerkzeug.txt`; `deploy/ki_pakete.py` stellt die Listen zusammen und bricht bei einer fehlenden Prüfsumme
++ab. Nach einem PyTorch-Wechsel die Liste neu erzeugen (braucht Zugang zu download.pytorch.org):
++
++```bash
++python3 deploy/pytorch_pruefsummen.py uv.lock deploy/pytorch-pruefsummen.txt
++```
++
+ ## Fassungen und Veröffentlichung
+ 
+diff --git a/tests/test_eingebauter_worker.py b/tests/test_eingebauter_worker.py
+index 171ed58..9e4a6df 100644
+--- a/tests/test_eingebauter_worker.py
++++ b/tests/test_eingebauter_worker.py
+@@ -109,6 +109,6 @@ def test_compose_profile_fuer_den_worker():
+ def test_dockerfile_worker():
+     text = (WURZEL / "Dockerfile.worker").read_text(encoding="utf-8")
+-    assert "engine-requirements.txt" in text and "ARG TORCH_BACKEND=cu128" in text
+-    assert text.index("COPY engine-requirements.txt") < text.index("COPY . .")  # KI-Paket zuerst (Zwischenspeicher)
++    assert "ARG TORCH_BACKEND=cu128" in text
++    assert text.index("COPY --from=listen") < text.index("COPY . .")  # KI-Paket zuerst (Zwischenspeicher)
+     assert '"--automatisch"' in text and "USER taleward" in text
+     assert "/kopplung" in (WURZEL / "Dockerfile").read_text(encoding="utf-8")
+-- 
+2.43.0
