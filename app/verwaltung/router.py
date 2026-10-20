@@ -1638,6 +1638,16 @@ WEBAPP_KOPFZEILEN = {
 HSTS = "max-age=31536000"
 
 
+def einbettbar(kopfzeilen: dict[str, str], huelle: str) -> dict[str, str]:
+    """Taleward Desktop (Einzelplatz): Einbetten nur durch genau die Programmoberfläche dieses PCs erlauben."""
+    if not huelle:
+        return kopfzeilen
+    neu = {k: v for k, v in kopfzeilen.items() if k != "X-Frame-Options"}
+    neu["Content-Security-Policy"] = neu["Content-Security-Policy"].replace("frame-ancestors 'none'",
+                                                                            f"frame-ancestors {huelle}")
+    return neu
+
+
 def einbinden(app: FastAPI) -> None:
     from app.verwaltung import anmeldung, assistent, uebergabe
 
@@ -1678,10 +1688,13 @@ def einbinden(app: FastAPI) -> None:
             antwort.headers.setdefault("X-Content-Type-Options", "nosniff")
         elif pfad.startswith(("/verwaltung", "/einladung", "/datenschutz", "/passwort", "/konto/", "/konto-loeschen",
                               "/auth/oidc/", "/guthaben")):  # auch die Bestätigungsseite der Anmeldung mit Diensten
-            for k, v in SICHERHEITS_KOPFZEILEN.items():
+            kopf = SICHERHEITS_KOPFZEILEN
+            if pfad.startswith("/verwaltung"):  # Verwaltung im Rahmen von Taleward Desktop
+                kopf = einbettbar(kopf, get_settings().einzelplatz_huelle)
+            for k, v in kopf.items():
                 antwort.headers.setdefault(k, v)
         elif pfad == "/app" or pfad.startswith("/app/"):
-            for k, v in WEBAPP_KOPFZEILEN.items():
+            for k, v in einbettbar(WEBAPP_KOPFZEILEN, get_settings().einzelplatz_huelle).items():
                 antwort.headers.setdefault(k, v)
         if request.url.scheme == "https":  # hinter Caddy (X-Forwarded-Proto); im Heimnetz ohne TLS nicht
             antwort.headers.setdefault("Strict-Transport-Security", HSTS)

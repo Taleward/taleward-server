@@ -90,6 +90,9 @@ class Settings(BaseSettings):
     # Liegt diese Datei, fährt der Server geordnet herunter (das Programm hat unter Windows kein Konsolenfenster, an
     # das es Strg+C schicken könnte). Nur im Einzelplatz wirksam.
     einzelplatz_stopp_datei: Path | None = None
+    # Taleward Desktop: Herkunft der Programmoberfläche (http://localhost:<Anschluss>), die App und Verwaltung in einem
+    # Rahmen zeigt. Nur im Einzelplatz und nur genau in dieser Form wirksam; sonst bleibt jede Einbettung verboten.
+    einzelplatz_huelle: str = ""
     update_check: bool = True
     update_app_repo: str = "Taleward/taleward-app"
     update_server_repo: str = "Taleward/taleward-server"
@@ -192,8 +195,20 @@ def _einzelplatz(s: Settings) -> None:
     s.forwarded_allow_ips = ""
     s.einrichtung_im_heimnetz = False
     s.worker_server_url = f"http://127.0.0.1:{s.einzelplatz_port}"
+    s.einzelplatz_huelle = huelle_pruefen(s.einzelplatz_huelle, s.einzelplatz_port)
     if (urlsplit(s.worker_llm_url).hostname or "") not in ("localhost", "127.0.0.1", "::1"):
         s.worker_llm_url = "http://127.0.0.1:11434"  # Ollama hat keine Anmeldung – nie über das Netz
+
+
+def huelle_pruefen(wert: str, server_port: int) -> str:
+    """Nur `http://localhost:<Anschluss>` (1024–65535, nicht der des Servers), sonst leer – kein Platzhalter, kein
+    anderer Name, kein Pfad."""
+    import re
+
+    m = re.fullmatch(r"http://localhost:([1-9][0-9]{3,4})", (wert or "").strip())
+    if not m or not 1024 <= int(m.group(1)) <= 65535 or int(m.group(1)) == server_port:
+        return ""
+    return f"http://localhost:{int(m.group(1))}"
 
 
 @lru_cache
@@ -201,6 +216,8 @@ def get_settings() -> Settings:
     s = Settings()
     if s.taleward_einzelplatz:
         _einzelplatz(s)
+    else:
+        s.einzelplatz_huelle = ""
     if s.jwt_secret == STANDARD_GEHEIMNIS or len(s.jwt_secret) < 32:
         s.jwt_secret = _geheimnis(s.data_dir)
     return s
