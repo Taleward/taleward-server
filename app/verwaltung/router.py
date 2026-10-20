@@ -1242,7 +1242,10 @@ def warteschlange(request: Request, user: User = Depends(verwalter), db: Session
         c = db.get(Campaign, s.campaign_id) if s else (db.get(Campaign, dok.campaign_id) if dok else None)
         aktuell = s is not None and queue.current_job(db, s.id, None) is j
         knecht = namen.get(j.lease_worker_id or "") or (_("entfernter Worker") if j.lease_worker_id else None)
+        from app import messwerte
+
         zeilen.append({"j": j, "s": s, "c": c, "dok": dok, "knecht": knecht,
+                       "messwerte": messwerte.zeilen(messwerte.lesen(j), _) if j.state == "done" else [],
                        "neustart": aktuell and s.state == "failed",
                        "haengt": j.state == "leased" and j.lease_expires_at is not None
                                  and j.lease_expires_at < utcnow()})

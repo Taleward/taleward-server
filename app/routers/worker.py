@@ -104,6 +104,7 @@ class ResultIn(ApiModel):
     segments: list[SegmentIn] = Field(max_length=200000)
     speakers: list[SpeakerIn] = Field(max_length=50)
     embedding_model: str | None = Field(default=None, max_length=100)  # Sprechermodell samt Fassung
+    metrics: dict | None = None  # 0.4.114: Messwerte (app/messwerte.py bereinigt)
 
 
 class FailIn(ApiModel):
@@ -329,7 +330,9 @@ def result(jobId: str, body: ResultIn, worker: Worker = Depends(current_worker),
     if job.type != "transcribe":
         raise errors.not_found()
     ergebnis_uebernehmen(db, job, body, engine="local", worker_id=worker.id)
-    from app import eingebaut
+    from app import eingebaut, messwerte
+
+    messwerte.speichern(job, body.metrics)
 
     eingebaut.messung_merken(db, worker.id, body.audio_seconds, body.compute_seconds, body.model, body.peak_vram_mb)
     db.commit()
@@ -514,6 +517,7 @@ class SummaryResultIn(ApiModel):
     tokens_in: int = Field(default=0, ge=0)
     tokens_out: int = Field(default=0, ge=0)
     compute_seconds: float = Field(default=0, ge=0)
+    metrics: dict | None = None  # 0.4.114
 
 
 @router.post("/jobs/{jobId}/summary-result", status_code=204)
@@ -536,6 +540,9 @@ def summary_result(jobId: str, body: SummaryResultIn, worker: Worker = Depends(c
                               namen={e["id"]: e["name"] for e in ein["bibel"] + ein["geheim"]})}
     speichern(db, s, ergebnis_aus(d), body.compute_seconds, engine="local", worker_id=worker.id)
     job.state, job.finished_at, job.progress, job.lease_expires_at = "done", utcnow(), 1.0, None
+    from app import messwerte
+
+    messwerte.speichern(job, body.metrics)
     db.commit()
     return Response(status_code=204)
 
@@ -559,6 +566,7 @@ class RevisionResultIn(ApiModel):
     tokens_in: int = Field(default=0, ge=0)
     tokens_out: int = Field(default=0, ge=0)
     compute_seconds: float = Field(default=0, ge=0)
+    metrics: dict | None = None  # 0.4.114
 
 
 @router.post("/jobs/{jobId}/revision-result", status_code=204)
@@ -572,6 +580,9 @@ def revision_result(jobId: str, body: RevisionResultIn, worker: Worker = Depends
         raise errors.not_found()
     korrektur.ergebnis_speichern(db, job, body.model_dump(), "local", worker.id, body.model, body.tokens_in,
                                  body.tokens_out, None, body.compute_seconds)
+    from app import messwerte
+
+    messwerte.speichern(job, body.metrics)
     db.commit()
     return Response(status_code=204)
 
@@ -583,6 +594,7 @@ class DocumentResultIn(ApiModel):
     tokens_in: int = Field(default=0, ge=0)
     tokens_out: int = Field(default=0, ge=0)
     compute_seconds: float = Field(default=0, ge=0)
+    metrics: dict | None = None  # 0.4.114
 
 
 @router.post("/jobs/{jobId}/document-result", status_code=204)
@@ -606,6 +618,9 @@ def document_result(jobId: str, body: DocumentResultIn, worker: Worker = Depends
     else:
         speichern(db, doc, d, "local", worker.id, body.compute_seconds)
     job.state, job.finished_at, job.progress, job.lease_expires_at = "done", utcnow(), 1.0, None
+    from app import messwerte
+
+    messwerte.speichern(job, body.metrics)
     db.commit()
     return Response(status_code=204)
 

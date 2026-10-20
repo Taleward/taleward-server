@@ -18,6 +18,7 @@
           {% elif z.j.state == "queued" %}<span class="marke-status">{{ _("wartet") }}</span>{% if z.j.attempts %} <span class="leise">({{ _("Versuch {n}", n=z.j.attempts + 1) }})</span>{% endif %}
           {% else %}<span class="marke-status marke-status--fehler">{{ _("fehlgeschlagen") }}</span>{% endif %}
           {% if z.j.error_message and z.j.state != "done" %}<br><span class="leise">{{ z.j.error_message }}</span>{% endif %}
+          {% if z.messwerte %}<details class="messwerte"><summary class="leise">{{ _("Messwerte") }}</summary><ul class="leise">{% for zeile in z.messwerte %}<li>{{ zeile }}</li>{% endfor %}</ul></details>{% endif %}
         </td>
         <td class="leise" data-label="{{ _('Bearbeitet von') }}">{{ z.knecht or "–" }}</td>
         <td class="leise" data-label="{{ _('Zeit') }}">{{ zeit(z.j.created_at) }}{% if z.j.finished_at %}<br>{{ _("bis {zeit}", zeit=zeit(z.j.finished_at, False)) }}{% endif %}</td>

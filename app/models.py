@@ -435,6 +435,7 @@ class Job(Base):
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    messwerte: Mapped[str | None] = mapped_column(Text, nullable=True)  # 0.4.114: JSON, app/messwerte.py
     # 0.4.85 (Abrechnung): Die SL hat den Auftrag über ihrem Betrag für „Verarbeiten“ freigegeben
     kosten_freigegeben_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     # 0.4.18: Auswertung eines Charakterbogens bzw. Hintergrunds (Art „document“, ohne document_id)

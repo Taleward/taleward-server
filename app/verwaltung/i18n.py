@@ -17,6 +17,14 @@ STANDARD = "de"
 COOKIE = "tw_sprache"
 
 EN: dict[str, str] = {
+    # 0.4.114: Messwerte je Auftrag (Warteschlange)
+    "{n} min Rechenzeit je Aufnahmestunde": "{n} min of computing per hour of recording",
+    "Einlesen": "Reading in", "Erkennung": "Recognition", "Ausrichtung": "Alignment",
+    "Sprechertrennung": "Speaker separation", "Auswertung": "Evaluation", "Kontext {n}": "context {n}",
+    "Einlesen {n} Token/s": "reading {n} tokens/s", "Schreiben {n} Token/s": "writing {n} tokens/s",
+    "ganz auf der Grafikkarte": "entirely on the graphics card", "teils im Arbeitsspeicher": "partly in main memory",
+    "kleiner gewählt, damit es auf die Grafikkarte passt": "chosen smaller so it fits on the graphics card",
+    "Messwerte": "Measurements",
     "Probelauf": "Trial run",
     "Kapitel und Vorschläge für eine Runde mit Abschrift neu schreiben lassen, ohne die Runde zu verändern – zum Vergleichen von Modellen und Fassungen. Rechnet mit der Einstellung oben (Cloud-API oder Testmodus) direkt auf dem Server, auch ohne Worker. Kosten zählen zum Monatslimit, nicht zur Kampagne.": "Have chapter and suggestions written again for a session that has a transcript, without changing the session – to compare models and versions. Runs with the setting above (cloud API or test mode) directly on the server, no worker needed. Costs count towards the monthly limit, not the campaign.",
     "Runde": "Session",
