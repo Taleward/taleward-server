@@ -1169,6 +1169,19 @@ EN: dict[str, str] = {
     "Warteschlange ansehen": "View queue",
     "Menü": "Menu",
     "Jeder Abschnitt wird für sich gespeichert.": "Each section is saved on its own.",
+    "Kein Worker bereit – neue Runden bleiben liegen, bis einer läuft.": "No worker ready – new sessions will wait until one is running.",
+    "Worker einrichten": "Set up a worker",
+    "in der Warteschlange": "in the queue",
+    "wartet auf die Spielleitung": "waiting for the game master",
+    "Ansehen": "View",
+    "1 Kampagne": "1 campaign",
+    "{n} Kampagnen": "{n} campaigns",
+    "1 Kapitel veröffentlicht": "1 chapter published",
+    "{n} Kapitel veröffentlicht": "{n} chapters published",
+    "1 Konto": "1 account",
+    "{n} Konten": "{n} accounts",
+    "Betrieb": "Operations",
+    "Mitglieder": "Members",
 }
 
 WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}

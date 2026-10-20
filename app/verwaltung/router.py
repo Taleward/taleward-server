@@ -510,7 +510,12 @@ def uebersicht(request: Request, user: User = Depends(verwalter), db: Session = 
     punkte = [] if meta_lesen(db, "assistent.ausgeblendet") else einrichtung.stand(db)
     kosten_info = {"monat": kosten.monat_cent(db), "limit": kosten.limit_cent(db)}
     speicher["bilder"] = _ordnergroesse(s.data_dir / "bilder") + _ordnergroesse(s.data_dir / "unterlagen")
+    from app.einstellungen import extern_konfig
+
+    # Ohne Cloud-Abschrift braucht jede neue Runde einen Worker – dann ist „kein Worker“ auch ohne wartende Runde rot
+    braucht_worker = not extern_konfig(db).anbieter
     return _seite(request, "uebersicht.html", user, db, zahlen=zahlen, speicher=speicher, api_version=API_VERSION,
+                  braucht_worker=braucht_worker,
                   db_datei=db_datei, knecht=KNECHT.zustand(), fehler=fehler, sicherungen=sicherung.liste()[:7],
                   sicherung_einst=sicherung.einstellungen(db), punkte=punkte, kosten=kosten_info,
                   eingebaut=_eingebaut_anzeige(db), aufbewahrung=aufbewahrung.lesen(db))

@@ -2,11 +2,11 @@
 {% block titel %}{{ _("Übersicht") }}{% endblock %}
 {% block inhalt %}
 <h1>{{ _("Übersicht") }}</h1>
-{% set kein_worker = zahlen.wartend and not zahlen.knechte_online %}
-{% if kein_worker %}<p class="lage lage--achtung">{{ _("Runden warten, aber kein Worker ist bereit.") }} <a href="/verwaltung/transkription">{{ _("Worker starten") }}</a></p>
-{% elif zahlen.fehlgeschlagen %}<p class="lage lage--achtung">{{ _("Eine Runde ist fehlgeschlagen.") if zahlen.fehlgeschlagen == 1 else _("{n} Runden sind fehlgeschlagen.", n=zahlen.fehlgeschlagen) }} <a href="/verwaltung/warteschlange">{{ _("Warteschlange ansehen") }}</a></p>
-{% elif zahlen.bei_sl %}<p class="lage">{{ _("Alles läuft. Eine Runde wartet auf die Spielleitung.") if zahlen.bei_sl == 1 else _("Alles läuft. {n} Runden warten auf die Spielleitung.", n=zahlen.bei_sl) }}</p>
-{% else %}<p class="lage">{{ _("Alles läuft.") }}</p>{% endif %}
+{% set kein_worker = not zahlen.knechte_online and (zahlen.wartend or braucht_worker) %}
+{% if kein_worker %}<p class="lage lage--achtung"><span>{{ _("Kein Worker bereit – neue Runden bleiben liegen, bis einer läuft.") }}</span> <a href="/verwaltung/transkription">{{ _("Worker einrichten") }}</a></p>
+{% elif zahlen.fehlgeschlagen %}<p class="lage lage--achtung"><span>{{ _("Eine Runde ist fehlgeschlagen.") if zahlen.fehlgeschlagen == 1 else _("{n} Runden sind fehlgeschlagen.", n=zahlen.fehlgeschlagen) }}</span> <a href="/verwaltung/warteschlange">{{ _("Warteschlange ansehen") }}</a></p>
+{% elif zahlen.bei_sl %}<p class="lage"><span>{{ _("Alles läuft. Eine Runde wartet auf die Spielleitung.") if zahlen.bei_sl == 1 else _("Alles läuft. {n} Runden warten auf die Spielleitung.", n=zahlen.bei_sl) }}</span></p>
+{% else %}<p class="lage"><span>{{ _("Alles läuft.") }}</span></p>{% endif %}
 {% set offen = punkte|selectattr("erledigt", "equalto", false)|list %}
 {% if offen %}
 <div class="karte karte--hinweis">
@@ -21,14 +21,12 @@
 {% endif %}
 <dl class="kennzahlen">
   <div class="{{ 'achtung' if kein_worker }}"><dt>{{ _("Worker bereit") }}</dt><dd>{{ zahlen.knechte_online }}<span class="leise"> / {{ zahlen.knechte }}</span></dd></div>
-  <div><dt>{{ _("Runden in der Warteschlange") }}</dt><dd>{{ zahlen.wartend }}</dd></div>
+  <div><dt>{{ _("in der Warteschlange") }}</dt><dd>{{ zahlen.wartend }}</dd></div>
   <div><dt>{{ _("in Verarbeitung") }}</dt><dd>{{ zahlen.in_arbeit }}</dd></div>
-  <div class="{{ 'achtung' if zahlen.bei_sl }}"><dt>{{ _("warten auf die Spielleitung") }}</dt><dd>{{ zahlen.bei_sl }}</dd></div>
   <div class="{{ 'achtung' if zahlen.fehlgeschlagen }}"><dt>{{ _("fehlgeschlagen") }}</dt><dd>{{ zahlen.fehlgeschlagen }}</dd></div>
-  <div><dt>{{ _("Kapitel veröffentlicht") }}</dt><dd>{{ zahlen.veroeffentlicht }}</dd></div>
-  <div><dt>{{ _("Kampagnen") }}</dt><dd>{{ zahlen.kampagnen }}</dd></div>
-  <div><dt>{{ _("Konten") }}</dt><dd>{{ zahlen.konten }}</dd></div>
+  <div class="{{ 'achtung' if zahlen.bei_sl }}"><dt>{{ _("wartet auf die Spielleitung") }}</dt><dd>{{ zahlen.bei_sl }}{% if zahlen.bei_sl %} <a class="kennzahlen__link" href="/verwaltung/warteschlange">{{ _("Ansehen") }}</a>{% endif %}</dd></div>
 </dl>
+<p class="leise bestand">{{ _("1 Kampagne") if zahlen.kampagnen == 1 else _("{n} Kampagnen", n=zahlen.kampagnen) }} · {{ _("1 Kapitel veröffentlicht") if zahlen.veroeffentlicht == 1 else _("{n} Kapitel veröffentlicht", n=zahlen.veroeffentlicht) }} · {{ _("1 Konto") if zahlen.konten == 1 else _("{n} Konten", n=zahlen.konten) }}</p>
 {% if eingebaut %}
 <div class="karte">
   <h2>{{ _("Eingebauter Worker") }}</h2>

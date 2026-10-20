@@ -238,7 +238,7 @@ def test_warteschlange_und_neustart(client, world, dbs, admin, tmp_path):
     from app.models import Worker
     dbs.get(Worker, t.split(".")[1]).paused = True
     dbs.commit()
-    assert "kein Worker ist bereit" in client.get("/verwaltung/").text
+    assert "Kein Worker bereit – neue Runden bleiben liegen" in client.get("/verwaltung/").text
 
 
 def test_einstellungen_wirken_auf_info(client, admin):

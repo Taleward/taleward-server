@@ -1,6 +1,6 @@
-"""Server 0.4.115: Verwaltung aufgeräumt – Übersicht sagt zuerst in Worten, wie es steht; Einstellungen speichern je
-Abschnitt, die neue Fassung der Nutzungsbedingungen steht abgesetzt am Ende; Menü am Handy eingeklappt; Symbole statt
-Schriftzeichen."""
+"""Server 0.4.115: Verwaltung aufgeräumt – Leiste links mit drei Gruppen (am Handy „Menü“), Übersicht sagt zuerst in
+Worten, wie es steht, fünf Zahlen in einem Kasten; Einstellungen speichern je Abschnitt, die neue Fassung der
+Nutzungsbedingungen steht abgesetzt am Ende; Symbole statt Schriftzeichen."""
 import re
 
 from tests.test_verwaltung import admin  # noqa: F401  (Fixture)
@@ -9,31 +9,52 @@ HAKEN = chr(0x2713)
 KREIS = chr(0x25CB)
 
 
-def test_uebersicht_alles_laeuft(client, admin):  # noqa: F811
+def _cloud_abschrift(dbs):
+    from app.einstellungen import meta_schreiben
+
+    meta_schreiben(dbs, "extern.anbieter", "mistral")
+    meta_schreiben(dbs, "extern.api_key", "sk-test")
+    dbs.commit()
+
+
+def test_uebersicht_ohne_worker(client, dbs, admin):  # noqa: F811
     seite = client.get("/verwaltung/").text
-    assert '<p class="lage">Alles läuft.</p>' in seite
-    assert '<dl class="kennzahlen">' in seite and 'class="raster"' not in seite
+    # Ohne Cloud-Abschrift braucht jede Runde einen Worker – das steht oben, rot, mit Weg zum Beheben
+    assert ('<p class="lage lage--achtung"><span>Kein Worker bereit – neue Runden bleiben liegen, bis einer läuft.</span> '
+            '<a href="/verwaltung/transkription">Worker einrichten</a>') in seite
+    assert re.findall(r"<dt>([^<]+)</dt>", seite) == ["Worker bereit", "in der Warteschlange", "in Verarbeitung",
+                                                     "fehlgeschlagen", "wartet auf die Spielleitung"]
+    assert 'class="raster"' not in seite and "0 Kampagnen · 0 Kapitel veröffentlicht · 2 Konten" in seite
+    _cloud_abschrift(dbs)
+    assert '<p class="lage"><span>Alles läuft.</span></p>' in client.get("/verwaltung/").text
 
 
 def test_uebersicht_nennt_fehlgeschlagene(client, world, dbs, admin):  # noqa: F811
     from app.models import GameSession
     from tests.test_step2a import neue_session
 
+    _cloud_abschrift(dbs)
     for _ in range(2):
         s = neue_session(client, world)
         dbs.get(GameSession, s["id"]).state = "failed"
     dbs.commit()
     seite = client.get("/verwaltung/").text
-    assert '<p class="lage lage--achtung">2 Runden sind fehlgeschlagen.' in seite
+    assert '<p class="lage lage--achtung"><span>2 Runden sind fehlgeschlagen.</span>' in seite
     assert 'href="/verwaltung/warteschlange">Warteschlange ansehen' in seite
     assert re.search(r'<div class="achtung"><dt>fehlgeschlagen</dt><dd>2</dd>', seite)
     en = client.get("/verwaltung/", headers={"Accept-Language": "en"}).text
-    assert "2 sessions failed." in en
+    assert "2 sessions failed." in en and "1 campaign · 0 chapters published" in en
 
 
-def test_menue_am_handy_und_symbole(client, admin):  # noqa: F811
+def test_leiste_menue_und_symbole(client, admin):  # noqa: F811
     seite = client.get("/verwaltung/einstellungen").text
-    assert '<details class="menue"><summary>' in seite and "Menü · Einstellungen" in seite
+    leiste = seite[seite.index('<aside class="leiste"'):seite.index("</aside>")]
+    assert re.findall(r'<p class="leiste__gruppe">([^<]+)</p>', leiste) == ["Betrieb", "Mitglieder", "Server"]
+    assert re.findall(r'href="/verwaltung/(\w*)"', leiste)[1:] == [
+        "", "warteschlange", "transkription", "zusammenfassung", "konten", "anmeldung", "einstellungen", "updates",
+        "abrechnung"]
+    assert 'class="kopf"' not in seite and "abmelden" in leiste  # keine dunkle Kopfleiste mehr
+    assert '<details class="menue"><summary>' in seite  # am Handy, ohne JavaScript
     assert seite.count('aria-current="page"') == 2  # in der Leiste und im eingeklappten Menü
     uebersicht = client.get("/verwaltung/").text
     assert HAKEN not in uebersicht and KREIS not in uebersicht
