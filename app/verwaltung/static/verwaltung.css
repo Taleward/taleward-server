@@ -29,14 +29,14 @@
   --paper:#F2E8D5; --paper-raised:#FBF6EA; --paper-sunken:#E9DDC4; --line:#D9C9A8; --line-strong:#8A7654;
   --ink:#2A2118; --ink-muted:#5E4B36; --tinte:#17313b; --on-tinte:#f3f3ee; --siegel:#9e2a3a; --on-siegel:#ffffff;
   --siegel-soft:#F3DCDC; --siegel-text:#9e2a3a; --messing:#c49235; --salbei:#3d6a48; --focus-ring:var(--ink);
-  --shadow-card:0 1px 0 rgba(42,33,24,0.08), 0 6px 18px -10px rgba(42,33,24,0.35); color-scheme:light;
+  --shadow-card:0 0 #0000; color-scheme:light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --paper:#121d22; --paper-raised:#1a2930; --paper-sunken:#0c1518; --line:#2e424b; --line-strong:#6f838b;
     --ink:#e9ece6; --ink-muted:#a2aeb2; --tinte:#2c5361; --on-tinte:#f3f3ee; --siegel:#d4596c; --on-siegel:#1a0f12;
     --siegel-soft:#3b1c23; --siegel-text:#ec8a9a; --messing:#d9ad55; --salbei:#8cc096; --focus-ring:var(--ink);
-    --shadow-card:0 1px 0 rgba(0,0,0,0.45), 0 8px 20px -10px rgba(0,0,0,0.7); color-scheme:dark;
+    --shadow-card:0 0 #0000; color-scheme:dark;
   }
 }
 :root {
@@ -96,14 +96,9 @@ a:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
 .tw-btn--klein { padding:var(--space-1) var(--space-3); font-size:14px; }
 .tw-btn[disabled] { opacity:.45; cursor:not-allowed; }
 
-.karte { background:var(--paper-raised); border-radius:var(--radius-md); box-shadow:var(--shadow-card); padding:var(--space-6);
+/* Flach wie die App: ruhende Karten ohne Schatten, nur Farbstufe und feiner Rand */
+.karte { background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius-md); box-shadow:var(--shadow-card); padding:var(--space-6);
   margin-bottom:var(--space-6); }
-.raster { display:grid; gap:var(--space-4); grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); margin-bottom:var(--space-6); }
-.zahl { background:var(--paper-raised); border-radius:var(--radius-md); box-shadow:var(--shadow-card); padding:var(--space-4); }
-.zahl__wert { font:800 36px/40px var(--font-serif); color:var(--tinte); }
-@media (prefers-color-scheme: dark) { .zahl__wert { color:var(--ink); } }
-.zahl__text { font:500 14px/20px var(--font-sans); color:var(--ink-muted); }
-.zahl--warnung .zahl__wert { color:var(--siegel-text); }
 
 .marke-status { display:inline-flex; align-items:center; gap:var(--space-1); font:500 13px/18px var(--font-sans);
   border-radius:var(--radius-pill); padding:1px var(--space-2); border:1px solid var(--line-strong); white-space:nowrap; }
@@ -208,7 +203,10 @@ textarea { resize:vertical; }
 .knopfzeile { display:flex; flex-wrap:wrap; gap:var(--space-3); align-items:center; }
 .checkliste { list-style:none; padding:0; display:grid; gap:var(--space-2); }
 .checkliste .erledigt { color:var(--ink-muted); }
-.checkliste .offen span { color:var(--siegel); }
+.checkliste li { display:flex; gap:var(--space-2); align-items:flex-start; }
+.checkliste .icon, .liste .icon { flex:none; margin-top:2px; }
+.checkliste .erledigt .icon { color:var(--salbei); }
+.checkliste .offen .icon { color:var(--siegel); }
 .formular--breit { max-width:none; }
 .formular--breit textarea { font:400 14px/21px ui-monospace, Consolas, monospace; }
 article.text { max-width:760px; margin:var(--space-8) auto; line-height:1.6; }
@@ -240,8 +238,47 @@ code.ganz { user-select:all; } /* ein Tippen markiert die ganze Adresse zum Kopi
   border-radius:var(--radius-sm); padding:var(--space-2) var(--space-3); }
 .hinweis { background:var(--paper-sunken); border-left:4px solid var(--tinte); border-radius:var(--radius-md);
   padding:var(--space-3) var(--space-4); margin-bottom:var(--space-6); }
+
+/* Symbole (Lucide-Formen) */
+.icon { display:inline-block; vertical-align:-4px; }
+
+/* Übersicht: erst die Antwort in Worten, dann die Zahlen in einem Kasten */
+.lage { font:500 18px/26px var(--font-sans); margin:calc(-1 * var(--space-3)) 0 var(--space-6); }
+.lage--achtung { color:var(--siegel-text); }
+.kennzahlen { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); margin:0 0 var(--space-6);
+  background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius-md); box-shadow:var(--shadow-card); overflow:hidden; }
+.kennzahlen > div { padding:var(--space-3) var(--space-4); border-right:1px solid var(--line); border-bottom:1px solid var(--line);
+  display:flex; flex-direction:column-reverse; justify-content:flex-end; gap:2px; }
+.kennzahlen > div:nth-child(4n) { border-right:none; }
+.kennzahlen > div:nth-last-child(-n+4) { border-bottom:none; }
+.kennzahlen dt { font:500 14px/20px var(--font-sans); color:var(--ink-muted); }
+.kennzahlen dd { margin:0; font:700 24px/30px var(--font-serif); color:var(--ink); }
+.kennzahlen .achtung dd, .kennzahlen .achtung dt { color:var(--siegel-text); }
 @media (max-width: 720px) {
-  .raster { grid-template-columns:repeat(2, minmax(0, 1fr)); gap:var(--space-3); }
-  .zahl { padding:var(--space-3); }
-  .zahl__wert { font-size:28px; line-height:32px; }
+  .kennzahlen { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .kennzahlen > div:nth-child(4n) { border-right:1px solid var(--line); }
+  .kennzahlen > div:nth-child(2n) { border-right:none; }
+  .kennzahlen > div:nth-last-child(-n+4) { border-bottom:1px solid var(--line); }
+  .kennzahlen > div:nth-last-child(-n+2) { border-bottom:none; }
 }
+
+/* Navigation am Handy: eingeklappt (ohne JavaScript über <details>) */
+.menue { display:none; grid-column:1 / -1; padding-bottom:var(--space-2); }
+.menue summary { color:var(--on-tinte); font:500 15px/22px var(--font-sans); gap:var(--space-2); }
+.menue > summary::before, .menue[open] > summary::before { content:none; }
+.menue[open] summary { margin-bottom:var(--space-1); }
+.menue__liste { display:grid; gap:var(--space-1); }
+.menue__liste a { color:var(--on-tinte); text-decoration:none; padding:var(--space-1) var(--space-3); border-radius:var(--radius-md);
+  font:500 15px/22px var(--font-sans); min-height:48px; display:flex; align-items:center; }
+.menue__liste a[aria-current="page"] { background:var(--paper); color:var(--tinte); }
+@media (prefers-color-scheme: dark) { .menue__liste a[aria-current="page"] { color:var(--ink); } }
+@media (max-width: 720px) {
+  .nav { display:none; }
+  .menue { display:block; }
+}
+
+/* Formularseiten: Kästen so breit wie die Felder */
+.schmal { max-width:640px; }
+.karte--achtung { border-left:4px solid var(--siegel); }
+.trenner { border:none; border-top:1px solid var(--line-strong); margin:var(--space-8) 0 var(--space-6); }
+.karte > .knopfzeile { margin-top:var(--space-4); }

@@ -2,31 +2,33 @@
 {% block titel %}{{ _("Übersicht") }}{% endblock %}
 {% block inhalt %}
 <h1>{{ _("Übersicht") }}</h1>
+{% set kein_worker = zahlen.wartend and not zahlen.knechte_online %}
+{% if kein_worker %}<p class="lage lage--achtung">{{ _("Runden warten, aber kein Worker ist bereit.") }} <a href="/verwaltung/transkription">{{ _("Worker starten") }}</a></p>
+{% elif zahlen.fehlgeschlagen %}<p class="lage lage--achtung">{{ _("Eine Runde ist fehlgeschlagen.") if zahlen.fehlgeschlagen == 1 else _("{n} Runden sind fehlgeschlagen.", n=zahlen.fehlgeschlagen) }} <a href="/verwaltung/warteschlange">{{ _("Warteschlange ansehen") }}</a></p>
+{% elif zahlen.bei_sl %}<p class="lage">{{ _("Alles läuft. Eine Runde wartet auf die Spielleitung.") if zahlen.bei_sl == 1 else _("Alles läuft. {n} Runden warten auf die Spielleitung.", n=zahlen.bei_sl) }}</p>
+{% else %}<p class="lage">{{ _("Alles läuft.") }}</p>{% endif %}
 {% set offen = punkte|selectattr("erledigt", "equalto", false)|list %}
 {% if offen %}
 <div class="karte karte--hinweis">
   <h2>{{ _("Einrichtung: {n} von {m} erledigt", n=punkte|length - offen|length, m=punkte|length) }}</h2>
   <ul class="checkliste">
-    {% for p in punkte %}<li class="{{ 'erledigt' if p.erledigt else 'offen' }}"><span aria-hidden="true">{{ "✓" if p.erledigt else "○" }}</span> {% if p.erledigt %}{{ _(p.titel) }}{% else %}<a href="{{ p.link }}">{{ _(p.titel) }}</a>{% endif %}</li>{% endfor %}
+    {% for p in punkte %}<li class="{{ 'erledigt' if p.erledigt else 'offen' }}">{{ icon("kreis-haken" if p.erledigt else "kreis") }} {% if p.erledigt %}{{ _(p.titel) }}{% else %}<a href="{{ p.link }}">{{ _(p.titel) }}</a>{% endif %}</li>{% endfor %}
   </ul>
   <div class="knopfzeile"><a class="tw-btn tw-btn--primary" href="/verwaltung/assistent">{{ _("Einrichtung fortsetzen") }}</a>
     <form method="post" action="/verwaltung/assistent/ausblenden"><input type="hidden" name="csrf" value="{{ csrf }}">
       <button class="tw-btn tw-btn--quiet" type="submit">{{ _("ausblenden") }}</button></form></div>
 </div>
 {% endif %}
-<div class="raster">
-  <div class="zahl"><div class="zahl__wert">{{ zahlen.knechte_online }}<span class="leise"> / {{ zahlen.knechte }}</span></div><div class="zahl__text">{{ _("Worker bereit") }}</div></div>
-  <div class="zahl"><div class="zahl__wert">{{ zahlen.wartend }}</div><div class="zahl__text">{{ _("Runden in der Warteschlange") }}</div></div>
-  <div class="zahl"><div class="zahl__wert">{{ zahlen.in_arbeit }}</div><div class="zahl__text">{{ _("in Verarbeitung") }}</div></div>
-  <div class="zahl"><div class="zahl__wert">{{ zahlen.bei_sl }}</div><div class="zahl__text">{{ _("warten auf die Spielleitung") }}</div></div>
-  <div class="zahl {% if zahlen.fehlgeschlagen %}zahl--warnung{% endif %}"><div class="zahl__wert">{{ zahlen.fehlgeschlagen }}</div><div class="zahl__text">{{ _("fehlgeschlagen") }}</div></div>
-  <div class="zahl"><div class="zahl__wert">{{ zahlen.veroeffentlicht }}</div><div class="zahl__text">{{ _("Kapitel veröffentlicht") }}</div></div>
-  <div class="zahl"><div class="zahl__wert">{{ zahlen.kampagnen }}</div><div class="zahl__text">{{ _("Kampagnen") }}</div></div>
-  <div class="zahl"><div class="zahl__wert">{{ zahlen.konten }}</div><div class="zahl__text">{{ _("Konten") }}</div></div>
-</div>
-{% if zahlen.wartend and not zahlen.knechte_online %}
-<div class="meldung meldung--fehler">{{ _("Runden warten, aber kein Worker ist bereit.") }} <a href="/verwaltung/transkription">{{ _("Worker starten") }}</a></div>
-{% endif %}
+<dl class="kennzahlen">
+  <div class="{{ 'achtung' if kein_worker }}"><dt>{{ _("Worker bereit") }}</dt><dd>{{ zahlen.knechte_online }}<span class="leise"> / {{ zahlen.knechte }}</span></dd></div>
+  <div><dt>{{ _("Runden in der Warteschlange") }}</dt><dd>{{ zahlen.wartend }}</dd></div>
+  <div><dt>{{ _("in Verarbeitung") }}</dt><dd>{{ zahlen.in_arbeit }}</dd></div>
+  <div class="{{ 'achtung' if zahlen.bei_sl }}"><dt>{{ _("warten auf die Spielleitung") }}</dt><dd>{{ zahlen.bei_sl }}</dd></div>
+  <div class="{{ 'achtung' if zahlen.fehlgeschlagen }}"><dt>{{ _("fehlgeschlagen") }}</dt><dd>{{ zahlen.fehlgeschlagen }}</dd></div>
+  <div><dt>{{ _("Kapitel veröffentlicht") }}</dt><dd>{{ zahlen.veroeffentlicht }}</dd></div>
+  <div><dt>{{ _("Kampagnen") }}</dt><dd>{{ zahlen.kampagnen }}</dd></div>
+  <div><dt>{{ _("Konten") }}</dt><dd>{{ zahlen.konten }}</dd></div>
+</dl>
 {% if eingebaut %}
 <div class="karte">
   <h2>{{ _("Eingebauter Worker") }}</h2>

@@ -224,6 +224,8 @@ info:
     Daten zurücknimmt, löscht oder das Konto absichert, geht weiter (Liste bei User.termsAcceptedVersion), dazu Lesen,
     das Hochladen laufender Aufnahmen und das Herunterladen der eigenen Daten. Das gilt auch für Konten, die vor dem
     Update angelegt wurden (termsAcceptedVersion null).
+    Präzisiert in 0.4.22 (nur Text, keine neue Fassungsnummer): Aufbewahrung der Hörproben einheitlich bei
+    ServerInfo.audioRetention beschrieben.
 
 servers:
   - url: https://taleward.example.org/api/v1
@@ -2024,7 +2026,7 @@ paths:
       - { name: speakerId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
     get:
       tags: [Stimmen]
-      summary: Kurze Hörprobe (wenige Sekunden, wird mit dem Audio gelöscht)
+      summary: Kurze Hörprobe (wenige Sekunden; Aufbewahrung siehe ServerInfo.audioRetention)
       parameters:
         - name: index
           in: query
@@ -2040,7 +2042,9 @@ paths:
             audio/ogg:
               schema: { type: string, format: binary }
         "410":
-          description: Hörprobe bereits gelöscht (`audio_deleted`)
+          description: |
+            Hörprobe bereits gelöscht (`audio_deleted`) – nach der Frist aus ServerInfo.audioRetention oder nach dem
+            Bestätigen der Stimmen. Die Textproben (sampleText, samples) bleiben.
           content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -3152,7 +3156,11 @@ components:
             Wie lange das Session-Audio auf dem Server bleibt (ab 0.4.4, Einstellung in der Verwaltung). until_release =
             bis die SL den Recap veröffentlicht, höchstens maxDays Tage (Standard für neue Server: 7), danach löscht ein
             geplanter Job es und setzt audioDeletedAt. immediate = gleich nach der Transkription (maxDays null).
-            Hörproben pro Sprecher und Stimmprofile sind davon unabhängig. Ab 0.4.4 immer vorhanden; fehlt das Feld
+            Hörproben pro Sprecher (auch die zu Speaker.samples) bleiben, bis die SL die Stimmen bestätigt, höchstens so
+            lange, wie die Aufnahme bleiben dürfte: bei until_release maxDays Tage ab dem Hochladen, bei immediate die Frist
+            des Servers für fehlgeschlagene Aufnahmen (Standard 7 Tage) – auch wenn die Aufnahme selbst schon gelöscht ist.
+            Danach GET …/sample → 410 `audio_deleted`; die Textproben bleiben. Stimmprofile sind davon unabhängig.
+            Ab 0.4.4 immer vorhanden; fehlt das Feld
             (ältere Server), geht die App von immediate aus. Wird die Aufbewahrung verlängert (immediate → until_release
             oder mehr Tage), setzt der Server recordingConsentAt aller Mitglieder zurück.
           properties:
@@ -3730,7 +3738,7 @@ components:
           description: |
             Ab 0.4.21: bis zu drei Textproben dieser Stimme, über die Runde verteilt, je mindestens einige Wörter, bevorzugt
             Sätze mit Figurennamen; aufsteigend nach start. Die Hörprobe zu samples[i] liefert GET …/sample?index=i,
-            solange das Audio da ist. sampleText bleibt für ältere Apps (in der Regel gleich samples[0].text). Fehlt das
+            so lange wie bei ServerInfo.audioRetention beschrieben (danach 410, der Text bleibt). sampleText bleibt für ältere Apps (in der Regel gleich samples[0].text). Fehlt das
             Feld oder ist es leer, zeigt die App nur sampleText.
           items:
             type: object

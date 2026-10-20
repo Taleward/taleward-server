@@ -50,6 +50,24 @@ MIN_PASSWORT = 8
 
 router = APIRouter(prefix="/verwaltung", include_in_schema=False)
 templates = Jinja2Templates(directory=str(HIER / "templates"))
+
+# Symbole wie in der App (Lucide-Formen, 24er-Raster, Strich in Textfarbe) – statt Schriftzeichen wie Haken und Kreis
+_ICONS = {
+    "kreis": '<circle cx="12" cy="12" r="10"/>',
+    "kreis-haken": '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+    "menue": '<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/>',
+}
+
+
+def _icon(name: str):
+    from markupsafe import Markup
+
+    return Markup('<svg class="icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="20" height="20" '
+                  'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+                  f'{_ICONS[name]}</svg>')
+
+
+templates.env.globals["icon"] = _icon
 BERLIN = ZoneInfo("Europe/Berlin")
 
 
@@ -1270,6 +1288,9 @@ def neustart(request: Request, session_id: str, user: User = Depends(verwalter),
 
 
 # ---------------------------------------------------------------- Einstellungen und Sicherung
+EINSTELLUNGS_BEREICHE = ("betreiber", "konten", "aufnahmen", "kosten", "app")
+
+
 @router.get("/einstellungen", response_class=HTMLResponse)
 def einstellungen(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db),
                   fehler: str = ""):
@@ -1310,34 +1331,44 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
                             audio_tage: str = Form(""), audio_bestaetigt: str = Form(""),
                             betreiber_art: str = Form(""), betreiber_anschrift: str = Form(""),
                             betreiber_vertretung: str = Form(""), betreiber_register: str = Form(""),
-                            user: User = Depends(verwalter),
+                            bereich: str = Form(""), user: User = Depends(verwalter),
                             db: Session = Depends(get_db)):
+    """Jeder Abschnitt der Seite speichert für sich (`bereich`); ohne Angabe alles auf einmal (ältere Formulare)."""
     from app.einstellungen import mindestversion_vergessen, version_tupel
 
     _ = tr(request)
+    if bereich not in ("", *EINSTELLUNGS_BEREICHE):
+        bereich = "?"
+
+    def teil(name: str) -> bool:
+        return bereich in ("", name)
 
     def fehler(text: str):
         antwort = einstellungen(request, user, db, fehler=text)
         antwort.status_code = 400
         return antwort
 
-    if not server_name.strip() or not server_operator.strip():
+    if bereich == "?":
+        return fehler(_("Unbekannte Auswahl."))
+    if teil("betreiber") and (not server_name.strip() or not server_operator.strip()):
         return fehler(_("Name des Servers und Betreiber dürfen nicht leer sein."))
     url = privacy_policy_url.strip()
     download = app_download_url.strip()
     oeffentlich = public_url.strip().rstrip("/")
-    for link in (url, download, oeffentlich):
+    for link in ((url, oeffentlich) if teil("betreiber") else ()) + ((download,) if teil("app") else ()):
         if link and not betreiber_link(link, nur_https=False):
             return fehler(_("Links müssen mit https:// beginnen."))
-    try:
-        alter = int(min_age)
-        if not 0 <= alter <= 99:
-            raise ValueError
-    except ValueError:
-        return fehler(_("Mindestalter bitte als Zahl angeben (z. B. 16)."))
+    alter = 16
+    if teil("betreiber"):
+        try:
+            alter = int(min_age)
+            if not 0 <= alter <= 99:
+                raise ValueError
+        except ValueError:
+            return fehler(_("Mindestalter bitte als Zahl angeben (z. B. 16)."))
     if registrierung not in ("", "invite_only", "closed") or betreiber_art not in ("", "privat", "verein", "firma"):
         return fehler(_("Unbekannte Auswahl."))
-    if limit_euro.strip():
+    if teil("kosten") and limit_euro.strip():
         try:
             euro = float(limit_euro.replace(",", "."))
             if not 0 <= euro <= 10000:
@@ -1345,14 +1376,14 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
         except ValueError:
             return fehler(_("Das Monatslimit bitte als Betrag in Euro angeben (0 = ohne Limit)."))
         meta_schreiben(db, "kosten.limit_cent", str(int(round(euro * 100))))
-    for v in (app_min_version, app_latest_version):
+    for v in (app_min_version, app_latest_version) if teil("app") else ():
         if v.strip() and version_tupel(v) is None:
             return fehler(_("Versionen bitte als Zahlen mit Punkten angeben, z. B. 0.9.0."))
     from app import aufbewahrung
 
     alt_frist = aufbewahrung.lesen(db)
     neue_frist = alt_frist
-    if audio_modus:
+    if teil("aufnahmen") and audio_modus:
         try:
             neue_frist = aufbewahrung.Aufbewahrung(audio_modus, int(audio_tage or alt_frist.tage))
             if neue_frist.modus not in aufbewahrung.MODI or not 1 <= neue_frist.tage <= aufbewahrung.HOECHSTENS_TAGE:
@@ -1361,30 +1392,33 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
             return fehler(_("Aufnahmen: bitte höchstens {n} Tage angeben.", n=aufbewahrung.HOECHSTENS_TAGE))
         if neue_frist.laenger_als(alt_frist) and audio_bestaetigt != "ja":
             return fehler(_("Die Aufnahmen sollen länger bleiben. Dann müssen alle Mitglieder neu zustimmen – bitte das Kästchen dazu ankreuzen."))
-    speichern(db, server_name=server_name.strip()[:100], server_operator=server_operator.strip()[:200],
-              server_contact=server_contact.strip()[:200] or None, privacy_policy_url=url[:500] or None,
-              min_age=alter, app_min_version=app_min_version.strip() or None,
-              app_latest_version=app_latest_version.strip() or None, app_download_url=download[:500] or None,
-              app_release_notes=app_release_notes.strip()[:1000] or None, public_url=oeffentlich[:300] or None)
-    if registrierung:
-        meta_schreiben(db, "registrierung", registrierung)
-    if web_zentral_feld:  # Kästchen war auf der Seite (sonst gar nicht angezeigt)
-        meta_schreiben(db, "web.zentral", "an" if web_zentral == "an" else "aus")
     from app.webapp import herkunft
 
-    zeilen = [z.strip() for z in web_herkuenfte.splitlines() if z.strip()]
+    zeilen = [z.strip() for z in web_herkuenfte.splitlines() if z.strip()] if teil("app") else []
     if any(herkunft(z) is None for z in zeilen):
         return fehler(_("Weitere Adressen bitte vollständig angeben, z. B. https://taleward.meinverein.de"))
-    meta_schreiben(db, "web.herkuenfte", "\n".join(herkunft(z) for z in zeilen[:20]))
+    if teil("betreiber"):
+        speichern(db, server_name=server_name.strip()[:100], server_operator=server_operator.strip()[:200],
+                  server_contact=server_contact.strip()[:200] or None, privacy_policy_url=url[:500] or None,
+                  min_age=alter, public_url=oeffentlich[:300] or None)
+    if teil("app"):
+        speichern(db, app_min_version=app_min_version.strip() or None,
+                  app_latest_version=app_latest_version.strip() or None, app_download_url=download[:500] or None,
+                  app_release_notes=app_release_notes.strip()[:1000] or None)
+        if web_zentral_feld:  # Kästchen war auf der Seite (sonst gar nicht angezeigt)
+            meta_schreiben(db, "web.zentral", "an" if web_zentral == "an" else "aus")
+        meta_schreiben(db, "web.herkuenfte", "\n".join(herkunft(z) for z in zeilen[:20]))
+    if teil("konten") and registrierung:
+        meta_schreiben(db, "registrierung", registrierung)
     zurueckgesetzt = 0
     geaendert = neue_frist.api() != alt_frist.api()
     if geaendert:
         zurueckgesetzt = aufbewahrung.speichern(db, neue_frist.modus, neue_frist.tage, user.id)
-    if betreiber_art:
+    if teil("betreiber") and betreiber_art:
         from app import betreiber
 
         betreiber.speichern(db, betreiber_art, betreiber_anschrift, betreiber_vertretung, betreiber_register)
-    orgs = db.scalars(select(Organization).order_by(Organization.created_at)).all()
+    orgs = db.scalars(select(Organization).order_by(Organization.created_at)).all() if teil("betreiber") else []
     if len(orgs) == 1:  # eine Organisation heißt wie der Betreiber (früher ein eigenes Feld mit demselben Wert)
         orgs[0].name = (org_name.strip() or server_operator.strip())[:200]
     db.commit()
@@ -1394,7 +1428,7 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
     webapp.vergessen()
     if geaendert:
         return _zurueck("/einstellungen#aufnahmen", "aufbewahrung_zustimmung" if zurueckgesetzt else "aufbewahrung")
-    return _zurueck("/einstellungen", "gespeichert")
+    return _zurueck(f"/einstellungen#{bereich}" if bereich else "/einstellungen", "gespeichert")
 
 
 @router.post("/benachrichtigungen", dependencies=[Depends(csrf_pruefen)])

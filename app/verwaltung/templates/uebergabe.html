@@ -35,7 +35,7 @@
   <h3>{{ _("Was zurzeit hinterlegt ist") }}</h3>
   <ul class="liste-stand">
     <li>{{ _("Verwalter") }}: {% for a in admins %}{{ a.display_name }} ({{ a.username }}){% if not loop.last %}, {% endif %}{% endfor %}</li>
-    {% for text, da in hinterlegt %}<li><span aria-hidden="true">{{ "✓" if da else "○" }}</span> {{ _(text) }}: {{ _("hinterlegt") if da else _("nicht hinterlegt") }}</li>{% endfor %}
+    {% for text, da in hinterlegt %}<li>{{ icon("kreis-haken" if da else "kreis") }} {{ _(text) }}: {{ _("hinterlegt") if da else _("nicht hinterlegt") }}</li>{% endfor %}
     <li class="umbruch">{{ _("Sicherungen liegen in") }} <code class="ganz">{{ ablage }}</code>{% if sicherung_ordner %} {{ _("und zusätzlich in") }} <code>{{ sicherung_ordner }}</code>{% endif %}</li>
   </ul>
 </div>

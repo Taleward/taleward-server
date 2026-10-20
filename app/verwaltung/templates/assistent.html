@@ -244,7 +244,7 @@
 <div class="karte">
   <h2>{{ _("Stand der Einrichtung") }}</h2>
   <ul class="checkliste">
-    {% for p in punkte %}<li class="{{ 'erledigt' if p.erledigt else 'offen' }}"><span aria-hidden="true">{{ "✓" if p.erledigt else "○" }}</span> {% if p.erledigt %}{{ _(p.titel) }}{% else %}<a href="{{ p.link }}">{{ _(p.titel) }}</a>{% endif %}</li>{% endfor %}
+    {% for p in punkte %}<li class="{{ 'erledigt' if p.erledigt else 'offen' }}">{{ icon("kreis-haken" if p.erledigt else "kreis") }} {% if p.erledigt %}{{ _(p.titel) }}{% else %}<a href="{{ p.link }}">{{ _(p.titel) }}</a>{% endif %}</li>{% endfor %}
   </ul>
   {% if punkte|selectattr("erledigt", "equalto", false)|list %}
   <p class="leise">{{ _("Offene Punkte bleiben auf der Übersicht sichtbar, bis sie erledigt sind.") }}</p>

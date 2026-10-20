@@ -21,11 +21,14 @@
     <form method="post" action="/verwaltung/abmelden"><input type="hidden" name="csrf" value="{{ csrf }}">
       <button class="tw-btn tw-btn--quiet" type="submit"><span class="breit">{{ user.display_name }} </span>{{ _("abmelden") }}</button></form>
   </div>
-  <nav class="nav" aria-label="{{ _('Bereiche') }}">
-    {% for ziel, text in [("uebersicht", _("Übersicht")), ("transkription", _("Transkription")), ("zusammenfassung", _("Zusammenfassung")), ("warteschlange", _("Warteschlange")), ("konten", _("Konten")), ("abrechnung", _("Abrechnung")), ("anmeldung", _("Anmeldung")), ("updates", _("Updates")), ("einstellungen", _("Einstellungen"))] %}
+  {% set bereiche = [("uebersicht", _("Übersicht")), ("transkription", _("Transkription")), ("zusammenfassung", _("Zusammenfassung")), ("warteschlange", _("Warteschlange")), ("konten", _("Konten")), ("abrechnung", _("Abrechnung")), ("anmeldung", _("Anmeldung")), ("updates", _("Updates")), ("einstellungen", _("Einstellungen"))] %}
+  {% macro bereichslinks(bereiche, aktiv) %}{% for ziel, text in bereiche %}
     <a href="/verwaltung/{{ '' if ziel == 'uebersicht' else ziel }}" {% if aktiv == ziel %}aria-current="page"{% endif %}>{{ text }}</a>
-    {% endfor %}
-  </nav>
+  {% endfor %}{% endmacro %}
+  <nav class="nav" aria-label="{{ _('Bereiche') }}">{{ bereichslinks(bereiche, aktiv) }}</nav>
+  {# Am Handy eingeklappt – ohne JavaScript über <details> #}
+  <details class="menue"><summary>{{ icon("menue") }} {{ _("Menü") }}{% for ziel, text in bereiche if ziel == aktiv %} · {{ text }}{% endfor %}</summary>
+    <nav class="menue__liste" aria-label="{{ _('Bereiche') }}">{{ bereichslinks(bereiche, aktiv) }}</nav></details>
 </div></header>
 {% endif %}
 <main>

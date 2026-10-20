@@ -1160,6 +1160,15 @@ EN: dict[str, str] = {
     "Vorlage so lassen und weiter": "Keep the template and continue",
     "Eine inhaltliche Änderung, der alle neu zustimmen sollen, zählst du später unter Einstellungen als neue Fassung hoch.": "A change in substance that everyone should accept again is raised later under Settings as a new version.",
     "Oder: Link zu euren eigenen Nutzungsbedingungen": "Or: link to your own terms of use",
+    # 0.4.115: Übersicht in Worten, Einstellungen je Abschnitt, Menü am Handy
+    "Alles läuft.": "Everything is running.",
+    "Alles läuft. Eine Runde wartet auf die Spielleitung.": "Everything is running. One session is waiting for the game master.",
+    "Alles läuft. {n} Runden warten auf die Spielleitung.": "Everything is running. {n} sessions are waiting for the game master.",
+    "Eine Runde ist fehlgeschlagen.": "One session failed.",
+    "{n} Runden sind fehlgeschlagen.": "{n} sessions failed.",
+    "Warteschlange ansehen": "View queue",
+    "Menü": "Menu",
+    "Jeder Abschnitt wird für sich gespeichert.": "Each section is saved on its own.",
 }
 
 WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}

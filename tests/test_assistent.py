@@ -188,7 +188,7 @@ def test_checkliste_und_spielleitung(client, dbs, admin):  # noqa: F811
                                                                 "display_name": "Lena", "password": "Startwort-9"})
     assert "Konto „lena“ angelegt" in r.text
     fertig = client.get("/verwaltung/assistent/fertig").text
-    assert "✓" in fertig and "Erste Spielleitung" in fertig
+    assert '<li class="erledigt"><svg class="icon"' in fertig and "Erste Spielleitung" in fertig
     client.post("/verwaltung/assistent/ausblenden", data={"csrf": admin})
     assert "Einrichtung fortsetzen" not in client.get("/verwaltung/").text
 
