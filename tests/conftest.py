@@ -23,6 +23,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("SUMMARIZER_INTERVAL_SECONDS", "0")  # Zusammenfassen ebenso
     monkeypatch.setenv("LOCAL_WORKER_AUTOSTART", "false")
     monkeypatch.setenv("EXTERNAL_INTERVAL_SECONDS", "0")
+    monkeypatch.setenv("MODEL_MIRROR_URL", "")  # Tests laden nie vom echten Spiegel
     monkeypatch.delenv("EXTERNAL_TRANSCRIPTION", raising=False)
     monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)

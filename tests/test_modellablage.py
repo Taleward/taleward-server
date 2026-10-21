@@ -83,7 +83,7 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
     assert wc.get("/worker/v1/models", params={"repo": REPO}, headers=h).status_code == 404
     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
     modellablage.holen(dbs, klient=hf_transport())
-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.116"}
+    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.117"}
     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
                headers=h)
@@ -156,6 +156,7 @@ def test_spiegel(client, dbs, hf_zugang, tmp_path, monkeypatch):
         return httpx.Response(200, content=p.read_bytes()) if p.is_file() else httpx.Response(404)
 
     klient = httpx.Client(transport=httpx.MockTransport(spiegel))
+    monkeypatch.setattr(modellablage, "SPIEGEL", {})
     with pytest.raises(modellablage.AblageFehler, match="Hugging-Face-Zugang"):  # ohne Prüfsumme im Code: nicht genutzt
         modellablage.holen(dbs, klient=klient)
     monkeypatch.setitem(modellablage.SPIEGEL, REPO, (SHA, "0" * 64))

@@ -232,12 +232,18 @@
   <p class="hilfe">{{ _("Eure Worker laden das Modell vom Server. Sie brauchen dafür kein Hugging-Face-Konto, und alle nutzen dieselbe Fassung.") }}</p>
   {% else %}
   <p><span class="marke-status{% if modell.fehler %} marke-status--fehler{% endif %}">{{ _("noch nicht auf dem Server") }}</span>{% if modell.fehler %} {{ modell.fehler }}{% endif %}</p>
-  <p class="hilfe">{{ _("Der Server lädt das Sprechermodell einmal und gibt es an eure Worker weiter. Dafür braucht er einmalig einen Hugging-Face-Zugang – oder den Taleward-Spiegel, sobald es ihn gibt.") }}{% if modell.spiegel %} {{ _("Der Taleward-Spiegel ist eingetragen.") }}{% endif %}</p>
+  {% if modell.spiegel %}
+  <p class="hilfe">{{ _("Der Server lädt das Sprechermodell einmal vom Taleward-Spiegel und gibt es an eure Worker weiter. Ein Konto braucht ihr dafür nicht.") }}</p>
+  {% else %}
+  <p class="hilfe">{{ _("Der Server lädt das Sprechermodell einmal und gibt es an eure Worker weiter. Ohne den Taleward-Spiegel braucht er dafür einmalig einen Hugging-Face-Zugang.") }}</p>
+  {% endif %}
   {% if hf_ende or modell.spiegel %}
   <form method="post" action="/verwaltung/transkription/modell"><input type="hidden" name="csrf" value="{{ csrf }}">
     <button class="tw-btn tw-btn--secondary" type="submit">{{ _("Jetzt auf den Server laden") }}</button></form>
   {% endif %}
   {% endif %}
+  {% set hf_klappe = modell.spiegel and not hf_ende %}
+  {% if hf_klappe %}<details><summary>{{ _("Eigenen Hugging-Face-Zugang nutzen (freiwillig)") }}</summary>{% endif %}
   <h3>{{ _("Zugang zu Hugging Face") }}</h3>
   {% if not hf_ende and not modell.stand %}
   <p>{{ _("So bekommst du den Zugangsschlüssel – einmalig und kostenlos:") }}</p>
@@ -254,6 +260,7 @@
       <span class="hilfe">{{ _("Bleibt auf dem Server. Damit lädt er das Sprechermodell und neue Fassungen nach Updates.") }}</span></label>
     <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Prüfen und speichern") }}</button></div>
   </form>
+  {% if hf_klappe %}</details>{% endif %}
   <p class="hilfe">{{ _("Das Modell: pyannote speaker-diarization-community-1 von pyannoteAI, Lizenz CC-BY-4.0, unverändert weitergegeben.") }}</p>
 </div>
 

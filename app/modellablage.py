@@ -38,8 +38,11 @@ log = logging.getLogger("modellablage")
 
 HF = "https://huggingface.co"
 MAX_DATEI = 600 * 1024 ** 2  # einzelne Datei; das Sprechermodell hat zusammen etwa 30 MB
-# Repo → (Fassung, SHA-256 der manifest.json). Wird eingetragen, sobald der Taleward-Spiegel steht.
-SPIEGEL: dict[str, tuple[str, str]] = {}
+# Repo → (Fassung, SHA-256 der manifest.json). Taleward-Spiegel unter taleward.org/modelle (MODEL_MIRROR_URL).
+SPIEGEL: dict[str, tuple[str, str]] = {
+    SPRECHERMODELL: ("3533c8cf8e369892e6b79ff1bf80f7b0286a54ee",
+                     "2fe7b7a72d42157e97c610316645698c3d7bb65f5d36da5840afdc42da51de4a"),
+}
 NOTICE = {
     SPRECHERMODELL: ("pyannote speaker-diarization-community-1 – © pyannoteAI / Hervé Bredin and contributors.\n"
                      "License: Creative Commons Attribution 4.0 International (CC-BY-4.0), "
@@ -137,13 +140,20 @@ def holen(db: Session, repo: str = SPRECHERMODELL, klient: httpx.Client | None =
     eigener = klient is None
     klient = klient or httpx.Client(timeout=httpx.Timeout(30, read=300), follow_redirects=True)
     try:
+        token = hf_token(db)
+        stand = None
         if spiegel_nutzbar(repo) and (FASSUNGEN.get(repo) in (None, SPIEGEL[repo][0])):
-            stand = _vom_spiegel(klient, repo)
-        else:
-            token = hf_token(db)
+            try:
+                stand = _vom_spiegel(klient, repo)
+            except AblageFehler as e:
+                if not token:
+                    raise
+                # Spiegel nicht erreichbar oder unpassend: mit dem eigenen Zugang direkt von Hugging Face
+                log.warning("Taleward-Spiegel nicht nutzbar (%s) – lade von Hugging Face.", e)
+        if stand is None:
             if not token:
                 raise AblageFehler("Für das Sprechermodell fehlt der Hugging-Face-Zugang (Verwaltung → Transkription), "
-                                   "und ein Taleward-Spiegel ist noch nicht eingetragen.")
+                                   "und der Taleward-Spiegel ist hier abgeschaltet.")
             stand = _von_hf(klient, repo, FASSUNGEN.get(repo) or meta_lesen(db, f"modell.{repo}"), token)
     finally:
         if eigener:

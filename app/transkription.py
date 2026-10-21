@@ -450,9 +450,9 @@ class WhisperXMotor:
             if sprecher is None:
                 if not self.hf_token:
                     raise EinrichtungsFehler(
-                        "Das Sprechermodell liegt noch nicht auf dem Server, und hier ist kein Hugging-Face-Zugang "
-                        "eingetragen. In der Verwaltung unter Transkription den Zugang hinterlegen – der Server lädt "
-                        "das Modell dann selbst und gibt es an die Worker weiter.")
+                        "Das Sprechermodell liegt noch nicht auf dem Server. Er lädt es selbst vom Taleward-Spiegel, "
+                        "das kann nach dem Start einige Minuten dauern. Klappt das nicht, in der Verwaltung unter "
+                        "Transkription nachsehen oder dort einen Hugging-Face-Zugang hinterlegen.")
                 sprecher = modelle.bereitstellen(modelle.SPRECHERMODELL, self.hf_token)
             self.bereit = {"whisper": modelle.bereitstellen(modelle.whisper_repo(self.modell), self.hf_token),
                            "sprecher": sprecher}

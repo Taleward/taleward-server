@@ -945,8 +945,9 @@ EN: dict[str, str] = {
     'Taleward-Spiegel': 'Taleward mirror',
     'Eure Worker laden das Modell vom Server. Sie brauchen dafür kein Hugging-Face-Konto, und alle nutzen dieselbe Fassung.': "Your workers download the model from the server. They don't need a Hugging Face account, and all of them use the same version.",
     'noch nicht auf dem Server': 'not on the server yet',
-    'Der Server lädt das Sprechermodell einmal und gibt es an eure Worker weiter. Dafür braucht er einmalig einen Hugging-Face-Zugang – oder den Taleward-Spiegel, sobald es ihn gibt.': 'The server downloads the speaker model once and passes it on to your workers. For this it needs Hugging Face access once – or the Taleward mirror, once it exists.',
-    'Der Taleward-Spiegel ist eingetragen.': 'The Taleward mirror is configured.',
+    'Der Server lädt das Sprechermodell einmal vom Taleward-Spiegel und gibt es an eure Worker weiter. Ein Konto braucht ihr dafür nicht.': 'The server downloads the speaker model once from the Taleward mirror and passes it on to your workers. You don’t need an account for this.',
+    'Der Server lädt das Sprechermodell einmal und gibt es an eure Worker weiter. Ohne den Taleward-Spiegel braucht er dafür einmalig einen Hugging-Face-Zugang.': 'The server downloads the speaker model once and passes it on to your workers. Without the Taleward mirror it needs Hugging Face access once for this.',
+    'Eigenen Hugging-Face-Zugang nutzen (freiwillig)': 'Use your own Hugging Face access (optional)',
     'Jetzt auf den Server laden': 'Download to the server now',
     'Zugang zu Hugging Face': 'Access to Hugging Face',
     'Bleibt auf dem Server. Damit lädt er das Sprechermodell und neue Fassungen nach Updates.': 'Stays on the server. It uses it to download the speaker model and new versions after updates.',
@@ -1162,6 +1163,9 @@ EN: dict[str, str] = {
     "Oder: Link zu euren eigenen Nutzungsbedingungen": "Or: link to your own terms of use",
     # 0.4.115: Übersicht in Worten, Einstellungen je Abschnitt, Menü am Handy
     "Alles läuft.": "Everything is running.",
+    "Das Modell, das Stimmen trennt, lädt der Server vom Taleward-Spiegel und gibt es an eure Worker weiter. Ein Konto braucht ihr dafür nicht.":
+        "The server downloads the model that separates voices from the Taleward mirror and passes it on to your workers. You don’t need an account for this.",
+    "Stattdessen eigenen Hugging-Face-Zugang nutzen (freiwillig)": "Use your own Hugging Face access instead (optional)",
     "Alles läuft. Eine Runde wartet auf die Spielleitung.": "Everything is running. One session is waiting for the game master.",
     "Alles läuft. {n} Runden warten auf die Spielleitung.": "Everything is running. {n} sessions are waiting for the game master.",
     "Eine Runde ist fehlgeschlagen.": "One session failed.",

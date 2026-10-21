@@ -78,6 +78,10 @@
     </fieldset>
     {% endif %}
     {% if art in ("lokal", "beides") %}
+    {% if spiegel %}
+    <p class="hilfe">{{ _("Das Modell, das Stimmen trennt, lädt der Server vom Taleward-Spiegel und gibt es an eure Worker weiter. Ein Konto braucht ihr dafür nicht.") }}</p>
+    <details><summary>{{ _("Stattdessen eigenen Hugging-Face-Zugang nutzen (freiwillig)") }}</summary>
+    {% endif %}
     <fieldset><legend>{{ _("Zugang zum Sprechermodell (Hugging Face)") }}</legend>
       <p class="hilfe">{{ _("Das Modell, das Stimmen trennt, lädt der Server einmal von Hugging Face und gibt es an eure Worker weiter – auch bei künftigen Updates. Dafür braucht es einmalig ein kostenloses Konto:") }}</p>
       <ol class="hilfe">
@@ -89,6 +93,7 @@
         <input type="password" name="hf_token" autocomplete="new-password" data-lpignore="true" data-1p-ignore data-bwignore placeholder="{{ _('hinterlegt, endet auf …{ende}', ende=hf_ende) if hf_ende else 'hf_…' }}">
         <span class="hilfe">{{ _("Der Schlüssel bleibt auf dem Server. Eure Worker brauchen keinen.") }}</span></label>
     </fieldset>
+    {% if spiegel %}</details>{% endif %}
     {% endif %}
     <div class="knopfzeile"><button class="tw-btn tw-btn--primary" type="submit">{{ _("Prüfen und weiter") }}</button>
       <a class="tw-btn tw-btn--quiet" href="/verwaltung/assistent/zusammenfassung">{{ _("Später") }}</a></div>

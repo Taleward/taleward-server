@@ -108,8 +108,11 @@ das Ergebnis zurückschicken. Ein Worker braucht keinen offenen Port und kann ü
 Ein **pausierter** Worker bleibt verbunden, bekommt aber keine Aufträge – praktisch, während am selben PC gespielt wird.
 Ein **gesperrter** Schlüssel gilt sofort nicht mehr.
 
-**Sprechermodell.** Für die Sprechertrennung braucht es das Modell *pyannote speaker-diarization-community-1*. Es ist
-kostenlos, aber man muss einmal den Nutzungsbedingungen zustimmen:
+**Sprechermodell.** Für die Sprechertrennung braucht es das Modell *pyannote speaker-diarization-community-1*
+(Lizenz CC-BY-4.0). Der Server lädt es von selbst vom Taleward-Spiegel (`https://taleward.org/modelle`); jede Datei
+wird gegen die Prüfsumme im Code geprüft, ein Konto braucht es dafür nicht. Wer das nicht möchte, setzt in der `.env`
+`MODEL_MIRROR_URL=` (leer) und nutzt einen eigenen Zugang bei Hugging Face. Diesen Zugang nutzt der Server auch, wenn
+der Spiegel einmal nicht erreichbar ist:
 
 1. Auf [huggingface.co](https://huggingface.co) ein Konto anlegen.
 2. Die Seite [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1)

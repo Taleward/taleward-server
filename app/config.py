@@ -70,8 +70,9 @@ class Settings(BaseSettings):
     einrichtung_im_heimnetz: bool = False
     # Hugging Face Zugangsschlüssel (für das pyannote-Sprechermodell)
     hf_token: str | None = None
-    # Taleward-Spiegel des Sprechermodells (ohne Hugging-Face-Konto). Genutzt nur, wenn die Prüfsumme im Code steht.
-    model_mirror_url: str = ""
+    # Taleward-Spiegel des Sprechermodells (ohne Hugging-Face-Konto). Genutzt nur, wenn die Prüfsumme im Code steht;
+    # jede Datei wird geprüft. Leer = abgeschaltet (dann nur mit eigenem Hugging-Face-Zugang).
+    model_mirror_url: str = "https://taleward.org/modelle"
     # Updates: Der Server fragt einmal am Tag bei GitHub nach neuen Fassungen von App, Worker und Server, lädt die
     # Dateien für App und Worker und bietet sie selbst an – so fragen Handys und Worker nie direkt bei GitHub.
     # Web-Fassung der App (ab 0.4.2): zentrale Web-App der Taleward-Website darf diesen Server nutzen (CORS, Rückweg
