@@ -86,4 +86,10 @@ machen.
   unverändert an die Worker weiter): CC-BY-4.0, © pyannoteAI. Namensnennung in `NOTICE.txt` jeder Ablage.
 - **Spracherkennung** Whisper large-v3 (faster-whisper/CTranslate2-Fassung, nicht im Repository): MIT-Lizenz.
 - Python-Bibliotheken: siehe `pyproject.toml` und `uv.lock`, jeweils unter ihren eigenen Lizenzen.
-- Name und Logo „Taleward“ sind nicht Teil der freien Lizenz des Quelltexts.
+- Name und Logo „Taleward“ sind nicht Teil der freien Lizenz des Quelltexts, siehe unten.
+
+### Name und Marke
+
+„Taleward“ ist beim Deutschen Patent- und Markenamt als Wortmarke angemeldet (Aktenzeichen 302026258979.0). Wer
+eine veränderte Fassung verbreitet oder anderen anbietet, gibt ihr einen eigenen Namen und eigene Zeichen. Erlaubt
+bleibt, sachlich auf Taleward hinzuweisen, etwa „beruht auf Taleward“.
