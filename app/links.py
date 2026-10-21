@@ -21,7 +21,9 @@ MAX_SZENE = 3
 
 
 def adresse_ok(url: str) -> bool:
-    if not url or len(url) > 2000 or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in url):
+    from app.aliasse import _UNSICHTBAR  # auch C1-Steuerzeichen und Richtungszeichen (U+202E u. a.)
+
+    if not url or len(url) > 2000 or any(ch.isspace() for ch in url) or _UNSICHTBAR.search(url):
         return False
     try:
         teile = urlsplit(url)
@@ -40,6 +42,12 @@ def betreiber_link(url: str | None, nur_https: bool = True) -> bool:
     if not url or len(url) > 500 or "\\" in url or not adresse_ok(url):
         return False
     return not nur_https or urlsplit(url).scheme.lower() == "https"
+
+
+def datenschutz_link(url: str | None) -> str:
+    """Für Seiten der Verwaltung: den Datenschutz-Link nur ausgeben, wenn er die Prüfung wie in /info besteht (http
+    erlaubt – eigene Seite im Einzelplatz); Altwerte aus Umgebung oder Sicherung fallen so still weg."""
+    return url if url and betreiber_link(url, nur_https=False) else ""
 
 
 def pruefen(links) -> list[dict]:

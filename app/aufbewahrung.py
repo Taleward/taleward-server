@@ -134,10 +134,18 @@ def hoerproben_loeschen(db: Session, grenze) -> int:
     from app.models import Speaker
 
     zahl = 0
-    for sid in db.scalars(select(Speaker.session_id).where(Speaker.sample_path.is_not(None)).distinct()):
+    # Runden mit Hörprobe in der Datenbank und – für Altdaten (-1/-2.ogg ohne sample_path) – mit Ordner auf der Platte
+    ids = set(db.scalars(select(Speaker.session_id).where(Speaker.sample_path.is_not(None)).distinct()))
+    wurzel = storage.samples_dir("x").parent
+    if wurzel.is_dir():
+        ids |= {p.name for p in wurzel.iterdir() if p.is_dir()}
+    for sid in sorted(ids):
         letzte = db.scalar(select(Upload.completed_at).where(Upload.session_id == sid, Upload.state == "completed")
                            .order_by(Upload.completed_at.desc()).limit(1))
-        if letzte is None or _utc(letzte) >= _utc(grenze):
+        if letzte is None:  # Altdaten ohne Abschlusszeit: im Zweifel löschen – ab Anlage der Runde gerechnet
+            runde = db.get(GameSession, sid)
+            letzte = runde.created_at if runde is not None else None
+        if letzte is not None and _utc(letzte) >= _utc(grenze):
             continue
         storage.delete_samples(sid)
         for sp in db.scalars(select(Speaker).where(Speaker.session_id == sid)):

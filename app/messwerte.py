@@ -21,14 +21,27 @@ TEXTE_UI = ("{n} min Rechenzeit je Aufnahmestunde", "Einlesen", "Erkennung", "Au
 
 
 def _zahl(v) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and 0 <= v < 1e7
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return False
+    try:  # riesige Ganzzahlen: math.isfinite/float würfen OverflowError
+        f = float(v)
+    except OverflowError:
+        return False
+    return math.isfinite(f) and 0 <= f < 1e7
+
+
+def _text(s: str) -> str:
+    """Ohne Steuer- und Richtungszeichen (eine Zeile), höchstens 80 Zeichen."""
+    from app.aliasse import zeichen_bereinigen as ohne_steuerzeichen
+
+    return " ".join(ohne_steuerzeichen(s).split())[:80]
 
 
 def bereinigen(m) -> dict:
     if not isinstance(m, dict):
         return {}
     aus: dict = {k: round(float(m[k]), 1) for k in ZAHLEN if _zahl(m.get(k))}
-    aus |= {k: str(m[k]).strip()[:80] for k in TEXTE if isinstance(m.get(k), str) and m[k].strip()}
+    aus |= {k: _text(m[k]) for k in TEXTE if isinstance(m.get(k), str) and _text(m[k])}
     aus |= {k: m[k] for k in WAHRHEITEN if isinstance(m.get(k), bool)}
     if isinstance(m.get("stufen"), dict):
         s = {k: round(float(m["stufen"][k]), 1) for k in STUFEN if _zahl(m["stufen"].get(k))}

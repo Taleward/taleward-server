@@ -45,6 +45,9 @@ PREISE = {
     "mistral-large-latest": (50, 150), "mistral-large-2512": (50, 150),
     "mistral-medium-latest": (150, 750), "mistral-small-latest": (15, 60),
     "ministral-8b-latest": (15, 15), "ministral-14b-latest": (20, 20),
+    # Anthropic (Stand 10/2026); Haiku kostet bis 100 000 Token Eingabe weniger – hier der höhere Satz, damit das
+    # Kostenlimit eher zu früh als zu spät greift
+    "claude-sonnet-5-5": (200, 1000), "claude-opus-5-5": (400, 2000), "claude-haiku-5-5": (50, 250),
 }
 
 

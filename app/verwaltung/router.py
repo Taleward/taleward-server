@@ -29,6 +29,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app import links as links_modul
 from app import begrenzung, errors, queue
 from app.abrechnung import TOKENS_SCHAETZUNG
 from app.config import get_settings
@@ -68,6 +69,7 @@ def _icon(name: str):
 
 
 templates.env.globals["icon"] = _icon
+templates.env.filters["datenschutz_link"] = links_modul.datenschutz_link
 BERLIN = ZoneInfo("Europe/Berlin")
 
 

@@ -80,7 +80,7 @@
       <label>{{ _("Preis je 1 Mio. Tokens in Cent (ein / aus)") }}
         <span class="zeile"><input type="text" name="cent_ein" value="{{ '%g'|format(k.cent_ein) if k.cent_ein is not none else '' }}" inputmode="decimal" size="6" placeholder="{{ '%g'|format(llm.preis[0]) if llm.preis else '' }}">
         <input type="text" name="cent_aus" value="{{ '%g'|format(k.cent_aus) if k.cent_aus is not none else '' }}" inputmode="decimal" size="6" placeholder="{{ '%g'|format(llm.preis[1]) if llm.preis else '' }}"></span>
-        <span class="hilfe">{{ _("Nur für die Verbrauchsanzeige. Leer = bekannte Preise der Mistral-Modelle; bei anderen Anbietern bitte von deren Preisseite übernehmen.") }}</span></label>
+        <span class="hilfe">{{ _("Nur für die Verbrauchsanzeige. Leer = bekannte Preise der Modelle von Mistral und Anthropic; bei anderen Anbietern bitte von deren Preisseite übernehmen.") }}</span></label>
       <fieldset><legend>{{ _("Weg zum Kapitel") }}</legend>
         <label class="haken"><input type="radio" name="weg" value="notizen"{% if k.weg == "notizen" %} checked{% endif %}> {{ _("Erst Notizen je Abschnitt, dann das Kapitel (empfohlen)") }}</label>
         <label class="haken"><input type="radio" name="weg" value="abschrift"{% if k.weg == "abschrift" %} checked{% endif %}> {{ _("Ganze Abschrift auf einmal (früherer Weg)") }}</label>

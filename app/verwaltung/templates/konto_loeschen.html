@@ -27,6 +27,6 @@
     <p class="hilfe">{{ _("Konten, die sich nur über einen Dienst (Google, Discord, Apple, Microsoft) anmelden, haben kein Passwort. Lösche sie in der App unter Konto, oder wende dich an {kontakt}.", kontakt=angaben.server_contact or angaben.server_operator) }}</p>
     {% endif %}
   </div>
-  <p class="leise zentriert">{% if angaben.privacy_policy_url %}<a href="{{ angaben.privacy_policy_url }}" rel="noopener">{{ _("Datenschutz") }}</a> · {% endif %}{% include "_sprachen.html" %}</p>
+  <p class="leise zentriert">{% set ds = angaben.privacy_policy_url|datenschutz_link %}{% if ds %}<a href="{{ ds }}" rel="noopener">{{ _("Datenschutz") }}</a> · {% endif %}{% include "_sprachen.html" %}</p>
 </div>
 {% endblock %}

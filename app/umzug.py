@@ -883,7 +883,7 @@ def _anlegen(db: Session, user: User, z: zipfile.ZipFile, d: _Datei, angelegt: l
     eintrag_neu: dict[str, str] = {}
     for e in d.entries:
         halter = platz[e.holder_seat].id if e.holder_seat else None
-        x = Entry(campaign_id=c.id, type=e.type, name=e.name.strip()[:300] or "?", summary=e.summary or "",
+        x = Entry(campaign_id=c.id, type=e.type, name=aliasse.zeichen_bereinigen(e.name)[:300] or "?", summary=e.summary or "",
                   gm_notes=(e.gm_notes or "").strip() or None, visibility=e.visibility,
                   status=(e.status or "active") if e.type == "quest" else None,
                   holder_member_id=halter if e.type in ("item", "pc") else None,

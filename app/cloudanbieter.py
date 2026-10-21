@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-STAND = "2026-10-08"  # Datum, an dem die Angaben zuletzt geprüft wurden – in der Verwaltung sichtbar
+STAND = "2026-10-21"  # Datum, an dem die Angaben zuletzt geprüft wurden – in der Verwaltung sichtbar
 
 
 @dataclass(frozen=True)
@@ -98,7 +98,7 @@ ANBIETER: tuple[Anbieter, ...] = (
              "kopieren.",
              "OpenAI-kompatible Schnittstelle von Google ist als Beta gekennzeichnet.",
              "https://ai.google.dev/gemini-api/docs/openai", anzeige="Google Gemini", land="US"),
-    Anbieter("anthropic", "Anthropic Claude (US)", "https://api.anthropic.com/v1", "claude-sonnet-4-6", False,
+    Anbieter("anthropic", "Anthropic Claude (US)", "https://api.anthropic.com/v1", "claude-sonnet-5-5", False,
              "USA",
              "Laut Anthropic werden Daten aus der API standardmäßig nicht zum Training genutzt.",
              "platform.claude.com → Konto anlegen → Guthaben aufladen → „API Keys“ → „Create Key“ → Schlüssel kopieren. "
@@ -106,7 +106,8 @@ ANBIETER: tuple[Anbieter, ...] = (
              "Anthropic bezeichnet seine OpenAI-kompatible Schnittstelle als Testzugang; sie ignoriert den JSON-Modus. "
              "Taleward fängt das ab, es kann aber häufiger zu Wiederholungen kommen.",
              "https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk",
-             anzeige="Anthropic Claude", land="US"),
+             anzeige="Anthropic Claude", land="US",
+             modelle=("claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5")),
     Anbieter("deepseek", "DeepSeek (CN)", "https://api.deepseek.com/v1", "deepseek-flash", False,
              "China",
              "Daten werden laut DeepSeek auf Servern in China verarbeitet; Training lässt sich nur in den "

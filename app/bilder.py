@@ -64,7 +64,8 @@ def laden(daten: bytes, content_type: str | None, max_bytes: int) -> Geladen:
         raise errors.ApiError(413, "image_too_large", mb=max_bytes // (1024 * 1024))
     Image.MAX_IMAGE_PIXELS = MAX_PIXEL
     try:
-        bild = Image.open(io.BytesIO(daten))
+        # Nur diese drei Decoder überhaupt anwerfen – Image.open probiert sonst alle Formate durch (TIFF, EPS …)
+        bild = Image.open(io.BytesIO(daten), formats=["JPEG", "PNG", "WEBP"])
         if bild.format not in ("JPEG", "PNG", "WEBP"):
             raise errors.bad_request("unsupported_image")
         bild.load()

@@ -34,7 +34,7 @@ attrs==26.1.0
     # via aiohttp
 av==18.1.0
     # via faster-whisper
-certifi==2026.7.22
+certifi==2026.10.19
     # via
     #   httpcore
     #   httpx
@@ -296,7 +296,7 @@ pandas==3.0.6
     #   pyannote-database
     #   pyannote-metrics
     #   whisperx
-pillow==12.3.0
+pillow==13.0.0
     # via
     #   matplotlib
     #   taleward-server
