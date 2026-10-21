@@ -520,6 +520,17 @@ def download_pfad(art: str, s: dict) -> str:
     return f"/downloads/{art}/{s['version']}/{s['datei']}"
 
 
+# GitHubs „latest“ zeigt beim Worker nicht auf die neueste Fassung (Freigaben ohne „latest“) – nie darauf verlinken
+WORKER_RELEASES = "https://github.com/Taleward/taleward-worker/releases"
+
+
+def worker_link(db: Session) -> str:
+    """Download des Windows-Workers für die Verwaltung: die freigegebene Fassung von diesem Server, sonst die
+    Release-Seite auf GitHub."""
+    s = freigegeben(db, "worker-windows")
+    return download_pfad("worker-windows", s) if s else WORKER_RELEASES
+
+
 def angebot(db: Session, art: str, basis: str) -> dict | None:
     """Freigegebene Fassung mit Download-Adresse auf diesem Server (für App-Info und Worker)."""
     s = freigegeben(db, art)

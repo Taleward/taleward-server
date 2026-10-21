@@ -96,6 +96,39 @@ def reset_password(username: str = typer.Option(..., "--username", "-u")):
     typer.echo("Passwort geändert, alte Anmeldungen sind abgemeldet.")
 
 
+@app.command("verwalter")
+def verwalter_zeigen():
+    """Benutzernamen aller Verwalter, einer je Zeile (für „Passwort vergessen“ im Taleward-Programm)."""
+    from app.models import OrgMember, User as Konto
+
+    db = _db()
+    namen = db.scalars(select(Konto.username).join(OrgMember, OrgMember.user_id == Konto.id)
+                       .where(OrgMember.role == "admin", Konto.setup_account.is_(False)).distinct()
+                       .order_by(Konto.username))
+    for name in namen:
+        typer.echo(name)
+
+
+@app.command("passwort-neu")
+def passwort_neu(username: str = typer.Option(..., "--username", "-u")):
+    """Neues Passwort aus der Standardeingabe (eine Zeile, nie als Argument). Alle Anmeldungen dieses Kontos werden
+    ungültig. Für „Passwort vergessen“ im Taleward-Programm; von Hand geht auch `reset-password`."""
+    db = _db()
+    user = db.scalar(select(User).where(User.username == username.strip().lower()))
+    if user is None:
+        typer.echo("Benutzer nicht gefunden.", err=True)
+        raise typer.Exit(1)
+    pw = _passwort_lesen()
+    if len(pw) < 8:
+        typer.echo("Das Passwort muss mindestens 8 Zeichen haben.", err=True)
+        raise typer.Exit(2)
+    from app import passwortlink
+
+    passwortlink.passwort_setzen(db, user, pw)
+    db.commit()
+    typer.echo("Passwort geändert.")
+
+
 @app.command("list-users")
 def list_users():
     """Alle Benutzer anzeigen."""

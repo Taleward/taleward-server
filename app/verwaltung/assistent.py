@@ -198,7 +198,7 @@ def verein_speichern(request: Request, verein_name: str = Form(""), server_name:
 
 # -- Betriebsart
 def _betrieb_ctx(db: Session) -> dict:
-    from app import modellablage
+    from app import aktualisierung, modellablage
     from app.koppeln import aktueller_code
 
     ext = extern_konfig(db)
@@ -210,7 +210,7 @@ def _betrieb_ctx(db: Session) -> dict:
     return {"art": einrichtung.betriebsart(db), "mistral_ende": (ext.api_key or "")[-4:] if ext.api_key else None,
             "hf_ende": (meta_lesen(db, "hf.token") or "")[-4:] or None, "koppel": aktueller_code(db),
             "worker": worker, "limit_euro": (limit or 2000) / 100, "stunden": ext.stunden if ext.stunden else 12,
-            "server_url": "", "spiegel": modellablage.spiegel_nutzbar()}
+            "server_url": "", "spiegel": modellablage.spiegel_nutzbar(), "worker_link": aktualisierung.worker_link(db)}
 
 
 @router.get("/assistent/betrieb", response_class=HTMLResponse)

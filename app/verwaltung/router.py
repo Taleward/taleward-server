@@ -718,7 +718,13 @@ def transkription(request: Request, user: User = Depends(verwalter), db: Session
                   neuer_name=neuer_name, fehler=fehler, lokal=KNECHT.zustand(), log=KNECHT.log_ende(),
                   autostart=meta_lesen(db, META_KEY, "aus"), ki=ki_verfuegbar(), ext=_extern_anzeige(db),
                   docker=_docker(), worker_art=get_settings().worker_art, eingebaut=_eingebaut_anzeige(db),
-                  programm=_programm_anzeige(db))
+                  programm=_programm_anzeige(db), worker_link=_worker_link(db))
+
+
+def _worker_link(db: Session) -> str:
+    from app import aktualisierung
+
+    return aktualisierung.worker_link(db)
 
 
 def _programm_anzeige(db: Session) -> dict | None:

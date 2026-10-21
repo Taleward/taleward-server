@@ -128,6 +128,17 @@ def _spiegel_url() -> str:
     return (get_settings().model_mirror_url or "").rstrip("/")
 
 
+def kennung() -> str:
+    """Eigene Kennung bei Downloads – Schutzdienste vor Webseiten (CDN) halten „python-httpx“ sonst für einen Bot."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        v = version("taleward-server")
+    except PackageNotFoundError:
+        v = "0"
+    return f"Taleward/{v} (+https://taleward.org)"
+
+
 def spiegel_nutzbar(repo: str = SPRECHERMODELL) -> bool:
     return bool(_spiegel_url()) and repo in SPIEGEL
 
@@ -138,7 +149,8 @@ def holen(db: Session, repo: str = SPRECHERMODELL, klient: httpx.Client | None =
     if stand is not None:
         return stand
     eigener = klient is None
-    klient = klient or httpx.Client(timeout=httpx.Timeout(30, read=300), follow_redirects=True)
+    klient = klient or httpx.Client(timeout=httpx.Timeout(30, read=300), follow_redirects=True,
+                                    headers={"User-Agent": kennung()})
     try:
         token = hf_token(db)
         stand = None
@@ -242,7 +254,9 @@ def _vom_spiegel(klient: httpx.Client, repo: str) -> Stand:
         r = klient.get(f"{basis}/manifest.json")
     except httpx.HTTPError as e:
         raise AblageFehler(f"Taleward-Spiegel nicht erreichbar ({e.__class__.__name__}).") from None
-    if r.status_code != 200 or hashlib.sha256(r.content).hexdigest() != manifest_sha:
+    if r.status_code != 200:
+        raise AblageFehler(f"Der Taleward-Spiegel antwortet mit {r.status_code} statt mit dem Verzeichnis.")
+    if hashlib.sha256(r.content).hexdigest() != manifest_sha:
         raise AblageFehler("Das Verzeichnis des Taleward-Spiegels passt nicht zur erwarteten Prüfsumme.")
     m = r.json()
     if m.get("repo") != repo or m.get("fassung") != fassung:
