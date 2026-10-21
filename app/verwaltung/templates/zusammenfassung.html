@@ -10,6 +10,7 @@
     {% if k.api_key %}<p><span class="marke-status marke-status--gut">{{ _("Cloud-API") }}</span> {{ k.api_modell }} · {{ k.api_url }}</p>
     {% else %}<p><span class="marke-status marke-status--fehler">{{ _("nicht aktiv") }}</span> {{ _("Es fehlt der API-Schlüssel.") }}</p>{% endif %}
     {% if llm.je_session is not none %}<p>{{ _("Kosten etwa {cent} Cent pro Runde von 4 Stunden.", cent="%.0f"|format(llm.je_session) if llm.je_session >= 1 else "%.1f"|format(llm.je_session)) }}</p>{% endif %}
+    <p class="hilfe">{{ _("Kampagnen ohne Cloud-Freigabe übernimmt ein Worker mit lokalem Modell.") if llm.worker_online else _("Kampagnen ohne Cloud-Freigabe warten, bis ein Worker mit lokalem Modell verbunden ist.") }}</p>
   {% elif k.art == "lokal" %}
     {% if llm.worker_online %}<p><span class="marke-status marke-status--gut">{{ _("Lokales Modell") }}</span> {{ _("nach Grafikkarte") if k.lokal_modell == "auto" else k.lokal_modell }}</p>
     {% else %}<p><span class="marke-status marke-status--warten">{{ _("Lokales Modell") }}</span> {{ _("Zurzeit ist kein Worker mit Sprachmodell verbunden – Runden warten.") }}</p>{% endif %}

@@ -36,8 +36,9 @@ def dokument_out(db: Session, doc: CampaignDocument, lang: str) -> schemas.Campa
 
             c = db.get(Campaign, doc.campaign_id)
             if k.art == "api" and not (c and c.allow_cloud_summary):
-                meldung = errors.ApiError(0, "status.cloud_summary_not_allowed",
-                                          anbieter=cloud_anbieter_name(k)).message(lang)
+                if not queue.llm_worker_online(db):  # 0.4.120: sonst macht es der Worker mit lokalem Modell
+                    meldung = errors.ApiError(0, "status.cloud_summary_not_allowed",
+                                              anbieter=cloud_anbieter_name(k)).message(lang)
             elif k.art == "api" and kosten.erreicht(db):
                 meldung = errors.ApiError(0, "status.cost_limit").message(lang)
     if doc.state == "queued":  # 0.4.85: wartet auf Guthaben, Freigabe oder Zahler?

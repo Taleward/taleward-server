@@ -126,6 +126,15 @@ def cloud_erlaubt(db: Session, job: Job) -> bool:
     return bool(c and c.allow_cloud_summary)
 
 
+LLM_FAEHIGKEITEN = ("llm", "llm_revise")
+
+
+def worker_darf(db: Session, job: Job) -> bool:
+    """0.4.120: Cloud-API auf dem Server – Kampagnen mit Cloud-Freigabe nutzen die Cloud, alle anderen den Worker mit
+    lokalem Sprachmodell (Kapitel, Vorschläge, Korrektur, Unterlagen). Andere Aufträge (Abschrift, Stimmen) wie immer."""
+    return job.required_capability not in LLM_FAEHIGKEITEN or not cloud_erlaubt(db, job)
+
+
 def claim(db: Session, worker: Worker, capabilities: list[str], darf=None, weg: str = "worker") -> Job | None:
     """Ältesten passenden Auftrag vergeben. Atomar: gelingt nur einem Worker.
     `darf(db, job)` kann Aufträge überspringen (z. B. Kampagnen ohne Erlaubnis für die Cloud).

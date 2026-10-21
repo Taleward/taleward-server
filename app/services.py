@@ -345,8 +345,9 @@ def processing_status(db: Session, s: GameSession, lang: str = "de") -> schemas.
             if not queue.llm_worker_online(db):
                 message = errors.ApiError(0, "status.no_llm_worker").message(lang)
         elif k.art == "api" and not db.get(Campaign, s.campaign_id).allow_cloud_summary:
-            message = errors.ApiError(0, "status.cloud_summary_not_allowed",
-                                      anbieter=cloud_anbieter_name(k)).message(lang)
+            if not queue.llm_worker_online(db):  # 0.4.120: sonst macht es der Worker mit lokalem Modell
+                message = errors.ApiError(0, "status.cloud_summary_not_allowed",
+                                          anbieter=cloud_anbieter_name(k)).message(lang)
         elif k.art == "api" and kosten.erreicht(db):
             message = errors.ApiError(0, "status.cost_limit").message(lang)
         elif not k.bereit:

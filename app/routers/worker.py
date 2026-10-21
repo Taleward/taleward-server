@@ -23,7 +23,8 @@ from app.models import (
     Attendee, Campaign, GameSession, Job, Speaker, TranscriptSegment, Upload, UsageLog, Worker,
 )
 from app.namenshilfe import fuer_kampagne
-from app.queue import claim, create_summarize_job, extend_lease, fail_job, holds_lease, stimmen_vergessen
+from app.queue import (claim, create_summarize_job, extend_lease, fail_job, holds_lease, stimmen_vergessen,
+                       worker_darf)
 from app.schemas import ApiModel
 from app.services import set_state
 
@@ -233,13 +234,18 @@ def claim_job(body: ClaimIn, worker: Worker = Depends(current_worker), db: Sessi
     else:
         worker.app_paused_since = None
     caps = [c for c in body.capabilities if c in erlaubt] if not (worker.paused or app_pause) else []
+    darf = None
     if "llm" in caps:
         from app.einstellungen import llm_konfig
 
-        if llm_konfig(db).art != "lokal":
-            caps.remove("llm")  # Zusammenfassung macht gerade die Zentrale (API/Attrappe) oder niemand
-        elif "llm_revise" in body.capabilities:
-            caps.append("llm_revise")  # 0.4.15: nur Worker, die den Korrektur-Auftrag kennen
+        art = llm_konfig(db).art
+        if art not in ("lokal", "api"):
+            caps.remove("llm")  # Zusammenfassung macht gerade die Zentrale (Testmodus) oder niemand
+        else:
+            if "llm_revise" in body.capabilities:
+                caps.append("llm_revise")  # 0.4.15: nur Worker, die den Korrektur-Auftrag kennen
+            if art == "api":  # 0.4.120: nur Kampagnen ohne Cloud-Freigabe – die anderen macht die Cloud
+                darf = worker_darf
     worker.info = json.dumps(body.info, ensure_ascii=False)[:2000]
     db.commit()
     warte = get_settings().claim_wait_seconds if body.wait_seconds is None else body.wait_seconds
@@ -249,7 +255,7 @@ def claim_job(body: ClaimIn, worker: Worker = Depends(current_worker), db: Sessi
     while True:
         if caps and db.get(Worker, worker.id).paused:  # während des Wartens pausiert
             caps = []
-        job = claim(db, worker, caps) if caps else None
+        job = claim(db, worker, caps, darf=darf) if caps else None
         if job is not None:
             return _auftrag(db, job)
         if time.monotonic() >= ende:

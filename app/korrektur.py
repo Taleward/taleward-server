@@ -96,6 +96,7 @@ def verwerfen(db: Session, r: Recap | None) -> None:
 def starten(db: Session, s: GameSession, r: Recap, note: str, base_text: str) -> None:
     """POST …/recap/revision. Prüft Zustand, Grenze und baseText und reiht einen Auftrag ein – oder legt gleich einen
     fehlgeschlagenen Entwurf an, wenn es kein passendes Sprachmodell gibt (dann sagt `message`, was zu tun ist)."""
+    from app import queue
     from app.einstellungen import llm_konfig
 
     if s.state != "awaiting_review":
@@ -120,8 +121,8 @@ def starten(db: Session, s: GameSession, r: Recap, note: str, base_text: str) ->
     grund = None
     if k.art == "aus" or (k.art == "api" and not k.api_key):
         grund = "aus"
-    elif k.art == "api" and not (c and c.allow_cloud_summary):
-        grund = "cloud"
+    elif k.art == "api" and not (c and c.allow_cloud_summary) and not queue.llm_worker_online(db):
+        grund = "cloud"  # 0.4.120: mit Worker samt Sprachmodell übernimmt der den Auftrag
     job = Job(type="revise", session_id=s.id, required_capability=FAEHIGKEIT, engine="local")
     db.add(job)
     db.flush()
