@@ -1,0 +1,368 @@
+From 3bd062527ed77cbca1c1c1b72a9509a6c90fe3bf Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 12:43:29 +0200
+Subject: [PATCH] Server 0.4.117
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Sprechermodell vom Taleward-Spiegel (taleward.org/modelle) mit fester Prüfsumme, ohne Hugging-Face-Konto.
+Fällt der Spiegel aus, lädt ein Server mit eigenem Zugang von Hugging Face. Verwaltung und Assistent nennen
+den Zugang dann nur noch als freiwillig. MODEL_MIRROR_URL leer schaltet den Spiegel ab.
+---
+ app/config.py                               |  5 +-
+ app/modellablage.py                         | 22 ++++--
+ app/transkription.py                        |  6 +-
+ app/verwaltung/assistent.py                 |  3 +-
+ app/verwaltung/i18n.py                      |  8 ++-
+ app/verwaltung/templates/assistent.html     |  5 ++
+ app/verwaltung/templates/transkription.html |  9 ++-
+ docs/BETRIEB.md                             |  7 +-
+ pyproject.toml                              |  2 +-
+ tests/conftest.py                           |  1 +
+ tests/test_aktualisierung.py                |  2 +-
+ tests/test_assistent.py                     |  2 +-
+ tests/test_modellablage.py                  |  3 +-
+ tests/test_server_04117.py                  | 76 +++++++++++++++++++++
+ tests/test_worker_app.py                    |  2 +-
+ uv.lock                                     |  2 +-
+ 16 files changed, 132 insertions(+), 23 deletions(-)
+ create mode 100644 tests/test_server_04117.py
+
+diff --git a/app/config.py b/app/config.py
+index 3cc7b79..be52f8a 100644
+--- a/app/config.py
++++ b/app/config.py
+@@ -71,6 +71,7 @@ class Settings(BaseSettings):
+     # Hugging Face Zugangsschlüssel (für das pyannote-Sprechermodell)
+     hf_token: str | None = None
+-    # Taleward-Spiegel des Sprechermodells (ohne Hugging-Face-Konto). Genutzt nur, wenn die Prüfsumme im Code steht.
+-    model_mirror_url: str = ""
++    # Taleward-Spiegel des Sprechermodells (ohne Hugging-Face-Konto). Genutzt nur, wenn die Prüfsumme im Code steht;
++    # jede Datei wird geprüft. Leer = abgeschaltet (dann nur mit eigenem Hugging-Face-Zugang).
++    model_mirror_url: str = "https://taleward.org/modelle"
+     # Updates: Der Server fragt einmal am Tag bei GitHub nach neuen Fassungen von App, Worker und Server, lädt die
+     # Dateien für App und Worker und bietet sie selbst an – so fragen Handys und Worker nie direkt bei GitHub.
+diff --git a/app/modellablage.py b/app/modellablage.py
+index 21e7546..458e1a0 100644
+--- a/app/modellablage.py
++++ b/app/modellablage.py
+@@ -39,6 +39,9 @@ log = logging.getLogger("modellablage")
+ HF = "https://huggingface.co"
+ MAX_DATEI = 600 * 1024 ** 2  # einzelne Datei; das Sprechermodell hat zusammen etwa 30 MB
+-# Repo → (Fassung, SHA-256 der manifest.json). Wird eingetragen, sobald der Taleward-Spiegel steht.
+-SPIEGEL: dict[str, tuple[str, str]] = {}
++# Repo → (Fassung, SHA-256 der manifest.json). Taleward-Spiegel unter taleward.org/modelle (MODEL_MIRROR_URL).
++SPIEGEL: dict[str, tuple[str, str]] = {
++    SPRECHERMODELL: ("3533c8cf8e369892e6b79ff1bf80f7b0286a54ee",
++                     "2fe7b7a72d42157e97c610316645698c3d7bb65f5d36da5840afdc42da51de4a"),
++}
+ NOTICE = {
+     SPRECHERMODELL: ("pyannote speaker-diarization-community-1 – © pyannoteAI / Hervé Bredin and contributors.\n"
+@@ -138,11 +141,18 @@ def holen(db: Session, repo: str = SPRECHERMODELL, klient: httpx.Client | None =
+     klient = klient or httpx.Client(timeout=httpx.Timeout(30, read=300), follow_redirects=True)
+     try:
++        token = hf_token(db)
++        stand = None
+         if spiegel_nutzbar(repo) and (FASSUNGEN.get(repo) in (None, SPIEGEL[repo][0])):
+-            stand = _vom_spiegel(klient, repo)
+-        else:
+-            token = hf_token(db)
++            try:
++                stand = _vom_spiegel(klient, repo)
++            except AblageFehler as e:
++                if not token:
++                    raise
++                # Spiegel nicht erreichbar oder unpassend: mit dem eigenen Zugang direkt von Hugging Face
++                log.warning("Taleward-Spiegel nicht nutzbar (%s) – lade von Hugging Face.", e)
++        if stand is None:
+             if not token:
+                 raise AblageFehler("Für das Sprechermodell fehlt der Hugging-Face-Zugang (Verwaltung → Transkription), "
+-                                   "und ein Taleward-Spiegel ist noch nicht eingetragen.")
++                                   "und der Taleward-Spiegel ist hier abgeschaltet.")
+             stand = _von_hf(klient, repo, FASSUNGEN.get(repo) or meta_lesen(db, f"modell.{repo}"), token)
+     finally:
+diff --git a/app/transkription.py b/app/transkription.py
+index c5aed6d..0ca9f16 100644
+--- a/app/transkription.py
++++ b/app/transkription.py
+@@ -451,7 +451,7 @@ class WhisperXMotor:
+                 if not self.hf_token:
+                     raise EinrichtungsFehler(
+-                        "Das Sprechermodell liegt noch nicht auf dem Server, und hier ist kein Hugging-Face-Zugang "
+-                        "eingetragen. In der Verwaltung unter Transkription den Zugang hinterlegen – der Server lädt "
+-                        "das Modell dann selbst und gibt es an die Worker weiter.")
++                        "Das Sprechermodell liegt noch nicht auf dem Server. Er lädt es selbst vom Taleward-Spiegel, "
++                        "das kann nach dem Start einige Minuten dauern. Klappt das nicht, in der Verwaltung unter "
++                        "Transkription nachsehen oder dort einen Hugging-Face-Zugang hinterlegen.")
+                 sprecher = modelle.bereitstellen(modelle.SPRECHERMODELL, self.hf_token)
+             self.bereit = {"whisper": modelle.bereitstellen(modelle.whisper_repo(self.modell), self.hf_token),
+diff --git a/app/verwaltung/assistent.py b/app/verwaltung/assistent.py
+index 95e581b..277ba36 100644
+--- a/app/verwaltung/assistent.py
++++ b/app/verwaltung/assistent.py
+@@ -199,4 +199,5 @@ def verein_speichern(request: Request, verein_name: str = Form(""), server_name:
+ # -- Betriebsart
+ def _betrieb_ctx(db: Session) -> dict:
++    from app import modellablage
+     from app.koppeln import aktueller_code
+ 
+@@ -210,5 +211,5 @@ def _betrieb_ctx(db: Session) -> dict:
+             "hf_ende": (meta_lesen(db, "hf.token") or "")[-4:] or None, "koppel": aktueller_code(db),
+             "worker": worker, "limit_euro": (limit or 2000) / 100, "stunden": ext.stunden if ext.stunden else 12,
+-            "server_url": ""}
++            "server_url": "", "spiegel": modellablage.spiegel_nutzbar()}
+ 
+ 
+diff --git a/app/verwaltung/i18n.py b/app/verwaltung/i18n.py
+index 56591ce..4945cb3 100644
+--- a/app/verwaltung/i18n.py
++++ b/app/verwaltung/i18n.py
+@@ -946,6 +946,7 @@ EN: dict[str, str] = {
+     'Eure Worker laden das Modell vom Server. Sie brauchen dafür kein Hugging-Face-Konto, und alle nutzen dieselbe Fassung.': "Your workers download the model from the server. They don't need a Hugging Face account, and all of them use the same version.",
+     'noch nicht auf dem Server': 'not on the server yet',
+-    'Der Server lädt das Sprechermodell einmal und gibt es an eure Worker weiter. Dafür braucht er einmalig einen Hugging-Face-Zugang – oder den Taleward-Spiegel, sobald es ihn gibt.': 'The server downloads the speaker model once and passes it on to your workers. For this it needs Hugging Face access once – or the Taleward mirror, once it exists.',
+-    'Der Taleward-Spiegel ist eingetragen.': 'The Taleward mirror is configured.',
++    'Der Server lädt das Sprechermodell einmal vom Taleward-Spiegel und gibt es an eure Worker weiter. Ein Konto braucht ihr dafür nicht.': 'The server downloads the speaker model once from the Taleward mirror and passes it on to your workers. You don’t need an account for this.',
++    'Der Server lädt das Sprechermodell einmal und gibt es an eure Worker weiter. Ohne den Taleward-Spiegel braucht er dafür einmalig einen Hugging-Face-Zugang.': 'The server downloads the speaker model once and passes it on to your workers. Without the Taleward mirror it needs Hugging Face access once for this.',
++    'Eigenen Hugging-Face-Zugang nutzen (freiwillig)': 'Use your own Hugging Face access (optional)',
+     'Jetzt auf den Server laden': 'Download to the server now',
+     'Zugang zu Hugging Face': 'Access to Hugging Face',
+@@ -1163,4 +1164,7 @@ EN: dict[str, str] = {
+     # 0.4.115: Übersicht in Worten, Einstellungen je Abschnitt, Menü am Handy
+     "Alles läuft.": "Everything is running.",
++    "Das Modell, das Stimmen trennt, lädt der Server vom Taleward-Spiegel und gibt es an eure Worker weiter. Ein Konto braucht ihr dafür nicht.":
++        "The server downloads the model that separates voices from the Taleward mirror and passes it on to your workers. You don’t need an account for this.",
++    "Stattdessen eigenen Hugging-Face-Zugang nutzen (freiwillig)": "Use your own Hugging Face access instead (optional)",
+     "Alles läuft. Eine Runde wartet auf die Spielleitung.": "Everything is running. One session is waiting for the game master.",
+     "Alles läuft. {n} Runden warten auf die Spielleitung.": "Everything is running. {n} sessions are waiting for the game master.",
+diff --git a/app/verwaltung/templates/assistent.html b/app/verwaltung/templates/assistent.html
+index 18b03a2..4b75866 100644
+--- a/app/verwaltung/templates/assistent.html
++++ b/app/verwaltung/templates/assistent.html
+@@ -79,4 +79,8 @@
+     {% endif %}
+     {% if art in ("lokal", "beides") %}
++    {% if spiegel %}
++    <p class="hilfe">{{ _("Das Modell, das Stimmen trennt, lädt der Server vom Taleward-Spiegel und gibt es an eure Worker weiter. Ein Konto braucht ihr dafür nicht.") }}</p>
++    <details><summary>{{ _("Stattdessen eigenen Hugging-Face-Zugang nutzen (freiwillig)") }}</summary>
++    {% endif %}
+     <fieldset><legend>{{ _("Zugang zum Sprechermodell (Hugging Face)") }}</legend>
+       <p class="hilfe">{{ _("Das Modell, das Stimmen trennt, lädt der Server einmal von Hugging Face und gibt es an eure Worker weiter – auch bei künftigen Updates. Dafür braucht es einmalig ein kostenloses Konto:") }}</p>
+@@ -90,4 +94,5 @@
+         <span class="hilfe">{{ _("Der Schlüssel bleibt auf dem Server. Eure Worker brauchen keinen.") }}</span></label>
+     </fieldset>
++    {% if spiegel %}</details>{% endif %}
+     {% endif %}
+     <div class="knopfzeile"><button class="tw-btn tw-btn--primary" type="submit">{{ _("Prüfen und weiter") }}</button>
+diff --git a/app/verwaltung/templates/transkription.html b/app/verwaltung/templates/transkription.html
+index 5727382..e021b09 100644
+--- a/app/verwaltung/templates/transkription.html
++++ b/app/verwaltung/templates/transkription.html
+@@ -233,5 +233,9 @@
+   {% else %}
+   <p><span class="marke-status{% if modell.fehler %} marke-status--fehler{% endif %}">{{ _("noch nicht auf dem Server") }}</span>{% if modell.fehler %} {{ modell.fehler }}{% endif %}</p>
+-  <p class="hilfe">{{ _("Der Server lädt das Sprechermodell einmal und gibt es an eure Worker weiter. Dafür braucht er einmalig einen Hugging-Face-Zugang – oder den Taleward-Spiegel, sobald es ihn gibt.") }}{% if modell.spiegel %} {{ _("Der Taleward-Spiegel ist eingetragen.") }}{% endif %}</p>
++  {% if modell.spiegel %}
++  <p class="hilfe">{{ _("Der Server lädt das Sprechermodell einmal vom Taleward-Spiegel und gibt es an eure Worker weiter. Ein Konto braucht ihr dafür nicht.") }}</p>
++  {% else %}
++  <p class="hilfe">{{ _("Der Server lädt das Sprechermodell einmal und gibt es an eure Worker weiter. Ohne den Taleward-Spiegel braucht er dafür einmalig einen Hugging-Face-Zugang.") }}</p>
++  {% endif %}
+   {% if hf_ende or modell.spiegel %}
+   <form method="post" action="/verwaltung/transkription/modell"><input type="hidden" name="csrf" value="{{ csrf }}">
+@@ -239,4 +243,6 @@
+   {% endif %}
+   {% endif %}
++  {% set hf_klappe = modell.spiegel and not hf_ende %}
++  {% if hf_klappe %}<details><summary>{{ _("Eigenen Hugging-Face-Zugang nutzen (freiwillig)") }}</summary>{% endif %}
+   <h3>{{ _("Zugang zu Hugging Face") }}</h3>
+   {% if not hf_ende and not modell.stand %}
+@@ -255,4 +261,5 @@
+     <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Prüfen und speichern") }}</button></div>
+   </form>
++  {% if hf_klappe %}</details>{% endif %}
+   <p class="hilfe">{{ _("Das Modell: pyannote speaker-diarization-community-1 von pyannoteAI, Lizenz CC-BY-4.0, unverändert weitergegeben.") }}</p>
+ </div>
+diff --git a/docs/BETRIEB.md b/docs/BETRIEB.md
+index 2357a7e..9009a0a 100644
+--- a/docs/BETRIEB.md
++++ b/docs/BETRIEB.md
+@@ -109,6 +109,9 @@ Ein **pausierter** Worker bleibt verbunden, bekommt aber keine Aufträge – pra
+ Ein **gesperrter** Schlüssel gilt sofort nicht mehr.
+ 
+-**Sprechermodell.** Für die Sprechertrennung braucht es das Modell *pyannote speaker-diarization-community-1*. Es ist
+-kostenlos, aber man muss einmal den Nutzungsbedingungen zustimmen:
++**Sprechermodell.** Für die Sprechertrennung braucht es das Modell *pyannote speaker-diarization-community-1*
++(Lizenz CC-BY-4.0). Der Server lädt es von selbst vom Taleward-Spiegel (`https://taleward.org/modelle`); jede Datei
++wird gegen die Prüfsumme im Code geprüft, ein Konto braucht es dafür nicht. Wer das nicht möchte, setzt in der `.env`
++`MODEL_MIRROR_URL=` (leer) und nutzt einen eigenen Zugang bei Hugging Face. Diesen Zugang nutzt der Server auch, wenn
++der Spiegel einmal nicht erreichbar ist:
+ 
+ 1. Auf [huggingface.co](https://huggingface.co) ein Konto anlegen.
+diff --git a/pyproject.toml b/pyproject.toml
+index ef90616..4eab2f1 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.116"
++version = "0.4.117"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+diff --git a/tests/conftest.py b/tests/conftest.py
+index 83a0852..72f5491 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -24,4 +24,5 @@ def client(tmp_path, monkeypatch):
+     monkeypatch.setenv("LOCAL_WORKER_AUTOSTART", "false")
+     monkeypatch.setenv("EXTERNAL_INTERVAL_SECONDS", "0")
++    monkeypatch.setenv("MODEL_MIRROR_URL", "")  # Tests laden nie vom echten Spiegel
+     monkeypatch.delenv("EXTERNAL_TRANSCRIPTION", raising=False)
+     monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index 0eb603c..664055b 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -154,5 +154,5 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.116"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.117"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index 4300e1b..3fcca68 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -135,5 +135,5 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.116"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.117"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index 5607a1d..9f2cba6 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -84,5 +84,5 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.116"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.117"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+@@ -157,4 +157,5 @@ def test_spiegel(client, dbs, hf_zugang, tmp_path, monkeypatch):
+ 
+     klient = httpx.Client(transport=httpx.MockTransport(spiegel))
++    monkeypatch.setattr(modellablage, "SPIEGEL", {})
+     with pytest.raises(modellablage.AblageFehler, match="Hugging-Face-Zugang"):  # ohne Prüfsumme im Code: nicht genutzt
+         modellablage.holen(dbs, klient=klient)
+diff --git a/tests/test_server_04117.py b/tests/test_server_04117.py
+new file mode 100644
+index 0000000..353b743
+--- /dev/null
++++ b/tests/test_server_04117.py
+@@ -0,0 +1,76 @@
++"""Server 0.4.117: Taleward-Spiegel des Sprechermodells unter taleward.org/modelle ist eingetragen – neue Server
++brauchen kein Hugging-Face-Konto mehr. Fällt der Spiegel aus, lädt ein Server mit eigenem Zugang von Hugging Face."""
++import httpx
++import pytest
++
++from tests.test_modellablage import REPO, SHA, hf_transport, hf_zugang  # noqa: F401  (Fixture)
++from tests.test_verwaltung import admin  # noqa: F401  (Fixture)
++
++
++def test_spiegel_ist_eingetragen():
++    from app import modellablage
++    from app.config import Settings
++
++    assert Settings.model_fields["model_mirror_url"].default == "https://taleward.org/modelle"
++    fassung, summe = modellablage.SPIEGEL[REPO]
++    assert len(fassung) == 40 and len(summe) == 64
++    assert modellablage.FASSUNGEN.get(REPO) in (None, fassung)  # sonst würde der Spiegel nie genutzt
++
++
++def _spiegel_an(monkeypatch):
++    from app.config import get_settings
++
++    monkeypatch.setenv("MODEL_MIRROR_URL", "https://spiegel.taleward.example/modelle")
++    get_settings.cache_clear()
++
++
++def test_spiegel_aus_faellt_auf_hugging_face_zurueck(client, dbs, hf_zugang, monkeypatch):  # noqa: F811
++    from app import modellablage
++
++    _spiegel_an(monkeypatch)
++    protokoll: list[str] = []
++    hf = hf_transport(protokoll=protokoll)
++
++    def beide(request: httpx.Request) -> httpx.Response:
++        if request.url.host == "spiegel.taleward.example":
++            protokoll.append(str(request.url))
++            return httpx.Response(404)
++        return hf._transport.handle_request(request)
++
++    stand = modellablage.holen(dbs, klient=httpx.Client(transport=httpx.MockTransport(beide)))
++    assert stand.quelle == "huggingface" and stand.fassung == SHA
++    assert protokoll[0].startswith("https://spiegel.taleward.example/modelle/" + REPO + "/")
++
++
++def test_spiegel_aus_ohne_zugang_sagt_es(client, dbs, monkeypatch):
++    from app import modellablage
++
++    _spiegel_an(monkeypatch)
++    klient = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
++    with pytest.raises(modellablage.AblageFehler, match="Spiegel"):
++        modellablage.holen(dbs, klient=klient)
++
++
++def test_assistent_ohne_konto_mit_spiegel(client, admin, monkeypatch):  # noqa: F811
++    from app import modellablage
++
++    monkeypatch.setitem(modellablage.SPIEGEL, REPO, modellablage.SPIEGEL[REPO])
++    client.post("/verwaltung/assistent/betrieb/art", data={"csrf": admin, "art": "lokal"})
++    seite = client.get("/verwaltung/assistent/betrieb").text
++    assert "Taleward-Spiegel" not in seite and "<details><summary>" not in seite  # Spiegel in Tests abgeschaltet
++    _spiegel_an(monkeypatch)
++    seite = client.get("/verwaltung/assistent/betrieb").text
++    assert "Ein Konto braucht ihr dafür nicht." in seite
++    assert "<details><summary>Stattdessen eigenen Hugging-Face-Zugang nutzen (freiwillig)</summary>" in seite
++
++
++def test_transkription_hf_eingeklappt_mit_spiegel(client, admin, monkeypatch):  # noqa: F811
++    seite = client.get("/verwaltung/transkription").text
++    assert "Ohne den Taleward-Spiegel braucht er dafür einmalig einen Hugging-Face-Zugang." in seite
++    assert "Eigenen Hugging-Face-Zugang nutzen" not in seite
++    _spiegel_an(monkeypatch)
++    seite = client.get("/verwaltung/transkription").text
++    assert "einmal vom Taleward-Spiegel" in seite
++    assert "<details><summary>Eigenen Hugging-Face-Zugang nutzen (freiwillig)</summary>" in seite
++    en = client.get("/verwaltung/transkription", headers={"Accept-Language": "en"}).text
++    assert "Use your own Hugging Face access (optional)" in en
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index 0a98263..0fa0430 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -113,5 +113,5 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.116"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.117"
+ 
+ 
+diff --git a/uv.lock b/uv.lock
+index a93f0c9..0f59d36 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -2057,5 +2057,5 @@ wheels = [
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.117"
++version = "0.4.117"
+ source = { editable = "." }
+ dependencies = [
+-- 
+2.43.0
