@@ -1,0 +1,321 @@
+From 4483663e35d85a75fb3ea552fa6eeb9c65eff147 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 13:28:26 +0200
+Subject: [PATCH] Server 0.4.122
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Website neben dem Server: Snippets aus derselben Regeldatei erlaubt, Kommentare werden nicht geprüft, ohne
+Regeldatei ändert neu-laden nichts. Nutzer für das Hochladen heißt taleward-website.
+---
+ deploy/website-neu-laden.sh  |  20 +++++--
+ deploy/website-zugang.sh     |   6 +-
+ docs/BETRIEB.md              |  11 ++--
+ pyproject.toml               |   2 +-
+ tests/test_aktualisierung.py |   2 +-
+ tests/test_assistent.py      |   2 +-
+ tests/test_modellablage.py   |   2 +-
+ tests/test_server_04121.py   | 110 ++++++++++++++++++++++++++++++++++-
+ tests/test_worker_app.py     |   2 +-
+ uv.lock                      |   2 +-
+ 10 files changed, 139 insertions(+), 20 deletions(-)
+
+diff --git a/deploy/website-neu-laden.sh b/deploy/website-neu-laden.sh
+index dd70509..cc79da3 100755
+--- a/deploy/website-neu-laden.sh
++++ b/deploy/website-neu-laden.sh
+@@ -16,12 +16,17 @@ regeln_pruefen() {
+     return 1
+   fi
+-  # Nichts, was über statisches Ausliefern hinausgeht: keine weiteren Dateien einbinden, nichts weiterleiten,
+-  # keine Platzhalter für Umgebung oder Dateien, keine Protokolle, Zertifikate oder Verwaltung, kein „..“
+-  if grep -nEi '(^|[[:space:]])(import|reverse_proxy|php_fastcgi|forward_auth|fs|storage|admin|acme_ca|acme_dns|tls|log|templates|invoke|metrics|tracing)([[:space:]]|\{|$)|\{(env|file|system)\.|\{\$|\.\.' "$datei" >&2; then
++  # Geprüft wird ohne Kommentarzeilen. Nichts, was über statisches Ausliefern hinausgeht: nichts weiterleiten, keine
++  # Platzhalter für Umgebung oder Dateien, keine Protokolle, Zertifikate oder Verwaltung, kein „..“; „import“ nur für
++  # Snippets aus derselben Datei (ein Name, kein Pfad)
++  local inhalt
++  inhalt=$(grep -nvE '^[[:space:]]*#' "$datei" || true)
++  if grep -Ei '(^|[[:space:]:])(reverse_proxy|php_fastcgi|forward_auth|fs|storage|admin|acme_ca|acme_dns|tls|log|templates|invoke|metrics|tracing)([[:space:]]|\{|$)|\{(env|file|system)\.|\{\$|\.\.' <<<"$inhalt" >&2 \
++     || grep -E '^[0-9]+:[[:space:]]*import([[:space:]]|$)' <<<"$inhalt" \
++        | grep -vE '^[0-9]+:[[:space:]]*import[[:space:]]+[A-Za-z0-9_-]+[[:space:]]*$' >&2; then
+     echo "Abgelehnt: $(basename "$datei") enthält nicht erlaubte Angaben (Zeilen oben)." >&2
+     return 1
+   fi
+   # „root“ nur innerhalb des Website-Ordners
+-  if grep -nE '^[[:space:]]*root([[:space:]]|$)' "$datei" \
++  if grep -E '^[0-9]+:[[:space:]]*root([[:space:]]|$)' <<<"$inhalt" \
+      | grep -vE ":[[:space:]]*root([[:space:]]+(\*|@[A-Za-z0-9_-]+|/[^[:space:]]*))?[[:space:]]+$WURZEL(/[^[:space:]]*)?[[:space:]]*$" >&2; then
+     echo "Abgelehnt: „root“ muss in $WURZEL liegen (Zeilen oben)." >&2
+@@ -50,5 +55,10 @@ for f in "$ORDNER"/_caddy/*.caddy; do
+   cp -P -- "$f" "$NEU/"
+ done
+-for f in "$NEU"/*; do
++NEUE=("$NEU"/*)
++if [ "${#NEUE[@]}" -eq 0 ]; then
++  echo "Keine Caddy-Regeln gefunden ($ORDNER/_caddy/*.caddy) – nichts geändert." >&2
++  exit 1
++fi
++for f in "${NEUE[@]}"; do
+   regeln_pruefen "$f"
+ done
+diff --git a/deploy/website-zugang.sh b/deploy/website-zugang.sh
+index 880295a..82b7247 100755
+--- a/deploy/website-zugang.sh
++++ b/deploy/website-zugang.sh
+@@ -1,5 +1,5 @@
+ #!/bin/bash
+ # Optional, einmalig: eine statische Website neben dem Server über denselben Caddy ausliefern
+-# (docs/BETRIEB.md, „Website mitliefern“). Legt den Nutzer „website“ an, der per SSH genau zweierlei darf:
++# (docs/BETRIEB.md, „Website mitliefern“). Legt den Nutzer „taleward-website“ an, der per SSH genau zweierlei darf:
+ # Dateien in den Website-Ordner hochladen (rsync, nur dorthin) und „neu-laden“ (Caddy-Regeln prüfen und übernehmen).
+ # Aufruf auf dem Server:  sudo bash /opt/taleward/website-zugang.sh
+@@ -7,5 +7,5 @@
+ set -euo pipefail
+ ZIEL=${TALEWARD_ZIEL:-/opt/taleward}
+-NUTZER=website
++NUTZER=${WEBSITE_NUTZER:-taleward-website}
+ EMPFANG=/usr/local/bin/taleward-website-empfang
+ NEULADEN=/usr/local/sbin/taleward-website-neu-laden
+@@ -74,4 +74,4 @@ echo "  Adresse:        ${IP:-<IP dieses Servers>}"
+ echo "  Nutzer:         $NUTZER"
+ echo "  known_hosts:    ${IP:-<IP>} $(cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub)"
+-echo "Hochladen:  rsync -rlz --delete --delay-updates dist/ $NUTZER@${IP:-<IP>}:"
++echo "Hochladen:  rsync -rlt --delete --delay-updates dist/ $NUTZER@${IP:-<IP>}:"
+ echo "Neu laden:  ssh $NUTZER@${IP:-<IP>} neu-laden"
+diff --git a/docs/BETRIEB.md b/docs/BETRIEB.md
+index 7125554..960e3d8 100644
+--- a/docs/BETRIEB.md
++++ b/docs/BETRIEB.md
+@@ -244,12 +244,15 @@ Wer neben dem Server eine statische Website betreibt, kann sie über denselben C
+ 
+ 1. Auf dem Server einmal `sudo bash /opt/taleward/website-zugang.sh`. Das Skript fragt nach dem Ordner (Vorschlag
+-   `/srv/website`) und nach dem öffentlichen SSH-Schlüssel, mit dem hochgeladen wird. Es legt den Nutzer `website` an,
++   `/srv/website`) und nach dem öffentlichen SSH-Schlüssel, mit dem hochgeladen wird. Es legt den Nutzer `taleward-website` an,
+    der per SSH nur zweierlei darf: mit `rsync` in genau diesen Ordner schreiben und `neu-laden`. Am Ende zeigt es die
+    Angaben für das Hochladen (Adresse, `known_hosts`-Zeile).
+-2. Hochladen: `rsync -rlz --delete --delay-updates dist/ website@SERVER:` und danach `ssh website@SERVER neu-laden`.
++2. Hochladen: `rsync -rlt --delete --delay-updates dist/ taleward-website@SERVER:` und danach
++   `ssh taleward-website@SERVER neu-laden`.
+ 3. Die Website bringt ihre Caddy-Regeln selbst mit: Dateien `_caddy/*.caddy` im hochgeladenen Ordner, mit
+    Site-Blöcken für ihre Domains (ohne globalen Block). Caddy sieht den Ordner als `/srv/website`; `root` muss darin
+-   liegen. Erlaubt ist nur statisches Ausliefern (Kopfzeilen, Umleitungen, Antworten, `file_server` usw.) – nicht
+-   erlaubt sind u. a. `import`, `reverse_proxy`, `log`, `tls`, `templates` und Platzhalter für Umgebung oder Dateien.
++   liegen (als feste Angabe, z. B. `root * /srv/website`). Erlaubt ist nur statisches Ausliefern (Kopfzeilen,
++   Umleitungen, Antworten, `file_server`, Snippets aus derselben Datei usw.) – nicht erlaubt sind u. a. `import` von
++   Dateien, `reverse_proxy`, `log`, `tls`, `templates` und Platzhalter für Umgebung oder Dateien. Ohne Regeldatei ändert
++   `neu-laden` nichts.
+    `neu-laden` prüft die Regeln, übernimmt sie und lädt Caddy ohne Neustart neu. Lehnt Caddy sie ab, bleiben die
+    bisherigen in Betrieb, und der Befehl endet mit einem Fehler. Den Ordner `_caddy` selbst sollte die Website mit
+diff --git a/pyproject.toml b/pyproject.toml
+index 8bf66a7..c88a7f1 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.121"
++version = "0.4.122"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index c85ea73..93b8a31 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -154,5 +154,5 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.121"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.122"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index 903e599..23d1b6f 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -135,5 +135,5 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.121"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.122"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index ef9d399..d901cbc 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -84,5 +84,5 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.121"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.122"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+diff --git a/tests/test_server_04121.py b/tests/test_server_04121.py
+index 820503c..6b8caab 100644
+--- a/tests/test_server_04121.py
++++ b/tests/test_server_04121.py
+@@ -1,3 +1,3 @@
+-"""Server 0.4.121: optional eine statische Website neben dem Server über denselben Caddy (Website-Ordner, geprüfte
++"""Server 0.4.121/0.4.122: optional eine statische Website neben dem Server über denselben Caddy (Website-Ordner, geprüfte
+ Caddy-Regeln, Neuladen ohne Neustart über einen eingeschränkten Nutzer) und Aufräumen alter Docker-Bilder."""
+ import os
+@@ -42,4 +42,100 @@ app.example.org {
+ """
+ 
++GUT_MIT_SNIPPETS = r"""# Taleward-Website und Web-App für Caddy (automatisch erzeugt von scripts/caddy.mjs, nicht von Hand ändern).
++# Gleiche Regeln wie die .htaccess-Dateien. Wird vom Caddyfile des Servers per import eingebunden.
++# Wurzel: /srv/website (Inhalt von dist/ aus dem Website-Build).
++
++(taleward_website_kopf) {
++	header {
++		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-Ab+/cD=' 'sha256-Xy9/Zz='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
++		Strict-Transport-Security "max-age=31536000; includeSubDomains"
++		X-Content-Type-Options "nosniff"
++		Referrer-Policy "strict-origin-when-cross-origin"
++		Permissions-Policy "camera=(), microphone=(), geolocation=()"
++		-Server
++	}
++}
++
++(taleward_app_kopf) {
++	header {
++		Content-Security-Policy "default-src 'self'; connect-src 'self' https:; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self'"
++		X-Content-Type-Options "nosniff"
++		-Server
++	}
++}
++
++example.org {
++	root * /srv/website
++	encode zstd gzip
++	import taleward_website_kopf
++
++	# Alte Adressen
++	@alt0 path /fuer-vereine /fuer-vereine/
++	redir @alt0 /fuer-gruppen/ 301
++
++	# Die Web-App wohnt unter https://app.example.org/. Wer noch die alte Adresse example.org/app/ hat, wird umgeleitet;
++	handle /app/sw.js {
++		rewrite * /app/alte-adresse-sw.js
++		header Cache-Control "no-cache"
++		file_server
++	}
++	handle /app/alte-adresse-sw.js {
++		header Cache-Control "no-cache"
++		file_server
++	}
++	handle /app {
++		header Clear-Site-Data "\"cache\", \"storage\""
++		redir https://app.example.org/ 301
++	}
++	handle_path /app/* {
++		header Clear-Site-Data "\"cache\", \"storage\""
++		redir https://app.example.org{uri} 301
++	}
++	@seiten path / */ *.html
++	header @seiten Cache-Control "no-cache"
++	header /_astro/* Cache-Control "public, max-age=31536000, immutable"
++	header /modelle/* Cache-Control "public, max-age=31536000, immutable"
++	file_server {
++		hide .htaccess _caddy
++	}
++	handle_errors {
++		rewrite * /404.html
++		import taleward_website_kopf
++		header Cache-Control "no-cache"
++		file_server
++	}
++}
++
++www.example.org {
++	import taleward_website_kopf
++	redir https://example.org{uri} 301
++}
++
++app.example.org {
++	root * /srv/website/app
++	encode zstd gzip
++	import taleward_app_kopf
++	@frisch {
++		path / */ */index.html */sw.js
++		not path /auth/app/*
++	}
++	header @frisch Cache-Control "no-cache"
++	header /auth/app/* Cache-Control "no-store"
++	header /assets/* Cache-Control "public, max-age=31536000, immutable"
++	@manifest path *.webmanifest
++	header @manifest >Content-Type "application/manifest+json"
++	@json path *.json
++	header @json >Content-Type "application/json"
++	file_server {
++		hide .htaccess
++	}
++	handle_errors {
++		import taleward_app_kopf
++		header Cache-Control "no-cache"
++		respond "{err.status_code} {err.status_text}"
++	}
++}
++"""
++
+ SCHLECHT = [
+     "x.example.org {\n\treverse_proxy server:8000\n}\n",
+@@ -54,4 +150,8 @@ SCHLECHT = [
+     "x.example.org {\n\ttemplates\n\tfile_server\n}\n",
+     "x.example.org {\n\ttls intern@example.org\n}\n",
++    "x.example.org {\n\timport /etc/caddy/Caddyfile\n}\n",
++    "x.example.org {\n\timport kopf/x\n}\n",
++    "x.example.org {\n\troot * {$TALEWARD_WEBSITE_WURZEL:/srv/taleward-website}\n\tfile_server\n}\n",
++    "log {\n\toutput file /data/x\n}\n",
+ ]
+ 
+@@ -68,4 +168,9 @@ def test_regeln_der_website_werden_geprueft(tmp_path):
+     r = _pruefen(gut)
+     assert r.returncode == 0, r.stderr
++    # wie die Regeln der Website: Snippets aus derselben Datei, Kommentare dürfen alles enthalten
++    snippets = tmp_path / "snippets.caddy"
++    snippets.write_text(GUT_MIT_SNIPPETS + "# import /etc/x, log, reverse_proxy – nur ein Kommentar\n", encoding="utf-8")
++    r = _pruefen(snippets)
++    assert r.returncode == 0, r.stderr
+     for i, text in enumerate(SCHLECHT):
+         f = tmp_path / f"schlecht{i}.caddy"
+@@ -90,4 +195,5 @@ def test_caddy_und_compose_binden_die_website_optional_ein():
+     assert 'cp -P -- "$f" "$NEU/"' in neu  # erst kopieren, dann die Kopie prüfen
+     assert 'cp -a "$ALT"/. "$REGELN"/' in neu  # abgelehnt → alte Regeln zurück
++    assert "Keine Caddy-Regeln gefunden" in neu  # ohne Regeldatei bleibt alles, wie es ist
+ 
+ 
+@@ -98,5 +204,5 @@ def test_zugang_nur_hochladen_und_neu_laden():
+     assert "neu-laden) exec sudo -n $NEULADEN ;;" in z
+     assert 'echo "$NUTZER ALL=(root) NOPASSWD: $NEULADEN"' in z and "visudo -cqf" in z
+-    assert "passwd -l" in z
++    assert "passwd -l" in z and "NUTZER=${WEBSITE_NUTZER:-taleward-website}" in z
+     for skript in ("website-zugang.sh", "website-neu-laden.sh"):
+         assert subprocess.run(["bash", "-n", str(DEPLOY / skript)]).returncode == 0
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index 23fde9d..af003f7 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -113,5 +113,5 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.121"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.122"
+ 
+ 
+diff --git a/uv.lock b/uv.lock
+index a47faef..775da4a 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -2057,5 +2057,5 @@ wheels = [
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.121"
++version = "0.4.122"
+ source = { editable = "." }
+ dependencies = [
+-- 
+2.43.0
+
