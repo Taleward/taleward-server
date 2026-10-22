@@ -349,7 +349,7 @@ pyjwt==2.15.0
     # via taleward-server
 pyparsing==3.3.3
     # via matplotlib
-pypdf==6.19.0
+pypdf==6.21.2
     # via taleward-server
 python-dateutil==2.9.0.post0
     # via

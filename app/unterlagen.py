@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import re
 import shutil
 import time
@@ -34,6 +35,8 @@ from app import errors, storage
 from app.config import get_settings
 from app.db import utcnow
 from app.models import Campaign, CampaignDocument, Entry, Job, Proposal, UsageLog
+
+log = logging.getLogger(__name__)
 
 MAX_BYTES = 50 * 1024 * 1024
 MAX_ZEICHEN = 1_500_000  # darüber wird abgeschnitten (≈ 450 000 Tokens)
@@ -80,31 +83,42 @@ def _begrenzen(abschnitte: list[dict]) -> tuple[list[dict], int | None]:
     return out, None
 
 
-def _pdf(daten: bytes) -> Extrakt:
-    from pypdf import PdfReader
-    from pypdf.errors import PdfReadError
+PDF_ZEIT = 120  # Sekunden für das Auslesen einer PDF (eigener Prozess, siehe app/pdf_lesen.py)
+PDF_ZEIT_SEITEN = 20  # nur Seiten zählen
+PDF_LESER = Path(__file__).with_name("pdf_lesen.py")
 
+
+def _pdf_prozess(modus: str, daten: bytes, zeit: int) -> dict:
+    """PDF in einem eigenen Prozess lesen: Endlosschleifen oder Speicherhunger einer präparierten Datei treffen nur
+    diesen Prozess, nach `zeit` Sekunden wird er beendet. Fehler → `unsupported_document`."""
+    import subprocess
+    import sys
+
+    extra = {"creationflags": 0x08000000} if sys.platform == "win32" else {}  # CREATE_NO_WINDOW
     try:
-        leser = PdfReader(io.BytesIO(daten))
-        if leser.is_encrypted and not leser.decrypt(""):
-            raise errors.bad_request("unsupported_document", "unsupported_document.password")
-        seiten = leser.pages
-        abschnitte, leer = [], 0
-        for i, seite in enumerate(seiten):
-            if i >= MAX_SEITEN:
-                break
-            try:
-                text = (seite.extract_text() or "").strip()
-            except Exception:  # einzelne kaputte Seite
-                text = ""
-            if len(text) < 3:  # nichts oder nur Seitenzahl – vermutlich eingescannt
-                leer += 1
-                continue
-            abschnitte.append({"seite": i + 1, "text": text})
-        return Extrakt(abschnitte, len(seiten), leer)
-    except errors.ApiError:
-        raise
-    except (PdfReadError, Exception):
+        r = subprocess.run([sys.executable, "-I", str(PDF_LESER), modus, str(MAX_SEITEN)],
+                           input=daten, capture_output=True, timeout=zeit, **extra)
+    except subprocess.TimeoutExpired:
+        log.warning("PDF nach %s s nicht ausgelesen – abgebrochen", zeit)
+        raise errors.bad_request("unsupported_document") from None
+    except OSError:
+        raise errors.bad_request("unsupported_document") from None
+    if r.returncode == 2:
+        raise errors.bad_request("unsupported_document", "unsupported_document.password")
+    try:
+        if r.returncode != 0:
+            raise ValueError
+        return json.loads(r.stdout)
+    except ValueError:
+        raise errors.bad_request("unsupported_document") from None
+
+
+def _pdf(daten: bytes) -> Extrakt:
+    x = _pdf_prozess("text", daten, PDF_ZEIT)
+    try:
+        return Extrakt([{"seite": int(a["seite"]), "text": str(a["text"])} for a in x["abschnitte"]],
+                       int(x["seiten"]), int(x["leer"]))
+    except (KeyError, TypeError, ValueError):
         raise errors.bad_request("unsupported_document") from None
 
 
@@ -227,12 +241,13 @@ def _bogen_grenzen_pruefen(db: Session, campaign_id: str, member_id: str, art: s
         return
     seiten_max = grenzen[0]
     if art == "pdf":
-        from pypdf import PdfReader
-
         try:
-            seiten = len(PdfReader(io.BytesIO(daten)).pages)
-        except Exception:  # noqa: BLE001 – unlesbar: wie bisher speichern, gezählt wird dann eine Seite
-            seiten = 1
+            seiten = int(_pdf_prozess("seiten", daten, PDF_ZEIT_SEITEN)["seiten"])
+        except errors.ApiError as e:
+            if e.key == "unsupported_document.password":
+                seiten = 1  # verschlüsselt: wie bisher speichern, gezählt wird eine Seite
+            else:
+                raise
         if seiten > seiten_max:
             raise errors.bad_request("sheet_too_many_pages", seiten=seiten, max=seiten_max)
 
