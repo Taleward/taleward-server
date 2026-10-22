@@ -1,0 +1,1000 @@
+From 1911685b7bfa2d6322ec01fbb61c0d3a8c861c79 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 17:49:36 +0200
+Subject: [PATCH] Server 0.4.124
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Website neben dem Server: Regeln werden nach der Übersetzung durch Caddy geprüft, die Adressen der Website beim Einrichten eingetragen.
+---
+ NEU.md                           |   4 +-
+ deploy/aktualisieren.sh          |   3 +-
+ deploy/website-neu-laden.sh      |  85 +++++++------
+ deploy/website-zugang.sh         |  30 +++--
+ deploy/website_regeln.py         | 209 +++++++++++++++++++++++++++++++
+ docs/BETRIEB.md                  |  27 ++--
+ install.sh                       |   2 +-
+ pyproject.toml                   |   2 +-
+ tests/test_aktualisierung.py     |   2 +-
+ tests/test_assistent.py          |   2 +-
+ tests/test_modellablage.py       |   2 +-
+ tests/test_server_04121.py       | 187 +--------------------------
+ tests/test_server_04124.py       | 191 ++++++++++++++++++++++++++++
+ tests/test_worker_app.py         |   2 +-
+ tests/website_regeln_faelle.json |  18 +++
+ uv.lock                          |   2 +-
+ 16 files changed, 516 insertions(+), 252 deletions(-)
+ create mode 100644 deploy/website_regeln.py
+ create mode 100644 tests/test_server_04124.py
+ create mode 100644 tests/website_regeln_faelle.json
+
+diff --git a/NEU.md b/NEU.md
+index a8877a5..f0eaca1 100644
+--- a/NEU.md
++++ b/NEU.md
+@@ -1,8 +1,8 @@
+-Fassung 0.4.123
++Fassung 0.4.124
+ 
+ ## Was ist neu
+ 
+ - Kampagnen ohne Cloud-Freigabe bekommen Kapitel, Vorschläge und Korrekturen jetzt von einem Worker mit lokalem Modell, auch wenn der Server sonst die Cloud nutzt.
+-- Der Server kann auf Wunsch eine eigene Website gleich mit ausliefern.
++- Der Server kann auf Wunsch eine eigene Website gleich mit ausliefern – nur unter den dafür eingetragenen Adressen.
+ - Antworten auf Mails des Servers, etwa bei „Passwort vergessen“, gehen an den Kontakt des Betreibers.
+ - Nach Updates räumt der Server alte Reste auf und hält so die Platte frei.
+diff --git a/deploy/aktualisieren.sh b/deploy/aktualisieren.sh
+index dbf459a..f875efa 100755
+--- a/deploy/aktualisieren.sh
++++ b/deploy/aktualisieren.sh
+@@ -215,5 +215,6 @@ if grundbild_bauen && docker compose build >>"$BAULOG" 2>&1 \
+   [ "$(sed -n 's/^TALEWARD_MODUS=//p' .env)" = "heimnetz" ] && compose=docker-compose.heimnetz.yml
+   for paar in aktualisieren.sh:aktualisieren.sh "$compose":docker-compose.yml Caddyfile:Caddyfile \
+-              website-zugang.sh:website-zugang.sh website-neu-laden.sh:website-neu-laden.sh; do
++              website-zugang.sh:website-zugang.sh website-neu-laden.sh:website-neu-laden.sh \
++              website_regeln.py:website_regeln.py; do
+     quelle=${paar%%:*}; datei=${paar##*:}
+     if curl -fsL "$QUELLE/$quelle" -o "$datei.neu"; then mv "$datei.neu" "$datei"; else rm -f "$datei.neu"; fi
+diff --git a/deploy/website-neu-laden.sh b/deploy/website-neu-laden.sh
+index cc79da3..dae722b 100755
+--- a/deploy/website-neu-laden.sh
++++ b/deploy/website-neu-laden.sh
+@@ -3,51 +3,37 @@
+ # Übernimmt die Caddy-Regeln der Website aus <WEBSITE_ORDNER>/_caddy/*.caddy und lädt Caddy neu – ohne Neustart.
+ # Aufgerufen per sudo vom Nutzer, der die Website hochlädt (eingerichtet von website-zugang.sh), ohne Argumente.
+-# Die Regeln dürfen nur Dateien aus /srv/website ausliefern (Prüfung unten). Lehnt Caddy sie ab, bleiben die alten
+-# Regeln auf der Platte und in Betrieb. Test der Prüfung allein:  website-neu-laden.sh --pruefen DATEI
++# Geprüft wird, was Caddy aus den Regeln macht (website_regeln.py): nur erlaubte Bausteine, nur die Adressen aus
++# WEBSITE_DOMAINS (nie die des Servers), Dateien nur aus /srv/website. Verknüpfungen im Website-Ordner → Abbruch.
++# Lehnt Caddy die Regeln ab, bleiben die alten auf der Platte und in Betrieb.
+ set -euo pipefail
++export LC_ALL=C   # gleiche Reihenfolge der Dateien wie beim Einbinden durch Caddy
+ ZIEL=${TALEWARD_ZIEL:-/opt/taleward}
+-WURZEL=/srv/website              # so sieht Caddy den Website-Ordner (docker-compose.yml)
++PRUEFER="$ZIEL/website_regeln.py"
+ MAX_BYTES=262144
+ 
+-regeln_pruefen() {
+-  local datei=$1
+-  if [ ! -f "$datei" ] || [ -L "$datei" ] || [ "$(wc -c <"$datei")" -gt "$MAX_BYTES" ]; then
+-    echo "Abgelehnt: $(basename "$datei") ist keine normale Datei oder zu groß." >&2
+-    return 1
+-  fi
+-  # Geprüft wird ohne Kommentarzeilen. Nichts, was über statisches Ausliefern hinausgeht: nichts weiterleiten, keine
+-  # Platzhalter für Umgebung oder Dateien, keine Protokolle, Zertifikate oder Verwaltung, kein „..“; „import“ nur für
+-  # Snippets aus derselben Datei (ein Name, kein Pfad)
+-  local inhalt
+-  inhalt=$(grep -nvE '^[[:space:]]*#' "$datei" || true)
+-  if grep -Ei '(^|[[:space:]:])(reverse_proxy|php_fastcgi|forward_auth|fs|storage|admin|acme_ca|acme_dns|tls|log|templates|invoke|metrics|tracing)([[:space:]]|\{|$)|\{(env|file|system)\.|\{\$|\.\.' <<<"$inhalt" >&2 \
+-     || grep -E '^[0-9]+:[[:space:]]*import([[:space:]]|$)' <<<"$inhalt" \
+-        | grep -vE '^[0-9]+:[[:space:]]*import[[:space:]]+[A-Za-z0-9_-]+[[:space:]]*$' >&2; then
+-    echo "Abgelehnt: $(basename "$datei") enthält nicht erlaubte Angaben (Zeilen oben)." >&2
+-    return 1
+-  fi
+-  # „root“ nur innerhalb des Website-Ordners
+-  if grep -E '^[0-9]+:[[:space:]]*root([[:space:]]|$)' <<<"$inhalt" \
+-     | grep -vE ":[[:space:]]*root([[:space:]]+(\*|@[A-Za-z0-9_-]+|/[^[:space:]]*))?[[:space:]]+$WURZEL(/[^[:space:]]*)?[[:space:]]*$" >&2; then
+-    echo "Abgelehnt: „root“ muss in $WURZEL liegen (Zeilen oben)." >&2
+-    return 1
+-  fi
+-}
+-
+-if [ "${1:-}" = "--pruefen" ]; then
+-  regeln_pruefen "${2:?Datei fehlt}"
+-  exit
+-fi
+ [ "$#" -eq 0 ] || { echo "Ohne Argumente aufrufen." >&2; exit 2; }
+-
+-ORDNER=$(sed -n 's/^WEBSITE_ORDNER=//p' "$ZIEL/.env" | tail -1)
+-if [ -z "$ORDNER" ] || [ ! -d "$ORDNER" ] || [ -L "$ORDNER/_caddy" ]; then
++wert() { sed -n "s/^$1=//p" "$ZIEL/.env" | tail -1; }
++ORDNER=$(wert WEBSITE_ORDNER)
++SERVER=$(wert TALEWARD_DOMAIN)
++read -r -a DOMAINS <<<"$(wert WEBSITE_DOMAINS)"
++if [ -z "$ORDNER" ] || [ ! -d "$ORDNER" ] || [ -L "$ORDNER" ] || [ -L "$ORDNER/_caddy" ]; then
+   echo "Kein Website-Ordner eingerichtet (WEBSITE_ORDNER in $ZIEL/.env)." >&2
+   exit 1
+ fi
++[ -f "$PRUEFER" ] || { echo "Prüfung fehlt ($PRUEFER) – erst den Server aktualisieren." >&2; exit 1; }
++python3 -I "$PRUEFER" adressen "$SERVER" "${DOMAINS[@]}" >/dev/null || {
++  echo "Adressen der Website fehlen oder sind ungültig (WEBSITE_DOMAINS in $ZIEL/.env, website-zugang.sh)." >&2
++  exit 1
++}
++# Verknüpfungen im Website-Ordner könnten auf Dateien außerhalb zeigen (Caddy folgt ihnen) – dann gar nichts übernehmen
++if [ -n "$(find "$ORDNER" -type l -print -quit)" ]; then
++  echo "Abgelehnt: Im Website-Ordner liegen Verknüpfungen – nichts übernommen." >&2
++  exit 1
++fi
++
+ REGELN="$ZIEL/website-caddy"
+ mkdir -p "$REGELN"
+ NEU=$(mktemp -d) ALT=$(mktemp -d)
+-trap 'rm -rf "$NEU" "$ALT"' EXIT
++trap 'rm -rf "$NEU" "$ALT"; rm -f "$REGELN/pruefen.txt"' EXIT
+ shopt -s nullglob
+ # Erst kopieren (Verknüpfungen bleiben Verknüpfungen), dann die Kopie prüfen – was geprüft ist, wird auch übernommen
+@@ -60,11 +46,32 @@ if [ "${#NEUE[@]}" -eq 0 ]; then
+   exit 1
+ fi
++cd "$ZIEL"
++: >"$NEU/alle.txt"
+ for f in "${NEUE[@]}"; do
+-  regeln_pruefen "$f"
++  name=$(basename "$f")
++  if [[ ! "$name" =~ ^[A-Za-z0-9_-]+\.caddy$ ]] || [ ! -f "$f" ] || [ -L "$f" ] \
++     || [ "$(wc -c <"$f")" -gt "$MAX_BYTES" ]; then
++    echo "Abgelehnt: $name ist keine normale Datei, hat einen ungewöhnlichen Namen oder ist zu groß." >&2
++    exit 1
++  fi
++  python3 -I "$PRUEFER" vorab "$f" || { echo "($name)" >&2; exit 1; }
++  cat -- "$f" >>"$NEU/alle.txt"
++  printf '\n' >>"$NEU/alle.txt"
+ done
++# Was macht Caddy daraus? Alle Dateien zusammen – so, wie das Caddyfile sie einbindet – im Caddy-Gerät übersetzen
++# (gleiche Fassung wie im Betrieb), dann das Ergebnis prüfen
++install -m 644 "$NEU/alle.txt" "$REGELN/pruefen.txt"
++if ! docker compose exec -T caddy caddy adapt --adapter caddyfile --config /etc/caddy/website/pruefen.txt \
++     >"$NEU/regeln.json" 2>"$NEU/regeln.fehler"; then
++  echo "Abgelehnt: Caddy versteht die Regeln nicht:" >&2
++  tail -n 3 "$NEU/regeln.fehler" >&2
++  exit 1
++fi
++python3 -I "$PRUEFER" json "$NEU/regeln.json" "$SERVER" "${DOMAINS[@]}" || exit 1
++rm -f "$REGELN/pruefen.txt"
++
+ cp -a "$REGELN"/. "$ALT"/
+ rm -f "$REGELN"/*.caddy
+-for f in "$NEU"/*.caddy; do install -m 644 "$f" "$REGELN/"; done
+-cd "$ZIEL"
++for f in "${NEUE[@]}"; do install -m 644 "$f" "$REGELN/"; done
+ if docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile; then
+   echo "Caddy neu geladen."
+diff --git a/deploy/website-zugang.sh b/deploy/website-zugang.sh
+index 82b7247..5fcde7f 100755
+--- a/deploy/website-zugang.sh
++++ b/deploy/website-zugang.sh
+@@ -13,5 +13,7 @@ NEULADEN=/usr/local/sbin/taleward-website-neu-laden
+ abbruch() { echo "Abbruch: $*" >&2; exit 1; }
+ [ "$(id -u)" = 0 ] || abbruch "bitte mit sudo starten."
+-[ -f "$ZIEL/.env" ] && [ -f "$ZIEL/website-neu-laden.sh" ] || abbruch "kein Taleward-Server in $ZIEL (erst install.sh)."
++[ -f "$ZIEL/.env" ] && [ -f "$ZIEL/website-neu-laden.sh" ] && [ -f "$ZIEL/website_regeln.py" ] \
++  || abbruch "kein Taleward-Server in $ZIEL oder zu alte Fassung (erst install.sh bzw. das Update)."
++command -v python3 >/dev/null 2>&1 || apt-get install -y -q python3 >/dev/null
+ 
+ ALT=$(sed -n 's/^WEBSITE_ORDNER=//p' "$ZIEL/.env" | tail -1)
+@@ -21,4 +23,11 @@ ORDNER=${EINGABE:-${ALT:-/srv/website}}
+   || abbruch "bitte einen Ordner direkt unter /srv oder /var/www, z. B. /srv/website."
+ 
++SERVER=$(sed -n 's/^TALEWARD_DOMAIN=//p' "$ZIEL/.env" | tail -1)
++ALT_D=$(sed -n 's/^WEBSITE_DOMAINS=//p' "$ZIEL/.env" | tail -1)
++echo "Adressen der Website, mit Leerzeichen getrennt (z. B. example.org www.example.org) – nicht die des Servers:"
++read -r -p "[${ALT_D}] " EINGABE </dev/tty || true
++read -r -a LISTE <<<"${EINGABE:-$ALT_D}"
++DOMAINS=$(python3 -I "$ZIEL/website_regeln.py" adressen "$SERVER" "${LISTE[@]}") || abbruch "Adressen ungültig (siehe oben)."
++
+ echo "Öffentlicher SSH-Schlüssel für das Hochladen (eine Zeile, beginnt mit „ssh-ed25519“):"
+ read -r SCHLUESSEL </dev/tty
+@@ -40,5 +49,5 @@ cat > "$EMPFANG" <<SKRIPT
+ # Einziger Befehl für den Nutzer „$NUTZER“ per SSH (authorized_keys: command=…): hochladen oder neu laden
+ case "\${SSH_ORIGINAL_COMMAND:-}" in
+-  "rsync --server "*) exec /usr/bin/rrsync -wo $ORDNER ;;
++  "rsync --server "*) exec /usr/bin/rrsync -wo -munge-links $ORDNER ;;
+   neu-laden) exec sudo -n $NEULADEN ;;
+   *) echo "Nicht erlaubt – nur rsync und „neu-laden“." >&2; exit 1 ;;
+@@ -60,9 +69,13 @@ chown root:root "$HEIM/.ssh/authorized_keys"
+ chmod 644 "$HEIM/.ssh/authorized_keys"
+ 
+-if grep -q '^WEBSITE_ORDNER=' "$ZIEL/.env"; then
+-  sed -i "s#^WEBSITE_ORDNER=.*#WEBSITE_ORDNER=$ORDNER#" "$ZIEL/.env"
+-else
+-  echo "WEBSITE_ORDNER=$ORDNER" >> "$ZIEL/.env"
+-fi
++setzen() {  # $1=Name $2=Wert – Wert ist geprüft (Ordner nach Muster, Adressen aus website_regeln.py)
++  if grep -q "^$1=" "$ZIEL/.env"; then
++    sed -i "s#^$1=.*#$1=$2#" "$ZIEL/.env"
++  else
++    echo "$1=$2" >> "$ZIEL/.env"
++  fi
++}
++setzen WEBSITE_ORDNER "$ORDNER"
++setzen WEBSITE_DOMAINS "$DOMAINS"
+ mkdir -p "$ZIEL/website-caddy"
+ (cd "$ZIEL" && docker compose up -d caddy >/dev/null)
+@@ -73,5 +86,6 @@ echo "Fertig. Für das Hochladen (z. B. als Secrets im Website-Repository):"
+ echo "  Adresse:        ${IP:-<IP dieses Servers>}"
+ echo "  Nutzer:         $NUTZER"
++echo "  Website-Adressen: $DOMAINS"
+ echo "  known_hosts:    ${IP:-<IP>} $(cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub)"
+-echo "Hochladen:  rsync -rlt --delete --delay-updates dist/ $NUTZER@${IP:-<IP>}:"
++echo "Hochladen:  rsync -rt --delete --delay-updates dist/ $NUTZER@${IP:-<IP>}:   (ohne -l: keine Verknüpfungen)"
+ echo "Neu laden:  ssh $NUTZER@${IP:-<IP>} neu-laden"
+diff --git a/deploy/website_regeln.py b/deploy/website_regeln.py
+new file mode 100644
+index 0000000..350421a
+--- /dev/null
++++ b/deploy/website_regeln.py
+@@ -0,0 +1,209 @@
++#!/usr/bin/env python3
++"""Prüfung der Caddy-Regeln einer Website, die neben dem Server über denselben Caddy läuft (docs/BETRIEB.md,
++„Website mitliefern“). Aufgerufen von website-neu-laden.sh (als root) und website-zugang.sh; nur Standardbibliothek.
++
++Geprüft wird nicht der Text, sondern das, was Caddy daraus macht (JSON aus `caddy adapt`): nur eine Positivliste von
++Bausteinen, jede Adresse aus der eingetragenen Liste der Website (nie die Server-Domain), Dateien nur aus /srv/website,
++Platzhalter nur aus einer kleinen Liste. Was nicht ausdrücklich erlaubt ist, wird abgelehnt.
++
++  website_regeln.py adressen SERVERDOMAIN DOMAIN…        – Liste der Website-Adressen prüfen
++  website_regeln.py vorab DATEI                          – Regeldatei grob prüfen (vor `caddy adapt`)
++  website_regeln.py json JSONDATEI SERVERDOMAIN DOMAIN… – übersetzte Regeln prüfen
++Rückgabe 0 = in Ordnung, 1 = abgelehnt (Gründe auf stderr).
++"""
++from __future__ import annotations
++
++import json
++import re
++import sys
++
++WURZEL = "/srv/website"
++MAX_BYTES = 262144
++ADRESSE = re.compile(r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
++
++# Erlaubte Bausteine (Caddy-Handler) und ihre Felder
++HANDLER = {
++    "subroute": {"routes"},
++    "headers": {"request", "response"},
++    "static_response": {"status_code", "headers", "body", "close"},
++    "rewrite": {"uri", "strip_path_prefix", "strip_path_suffix"},
++    "file_server": {"hide", "index_names", "canonical_uris", "pass_thru"},
++    "encode": {"encodings", "prefer", "minimum_length"},
++    "vars": {"root"},
++    "error": {"error", "status_code"},
++}
++MATCHER = {"host", "path", "not", "method", "header", "file"}
++DATEI_MATCHER = {"root", "try_files", "try_policy"}
++ROUTE = {"match", "handle", "terminal", "group"}
++SERVER = {"listen", "routes", "errors"}
++PORTS = {":443", ":80"}
++PLATZHALTER = {"http.request.uri", "http.request.uri.path", "http.request.uri.query", "http.error.status_code",
++               "http.error.status_text", "http.matchers.file.relative", "http.matchers.file.remainder"}
++KLAMMER = re.compile(r"\{([^{}]*)\}")
++
++
++class Abgelehnt(Exception):
++    pass
++
++
++def adressen(server: str, liste: list[str]) -> list[str]:
++    """Adressen der Website: einfache Hostnamen (klein, ohne Port, Pfad, Schema, Platzhalter), nie die des Servers."""
++    server = server.strip().lower().rstrip(".")
++    aus = []
++    for a in liste:
++        a = a.strip().lower().rstrip(".")
++        if not ADRESSE.match(a):
++            raise Abgelehnt(f"„{a}“ ist keine einfache Adresse (nur Name, ohne http://, Port, Pfad oder *).")
++        if a == server:
++            raise Abgelehnt(f"„{a}“ ist die Adresse des Servers selbst.")
++        aus.append(a)
++    if not aus:
++        raise Abgelehnt("Keine Adresse für die Website angegeben.")
++    return aus
++
++
++def vorab(text: str) -> None:
++    """Grobe Prüfung am Text: `import` nur für Snippets, die in derselben Datei stehen (keine Dateien, keine Snippets
++    anderer Dateien), keine Umgebungs- oder Datei-Platzhalter (die setzt Caddy schon beim Übersetzen ein, danach wären sie
++    nicht mehr zu erkennen)."""
++    if len(text.encode()) > MAX_BYTES:
++        raise Abgelehnt("Regeldatei zu groß.")
++    snippets = set(re.findall(r"^\s*\(([A-Za-z0-9_-]+)\)\s*\{", text, re.M))
++    for nr, zeile in enumerate(text.splitlines(), 1):
++        z = zeile.strip()
++        if not z or z.startswith("#"):
++            continue
++        if re.match(r"import(\s|$)", z):
++            m = re.fullmatch(r"import\s+([A-Za-z0-9_-]+)", z)
++            if not m or m.group(1) not in snippets:
++                raise Abgelehnt(f"Zeile {nr}: import nur für Snippets aus derselben Datei.")
++        if re.search(r"\{\$|\{(env|file|system|vars)\.", z):
++            raise Abgelehnt(f"Zeile {nr}: Platzhalter für Umgebung, Dateien oder Variablen sind nicht erlaubt.")
++        if "\x00" in z:
++            raise Abgelehnt(f"Zeile {nr}: Steuerzeichen.")
++
++
++def _pfad(wert, wo: str) -> None:
++    if not isinstance(wert, str) or not (wert == WURZEL or wert.startswith(WURZEL + "/")) or ".." in wert \
++            or "{" in wert or "//" in wert or any(c.isspace() for c in wert):
++        raise Abgelehnt(f"{wo}: Dateien nur aus {WURZEL} (gefunden: {wert!r}).")
++
++
++def _texte(x, wo: str) -> None:
++    """Jeder Platzhalter in einem Wert muss aus der Liste stammen."""
++    if isinstance(x, str):
++        for p in KLAMMER.findall(x):
++            if p not in PLATZHALTER:
++                raise Abgelehnt(f"{wo}: Platzhalter {{{p}}} ist nicht erlaubt.")
++        if "{" in KLAMMER.sub("", x) or "}" in KLAMMER.sub("", x):
++            raise Abgelehnt(f"{wo}: einzelne geschweifte Klammer.")
++    elif isinstance(x, dict):
++        for k, v in x.items():
++            _texte(k, wo)
++            _texte(v, wo)
++    elif isinstance(x, list):
++        for v in x:
++            _texte(v, wo)
++    elif not isinstance(x, (int, float, bool)) and x is not None:
++        raise Abgelehnt(f"{wo}: unerwarteter Wert.")
++
++
++def _matcher(m, erlaubt: set[str], wo: str, oben: bool) -> None:
++    if not isinstance(m, dict) or not m:
++        raise Abgelehnt(f"{wo}: Bedingung nicht lesbar.")
++    for k, v in m.items():
++        if k not in MATCHER:
++            raise Abgelehnt(f"{wo}: Bedingung „{k}“ ist nicht erlaubt.")
++        if k == "host":
++            if not isinstance(v, list) or not v or any(not isinstance(h, str) or h.lower() not in erlaubt for h in v):
++                raise Abgelehnt(f"{wo}: Adresse außerhalb der Liste der Website ({v}).")
++        elif k == "not":
++            if not isinstance(v, list):
++                raise Abgelehnt(f"{wo}: „not“ nicht lesbar.")
++            for n in v:
++                _matcher(n, erlaubt, wo, False)
++        elif k == "file":
++            if not isinstance(v, dict) or set(v) - DATEI_MATCHER:
++                raise Abgelehnt(f"{wo}: Datei-Bedingung mit unbekannten Angaben.")
++            if "root" in v:
++                _pfad(v["root"], wo)
++            _texte(v, wo)
++        else:
++            _texte(v, wo)
++    if oben and "host" not in m:
++        raise Abgelehnt(f"{wo}: jede Regel braucht eine Adresse der Website.")
++
++
++def _handler(h, erlaubt: set[str], wo: str) -> None:
++    if not isinstance(h, dict) or h.get("handler") not in HANDLER:
++        raise Abgelehnt(f"{wo}: Baustein „{h.get('handler') if isinstance(h, dict) else h}“ ist nicht erlaubt.")
++    art = h["handler"]
++    fremd = set(h) - HANDLER[art] - {"handler"}
++    if fremd:
++        raise Abgelehnt(f"{wo}: {art} mit nicht erlaubten Angaben {sorted(fremd)}.")
++    if art == "subroute":
++        _routen(h.get("routes", []), erlaubt, wo, oben=False)
++    elif art == "vars":
++        _pfad(h["root"], wo)
++    else:
++        _texte({k: v for k, v in h.items() if k != "handler"}, wo)
++
++
++def _routen(routen, erlaubt: set[str], wo: str, oben: bool) -> None:
++    if not isinstance(routen, list):
++        raise Abgelehnt(f"{wo}: Regeln nicht lesbar.")
++    for i, r in enumerate(routen):
++        stelle = f"{wo}[{i}]"
++        if not isinstance(r, dict) or set(r) - ROUTE:
++            raise Abgelehnt(f"{stelle}: Regel mit nicht erlaubten Angaben.")
++        treffer = r.get("match")
++        if oben and not treffer:
++            raise Abgelehnt(f"{stelle}: jede Regel braucht eine Adresse der Website.")
++        for m in treffer or []:
++            _matcher(m, erlaubt, stelle, oben)
++        for h in r.get("handle", []):
++            _handler(h, erlaubt, stelle)
++        _texte(r.get("group", ""), stelle)
++
++
++def json_pruefen(daten: dict, server: str, liste: list[str]) -> None:
++    erlaubt = set(adressen(server, liste))
++    if not isinstance(daten, dict) or set(daten) != {"apps"} or set(daten["apps"]) != {"http"} \
++            or set(daten["apps"]["http"]) != {"servers"}:
++        raise Abgelehnt("Nur Regeln für Seiten erlaubt (keine globalen Einstellungen, Zertifikate, Protokolle).")
++    for name, s in daten["apps"]["http"]["servers"].items():
++        if not isinstance(s, dict) or set(s) - SERVER:
++            raise Abgelehnt(f"{name}: nicht erlaubte Server-Angaben {sorted(set(s) - SERVER)}.")
++        if any(p not in PORTS for p in s.get("listen", [])):
++            raise Abgelehnt(f"{name}: nur die Ports 443 und 80.")
++        _routen(s.get("routes", []), erlaubt, name, oben=True)
++        fehler = s.get("errors", {})
++        if not isinstance(fehler, dict) or set(fehler) - {"routes"}:
++            raise Abgelehnt(f"{name}: Fehlerseiten nicht lesbar.")
++        _routen(fehler.get("routes", []), erlaubt, name + ".errors", oben=True)
++
++
++def main(argv: list[str]) -> int:
++    try:
++        if len(argv) >= 2 and argv[0] == "adressen":
++            print(" ".join(adressen(argv[1], argv[2:])))
++        elif len(argv) == 2 and argv[0] == "vorab":
++            with open(argv[1], encoding="utf-8") as f:
++                vorab(f.read())
++        elif len(argv) >= 3 and argv[0] == "json":
++            with open(argv[1], encoding="utf-8") as f:
++                json_pruefen(json.load(f), argv[2], argv[3:])
++        else:
++            print(__doc__, file=sys.stderr)
++            return 2
++    except Abgelehnt as e:
++        print(f"Abgelehnt: {e}", file=sys.stderr)
++        return 1
++    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
++        print(f"Abgelehnt: Regeln nicht lesbar ({e.__class__.__name__}).", file=sys.stderr)
++        return 1
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main(sys.argv[1:]))
+diff --git a/docs/BETRIEB.md b/docs/BETRIEB.md
+index c4fc9e6..2c1f63b 100644
+--- a/docs/BETRIEB.md
++++ b/docs/BETRIEB.md
+@@ -247,18 +247,19 @@ Wer neben dem Server eine statische Website betreibt, kann sie über denselben C
+ 
+ 1. Auf dem Server einmal `sudo bash /opt/taleward/website-zugang.sh`. Das Skript fragt nach dem Ordner (Vorschlag
+-   `/srv/website`) und nach dem öffentlichen SSH-Schlüssel, mit dem hochgeladen wird. Es legt den Nutzer `taleward-website` an,
+-   der per SSH nur zweierlei darf: mit `rsync` in genau diesen Ordner schreiben und `neu-laden`. Am Ende zeigt es die
+-   Angaben für das Hochladen (Adresse, `known_hosts`-Zeile).
+-2. Hochladen: `rsync -rlt --delete --delay-updates dist/ taleward-website@SERVER:` und danach
++   `/srv/website`), nach den **Adressen der Website** (z. B. `example.org www.example.org`; nie die Adresse des Servers,
++   ohne `http://`, Port oder Pfad) und nach dem öffentlichen SSH-Schlüssel, mit dem hochgeladen wird. Es legt den Nutzer
++   `taleward-website` an, der per SSH nur zweierlei darf: mit `rsync` in genau diesen Ordner schreiben (Verknüpfungen
++   werden dabei unschädlich gemacht) und `neu-laden`. Am Ende zeigt es die Angaben für das Hochladen (Adresse,
++   `known_hosts`-Zeile). Ordner und Adressen stehen danach in der `.env` (`WEBSITE_ORDNER`, `WEBSITE_DOMAINS`).
++2. Hochladen: `rsync -rt --delete --delay-updates dist/ taleward-website@SERVER:` (ohne `-l`) und danach
+    `ssh taleward-website@SERVER neu-laden`.
+-3. Die Website bringt ihre Caddy-Regeln selbst mit: Dateien `_caddy/*.caddy` im hochgeladenen Ordner, mit
+-   Site-Blöcken für ihre Domains (ohne globalen Block). Caddy sieht den Ordner als `/srv/website`; `root` muss darin
+-   liegen (als feste Angabe, z. B. `root * /srv/website`). Erlaubt ist nur statisches Ausliefern (Kopfzeilen,
+-   Umleitungen, Antworten, `file_server`, Snippets aus derselben Datei usw.) – nicht erlaubt sind u. a. `import` von
+-   Dateien, `reverse_proxy`, `log`, `tls`, `templates` und Platzhalter für Umgebung oder Dateien. Ohne Regeldatei ändert
+-   `neu-laden` nichts.
+-   `neu-laden` prüft die Regeln, übernimmt sie und lädt Caddy ohne Neustart neu. Lehnt Caddy sie ab, bleiben die
+-   bisherigen in Betrieb, und der Befehl endet mit einem Fehler. Den Ordner `_caddy` selbst sollte die Website mit
+-   einer Regel vor dem Ausliefern schützen (z. B. `respond /_caddy/* 404`).
++3. Die Website bringt ihre Caddy-Regeln selbst mit: Dateien `_caddy/*.caddy` im hochgeladenen Ordner mit Site-Blöcken
++   für ihre Adressen (ohne globalen Block). Caddy sieht den Ordner als `/srv/website`; `root` steht fest darin (z. B.
++   `root * /srv/website`). `neu-laden` lässt Caddy die Regeln übersetzen und prüft das Ergebnis: nur die eingetragenen
++   Adressen, nur die Ports 80 und 443, nur statische Bausteine (Kopfzeilen, Umleitungen, Antworten, Umschreiben,
++   `file_server` ohne eigene Wurzel, Komprimieren, Fehlerseiten, Snippets aus derselben Datei), Dateien nur aus
++   `/srv/website` und nur die Platzhalter für Adresse, Pfad, Abfrage und Fehler. Liegt im Website-Ordner eine
++   Verknüpfung, wird nichts übernommen. Erst dann lädt Caddy ohne Neustart neu; lehnt Caddy ab, bleiben die bisherigen
++   Regeln in Betrieb. Den Ordner `_caddy` selbst sollte die Website vor dem Ausliefern schützen (z. B. `hide _caddy`).
+ 
+ Nach jedem erfolgreichen Update räumt der Server ungenutzte Docker-Bilder auf, die älter als eine Woche sind (ohne
+diff --git a/install.sh b/install.sh
+index a141c92..939e6d7 100755
+--- a/install.sh
++++ b/install.sh
+@@ -257,5 +257,5 @@ curl -fsSL "$QUELLE/deploy/Caddyfile" -o "$ZIEL/Caddyfile"
+ curl -fsSL "$QUELLE/deploy/aktualisieren.sh" -o "$ZIEL/aktualisieren.sh" && chmod +x "$ZIEL/aktualisieren.sh"
+ # Optional: statische Website neben dem Server (docs/BETRIEB.md, „Website mitliefern“) – ohne Einrichtung bleibt das leer
+-for datei in website-zugang.sh website-neu-laden.sh; do
++for datei in website-zugang.sh website-neu-laden.sh website_regeln.py; do
+   curl -fsSL "$QUELLE/deploy/$datei" -o "$ZIEL/$datei" && chmod 755 "$ZIEL/$datei"
+ done
+diff --git a/pyproject.toml b/pyproject.toml
+index e91d635..6cf9509 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.123"
++version = "0.4.124"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index 90d705c..22c3c7d 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -154,5 +154,5 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.123"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.124"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index 19bd616..9280ad3 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -135,5 +135,5 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.123"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.124"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index 8ab59e5..73ff4db 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -84,5 +84,5 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.123"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.124"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+diff --git a/tests/test_server_04121.py b/tests/test_server_04121.py
+index 6b8caab..686f062 100644
+--- a/tests/test_server_04121.py
++++ b/tests/test_server_04121.py
+@@ -1,187 +1,11 @@
+-"""Server 0.4.121/0.4.122: optional eine statische Website neben dem Server über denselben Caddy (Website-Ordner, geprüfte
+-Caddy-Regeln, Neuladen ohne Neustart über einen eingeschränkten Nutzer) und Aufräumen alter Docker-Bilder."""
+-import os
+-import shutil
++"""Server 0.4.121/0.4.122: optional eine statische Website neben dem Server über denselben Caddy (Website-Ordner,
++Neuladen ohne Neustart über einen eingeschränkten Nutzer) und Aufräumen alter Docker-Bilder. Die Prüfung der Regeln
++selbst: tests/test_server_04124.py."""
+ import subprocess
+ from pathlib import Path
+ 
+-import pytest
+-
+ WURZEL = Path(__file__).resolve().parent.parent
+ DEPLOY = WURZEL / "deploy"
+ 
+-GUT = """example.org {
+-	root * /srv/website
+-	encode zstd gzip
+-	header {
+-		Content-Security-Policy "default-src 'self'; script-src 'sha256-AbC+/9=' ; img-src 'self' data:"
+-		Strict-Transport-Security "max-age=31536000"
+-		-Server
+-	}
+-	@intern path /_caddy/*
+-	respond @intern 404
+-	@app path /app /app/*
+-	redir @app https://app.example.org{uri} 301
+-	handle_errors {
+-		rewrite * /404.html
+-		file_server
+-	}
+-	file_server
+-}
+-
+-www.example.org {
+-	redir https://example.org{uri} 301
+-}
+-
+-app.example.org {
+-	root * /srv/website/app
+-	header /auth/app/* Cache-Control "no-store"
+-	try_files {path} /index.html
+-	file_server
+-}
+-"""
+-
+-GUT_MIT_SNIPPETS = r"""# Taleward-Website und Web-App für Caddy (automatisch erzeugt von scripts/caddy.mjs, nicht von Hand ändern).
+-# Gleiche Regeln wie die .htaccess-Dateien. Wird vom Caddyfile des Servers per import eingebunden.
+-# Wurzel: /srv/website (Inhalt von dist/ aus dem Website-Build).
+-
+-(taleward_website_kopf) {
+-	header {
+-		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-Ab+/cD=' 'sha256-Xy9/Zz='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+-		X-Content-Type-Options "nosniff"
+-		Referrer-Policy "strict-origin-when-cross-origin"
+-		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+-		-Server
+-	}
+-}
+-
+-(taleward_app_kopf) {
+-	header {
+-		Content-Security-Policy "default-src 'self'; connect-src 'self' https:; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self'"
+-		X-Content-Type-Options "nosniff"
+-		-Server
+-	}
+-}
+-
+-example.org {
+-	root * /srv/website
+-	encode zstd gzip
+-	import taleward_website_kopf
+-
+-	# Alte Adressen
+-	@alt0 path /fuer-vereine /fuer-vereine/
+-	redir @alt0 /fuer-gruppen/ 301
+-
+-	# Die Web-App wohnt unter https://app.example.org/. Wer noch die alte Adresse example.org/app/ hat, wird umgeleitet;
+-	handle /app/sw.js {
+-		rewrite * /app/alte-adresse-sw.js
+-		header Cache-Control "no-cache"
+-		file_server
+-	}
+-	handle /app/alte-adresse-sw.js {
+-		header Cache-Control "no-cache"
+-		file_server
+-	}
+-	handle /app {
+-		header Clear-Site-Data "\"cache\", \"storage\""
+-		redir https://app.example.org/ 301
+-	}
+-	handle_path /app/* {
+-		header Clear-Site-Data "\"cache\", \"storage\""
+-		redir https://app.example.org{uri} 301
+-	}
+-	@seiten path / */ *.html
+-	header @seiten Cache-Control "no-cache"
+-	header /_astro/* Cache-Control "public, max-age=31536000, immutable"
+-	header /modelle/* Cache-Control "public, max-age=31536000, immutable"
+-	file_server {
+-		hide .htaccess _caddy
+-	}
+-	handle_errors {
+-		rewrite * /404.html
+-		import taleward_website_kopf
+-		header Cache-Control "no-cache"
+-		file_server
+-	}
+-}
+-
+-www.example.org {
+-	import taleward_website_kopf
+-	redir https://example.org{uri} 301
+-}
+-
+-app.example.org {
+-	root * /srv/website/app
+-	encode zstd gzip
+-	import taleward_app_kopf
+-	@frisch {
+-		path / */ */index.html */sw.js
+-		not path /auth/app/*
+-	}
+-	header @frisch Cache-Control "no-cache"
+-	header /auth/app/* Cache-Control "no-store"
+-	header /assets/* Cache-Control "public, max-age=31536000, immutable"
+-	@manifest path *.webmanifest
+-	header @manifest >Content-Type "application/manifest+json"
+-	@json path *.json
+-	header @json >Content-Type "application/json"
+-	file_server {
+-		hide .htaccess
+-	}
+-	handle_errors {
+-		import taleward_app_kopf
+-		header Cache-Control "no-cache"
+-		respond "{err.status_code} {err.status_text}"
+-	}
+-}
+-"""
+-
+-SCHLECHT = [
+-    "x.example.org {\n\treverse_proxy server:8000\n}\n",
+-    "x.example.org {\n\troot * /data\n\tfile_server\n}\n",
+-    "x.example.org {\n\troot * /srv/website/../../data\n\tfile_server\n}\n",
+-    "x.example.org {\n\tfile_server {\n\t\troot /etc\n\t}\n}\n",
+-    "x.example.org {\n\trespond \"{env.ACME_EMAIL}\"\n}\n",
+-    "x.example.org {\n\trespond \"{file./data/caddy/x}\"\n}\n",
+-    "x.example.org {\n\trespond {$TALEWARD_DOMAIN}\n}\n",
+-    "import /etc/caddy/Caddyfile\n",
+-    "x.example.org {\n\tlog {\n\t\toutput file /data/x.log\n\t}\n}\n",
+-    "x.example.org {\n\ttemplates\n\tfile_server\n}\n",
+-    "x.example.org {\n\ttls intern@example.org\n}\n",
+-    "x.example.org {\n\timport /etc/caddy/Caddyfile\n}\n",
+-    "x.example.org {\n\timport kopf/x\n}\n",
+-    "x.example.org {\n\troot * {$TALEWARD_WEBSITE_WURZEL:/srv/taleward-website}\n\tfile_server\n}\n",
+-    "log {\n\toutput file /data/x\n}\n",
+-]
+-
+-
+-def _pruefen(pfad: Path) -> subprocess.CompletedProcess:
+-    return subprocess.run(["bash", str(DEPLOY / "website-neu-laden.sh"), "--pruefen", str(pfad)],
+-                          capture_output=True, text=True, env={**os.environ, "LC_ALL": "C.UTF-8"})
+-
+-
+-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash fehlt")
+-def test_regeln_der_website_werden_geprueft(tmp_path):
+-    gut = tmp_path / "gut.caddy"
+-    gut.write_text(GUT, encoding="utf-8")
+-    r = _pruefen(gut)
+-    assert r.returncode == 0, r.stderr
+-    # wie die Regeln der Website: Snippets aus derselben Datei, Kommentare dürfen alles enthalten
+-    snippets = tmp_path / "snippets.caddy"
+-    snippets.write_text(GUT_MIT_SNIPPETS + "# import /etc/x, log, reverse_proxy – nur ein Kommentar\n", encoding="utf-8")
+-    r = _pruefen(snippets)
+-    assert r.returncode == 0, r.stderr
+-    for i, text in enumerate(SCHLECHT):
+-        f = tmp_path / f"schlecht{i}.caddy"
+-        f.write_text(text, encoding="utf-8")
+-        assert _pruefen(f).returncode != 0, text
+-    link = tmp_path / "link.caddy"
+-    link.symlink_to(gut)
+-    assert _pruefen(link).returncode != 0  # Verknüpfungen nie (könnten auf fremde Dateien zeigen)
+-    gross = tmp_path / "gross.caddy"
+-    gross.write_text("# " + "x" * 300_000, encoding="utf-8")
+-    assert _pruefen(gross).returncode != 0
+-
+ 
+ def test_caddy_und_compose_binden_die_website_optional_ein():
+@@ -192,5 +16,5 @@ def test_caddy_und_compose_binden_die_website_optional_ein():
+     assert "- ./website-caddy:/etc/caddy/website:ro" in compose
+     neu = (DEPLOY / "website-neu-laden.sh").read_text(encoding="utf-8")
+-    assert "WURZEL=/srv/website" in neu and "caddy reload --config /etc/caddy/Caddyfile" in neu
++    assert "caddy reload --config /etc/caddy/Caddyfile" in neu
+     assert 'cp -P -- "$f" "$NEU/"' in neu  # erst kopieren, dann die Kopie prüfen
+     assert 'cp -a "$ALT"/. "$REGELN"/' in neu  # abgelehnt → alte Regeln zurück
+@@ -201,5 +25,4 @@ def test_zugang_nur_hochladen_und_neu_laden():
+     z = (DEPLOY / "website-zugang.sh").read_text(encoding="utf-8")
+     assert 'command="%s",restrict %s' in z
+-    assert '"rsync --server "*) exec /usr/bin/rrsync -wo $ORDNER ;;' in z
+     assert "neu-laden) exec sudo -n $NEULADEN ;;" in z
+     assert 'echo "$NUTZER ALL=(root) NOPASSWD: $NEULADEN"' in z and "visudo -cqf" in z
+@@ -211,5 +34,5 @@ def test_zugang_nur_hochladen_und_neu_laden():
+ def test_installation_und_update_bringen_die_skripte_mit():
+     install = (WURZEL / "install.sh").read_text(encoding="utf-8")
+-    assert "for datei in website-zugang.sh website-neu-laden.sh; do" in install
++    assert "for datei in website-zugang.sh website-neu-laden.sh website_regeln.py; do" in install
+     akt = (DEPLOY / "aktualisieren.sh").read_text(encoding="utf-8")
+     assert "website-zugang.sh:website-zugang.sh website-neu-laden.sh:website-neu-laden.sh" in akt
+diff --git a/tests/test_server_04124.py b/tests/test_server_04124.py
+new file mode 100644
+index 0000000..9ce036f
+--- /dev/null
++++ b/tests/test_server_04124.py
+@@ -0,0 +1,191 @@
++"""Server 0.4.124: Website neben dem Server – die Regeln der Website werden an dem geprüft, was Caddy daraus macht
++(nur erlaubte Bausteine, nur die eingetragenen Adressen, Dateien nur aus /srv/website); Verknüpfungen im
++Website-Ordner führen zum Abbruch und werden beim Hochladen unschädlich gemacht."""
++import json
++import os
++import shutil
++import subprocess
++import sys
++from pathlib import Path
++
++import pytest
++
++WURZEL = Path(__file__).resolve().parent.parent
++DEPLOY = WURZEL / "deploy"
++FAELLE = json.loads((Path(__file__).parent / "website_regeln_faelle.json").read_text(encoding="utf-8"))
++SERVER = "srv.example.org"
++WEBSITE = ["example.org", "www.example.org", "app.example.org"]
++
++sys.path.insert(0, str(DEPLOY))
++import website_regeln as wr  # noqa: E402
++
++
++def _caddy() -> str | None:
++    return os.environ.get("CADDY") or shutil.which("caddy")
++
++
++def _adapt(name: str, tmp_path: Path):
++    """Mit echtem Caddy übersetzen, wenn vorhanden – sonst die gespeicherte Übersetzung (Caddy 2.10.2)."""
++    caddy = _caddy()
++    if not caddy:
++        return FAELLE[name]["adapt"]
++    datei = tmp_path / f"{name}.caddy"
++    datei.write_text(FAELLE[name]["quelle"], encoding="utf-8")
++    r = subprocess.run([caddy, "adapt", "--adapter", "caddyfile", "--config", str(datei)], capture_output=True, text=True)
++    return json.loads(r.stdout) if r.returncode == 0 else None
++
++
++@pytest.mark.parametrize("name", sorted(FAELLE))
++def test_regeln_nach_der_uebersetzung(name, tmp_path):
++    """(a) Server-Domain – mit Pfad, http:// oder Port – abgelehnt; (b) vars root, map, file_server { root } abgelehnt;
++    (d) die Regeln der Website (Nachbildung von scripts/caddy.mjs) laufen durch."""
++    fall = FAELLE[name]
++    try:
++        wr.vorab(fall["quelle"])
++        daten = _adapt(name, tmp_path)
++        assert daten is not None, "Caddy versteht die Regeln nicht"
++        wr.json_pruefen(daten, SERVER, WEBSITE)
++        ergebnis = "ok"
++    except (wr.Abgelehnt, AssertionError):
++        ergebnis = "abgelehnt"
++    assert ergebnis == fall["erwartet"], name
++
++
++def test_faelle_decken_die_pruefkriterien_ab():
++    quellen = {n: f["quelle"] for n, f in FAELLE.items()}
++    assert any(q.startswith(SERVER + "/verwaltung") for q in quellen.values())
++    assert any(q.startswith("http://" + SERVER) for q in quellen.values())
++    assert any(q.startswith(SERVER + ":") for q in quellen.values())
++    assert any("vars root /data" in q for q in quellen.values()) and any("{vars.root}" in q for q in quellen.values())
++    assert any("root /data" in q and "file_server {" in q for q in quellen.values())
++    assert FAELLE["echt"]["erwartet"] == "ok" and "import taleward_website_kopf" in quellen["echt"]
++
++
++@pytest.mark.parametrize("liste", [[SERVER], ["https://example.org"], ["example.org:8443"], ["example.org/pfad"],
++                                   ["*.example.org"], [], ["Example.org ", SERVER.upper()]])
++def test_adressen_der_website(liste):
++    with pytest.raises(wr.Abgelehnt):
++        wr.adressen(SERVER, liste)
++
++
++def test_adressen_werden_vereinheitlicht():
++    assert wr.adressen(SERVER, ["Example.org.", "www.example.org"]) == ["example.org", "www.example.org"]
++
++
++@pytest.mark.parametrize("text", ["import /etc/caddy/Caddyfile", "import ../x", "import *.caddy",
++                                  "x { respond {$TALEWARD_DOMAIN} }", "x { respond {env.HOME} }",
++                                  "x { respond {file./data/x} }", "x { root * {vars.root} }",
++                                  "x {\n\timport fremd\n}", "(eigen) {\n}\nx {\n\timport fremd\n}"])
++def test_vorab(text):
++    with pytest.raises(wr.Abgelehnt):
++        wr.vorab(text)
++
++
++def test_vorab_snippets_aus_derselben_datei():
++    wr.vorab("(kopf) {\n\theader X-A 1\n}\nexample.org {\n\timport kopf\n}\n")
++
++
++def _fake_docker(ordner: Path) -> Path:
++    """`docker compose exec … caddy adapt|reload` nachgestellt: adapt liefert die gespeicherte Übersetzung des Falls,
++    dessen Text in pruefen.txt steht; reload gelingt."""
++    bin_ = ordner / "bin"
++    bin_.mkdir()
++    skript = bin_ / "docker"
++    skript.write_text(f"""#!{sys.executable}
++import json, os, sys
++faelle = json.load(open({str(Path(__file__).parent / 'website_regeln_faelle.json')!r}, encoding="utf-8"))
++if "adapt" in sys.argv:
++    text = open(os.path.join(os.environ["TALEWARD_ZIEL"], "website-caddy", "pruefen.txt"), encoding="utf-8").read()
++    for f in faelle.values():
++        if f["quelle"].rstrip() == text.rstrip() and f["adapt"] is not None:
++            print(json.dumps(f["adapt"])); sys.exit(0)
++    sys.exit(1)
++sys.exit(0)
++""", encoding="utf-8")
++    skript.chmod(0o755)
++    return bin_
++
++
++def _einrichten(tmp_path: Path, fall: str = "echt") -> tuple[Path, Path, dict]:
++    ziel, web = tmp_path / "ziel", tmp_path / "web"
++    (web / "_caddy").mkdir(parents=True)
++    (web / "index.html").write_text("hallo", encoding="utf-8")
++    (web / "_caddy" / "taleward.caddy").write_text(FAELLE[fall]["quelle"], encoding="utf-8")
++    ziel.mkdir()
++    shutil.copy(DEPLOY / "website_regeln.py", ziel / "website_regeln.py")
++    (ziel / ".env").write_text(f"TALEWARD_DOMAIN={SERVER}\nWEBSITE_ORDNER={web}\nWEBSITE_DOMAINS={' '.join(WEBSITE)}\n",
++                               encoding="utf-8")
++    env = {**os.environ, "TALEWARD_ZIEL": str(ziel), "PATH": f"{_fake_docker(tmp_path)}:{os.environ['PATH']}"}
++    return ziel, web, env
++
++
++def _neu_laden(env):
++    return subprocess.run(["bash", str(DEPLOY / "website-neu-laden.sh")], capture_output=True, text=True, env=env)
++
++
++@pytest.mark.skipif(shutil.which("bash") is None, reason="bash fehlt")
++def test_neu_laden_uebernimmt_gepruefte_regeln(tmp_path):
++    ziel, _web, env = _einrichten(tmp_path)
++    r = _neu_laden(env)
++    assert r.returncode == 0, r.stderr
++    assert (ziel / "website-caddy" / "taleward.caddy").read_text(encoding="utf-8") == FAELLE["echt"]["quelle"]
++    assert not (ziel / "website-caddy" / "pruefen.txt").exists()
++
++
++@pytest.mark.skipif(shutil.which("bash") is None, reason="bash fehlt")
++@pytest.mark.parametrize("fall", ["a1", "b1", "b5"])
++def test_neu_laden_lehnt_ab_und_laesst_alles_stehen(tmp_path, fall):
++    ziel, _web, env = _einrichten(tmp_path, fall)
++    (ziel / "website-caddy").mkdir()
++    (ziel / "website-caddy" / "alt.caddy").write_text("alt", encoding="utf-8")
++    r = _neu_laden(env)
++    assert r.returncode != 0 and "Abgelehnt" in r.stderr
++    assert sorted(p.name for p in (ziel / "website-caddy").iterdir()) == ["alt.caddy"]
++
++
++@pytest.mark.skipif(shutil.which("bash") is None, reason="bash fehlt")
++def test_snippet_aus_anderer_datei_wird_abgelehnt(tmp_path):
++    """Jede Datei für sich wäre unauffällig – zusammen eingebunden holte b.caddy den Baustein aus a.caddy."""
++    ziel, web, env = _einrichten(tmp_path)
++    (web / "_caddy" / "a.caddy").write_text("(weiter) {\n\treverse_proxy server:8000\n}\n", encoding="utf-8")
++    (web / "_caddy" / "b.caddy").write_text("example.org {\n\timport weiter\n}\n", encoding="utf-8")
++    r = _neu_laden(env)
++    assert r.returncode != 0 and "Snippets aus derselben Datei" in r.stderr
++    assert not (ziel / "website-caddy").exists() or not list((ziel / "website-caddy").glob("*.caddy"))
++
++
++@pytest.mark.skipif(shutil.which("bash") is None, reason="bash fehlt")
++def test_dateien_werden_zusammen_uebersetzt(tmp_path):
++    """Caddy bindet alle Dateien zusammen ein – genau das wird übersetzt und geprüft."""
++    ziel, web, env = _einrichten(tmp_path)
++    (web / "_caddy" / "zwei.caddy").write_text(FAELLE["b5"]["quelle"], encoding="utf-8")
++    r = _neu_laden(env)
++    assert r.returncode != 0  # echt + b5 zusammen: Caddy-Nachbildung kennt die Kombination nicht → abgelehnt
++    assert not list((ziel / "website-caddy").glob("*.caddy"))
++
++
++@pytest.mark.skipif(shutil.which("bash") is None, reason="bash fehlt")
++def test_c_verknuepfung_im_website_ordner_bricht_ab(tmp_path):
++    ziel, web, env = _einrichten(tmp_path)
++    (web / "zertifikat.pem").symlink_to("/etc/hostname")
++    r = _neu_laden(env)
++    assert r.returncode != 0 and "Verknüpfungen" in r.stderr
++    assert not (ziel / "website-caddy").exists() or not list((ziel / "website-caddy").glob("*.caddy"))
++
++
++@pytest.mark.skipif(shutil.which("bash") is None, reason="bash fehlt")
++def test_ohne_website_adressen_nichts(tmp_path):
++    ziel, _web, env = _einrichten(tmp_path)
++    (ziel / ".env").write_text((ziel / ".env").read_text(encoding="utf-8").replace("WEBSITE_DOMAINS=", "X="),
++                               encoding="utf-8")
++    r = _neu_laden(env)
++    assert r.returncode != 0 and "WEBSITE_DOMAINS" in r.stderr
++
++
++def test_e_hochladen_nur_mit_unschaedlichen_verknuepfungen():
++    z = (DEPLOY / "website-zugang.sh").read_text(encoding="utf-8")
++    assert '"rsync --server "*) exec /usr/bin/rrsync -wo -munge-links $ORDNER ;;' in z
++    assert 'setzen WEBSITE_DOMAINS "$DOMAINS"' in z and "website_regeln.py\" adressen" in z
++    for datei, zeile in ((WURZEL / "install.sh", "website_regeln.py; do"),
++                         (DEPLOY / "aktualisieren.sh", "website_regeln.py:website_regeln.py; do")):
++        assert zeile in datei.read_text(encoding="utf-8")
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index ffcb6aa..55dfee0 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -113,5 +113,5 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.123"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.124"
+ 
+ 
+diff --git a/tests/website_regeln_faelle.json b/tests/website_regeln_faelle.json
+new file mode 100644
+index 0000000..77074b1
+--- /dev/null
++++ b/tests/website_regeln_faelle.json
+@@ -0,0 +1,18 @@
++{
++ "a1": {"adapt":{"apps":{"http":{"servers":{"srv0":{"listen":[":443"],"routes":[{"handle":[{"handler":"subroute","routes":[{"handle":[{"body":"x","handler":"static_response"}]}]}],"match":[{"host":["srv.example.org"],"path":["/verwaltung/*"]}],"terminal":true}]}}}}},"erwartet":"abgelehnt","quelle":"srv.example.org/verwaltung/* {\n\trespond \"x\"\n}\n"},
++ "a2": {"adapt":{"apps":{"http":{"servers":{"srv0":{"listen":[":80"],"routes":[{"handle":[{"handler":"subroute","routes":[{"handle":[{"body":"x","handler":"static_response"}]}]}],"match":[{"host":["srv.example.org"]}],"terminal":true}]}}}}},"erwartet":"abgelehnt","quelle":"http://srv.example.org {\n\trespond \"x\"\n}\n"},
++ "a3": {"adapt":{"apps":{"http":{"servers":{"srv0":{"listen":[":8443"],"routes":[{"handle":[{"handler":"subroute","routes":[{"handle":[{"body":"x","handler":"static_response"}]}]}],"match":[{"host":["srv.example.org"]}],"terminal":true}]}}}}},"erwartet":"abgelehnt","quelle":"srv.example.org:8443 {\n\trespond \"x\"\n}\n"},
++ "a4": {"adapt":{"apps":{"http":{"servers":{"srv0":{"listen":[":443"],"routes":[{"handle":[{"handler":"subroute","routes":[{"handle":[{"body":"x","handler":"static_response"}]}]}],"match":[{"host":["example.org","srv.example.org"]}],"terminal":true}]}}}}},"erwartet":"abgelehnt","quelle":"example.org, srv.example.org {\n\trespond \"x\"\n}\n"},
++ "b1": {"adapt":{"apps":{"http":{"servers":{"srv0":{"listen":[":443"],"routes":[{"handle":[{"handler":"subroute","routes":[{"handle":[{"handler":"vars","root":"/data"},{"handler":"file_server","hide":["/etc/caddy/website/pruefen.txt"]}]}]}],"match":[{"host":["example.org"]}],"terminal":true}]}}}}},"erwartet":"abgelehnt","quelle":"example.org {\n\tvars root /data\n\tfile_server\n}\n"},
++ "b2": {"adapt":{"apps":{"http":{"servers":{"srv0":{"listen":[":443"],"routes":[{"handle":[{"handler":"subroute","routes":[{"handle":[{"defaults":["/data"],"destinations":["{http.vars.root}"],"handler":"map","source":"{http.request.uri.path}"},{"handler":"file_server","hide":["/etc/caddy/website/pruefen.txt"]}]}]}],"match":[{"host":["example.org"]}],"terminal":true}]}}}}},"erwartet":"abgelehnt","quelle":"example.org {\n\tmap {path} {vars.root} {\n\t\tdefault /data\n\t}\n\tfile_server\n}\n"},
++ "b3": {"adapt":{"apps":{"http":{"servers":{"srv0":{"listen":[":443"],"routes":[{"handle":[{"handler":"subroute","routes":[{"handle":[{"handler":"file_server","hide":["/etc/caddy/website/pruefen.txt"],"root":"/data"}]}]}],"match":[{"host":["example.org"]}],"terminal":true}]}}}}},"erwartet":"abgelehnt","quelle":"example.org {\n\tfile_server {\n\t\troot /data\n\t}\n}\n"},
++ "b4": {"adapt":{"apps":{"http":{"servers":{"srv0":{"listen":[":443"],"routes":[{"handle":[{"handler":"subroute","routes":[{"handle":[{"handler":"vars","root":"/data"},{"handler":"file_server","hide":["/etc/caddy/website/pruefen.txt"]}]}]}],"match":[{"host":["example.org"]}],"terminal":true}]}}}}},"erwartet":"abgelehnt","quelle":"example.org {\n\troot * /data\n\tfile_server\n}\n"},
++ "b5": {"adapt":{"apps":{"http":{"servers":{"srv0":{"listen":[":443"],"routes":[{"handle":[{"handler":"subroute","routes":[{"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"server:8000"}]}]}]}],"match":[{"host":["example.org"]}],"terminal":true}]}}}}},"erwartet":"abgelehnt","quelle":"example.org {\n\treverse_proxy server:8000\n}\n"},
++ "b6": {"adapt":{"apps":{"http":{"servers":{"srv0":{"listen":[":443"],"routes":[{"handle":[{"handler":"subroute","routes":[{"handle":[{"browse":{},"handler":"file_server","hide":["/etc/caddy/website/pruefen.txt"]}]}]}],"match":[{"host":["example.org"]}],"terminal":true}]}}}}},"erwartet":"abgelehnt","quelle":"example.org {\n\tfile_server browse\n}\n"},
++ "b7": {"adapt":{"apps":{"http":{"servers":{"srv0":{"listen":[":443"],"routes":[{"handle":[{"handler":"subroute","routes":[{"handle":[{"body":"{http.request.header.Cookie}","handler":"static_response"}]}]}],"match":[{"host":["example.org"]}],"terminal":true}]}}}}},"erwartet":"abgelehnt","quelle":"example.org {\n\trespond \"{http.request.header.Cookie}\"\n}\n"},
++ "b8": {"adapt":{"apps":{"http":{"servers":{"srv0":{"listen":[":443"],"routes":[{"handle":[{"body":"x","handler":"static_response"}]}]}}}}},"erwartet":"abgelehnt","quelle":":443 {\n\trespond \"x\"\n}\n"},
++ "b9": {"adapt":{"admin":{"listen":":2020"},"apps":{"http":{"servers":{"srv0":{"listen":[":443"],"routes":[{"handle":[{"handler":"subroute","routes":[{"handle":[{"body":"x","handler":"static_response"}]}]}],"match":[{"host":["example.org"]}],"terminal":true}]}}}}},"erwartet":"abgelehnt","quelle":"{\n\tadmin :2020\n}\nexample.org {\n\trespond \"x\"\n}\n"},
++ "echt": {"adapt":{"apps":{"http":{"servers":{"srv0":{"errors":{"routes":[{"handle":[{"handler":"subroute","routes":[{"handle":[{"handler":"subroute","routes":[{"handle":[{"handler":"headers","response":{"deferred":true,"delete":["Server"],"set":{"Content-Security-Policy":["default-src 'self'; connect-src 'self' https:; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self'"],"X-Content-Type-Options":["nosniff"]}}},{"handler":"headers","response":{"set":{"Cache-Control":["no-cache"]}}},{"body":"{http.error.status_code} {http.error.status_text}","handler":"static_response"}]}]}]}]}],"match":[{"host":["app.example.org"]}],"terminal":true},{"handle":[{"handler":"subroute","routes":[{"handle":[{"handler":"subroute","routes":[{"handle":[{"handler":"headers","response":{"deferred":true,"delete":["Server"],"set":{"Content-Security-Policy":["default-src 'self'; script-src 'self' 'sha256-Ab+/cD=' 'sha256-Xy9/Zz='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"],"Permissions-Policy":["camera=(), microphone=(), geolocation=()"],"Referrer-Policy":["strict-origin-when-cross-origin"],"Strict-Transport-Security":["max-age=31536000; includeSubDomains"],"X-Content-Type-Options":["nosniff"]}}},{"handler":"headers","response":{"set":{"Cache-Control":["no-cache"]}}}]},{"group":"group4","handle":[{"handler":"rewrite","uri":"/404.html"}]},{"handle":[{"handler":"file_server","hide":["/etc/caddy/website/pruefen.txt"]}]}]}]}]}],"match":[{"host":["example.org"]}],"terminal":true}]},"listen":[":443"],"routes":[{"handle":[{"handler":"subroute","routes":[{"handle":[{"handler":"headers","response":{"deferred":true,"delete":["Server"],"set":{"Content-Security-Policy":["default-src 'self'; script-src 'self' 'sha256-Ab+/cD=' 'sha256-Xy9/Zz='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"],"Permissions-Policy":["camera=(), microphone=(), geolocation=()"],"Referrer-Policy":["strict-origin-when-cross-origin"],"Strict-Transport-Security":["max-age=31536000; includeSubDomains"],"X-Content-Type-Options":["nosniff"]}}},{"handler":"static_response","headers":{"Location":["https://example.org{http.request.uri}"]},"status_code":301}]}]}],"match":[{"host":["www.example.org"]}],"terminal":true},{"handle":[{"handler":"subroute","routes":[{"handle":[{"handler":"vars","root":"/srv/website/app"}]},{"handle":[{"handler":"headers","response":{"set":{"Cache-Control":["no-cache"]}}}],"match":[{"not":[{"path":["/auth/app/*"]}],"path":["/","*/","*/index.html","*/sw.js"]}]},{"handle":[{"handler":"headers","response":{"deferred":true,"set":{"Content-Type":["application/manifest+json"]}}}],"match":[{"path":["*.webmanifest"]}]},{"handle":[{"handler":"headers","response":{"set":{"Cache-Control":["no-store"]}}}],"match":[{"path":["/auth/app/*"]}]},{"handle":[{"handler":"headers","response":{"set":{"Cache-Control":["public, max-age=31536000, immutable"]}}}],"match":[{"path":["/assets/*"]}]},{"handle":[{"handler":"headers","response":{"deferred":true,"set":{"Content-Type":["application/json"]}}}],"match":[{"path":["*.json"]}]},{"handle":[{"handler":"headers","response":{"deferred":true,"delete":["Server"],"set":{"Content-Security-Policy":["default-src 'self'; connect-src 'self' https:; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self'"],"X-Content-Type-Options":["nosniff"]}}},{"encodings":{"gzip":{},"zstd":{}},"handler":"encode","prefer":["zstd","gzip"]},{"handler":"file_server","hide":[".htaccess","/etc/caddy/website/pruefen.txt"]}]}]}],"match":[{"host":["app.example.org"]}],"terminal":true},{"handle":[{"handler":"subroute","routes":[{"handle":[{"handler":"vars","root":"/srv/website"}]},{"handle":[{"handler":"headers","response":{"set":{"Cache-Control":["no-cache"]}}}],"match":[{"path":["/","*/","*.html"]}]},{"handle":[{"handler":"headers","response":{"set":{"Cache-Control":["public, max-age=31536000, immutable"]}}}],"match":[{"path":["/modelle/*"]}]},{"handle":[{"handler":"headers","response":{"set":{"Cache-Control":["public, max-age=31536000, immutable"]}}}],"match":[{"path":["/_astro/*"]}]},{"handle":[{"handler":"headers","response":{"deferred":true,"delete":["Server"],"set":{"Content-Security-Policy":["default-src 'self'; script-src 'self' 'sha256-Ab+/cD=' 'sha256-Xy9/Zz='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"],"Permissions-Policy":["camera=(), microphone=(), geolocation=()"],"Referrer-Policy":["strict-origin-when-cross-origin"],"Strict-Transport-Security":["max-age=31536000; includeSubDomains"],"X-Content-Type-Options":["nosniff"]}}}]},{"handle":[{"handler":"static_response","headers":{"Location":["/fuer-gruppen/"]},"status_code":301}],"match":[{"path":["/fuer-vereine","/fuer-vereine/"]}]},{"handle":[{"encodings":{"gzip":{},"zstd":{}},"handler":"encode","prefer":["zstd","gzip"]}]},{"group":"group8","handle":[{"handler":"subroute","routes":[{"handle":[{"handler":"headers","response":{"set":{"Cache-Control":["no-cache"]}}},{"handler":"file_server","hide":["/etc/caddy/website/pruefen.txt"]}]}]}],"match":[{"path":["/app/alte-adresse-sw.js"]}]},{"group":"group8","handle":[{"handler":"subroute","routes":[{"handle":[{"handler":"headers","response":{"set":{"Cache-Control":["no-cache"]}}}]},{"group":"group0","handle":[{"handler":"rewrite","uri":"/app/alte-adresse-sw.js"}]},{"handle":[{"handler":"file_server","hide":["/etc/caddy/website/pruefen.txt"]}]}]}],"match":[{"path":["/app/sw.js"]}]},{"group":"group8","handle":[{"handler":"subroute","routes":[{"handle":[{"handler":"rewrite","strip_path_prefix":"/app"}]},{"handle":[{"handler":"headers","response":{"set":{"Clear-Site-Data":["\"cache\", \"storage\""]}}},{"handler":"static_response","headers":{"Location":["https://app.example.org{http.request.uri}"]},"status_code":301}]}]}],"match":[{"path":["/app/*"]}]},{"group":"group8","handle":[{"handler":"subroute","routes":[{"handle":[{"handler":"headers","response":{"set":{"Clear-Site-Data":["\"cache\", \"storage\""]}}},{"handler":"static_response","headers":{"Location":["https://app.example.org/"]},"status_code":301}]}]}],"match":[{"path":["/app"]}]},{"handle":[{"handler":"file_server","hide":[".htaccess","_caddy","/etc/caddy/website/pruefen.txt"]}]}]}],"match":[{"host":["example.org"]}],"terminal":true}]}}}}},"erwartet":"ok","quelle":"# Taleward-Website und Web-App für Caddy (automatisch erzeugt von scripts/caddy.mjs, nicht von Hand ändern).\n# Gleiche Regeln wie die .htaccess-Dateien. Wird vom Caddyfile des Servers per import eingebunden.\n# Wurzel: /srv/website (Inhalt von dist/ aus dem Website-Build).\n\n(taleward_website_kopf) {\n\theader {\n\t\tContent-Security-Policy \"default-src 'self'; script-src 'self' 'sha256-Ab+/cD=' 'sha256-Xy9/Zz='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'\"\n\t\tStrict-Transport-Security \"max-age=31536000; includeSubDomains\"\n\t\tX-Content-Type-Options \"nosniff\"\n\t\tReferrer-Policy \"strict-origin-when-cross-origin\"\n\t\tPermissions-Policy \"camera=(), microphone=(), geolocation=()\"\n\t\t-Server\n\t}\n}\n\n(taleward_app_kopf) {\n\theader {\n\t\tContent-Security-Policy \"default-src 'self'; connect-src 'self' https:; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self'\"\n\t\tX-Content-Type-Options \"nosniff\"\n\t\t-Server\n\t}\n}\n\nexample.org {\n\troot * /srv/website\n\tencode zstd gzip\n\timport taleward_website_kopf\n\n\t# Alte Adressen\n\t@alt0 path /fuer-vereine /fuer-vereine/\n\tredir @alt0 /fuer-gruppen/ 301\n\n\t# Die Web-App wohnt unter https://app.example.org/. Wer noch die alte Adresse example.org/app/ hat, wird umgeleitet;\n\thandle /app/sw.js {\n\t\trewrite * /app/alte-adresse-sw.js\n\t\theader Cache-Control \"no-cache\"\n\t\tfile_server\n\t}\n\thandle /app/alte-adresse-sw.js {\n\t\theader Cache-Control \"no-cache\"\n\t\tfile_server\n\t}\n\thandle /app {\n\t\theader Clear-Site-Data \"\\\"cache\\\", \\\"storage\\\"\"\n\t\tredir https://app.example.org/ 301\n\t}\n\thandle_path /app/* {\n\t\theader Clear-Site-Data \"\\\"cache\\\", \\\"storage\\\"\"\n\t\tredir https://app.example.org{uri} 301\n\t}\n\t@seiten path / */ *.html\n\theader @seiten Cache-Control \"no-cache\"\n\theader /_astro/* Cache-Control \"public, max-age=31536000, immutable\"\n\theader /modelle/* Cache-Control \"public, max-age=31536000, immutable\"\n\tfile_server {\n\t\thide .htaccess _caddy\n\t}\n\thandle_errors {\n\t\trewrite * /404.html\n\t\timport taleward_website_kopf\n\t\theader Cache-Control \"no-cache\"\n\t\tfile_server\n\t}\n}\n\nwww.example.org {\n\timport taleward_website_kopf\n\tredir https://example.org{uri} 301\n}\n\napp.example.org {\n\troot * /srv/website/app\n\tencode zstd gzip\n\timport taleward_app_kopf\n\t@frisch {\n\t\tpath / */ */index.html */sw.js\n\t\tnot path /auth/app/*\n\t}\n\theader @frisch Cache-Control \"no-cache\"\n\theader /auth/app/* Cache-Control \"no-store\"\n\theader /assets/* Cache-Control \"public, max-age=31536000, immutable\"\n\t@manifest path *.webmanifest\n\theader @manifest >Content-Type \"application/manifest+json\"\n\t@json path *.json\n\theader @json >Content-Type \"application/json\"\n\tfile_server {\n\t\thide .htaccess\n\t}\n\thandle_errors {\n\t\timport taleward_app_kopf\n\t\theader Cache-Control \"no-cache\"\n\t\trespond \"{err.status_code} {err.status_text}\"\n\t}\n}\n"},
++ "g1": {"adapt":{"apps":{"http":{"servers":{"srv0":{"listen":[":443"],"routes":[{"handle":[{"handler":"subroute","routes":[{"handle":[{"handler":"rewrite","uri":"{http.matchers.file.relative}"}],"match":[{"file":{"try_files":["{http.request.uri.path}","/index.html"]}}]},{"handle":[{"handler":"file_server","hide":["/etc/caddy/website/pruefen.txt"]}]}]}],"match":[{"host":["example.org"]}],"terminal":true}]}}}}},"erwartet":"ok","quelle":"example.org {\n\ttry_files {path} /index.html\n\tfile_server\n}\n"},
++ "g2": {"adapt":{"apps":{"http":{"servers":{"srv0":{"listen":[":443"],"routes":[{"handle":[{"handler":"subroute","routes":[{"handle":[{"handler":"subroute","routes":[{"handle":[{"handler":"headers","response":{"set":{"X-A":["1"]}}}]}]}]},{"handle":[{"handler":"error","status_code":403}],"match":[{"path":["/geheim"]}]},{"handle":[{"handler":"file_server","hide":["/etc/caddy/website/pruefen.txt"]}]}]}],"match":[{"host":["example.org"]}],"terminal":true}]}}}}},"erwartet":"ok","quelle":"example.org {\n\troute {\n\t\theader X-A \"1\"\n\t}\n\terror /geheim 403\n\tfile_server\n}\n"}
++}
+diff --git a/uv.lock b/uv.lock
+index dd5c11c..a7327b7 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -2057,5 +2057,5 @@ wheels = [
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.123"
++version = "0.4.124"
+ source = { editable = "." }
+ dependencies = [
+-- 
+2.43.0
+
