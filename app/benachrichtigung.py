@@ -108,11 +108,18 @@ def _ntfy(k: Konfig, titel: str, text: str, wichtig: bool) -> None:
         raise VersandFehler(f"ntfy antwortet mit {r.status_code}.")
 
 
-def _email(k: Konfig, titel: str, text: str) -> None:
+def _email(k: Konfig, titel: str, text: str, antwort_an: str | None = None) -> None:
+    """Text-Mail über den eingestellten Mailserver. `antwort_an`: Antworten gehen dorthin statt an den Absender
+    (z. B. eine noreply-Adresse) – nur eine einzelne gültige Adresse."""
+    from app import mail
+
     nachricht = EmailMessage()
     nachricht["Subject"] = titel
     nachricht["From"] = k.email_von or k.smtp_user or k.email_an
     nachricht["To"] = k.email_an
+    if antwort_an and mail.gueltig(antwort_an) and antwort_an.lower() != (nachricht["From"] or "").lower():
+        nachricht["Reply-To"] = antwort_an
+    nachricht["Auto-Submitted"] = "auto-generated"  # automatische Mail: keine Abwesenheitsnotizen zurück
     nachricht["Date"] = formatdate(localtime=True)
     nachricht["Message-ID"] = make_msgid(domain=(nachricht["From"].split("@")[-1] or None))
     nachricht.set_content(text)

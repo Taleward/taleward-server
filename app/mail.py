@@ -37,11 +37,15 @@ def senden(db: Session, an: str, betreff: str, text: str) -> None:
 
     from app.benachrichtigung import VersandFehler, _email, konfig
 
+    from app.einstellungen import angaben
+
     k = konfig(db)
     if not k.smtp_host:
         raise MailFehler("Kein Mailserver eingerichtet.")
+    # 0.4.123: Antworten an den Kontakt des Betreibers (wenn er eine E-Mail-Adresse ist), nicht an den Absender
+    kontakt = (angaben(db).server_contact or "").strip()
     try:
-        _email(replace(k, email_an=an), betreff, text)
+        _email(replace(k, email_an=an), betreff, text, antwort_an=kontakt if gueltig(kontakt) else None)
     except VersandFehler as e:
         log.warning("Mail an Konto nicht zugestellt: %s", e)
         raise MailFehler(str(e)) from None

@@ -205,6 +205,9 @@ Damit du Probleme merkst, ohne in die Verwaltung zu schauen: **Einstellungen →
   `meinverein-taleward-7k2q`), und `https://ntfy.sh/meinverein-taleward-7k2q` in der Verwaltung eintragen.
 - **E-Mail:** Mailserver, Port, Benutzer und Passwort deines E-Mail-Anbieters, dazu der Empfänger.
 - **„Speichern und Testnachricht senden“** prüft, ob alles ankommt.
+- Mails an Mitglieder („Passwort vergessen“, Adresse bestätigen) tragen als Antwortadresse den **Kontakt** aus
+  Einstellungen → „Angaben für die App“, wenn dort eine E-Mail-Adresse steht. So kann der Absender eine
+  noreply-Adresse sein, und Antworten landen trotzdem beim Betreiber.
 
 Gemeldet wird, wenn Aufträge länger als 6 Stunden (einstellbar) ohne Worker warten, Aufträge endgültig fehlschlagen,
 80 % bzw. 100 % des Kostenlimits erreicht sind, eine Sicherung fehlschlägt oder älter als 48 Stunden ist, weniger als
