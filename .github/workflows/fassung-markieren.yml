@@ -5,6 +5,8 @@ name: Fassung markieren
 # Außerdem hängt der Ablauf die Prüfsummen der PyTorch-Dateien (pytorch-pruefsummen.txt) an das Release der Fassung,
 # solange sie noch nicht freigegeben ist – die Freigabe unterschreibt sie mit, die Worker-App installiert PyTorch dann
 # nur mit genau diesen Prüfsummen.
+# Text des Release: NEU.md aus dem Commit der Fassung, wenn die erste Zeile „Fassung <Fassung>“ lautet (die Zeile selbst
+# wird nicht übernommen). Sonst der Standardtext.
 on:
   push:
     branches: [main]
@@ -106,8 +108,20 @@ jobs:
               echo "Die Liste hängt schon an $TAG."; exit 0
             fi
           else
+            NOTIZEN="$RUNNER_TEMP/notizen.md"
+            : > "$NOTIZEN"
+            if gh api -H "Accept: application/vnd.github.raw" "repos/$GH_REPO/contents/NEU.md?ref=$TAG" \
+                > "$RUNNER_TEMP/neu.md" 2>/dev/null \
+              && [ "$(head -n1 "$RUNNER_TEMP/neu.md" | tr -d '\r')" = "Fassung ${TAG#v}" ]; then
+              tail -n +2 "$RUNNER_TEMP/neu.md" | tr -d '\r' | sed '/./,$!d' > "$NOTIZEN"
+            else
+              echo "Keine NEU.md für ${TAG#v} – Standardtext."
+            fi
+            if [ ! -s "$NOTIZEN" ]; then
+              printf '%s\n' "Freigegebene Server-Fassung. Installation und Updates: siehe INSTALLATION.md." > "$NOTIZEN"
+            fi
             gh release create "$TAG" --verify-tag --latest=false --title "Taleward-Server ${TAG#v}" \
-              --notes "Freigegebene Server-Fassung. Installation und Updates: siehe INSTALLATION.md."
+              --notes-file "$NOTIZEN"
           fi
           gh release upload "$TAG" ausgabe/pytorch-pruefsummen.txt
           echo "PyTorch-Prüfsummen an $TAG gehängt." >> "$GITHUB_STEP_SUMMARY"
