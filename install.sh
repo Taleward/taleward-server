@@ -255,6 +255,11 @@ fi
 curl -fsSL "$QUELLE/deploy/$COMPOSE" -o "$ZIEL/docker-compose.yml"
 curl -fsSL "$QUELLE/deploy/Caddyfile" -o "$ZIEL/Caddyfile"
 curl -fsSL "$QUELLE/deploy/aktualisieren.sh" -o "$ZIEL/aktualisieren.sh" && chmod +x "$ZIEL/aktualisieren.sh"
+# Optional: statische Website neben dem Server (docs/BETRIEB.md, „Website mitliefern“) – ohne Einrichtung bleibt das leer
+for datei in website-zugang.sh website-neu-laden.sh; do
+  curl -fsSL "$QUELLE/deploy/$datei" -o "$ZIEL/$datei" && chmod 755 "$ZIEL/$datei"
+done
+mkdir -p "$ZIEL/website-caddy"
 # Feste Fassung: neuestes Tag v…; die automatischen Updates gehen von dort weiter
 VERSION=$(alt_wert TALEWARD_VERSION)
 if [ -z "$VERSION" ]; then

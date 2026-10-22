@@ -85,6 +85,9 @@ services:
       ACME_EMAIL: ${ACME_EMAIL}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Optional: statische Website neben dem Server (WEBSITE_ORDNER in der .env, website-zugang.sh); sonst leer
+      - ${WEBSITE_ORDNER:-./website}:/srv/website:ro
+      - ./website-caddy:/etc/caddy/website:ro
       - caddy-daten:/data
       - caddy-config:/config
     logging:

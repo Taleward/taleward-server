@@ -220,6 +220,44 @@ Netzlaufwerk), in den jede Sicherung kopiert wird.
 Eine Sicherung ist eine vollständige Kopie der Datenbank, also auch aller Kampagneninhalte – entsprechend sorgsam
 aufbewahren. Wiederherstellen: siehe [INSTALLATION.md](../INSTALLATION.md#sicherung).
 
+## Auf einen anderen Server umziehen
+
+Alles, was mitmuss, liegt in `/opt/taleward`: der Ordner `daten` (Datenbank, Bilder, Unterlagen, Aufnahmen,
+Hörproben, Sicherungen, Geheimnis für die Anmeldung), die `.env` und – falls vorhanden – `docker-compose.override.yml`.
+Die Zertifikate holt Caddy auf dem neuen Server selbst, sobald die Domain dorthin zeigt; wer vorher testen will, nimmt
+das Docker-Volume `taleward_caddy-daten` mit. Ablauf:
+
+1. Neuer Server: `install.sh` wie bei der Ersteinrichtung (gleiche Domain), danach `sudo docker compose stop`.
+2. Alter Server: `sudo docker compose stop server`, dann `daten`, `.env` (und ggf. die Override-Datei) als Archiv
+   packen, z. B. `sudo tar czf /root/taleward-umzug.tgz -C /opt/taleward daten .env`, und auf den neuen Server kopieren.
+3. Neuer Server: Archiv in `/opt/taleward` auspacken (der alte `daten`-Ordner wird ersetzt), dann
+   `sudo chown -R 1000:1000 daten` und `sudo docker compose up -d --build`.
+4. Domain (A- und ggf. AAAA-Eintrag) auf den neuen Server umstellen. Konten, Anmeldungen, Worker-Kopplungen und
+   Apps bleiben gültig, weil sich die Adresse nicht ändert.
+5. Den alten Server erst abschalten, wenn der neue läuft; vorher dort `sudo systemctl disable --now
+   taleward-aktualisieren.timer`.
+
+## Website mitliefern (optional)
+
+Wer neben dem Server eine statische Website betreibt, kann sie über denselben Caddy ausliefern. Ohne Einrichtung
+ändert sich nichts.
+
+1. Auf dem Server einmal `sudo bash /opt/taleward/website-zugang.sh`. Das Skript fragt nach dem Ordner (Vorschlag
+   `/srv/website`) und nach dem öffentlichen SSH-Schlüssel, mit dem hochgeladen wird. Es legt den Nutzer `website` an,
+   der per SSH nur zweierlei darf: mit `rsync` in genau diesen Ordner schreiben und `neu-laden`. Am Ende zeigt es die
+   Angaben für das Hochladen (Adresse, `known_hosts`-Zeile).
+2. Hochladen: `rsync -rlz --delete --delay-updates dist/ website@SERVER:` und danach `ssh website@SERVER neu-laden`.
+3. Die Website bringt ihre Caddy-Regeln selbst mit: Dateien `_caddy/*.caddy` im hochgeladenen Ordner, mit
+   Site-Blöcken für ihre Domains (ohne globalen Block). Caddy sieht den Ordner als `/srv/website`; `root` muss darin
+   liegen. Erlaubt ist nur statisches Ausliefern (Kopfzeilen, Umleitungen, Antworten, `file_server` usw.) – nicht
+   erlaubt sind u. a. `import`, `reverse_proxy`, `log`, `tls`, `templates` und Platzhalter für Umgebung oder Dateien.
+   `neu-laden` prüft die Regeln, übernimmt sie und lädt Caddy ohne Neustart neu. Lehnt Caddy sie ab, bleiben die
+   bisherigen in Betrieb, und der Befehl endet mit einem Fehler. Den Ordner `_caddy` selbst sollte die Website mit
+   einer Regel vor dem Ausliefern schützen (z. B. `respond /_caddy/* 404`).
+
+Nach jedem erfolgreichen Update räumt der Server ungenutzte Docker-Bilder auf, die älter als eine Woche sind (ohne
+eingebauten Worker auch alte Bau-Zwischenstände) – wichtig bei kleinen Platten.
+
 ## Updates für App und Worker
 
 Der Server fragt einmal am Tag bei GitHub nach neuen Fassungen (**Updates**):

@@ -213,13 +213,24 @@ if grundbild_bauen && docker compose build >>"$BAULOG" 2>&1 \
   QUELLE="$ROH/$COMMIT/deploy"
   compose=docker-compose.yml
   [ "$(sed -n 's/^TALEWARD_MODUS=//p' .env)" = "heimnetz" ] && compose=docker-compose.heimnetz.yml
-  for paar in aktualisieren.sh:aktualisieren.sh "$compose":docker-compose.yml Caddyfile:Caddyfile; do
+  for paar in aktualisieren.sh:aktualisieren.sh "$compose":docker-compose.yml Caddyfile:Caddyfile \
+              website-zugang.sh:website-zugang.sh website-neu-laden.sh:website-neu-laden.sh; do
     quelle=${paar%%:*}; datei=${paar##*:}
     if curl -fsL "$QUELLE/$quelle" -o "$datei.neu"; then mv "$datei.neu" "$datei"; else rm -f "$datei.neu"; fi
   done
-  [ -f aktualisieren.sh ] && chmod +x aktualisieren.sh
+  chmod 755 aktualisieren.sh website-zugang.sh website-neu-laden.sh 2>/dev/null || true
+  mkdir -p website-caddy
+  # Neu eingerichtete Website: die geprüfte Kopie des Neuladers mitziehen (website-zugang.sh legt sie an)
+  if [ -f /usr/local/sbin/taleward-website-neu-laden ] && [ -f website-neu-laden.sh ]; then
+    install -m 755 -o root -g root website-neu-laden.sh /usr/local/sbin/taleward-website-neu-laden || true
+  fi
   docker compose up -d >/dev/null 2>&1
-  docker image prune -f >/dev/null 2>&1 || true
+  # Platz sparen (kleine Platten): ungenutzte Bilder und Bau-Zwischenstände, die älter als eine Woche sind
+  docker image prune -af --filter "until=168h" >/dev/null 2>&1 || true
+  # Bau-Zwischenstände nur ohne eingebauten Worker – sonst müsste er sein großes KI-Paket neu laden
+  if [ -z "$(sed -n 's/^COMPOSE_PROFILES=//p' .env)" ]; then
+    docker builder prune -af --filter "until=168h" >/dev/null 2>&1 || true
+  fi
   exit 0
 fi
 

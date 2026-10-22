@@ -10,3 +10,7 @@
 	}
 	reverse_proxy server:8000
 }
+
+# Optional: eine statische Website neben dem Server über denselben Caddy (siehe docs/BETRIEB.md, „Website mitliefern“).
+# Die Regeln dazu legt website-neu-laden.sh nach Prüfung hier ab; ohne Dateien passiert nichts.
+import /etc/caddy/website/*.caddy
