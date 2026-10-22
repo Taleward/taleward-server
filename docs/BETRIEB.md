@@ -243,14 +243,17 @@ Wer neben dem Server eine statische Website betreibt, kann sie über denselben C
 ändert sich nichts.
 
 1. Auf dem Server einmal `sudo bash /opt/taleward/website-zugang.sh`. Das Skript fragt nach dem Ordner (Vorschlag
-   `/srv/website`) und nach dem öffentlichen SSH-Schlüssel, mit dem hochgeladen wird. Es legt den Nutzer `website` an,
+   `/srv/website`) und nach dem öffentlichen SSH-Schlüssel, mit dem hochgeladen wird. Es legt den Nutzer `taleward-website` an,
    der per SSH nur zweierlei darf: mit `rsync` in genau diesen Ordner schreiben und `neu-laden`. Am Ende zeigt es die
    Angaben für das Hochladen (Adresse, `known_hosts`-Zeile).
-2. Hochladen: `rsync -rlz --delete --delay-updates dist/ website@SERVER:` und danach `ssh website@SERVER neu-laden`.
+2. Hochladen: `rsync -rlt --delete --delay-updates dist/ taleward-website@SERVER:` und danach
+   `ssh taleward-website@SERVER neu-laden`.
 3. Die Website bringt ihre Caddy-Regeln selbst mit: Dateien `_caddy/*.caddy` im hochgeladenen Ordner, mit
    Site-Blöcken für ihre Domains (ohne globalen Block). Caddy sieht den Ordner als `/srv/website`; `root` muss darin
-   liegen. Erlaubt ist nur statisches Ausliefern (Kopfzeilen, Umleitungen, Antworten, `file_server` usw.) – nicht
-   erlaubt sind u. a. `import`, `reverse_proxy`, `log`, `tls`, `templates` und Platzhalter für Umgebung oder Dateien.
+   liegen (als feste Angabe, z. B. `root * /srv/website`). Erlaubt ist nur statisches Ausliefern (Kopfzeilen,
+   Umleitungen, Antworten, `file_server`, Snippets aus derselben Datei usw.) – nicht erlaubt sind u. a. `import` von
+   Dateien, `reverse_proxy`, `log`, `tls`, `templates` und Platzhalter für Umgebung oder Dateien. Ohne Regeldatei ändert
+   `neu-laden` nichts.
    `neu-laden` prüft die Regeln, übernimmt sie und lädt Caddy ohne Neustart neu. Lehnt Caddy sie ab, bleiben die
    bisherigen in Betrieb, und der Befehl endet mit einem Fehler. Den Ordner `_caddy` selbst sollte die Website mit
    einer Regel vor dem Ausliefern schützen (z. B. `respond /_caddy/* 404`).

@@ -1,12 +1,12 @@
 #!/bin/bash
 # Optional, einmalig: eine statische Website neben dem Server über denselben Caddy ausliefern
-# (docs/BETRIEB.md, „Website mitliefern“). Legt den Nutzer „website“ an, der per SSH genau zweierlei darf:
+# (docs/BETRIEB.md, „Website mitliefern“). Legt den Nutzer „taleward-website“ an, der per SSH genau zweierlei darf:
 # Dateien in den Website-Ordner hochladen (rsync, nur dorthin) und „neu-laden“ (Caddy-Regeln prüfen und übernehmen).
 # Aufruf auf dem Server:  sudo bash /opt/taleward/website-zugang.sh
 # Erneut aufrufen ersetzt den Schlüssel (z. B. nach einem Wechsel).
 set -euo pipefail
 ZIEL=${TALEWARD_ZIEL:-/opt/taleward}
-NUTZER=website
+NUTZER=${WEBSITE_NUTZER:-taleward-website}
 EMPFANG=/usr/local/bin/taleward-website-empfang
 NEULADEN=/usr/local/sbin/taleward-website-neu-laden
 
@@ -73,5 +73,5 @@ echo "Fertig. Für das Hochladen (z. B. als Secrets im Website-Repository):"
 echo "  Adresse:        ${IP:-<IP dieses Servers>}"
 echo "  Nutzer:         $NUTZER"
 echo "  known_hosts:    ${IP:-<IP>} $(cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub)"
-echo "Hochladen:  rsync -rlz --delete --delay-updates dist/ $NUTZER@${IP:-<IP>}:"
+echo "Hochladen:  rsync -rlt --delete --delay-updates dist/ $NUTZER@${IP:-<IP>}:"
 echo "Neu laden:  ssh $NUTZER@${IP:-<IP>} neu-laden"

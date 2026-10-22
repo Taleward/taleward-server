@@ -15,14 +15,19 @@ regeln_pruefen() {
     echo "Abgelehnt: $(basename "$datei") ist keine normale Datei oder zu groß." >&2
     return 1
   fi
-  # Nichts, was über statisches Ausliefern hinausgeht: keine weiteren Dateien einbinden, nichts weiterleiten,
-  # keine Platzhalter für Umgebung oder Dateien, keine Protokolle, Zertifikate oder Verwaltung, kein „..“
-  if grep -nEi '(^|[[:space:]])(import|reverse_proxy|php_fastcgi|forward_auth|fs|storage|admin|acme_ca|acme_dns|tls|log|templates|invoke|metrics|tracing)([[:space:]]|\{|$)|\{(env|file|system)\.|\{\$|\.\.' "$datei" >&2; then
+  # Geprüft wird ohne Kommentarzeilen. Nichts, was über statisches Ausliefern hinausgeht: nichts weiterleiten, keine
+  # Platzhalter für Umgebung oder Dateien, keine Protokolle, Zertifikate oder Verwaltung, kein „..“; „import“ nur für
+  # Snippets aus derselben Datei (ein Name, kein Pfad)
+  local inhalt
+  inhalt=$(grep -nvE '^[[:space:]]*#' "$datei" || true)
+  if grep -Ei '(^|[[:space:]:])(reverse_proxy|php_fastcgi|forward_auth|fs|storage|admin|acme_ca|acme_dns|tls|log|templates|invoke|metrics|tracing)([[:space:]]|\{|$)|\{(env|file|system)\.|\{\$|\.\.' <<<"$inhalt" >&2 \
+     || grep -E '^[0-9]+:[[:space:]]*import([[:space:]]|$)' <<<"$inhalt" \
+        | grep -vE '^[0-9]+:[[:space:]]*import[[:space:]]+[A-Za-z0-9_-]+[[:space:]]*$' >&2; then
     echo "Abgelehnt: $(basename "$datei") enthält nicht erlaubte Angaben (Zeilen oben)." >&2
     return 1
   fi
   # „root“ nur innerhalb des Website-Ordners
-  if grep -nE '^[[:space:]]*root([[:space:]]|$)' "$datei" \
+  if grep -E '^[0-9]+:[[:space:]]*root([[:space:]]|$)' <<<"$inhalt" \
      | grep -vE ":[[:space:]]*root([[:space:]]+(\*|@[A-Za-z0-9_-]+|/[^[:space:]]*))?[[:space:]]+$WURZEL(/[^[:space:]]*)?[[:space:]]*$" >&2; then
     echo "Abgelehnt: „root“ muss in $WURZEL liegen (Zeilen oben)." >&2
     return 1
@@ -49,7 +54,12 @@ shopt -s nullglob
 for f in "$ORDNER"/_caddy/*.caddy; do
   cp -P -- "$f" "$NEU/"
 done
-for f in "$NEU"/*; do
+NEUE=("$NEU"/*)
+if [ "${#NEUE[@]}" -eq 0 ]; then
+  echo "Keine Caddy-Regeln gefunden ($ORDNER/_caddy/*.caddy) – nichts geändert." >&2
+  exit 1
+fi
+for f in "${NEUE[@]}"; do
   regeln_pruefen "$f"
 done
 cp -a "$REGELN"/. "$ALT"/
