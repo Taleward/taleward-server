@@ -1,0 +1,85 @@
+name: Discord-Meldung
+# Meldet eine Fassung im Taleward-Discord, sobald sie freigegeben ist: nach einem Lauf von „Freigabe“, in dem Benjamin
+# bestätigt hat und freigabe.txt angehängt wurde. Vorabfassungen und nicht freigegebene Fassungen werden nicht gemeldet.
+# Von Hand (Actions → Discord-Meldung → Run workflow) meldet er eine schon freigegebene Fassung erneut, z. B. zum Testen.
+# Secret: DISCORD_RELEASES_WEBHOOK (Organisation, nur app/server/worker).
+on:
+  workflow_run:
+    workflows: ["Freigabe"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      fassung:
+        description: "Fassung, z. B. v0.28.0 oder worker-v0.3.0 (leer = zuletzt freigegebene)"
+        required: false
+
+permissions: {}
+
+concurrency: discord-meldung
+
+jobs:
+  melden:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      EREIGNIS: ${{ github.event_name }}
+      LAUF: ${{ github.event.workflow_run.id }}
+      LAUF_START: ${{ github.event.workflow_run.run_started_at }}
+      EINGABE: ${{ inputs.fassung }}
+      WEBHOOK: ${{ secrets.DISCORD_RELEASES_WEBHOOK }}
+    steps:
+      - name: Freigegebene Fassung ermitteln
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          if [ "$EREIGNIS" = "workflow_run" ]; then
+            ERGEBNIS=$(gh api "repos/$GH_REPO/actions/runs/$LAUF/jobs" \
+              -q '.jobs[] | select(.name == "unterschreiben") | .conclusion')
+            if [ "$ERGEBNIS" != "success" ]; then
+              echo "In diesem Lauf wurde nichts freigegeben."; exit 0
+            fi
+          elif [ -n "${EINGABE:-}" ] && ! printf '%s' "$EINGABE" | grep -Eq '^(worker-)?v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Unbekannte Fassung: $EINGABE"; exit 1
+          fi
+          gh api "repos/$GH_REPO/releases?per_page=100" > releases.json
+          # Freigegeben = Release (kein Entwurf, keine Vorabfassung) mit angehängter freigabe.txt
+          jq --arg tag "${EINGABE:-}" --arg ab "${LAUF_START:-}" '
+            [ .[] | select(.draft == false and .prerelease == false)
+              | . as $r | .assets[] | select(.name == "freigabe.txt")
+              | { zeit: .created_at, tag: $r.tag_name, url: $r.html_url, text: ($r.body // "") } ]
+            | map(select(($tag == "" or .tag == $tag) and ($ab == "" or .zeit >= $ab)))
+            | sort_by(.zeit) | last // empty' releases.json > fassung.json
+          if [ ! -s fassung.json ]; then
+            echo "Keine passende freigegebene Fassung gefunden."; exit 0
+          fi
+          echo "MELDEN=1" >> "$GITHUB_ENV"
+          jq -r '"Fassung: \(.tag)"' fassung.json
+
+      - name: Im Discord melden
+        if: env.MELDEN == '1'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          [ -n "$WEBHOOK" ] || { echo "Secret DISCORD_RELEASES_WEBHOOK fehlt"; exit 1; }
+          case "${GH_REPO#*/}" in
+            taleward-app) TEIL="App" ;;
+            taleward-server) TEIL="Server" ;;
+            taleward-worker) TEIL="Worker" ;;
+            *) TEIL="${GH_REPO#*/}" ;;
+          esac
+          # Keine Erwähnungen (allowed_mentions leer), Text auf Discords Grenze gekürzt
+          jq --arg teil "$TEIL" '
+            (.tag | sub("^(worker-)?v"; "")) as $nr
+            | (.text | gsub("\r"; "") | if length > 1500 then .[0:1500] + " …" else . end) as $text
+            | { username: "Taleward",
+                allowed_mentions: { parse: [] },
+                content: ("**Taleward-\($teil) \($nr)** ist freigegeben. / is released.\n"
+                          + (if $text == "" then "" else "\n\($text)\n" end)
+                          + "\n<\(.url)>") }' fassung.json > nachricht.json
+          curl -fsS --retry 3 -H "Content-Type: application/json" --data @nachricht.json "$WEBHOOK" -o /dev/null
+          jq -r '"\(.tag) im Discord gemeldet."' fassung.json >> "$GITHUB_STEP_SUMMARY"
