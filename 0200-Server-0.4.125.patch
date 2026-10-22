@@ -1,0 +1,373 @@
+From b2a1716da4f704b6ad32aefef6ccaee55ee7d0d6 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 18:25:39 +0200
+Subject: [PATCH] Server 0.4.125
+
+PDF-Unterlagen werden in einem eigenen Prozess mit Zeitgrenze ausgelesen; pypdf aktualisiert.
+---
+ NEU.md                       |  2 +-
+ app/pdf_lesen.py             | 60 ++++++++++++++++++++++++++++++
+ app/unterlagen.py            | 71 ++++++++++++++++++++++--------------
+ engine-requirements.txt      |  2 +-
+ pyproject.toml               |  4 +-
+ tests/test_aktualisierung.py |  2 +-
+ tests/test_assistent.py      |  2 +-
+ tests/test_modellablage.py   |  2 +-
+ tests/test_server_04125.py   | 64 ++++++++++++++++++++++++++++++++
+ tests/test_worker_app.py     |  2 +-
+ uv.lock                      | 10 ++---
+ 11 files changed, 180 insertions(+), 41 deletions(-)
+ create mode 100644 app/pdf_lesen.py
+ create mode 100644 tests/test_server_04125.py
+
+diff --git a/NEU.md b/NEU.md
+index f0eaca1..d2cd851 100644
+--- a/NEU.md
++++ b/NEU.md
+@@ -1,3 +1,3 @@
+-Fassung 0.4.124
++Fassung 0.4.125
+ 
+ ## Was ist neu
+diff --git a/app/pdf_lesen.py b/app/pdf_lesen.py
+new file mode 100644
+index 0000000..e39519f
+--- /dev/null
++++ b/app/pdf_lesen.py
+@@ -0,0 +1,60 @@
++"""PDF in einem eigenen Prozess auslesen – mit Zeit- und Speichergrenze, damit eine kaputte oder präparierte Datei den
++Server nicht festhält. Aufruf nur über `app.unterlagen` (`python -I pdf_lesen.py text|seiten MAX_SEITEN`, PDF auf
++stdin). Ergebnis als JSON auf stdout; Rückgabe 0 = gelesen, 2 = Passwort, sonst unlesbar. Nur Standardbibliothek und
++pypdf, damit der Prozess schnell startet."""
++import json
++import sys
++
++SPEICHER = 2 * 1024 ** 3  # Adressraum des Prozesses
++RECHENZEIT = 300  # Sekunden Rechenzeit, zusätzlich zur Wartezeit des Aufrufers
++
++
++def _grenzen() -> None:
++    try:
++        import resource
++    except ImportError:  # Windows: dort gilt nur die Wartezeit des Aufrufers
++        return
++    for art, wert in ((resource.RLIMIT_AS, SPEICHER), (resource.RLIMIT_CPU, RECHENZEIT)):
++        try:
++            resource.setrlimit(art, (wert, wert))
++        except (ValueError, OSError):
++            pass
++
++
++def main(argv: list[str]) -> int:
++    _grenzen()
++    import io
++
++    from pypdf import PdfReader
++
++    modus, max_seiten = argv[0], int(argv[1])
++    daten = sys.stdin.buffer.read()
++    try:
++        leser = PdfReader(io.BytesIO(daten))
++        if leser.is_encrypted and not leser.decrypt(""):
++            return 2
++        seiten = leser.pages
++        anzahl = len(seiten)
++        if modus == "seiten":
++            json.dump({"seiten": anzahl}, sys.stdout)
++            return 0
++        abschnitte, leer = [], 0
++        for i, seite in enumerate(seiten):
++            if i >= max_seiten:
++                break
++            try:
++                text = (seite.extract_text() or "").strip()
++            except Exception:  # einzelne kaputte Seite
++                text = ""
++            if len(text) < 3:  # nichts oder nur Seitenzahl – vermutlich eingescannt
++                leer += 1
++                continue
++            abschnitte.append({"seite": i + 1, "text": text})
++        json.dump({"seiten": anzahl, "leer": leer, "abschnitte": abschnitte}, sys.stdout)  # nur ASCII (Windows-Konsole)
++        return 0
++    except Exception:  # noqa: BLE001 – unlesbar, Einzelheiten bleiben im Prozess
++        return 1
++
++
++if __name__ == "__main__":
++    sys.exit(main(sys.argv[1:]))
+diff --git a/app/unterlagen.py b/app/unterlagen.py
+index 3656da9..b156fc2 100644
+--- a/app/unterlagen.py
++++ b/app/unterlagen.py
+@@ -20,4 +20,5 @@ from __future__ import annotations
+ import io
+ import json
++import logging
+ import re
+ import shutil
+@@ -36,4 +37,6 @@ from app.db import utcnow
+ from app.models import Campaign, CampaignDocument, Entry, Job, Proposal, UsageLog
+ 
++log = logging.getLogger(__name__)
++
+ MAX_BYTES = 50 * 1024 * 1024
+ MAX_ZEICHEN = 1_500_000  # darüber wird abgeschnitten (≈ 450 000 Tokens)
+@@ -81,29 +84,40 @@ def _begrenzen(abschnitte: list[dict]) -> tuple[list[dict], int | None]:
+ 
+ 
+-def _pdf(daten: bytes) -> Extrakt:
+-    from pypdf import PdfReader
+-    from pypdf.errors import PdfReadError
++PDF_ZEIT = 120  # Sekunden für das Auslesen einer PDF (eigener Prozess, siehe app/pdf_lesen.py)
++PDF_ZEIT_SEITEN = 20  # nur Seiten zählen
++PDF_LESER = Path(__file__).with_name("pdf_lesen.py")
++
++
++def _pdf_prozess(modus: str, daten: bytes, zeit: int) -> dict:
++    """PDF in einem eigenen Prozess lesen: Endlosschleifen oder Speicherhunger einer präparierten Datei treffen nur
++    diesen Prozess, nach `zeit` Sekunden wird er beendet. Fehler → `unsupported_document`."""
++    import subprocess
++    import sys
+ 
++    extra = {"creationflags": 0x08000000} if sys.platform == "win32" else {}  # CREATE_NO_WINDOW
+     try:
+-        leser = PdfReader(io.BytesIO(daten))
+-        if leser.is_encrypted and not leser.decrypt(""):
+-            raise errors.bad_request("unsupported_document", "unsupported_document.password")
+-        seiten = leser.pages
+-        abschnitte, leer = [], 0
+-        for i, seite in enumerate(seiten):
+-            if i >= MAX_SEITEN:
+-                break
+-            try:
+-                text = (seite.extract_text() or "").strip()
+-            except Exception:  # einzelne kaputte Seite
+-                text = ""
+-            if len(text) < 3:  # nichts oder nur Seitenzahl – vermutlich eingescannt
+-                leer += 1
+-                continue
+-            abschnitte.append({"seite": i + 1, "text": text})
+-        return Extrakt(abschnitte, len(seiten), leer)
+-    except errors.ApiError:
+-        raise
+-    except (PdfReadError, Exception):
++        r = subprocess.run([sys.executable, "-I", str(PDF_LESER), modus, str(MAX_SEITEN)],
++                           input=daten, capture_output=True, timeout=zeit, **extra)
++    except subprocess.TimeoutExpired:
++        log.warning("PDF nach %s s nicht ausgelesen – abgebrochen", zeit)
++        raise errors.bad_request("unsupported_document") from None
++    except OSError:
++        raise errors.bad_request("unsupported_document") from None
++    if r.returncode == 2:
++        raise errors.bad_request("unsupported_document", "unsupported_document.password")
++    try:
++        if r.returncode != 0:
++            raise ValueError
++        return json.loads(r.stdout)
++    except ValueError:
++        raise errors.bad_request("unsupported_document") from None
++
++
++def _pdf(daten: bytes) -> Extrakt:
++    x = _pdf_prozess("text", daten, PDF_ZEIT)
++    try:
++        return Extrakt([{"seite": int(a["seite"]), "text": str(a["text"])} for a in x["abschnitte"]],
++                       int(x["seiten"]), int(x["leer"]))
++    except (KeyError, TypeError, ValueError):
+         raise errors.bad_request("unsupported_document") from None
+ 
+@@ -228,10 +242,11 @@ def _bogen_grenzen_pruefen(db: Session, campaign_id: str, member_id: str, art: s
+     seiten_max = grenzen[0]
+     if art == "pdf":
+-        from pypdf import PdfReader
+-
+         try:
+-            seiten = len(PdfReader(io.BytesIO(daten)).pages)
+-        except Exception:  # noqa: BLE001 – unlesbar: wie bisher speichern, gezählt wird dann eine Seite
+-            seiten = 1
++            seiten = int(_pdf_prozess("seiten", daten, PDF_ZEIT_SEITEN)["seiten"])
++        except errors.ApiError as e:
++            if e.key == "unsupported_document.password":
++                seiten = 1  # verschlüsselt: wie bisher speichern, gezählt wird eine Seite
++            else:
++                raise
+         if seiten > seiten_max:
+             raise errors.bad_request("sheet_too_many_pages", seiten=seiten, max=seiten_max)
+diff --git a/engine-requirements.txt b/engine-requirements.txt
+index a89282f..d19a84b 100644
+--- a/engine-requirements.txt
++++ b/engine-requirements.txt
+@@ -350,5 +350,5 @@ pyjwt==2.15.0
+ pyparsing==3.3.3
+     # via matplotlib
+-pypdf==6.19.0
++pypdf==6.21.2
+     # via taleward-server
+ python-dateutil==2.9.0.post0
+diff --git a/pyproject.toml b/pyproject.toml
+index 6cf9509..8d9ad0d 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.124"
++version = "0.4.125"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+@@ -21,5 +21,5 @@ dependencies = [
+     "jinja2>=3.1",
+     "pillow>=11",
+-    "pypdf>=5",
++    "pypdf>=6.21.1",
+     "segno>=1.6",
+     "tzdata>=2024.1; sys_platform == 'win32'",  # Windows hat keine eigene Zeitzonen-Datenbank (Europe/Berlin)
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index 22c3c7d..d4f1320 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -154,5 +154,5 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.124"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.125"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index 9280ad3..c6af8e4 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -135,5 +135,5 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.124"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.125"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index 73ff4db..c5eff78 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -84,5 +84,5 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.124"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.125"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+diff --git a/tests/test_server_04125.py b/tests/test_server_04125.py
+new file mode 100644
+index 0000000..43e0e36
+--- /dev/null
++++ b/tests/test_server_04125.py
+@@ -0,0 +1,64 @@
++"""Server 0.4.125: PDFs werden in einem eigenen Prozess mit Zeit- und Speichergrenze ausgelesen; pypdf aktuell."""
++import sys
++import time
++from importlib.metadata import version
++
++import pytest
++
++from app import errors, unterlagen
++from tests.dateien import pdf
++
++
++def test_pypdf_aktuell():
++    assert tuple(int(x) for x in version("pypdf").split(".")[:3]) >= (6, 21, 1)
++
++
++def test_pdf_wird_weiter_gelesen():
++    x = unterlagen.auslesen("pdf", pdf(["Der Wirt heisst Borin.", "", "Die Burg Rabenfels."]))
++    assert x.seiten == 3 and x.leere_seiten == 1
++    assert [(a["seite"], a["text"]) for a in x.abschnitte] == [(1, "Der Wirt heisst Borin."), (3, "Die Burg Rabenfels.")]
++
++
++def test_abgeschnittene_pdf_schnell_abgelehnt():
++    """Datei endet mitten in der xref-Tabelle → unsupported_document, ohne den Server festzuhalten."""
++    import io
++
++    from pypdf import PdfWriter
++
++    schreiber = PdfWriter()
++    for _ in range(3):
++        schreiber.add_blank_page(200, 200)
++    puffer = io.BytesIO()
++    schreiber.write(puffer)
++    daten = puffer.getvalue()
++    stelle = daten.index(b"\nxref\n") + 1
++    assert daten[stelle:stelle + 30].startswith(b"xref\n0 ")  # echte xref-Tabelle
++    kaputt = daten[: stelle + len(b"xref\n0 7\n0000000000 65535 f \n00000")]
++    beginn = time.monotonic()
++    with pytest.raises(errors.ApiError) as e:
++        unterlagen.auslesen("pdf", kaputt)
++    assert e.value.code == "unsupported_document"
++    assert time.monotonic() - beginn < 5
++
++
++def test_haengender_leser_wird_abgebrochen(tmp_path, monkeypatch):
++    """Was immer im Leseprozess hängt: nach der Wartezeit ist Schluss, der Server antwortet."""
++    leser = tmp_path / "haengt.py"
++    leser.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
++    monkeypatch.setattr(unterlagen, "PDF_LESER", leser)
++    monkeypatch.setattr(unterlagen, "PDF_ZEIT", 1)
++    beginn = time.monotonic()
++    with pytest.raises(errors.ApiError) as e:
++        unterlagen.auslesen("pdf", pdf(["Text"]))
++    assert e.value.code == "unsupported_document" and time.monotonic() - beginn < 5
++
++
++@pytest.mark.skipif(sys.platform == "win32", reason="Speichergrenze nur unter Linux/macOS")
++def test_leseprozess_hat_eine_speichergrenze():
++    import subprocess
++
++    probe = ("import runpy,resource,sys;sys.argv=['x','seiten','1'];"
++             f"m=runpy.run_path({str(unterlagen.PDF_LESER)!r},run_name='m');m['_grenzen']();"
++             "print(resource.getrlimit(resource.RLIMIT_AS)[0])")
++    r = subprocess.run([sys.executable, "-I", "-c", probe], capture_output=True, text=True, timeout=30)
++    assert int(r.stdout.strip()) == 2 * 1024 ** 3
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index 55dfee0..cf1a132 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -113,5 +113,5 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.124"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.125"
+ 
+ 
+diff --git a/uv.lock b/uv.lock
+index a7327b7..a92bc9e 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -1691,9 +1691,9 @@ wheels = [
+ [[package]]
+ name = "pypdf"
+-version = "6.19.0"
++version = "6.21.2"
+ source = { registry = "https://pypi.org/simple" }
+-sdist = { url = "https://files.pythonhosted.org/packages/1f/ac/63d71aaedb59acbcdef491e6ca6469165e3771c9c74358204818fd9bc5a6/pypdf-6.19.0.tar.gz", hash = "sha256:bbc43aca292369ccc6cbc8a921991ecf2538a3587ab5a116eff06c321d647155", size = 7033266, upload-time = "2026-09-16T09:32:05.946Z" }
++sdist = { url = "https://files.pythonhosted.org/packages/06/28/081f1cbcca7042441dafc8de00f48ba60853f89e5bff92c5f26477346d81/pypdf-6.21.2.tar.gz", hash = "sha256:0a3e1c5c886a1be03646c16a04827cc166c2a0575c971b26a4bf89686551c2d4", size = 7144571, upload-time = "2026-10-21T16:44:55.272Z" }
+ wheels = [
+-    { url = "https://files.pythonhosted.org/packages/3c/2c/c43c03eaf630435f023f1dc61ec4a4a78951ad5530a62c71cc89bde307b7/pypdf-6.19.0-py3-none-any.whl", hash = "sha256:7e5d6e730e7dae87d560a2cee218b852f6498c8be61966f3cd02ead971e48d14", size = 395480, upload-time = "2026-09-16T09:32:04.087Z" },
++    { url = "https://files.pythonhosted.org/packages/1b/4d/c9d2d67f204eff463237a1a8f5e25a6923b7b1043982b91fcaf104c8ef60/pypdf-6.21.2-py3-none-any.whl", hash = "sha256:1d44d1a3a200f25062adff0085b02040e4646431ac2ccac22e42679e91466084", size = 407766, upload-time = "2026-10-21T16:44:53.626Z" },
+ ]
+ 
+@@ -2057,5 +2057,5 @@ wheels = [
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.124"
++version = "0.4.125"
+ source = { editable = "." }
+ dependencies = [
+@@ -2110,5 +2110,5 @@ requires-dist = [
+     { name = "pydantic-settings", specifier = ">=2.4" },
+     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.9" },
+-    { name = "pypdf", specifier = ">=5" },
++    { name = "pypdf", specifier = ">=6.21.1" },
+     { name = "python-multipart", specifier = ">=0.0.9" },
+     { name = "segno", specifier = ">=1.6" },
+-- 
+2.43.0
+
