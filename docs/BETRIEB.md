@@ -246,20 +246,21 @@ Wer neben dem Server eine statische Website betreibt, kann sie über denselben C
 ändert sich nichts.
 
 1. Auf dem Server einmal `sudo bash /opt/taleward/website-zugang.sh`. Das Skript fragt nach dem Ordner (Vorschlag
-   `/srv/website`) und nach dem öffentlichen SSH-Schlüssel, mit dem hochgeladen wird. Es legt den Nutzer `taleward-website` an,
-   der per SSH nur zweierlei darf: mit `rsync` in genau diesen Ordner schreiben und `neu-laden`. Am Ende zeigt es die
-   Angaben für das Hochladen (Adresse, `known_hosts`-Zeile).
-2. Hochladen: `rsync -rlt --delete --delay-updates dist/ taleward-website@SERVER:` und danach
+   `/srv/website`), nach den **Adressen der Website** (z. B. `example.org www.example.org`; nie die Adresse des Servers,
+   ohne `http://`, Port oder Pfad) und nach dem öffentlichen SSH-Schlüssel, mit dem hochgeladen wird. Es legt den Nutzer
+   `taleward-website` an, der per SSH nur zweierlei darf: mit `rsync` in genau diesen Ordner schreiben (Verknüpfungen
+   werden dabei unschädlich gemacht) und `neu-laden`. Am Ende zeigt es die Angaben für das Hochladen (Adresse,
+   `known_hosts`-Zeile). Ordner und Adressen stehen danach in der `.env` (`WEBSITE_ORDNER`, `WEBSITE_DOMAINS`).
+2. Hochladen: `rsync -rt --delete --delay-updates dist/ taleward-website@SERVER:` (ohne `-l`) und danach
    `ssh taleward-website@SERVER neu-laden`.
-3. Die Website bringt ihre Caddy-Regeln selbst mit: Dateien `_caddy/*.caddy` im hochgeladenen Ordner, mit
-   Site-Blöcken für ihre Domains (ohne globalen Block). Caddy sieht den Ordner als `/srv/website`; `root` muss darin
-   liegen (als feste Angabe, z. B. `root * /srv/website`). Erlaubt ist nur statisches Ausliefern (Kopfzeilen,
-   Umleitungen, Antworten, `file_server`, Snippets aus derselben Datei usw.) – nicht erlaubt sind u. a. `import` von
-   Dateien, `reverse_proxy`, `log`, `tls`, `templates` und Platzhalter für Umgebung oder Dateien. Ohne Regeldatei ändert
-   `neu-laden` nichts.
-   `neu-laden` prüft die Regeln, übernimmt sie und lädt Caddy ohne Neustart neu. Lehnt Caddy sie ab, bleiben die
-   bisherigen in Betrieb, und der Befehl endet mit einem Fehler. Den Ordner `_caddy` selbst sollte die Website mit
-   einer Regel vor dem Ausliefern schützen (z. B. `respond /_caddy/* 404`).
+3. Die Website bringt ihre Caddy-Regeln selbst mit: Dateien `_caddy/*.caddy` im hochgeladenen Ordner mit Site-Blöcken
+   für ihre Adressen (ohne globalen Block). Caddy sieht den Ordner als `/srv/website`; `root` steht fest darin (z. B.
+   `root * /srv/website`). `neu-laden` lässt Caddy die Regeln übersetzen und prüft das Ergebnis: nur die eingetragenen
+   Adressen, nur die Ports 80 und 443, nur statische Bausteine (Kopfzeilen, Umleitungen, Antworten, Umschreiben,
+   `file_server` ohne eigene Wurzel, Komprimieren, Fehlerseiten, Snippets aus derselben Datei), Dateien nur aus
+   `/srv/website` und nur die Platzhalter für Adresse, Pfad, Abfrage und Fehler. Liegt im Website-Ordner eine
+   Verknüpfung, wird nichts übernommen. Erst dann lädt Caddy ohne Neustart neu; lehnt Caddy ab, bleiben die bisherigen
+   Regeln in Betrieb. Den Ordner `_caddy` selbst sollte die Website vor dem Ausliefern schützen (z. B. `hide _caddy`).
 
 Nach jedem erfolgreichen Update räumt der Server ungenutzte Docker-Bilder auf, die älter als eine Woche sind (ohne
 eingebauten Worker auch alte Bau-Zwischenstände) – wichtig bei kleinen Platten.

@@ -2,53 +2,39 @@
 # Optional: statische Website neben dem Server (docs/BETRIEB.md, „Website mitliefern“).
 # Übernimmt die Caddy-Regeln der Website aus <WEBSITE_ORDNER>/_caddy/*.caddy und lädt Caddy neu – ohne Neustart.
 # Aufgerufen per sudo vom Nutzer, der die Website hochlädt (eingerichtet von website-zugang.sh), ohne Argumente.
-# Die Regeln dürfen nur Dateien aus /srv/website ausliefern (Prüfung unten). Lehnt Caddy sie ab, bleiben die alten
-# Regeln auf der Platte und in Betrieb. Test der Prüfung allein:  website-neu-laden.sh --pruefen DATEI
+# Geprüft wird, was Caddy aus den Regeln macht (website_regeln.py): nur erlaubte Bausteine, nur die Adressen aus
+# WEBSITE_DOMAINS (nie die des Servers), Dateien nur aus /srv/website. Verknüpfungen im Website-Ordner → Abbruch.
+# Lehnt Caddy die Regeln ab, bleiben die alten auf der Platte und in Betrieb.
 set -euo pipefail
+export LC_ALL=C   # gleiche Reihenfolge der Dateien wie beim Einbinden durch Caddy
 ZIEL=${TALEWARD_ZIEL:-/opt/taleward}
-WURZEL=/srv/website              # so sieht Caddy den Website-Ordner (docker-compose.yml)
+PRUEFER="$ZIEL/website_regeln.py"
 MAX_BYTES=262144
 
-regeln_pruefen() {
-  local datei=$1
-  if [ ! -f "$datei" ] || [ -L "$datei" ] || [ "$(wc -c <"$datei")" -gt "$MAX_BYTES" ]; then
-    echo "Abgelehnt: $(basename "$datei") ist keine normale Datei oder zu groß." >&2
-    return 1
-  fi
-  # Geprüft wird ohne Kommentarzeilen. Nichts, was über statisches Ausliefern hinausgeht: nichts weiterleiten, keine
-  # Platzhalter für Umgebung oder Dateien, keine Protokolle, Zertifikate oder Verwaltung, kein „..“; „import“ nur für
-  # Snippets aus derselben Datei (ein Name, kein Pfad)
-  local inhalt
-  inhalt=$(grep -nvE '^[[:space:]]*#' "$datei" || true)
-  if grep -Ei '(^|[[:space:]:])(reverse_proxy|php_fastcgi|forward_auth|fs|storage|admin|acme_ca|acme_dns|tls|log|templates|invoke|metrics|tracing)([[:space:]]|\{|$)|\{(env|file|system)\.|\{\$|\.\.' <<<"$inhalt" >&2 \
-     || grep -E '^[0-9]+:[[:space:]]*import([[:space:]]|$)' <<<"$inhalt" \
-        | grep -vE '^[0-9]+:[[:space:]]*import[[:space:]]+[A-Za-z0-9_-]+[[:space:]]*$' >&2; then
-    echo "Abgelehnt: $(basename "$datei") enthält nicht erlaubte Angaben (Zeilen oben)." >&2
-    return 1
-  fi
-  # „root“ nur innerhalb des Website-Ordners
-  if grep -E '^[0-9]+:[[:space:]]*root([[:space:]]|$)' <<<"$inhalt" \
-     | grep -vE ":[[:space:]]*root([[:space:]]+(\*|@[A-Za-z0-9_-]+|/[^[:space:]]*))?[[:space:]]+$WURZEL(/[^[:space:]]*)?[[:space:]]*$" >&2; then
-    echo "Abgelehnt: „root“ muss in $WURZEL liegen (Zeilen oben)." >&2
-    return 1
-  fi
-}
-
-if [ "${1:-}" = "--pruefen" ]; then
-  regeln_pruefen "${2:?Datei fehlt}"
-  exit
-fi
 [ "$#" -eq 0 ] || { echo "Ohne Argumente aufrufen." >&2; exit 2; }
-
-ORDNER=$(sed -n 's/^WEBSITE_ORDNER=//p' "$ZIEL/.env" | tail -1)
-if [ -z "$ORDNER" ] || [ ! -d "$ORDNER" ] || [ -L "$ORDNER/_caddy" ]; then
+wert() { sed -n "s/^$1=//p" "$ZIEL/.env" | tail -1; }
+ORDNER=$(wert WEBSITE_ORDNER)
+SERVER=$(wert TALEWARD_DOMAIN)
+read -r -a DOMAINS <<<"$(wert WEBSITE_DOMAINS)"
+if [ -z "$ORDNER" ] || [ ! -d "$ORDNER" ] || [ -L "$ORDNER" ] || [ -L "$ORDNER/_caddy" ]; then
   echo "Kein Website-Ordner eingerichtet (WEBSITE_ORDNER in $ZIEL/.env)." >&2
   exit 1
 fi
+[ -f "$PRUEFER" ] || { echo "Prüfung fehlt ($PRUEFER) – erst den Server aktualisieren." >&2; exit 1; }
+python3 -I "$PRUEFER" adressen "$SERVER" "${DOMAINS[@]}" >/dev/null || {
+  echo "Adressen der Website fehlen oder sind ungültig (WEBSITE_DOMAINS in $ZIEL/.env, website-zugang.sh)." >&2
+  exit 1
+}
+# Verknüpfungen im Website-Ordner könnten auf Dateien außerhalb zeigen (Caddy folgt ihnen) – dann gar nichts übernehmen
+if [ -n "$(find "$ORDNER" -type l -print -quit)" ]; then
+  echo "Abgelehnt: Im Website-Ordner liegen Verknüpfungen – nichts übernommen." >&2
+  exit 1
+fi
+
 REGELN="$ZIEL/website-caddy"
 mkdir -p "$REGELN"
 NEU=$(mktemp -d) ALT=$(mktemp -d)
-trap 'rm -rf "$NEU" "$ALT"' EXIT
+trap 'rm -rf "$NEU" "$ALT"; rm -f "$REGELN/pruefen.txt"' EXIT
 shopt -s nullglob
 # Erst kopieren (Verknüpfungen bleiben Verknüpfungen), dann die Kopie prüfen – was geprüft ist, wird auch übernommen
 for f in "$ORDNER"/_caddy/*.caddy; do
@@ -59,13 +45,34 @@ if [ "${#NEUE[@]}" -eq 0 ]; then
   echo "Keine Caddy-Regeln gefunden ($ORDNER/_caddy/*.caddy) – nichts geändert." >&2
   exit 1
 fi
+cd "$ZIEL"
+: >"$NEU/alle.txt"
 for f in "${NEUE[@]}"; do
-  regeln_pruefen "$f"
+  name=$(basename "$f")
+  if [[ ! "$name" =~ ^[A-Za-z0-9_-]+\.caddy$ ]] || [ ! -f "$f" ] || [ -L "$f" ] \
+     || [ "$(wc -c <"$f")" -gt "$MAX_BYTES" ]; then
+    echo "Abgelehnt: $name ist keine normale Datei, hat einen ungewöhnlichen Namen oder ist zu groß." >&2
+    exit 1
+  fi
+  python3 -I "$PRUEFER" vorab "$f" || { echo "($name)" >&2; exit 1; }
+  cat -- "$f" >>"$NEU/alle.txt"
+  printf '\n' >>"$NEU/alle.txt"
 done
+# Was macht Caddy daraus? Alle Dateien zusammen – so, wie das Caddyfile sie einbindet – im Caddy-Gerät übersetzen
+# (gleiche Fassung wie im Betrieb), dann das Ergebnis prüfen
+install -m 644 "$NEU/alle.txt" "$REGELN/pruefen.txt"
+if ! docker compose exec -T caddy caddy adapt --adapter caddyfile --config /etc/caddy/website/pruefen.txt \
+     >"$NEU/regeln.json" 2>"$NEU/regeln.fehler"; then
+  echo "Abgelehnt: Caddy versteht die Regeln nicht:" >&2
+  tail -n 3 "$NEU/regeln.fehler" >&2
+  exit 1
+fi
+python3 -I "$PRUEFER" json "$NEU/regeln.json" "$SERVER" "${DOMAINS[@]}" || exit 1
+rm -f "$REGELN/pruefen.txt"
+
 cp -a "$REGELN"/. "$ALT"/
 rm -f "$REGELN"/*.caddy
-for f in "$NEU"/*.caddy; do install -m 644 "$f" "$REGELN/"; done
-cd "$ZIEL"
+for f in "${NEUE[@]}"; do install -m 644 "$f" "$REGELN/"; done
 if docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile; then
   echo "Caddy neu geladen."
   exit 0

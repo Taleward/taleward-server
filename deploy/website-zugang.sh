@@ -12,13 +12,22 @@ NEULADEN=/usr/local/sbin/taleward-website-neu-laden
 
 abbruch() { echo "Abbruch: $*" >&2; exit 1; }
 [ "$(id -u)" = 0 ] || abbruch "bitte mit sudo starten."
-[ -f "$ZIEL/.env" ] && [ -f "$ZIEL/website-neu-laden.sh" ] || abbruch "kein Taleward-Server in $ZIEL (erst install.sh)."
+[ -f "$ZIEL/.env" ] && [ -f "$ZIEL/website-neu-laden.sh" ] && [ -f "$ZIEL/website_regeln.py" ] \
+  || abbruch "kein Taleward-Server in $ZIEL oder zu alte Fassung (erst install.sh bzw. das Update)."
+command -v python3 >/dev/null 2>&1 || apt-get install -y -q python3 >/dev/null
 
 ALT=$(sed -n 's/^WEBSITE_ORDNER=//p' "$ZIEL/.env" | tail -1)
 read -r -p "Ordner für die Website [${ALT:-/srv/website}]: " EINGABE </dev/tty || true
 ORDNER=${EINGABE:-${ALT:-/srv/website}}
 [[ "$ORDNER" =~ ^/(srv|var/www)/[A-Za-z0-9._-]+$ ]] && [[ "$ORDNER" != *..* ]] \
   || abbruch "bitte einen Ordner direkt unter /srv oder /var/www, z. B. /srv/website."
+
+SERVER=$(sed -n 's/^TALEWARD_DOMAIN=//p' "$ZIEL/.env" | tail -1)
+ALT_D=$(sed -n 's/^WEBSITE_DOMAINS=//p' "$ZIEL/.env" | tail -1)
+echo "Adressen der Website, mit Leerzeichen getrennt (z. B. example.org www.example.org) – nicht die des Servers:"
+read -r -p "[${ALT_D}] " EINGABE </dev/tty || true
+read -r -a LISTE <<<"${EINGABE:-$ALT_D}"
+DOMAINS=$(python3 -I "$ZIEL/website_regeln.py" adressen "$SERVER" "${LISTE[@]}") || abbruch "Adressen ungültig (siehe oben)."
 
 echo "Öffentlicher SSH-Schlüssel für das Hochladen (eine Zeile, beginnt mit „ssh-ed25519“):"
 read -r SCHLUESSEL </dev/tty
@@ -39,7 +48,7 @@ cat > "$EMPFANG" <<SKRIPT
 #!/bin/sh
 # Einziger Befehl für den Nutzer „$NUTZER“ per SSH (authorized_keys: command=…): hochladen oder neu laden
 case "\${SSH_ORIGINAL_COMMAND:-}" in
-  "rsync --server "*) exec /usr/bin/rrsync -wo $ORDNER ;;
+  "rsync --server "*) exec /usr/bin/rrsync -wo -munge-links $ORDNER ;;
   neu-laden) exec sudo -n $NEULADEN ;;
   *) echo "Nicht erlaubt – nur rsync und „neu-laden“." >&2; exit 1 ;;
 esac
@@ -59,11 +68,15 @@ printf 'command="%s",restrict %s\n' "$EMPFANG" "$SCHLUESSEL" > "$HEIM/.ssh/autho
 chown root:root "$HEIM/.ssh/authorized_keys"
 chmod 644 "$HEIM/.ssh/authorized_keys"
 
-if grep -q '^WEBSITE_ORDNER=' "$ZIEL/.env"; then
-  sed -i "s#^WEBSITE_ORDNER=.*#WEBSITE_ORDNER=$ORDNER#" "$ZIEL/.env"
-else
-  echo "WEBSITE_ORDNER=$ORDNER" >> "$ZIEL/.env"
-fi
+setzen() {  # $1=Name $2=Wert – Wert ist geprüft (Ordner nach Muster, Adressen aus website_regeln.py)
+  if grep -q "^$1=" "$ZIEL/.env"; then
+    sed -i "s#^$1=.*#$1=$2#" "$ZIEL/.env"
+  else
+    echo "$1=$2" >> "$ZIEL/.env"
+  fi
+}
+setzen WEBSITE_ORDNER "$ORDNER"
+setzen WEBSITE_DOMAINS "$DOMAINS"
 mkdir -p "$ZIEL/website-caddy"
 (cd "$ZIEL" && docker compose up -d caddy >/dev/null)
 
@@ -72,6 +85,7 @@ echo
 echo "Fertig. Für das Hochladen (z. B. als Secrets im Website-Repository):"
 echo "  Adresse:        ${IP:-<IP dieses Servers>}"
 echo "  Nutzer:         $NUTZER"
+echo "  Website-Adressen: $DOMAINS"
 echo "  known_hosts:    ${IP:-<IP>} $(cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub)"
-echo "Hochladen:  rsync -rlt --delete --delay-updates dist/ $NUTZER@${IP:-<IP>}:"
+echo "Hochladen:  rsync -rt --delete --delay-updates dist/ $NUTZER@${IP:-<IP>}:   (ohne -l: keine Verknüpfungen)"
 echo "Neu laden:  ssh $NUTZER@${IP:-<IP>} neu-laden"

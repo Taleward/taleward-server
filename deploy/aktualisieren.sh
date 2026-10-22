@@ -214,7 +214,8 @@ if grundbild_bauen && docker compose build >>"$BAULOG" 2>&1 \
   compose=docker-compose.yml
   [ "$(sed -n 's/^TALEWARD_MODUS=//p' .env)" = "heimnetz" ] && compose=docker-compose.heimnetz.yml
   for paar in aktualisieren.sh:aktualisieren.sh "$compose":docker-compose.yml Caddyfile:Caddyfile \
-              website-zugang.sh:website-zugang.sh website-neu-laden.sh:website-neu-laden.sh; do
+              website-zugang.sh:website-zugang.sh website-neu-laden.sh:website-neu-laden.sh \
+              website_regeln.py:website_regeln.py; do
     quelle=${paar%%:*}; datei=${paar##*:}
     if curl -fsL "$QUELLE/$quelle" -o "$datei.neu"; then mv "$datei.neu" "$datei"; else rm -f "$datei.neu"; fi
   done
