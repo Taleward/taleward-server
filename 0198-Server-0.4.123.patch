@@ -1,4 +1,4 @@
-From 5c75a0147d86e529cb60047bc4c8146a75d42d94 Mon Sep 17 00:00:00 2001
+From dd1849543e24c39dbceb4b789601824ccac686dc Mon Sep 17 00:00:00 2001
 From: "Tinkerworks (Benjamin)"
  <121437138+Tinkerworkss@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 16:17:00 +0200
@@ -7,6 +7,7 @@ Subject: [PATCH] Server 0.4.123
 Mails an Mitglieder tragen den Kontakt des Betreibers als Antwortadresse (wenn er eine E-Mail-Adresse ist) und
 sind als automatisch gekennzeichnet.
 ---
+ NEU.md                       |  9 +++++++
  app/benachrichtigung.py      |  9 ++++++-
  app/mail.py                  |  6 ++++-
  docs/BETRIEB.md              |  3 +++
@@ -17,9 +18,25 @@ sind als automatisch gekennzeichnet.
  tests/test_server_04123.py   | 52 ++++++++++++++++++++++++++++++++++++
  tests/test_worker_app.py     |  2 +-
  uv.lock                      |  2 +-
- 10 files changed, 74 insertions(+), 8 deletions(-)
+ 11 files changed, 83 insertions(+), 8 deletions(-)
+ create mode 100644 NEU.md
  create mode 100644 tests/test_server_04123.py
 
+diff --git a/NEU.md b/NEU.md
+new file mode 100644
+index 0000000..a8877a5
+--- /dev/null
++++ b/NEU.md
+@@ -0,0 +1,9 @@
++Fassung 0.4.123
++
++## Was ist neu
++
++- Kampagnen ohne Cloud-Freigabe bekommen Kapitel, Vorschläge und Korrekturen jetzt von einem Worker mit lokalem Modell, auch wenn der Server sonst die Cloud nutzt.
++- Der Server kann auf Wunsch eine eigene Website gleich mit ausliefern.
++- Antworten auf Mails des Servers, etwa bei „Passwort vergessen“, gehen an den Kontakt des Betreibers.
++- Nach Updates räumt der Server alte Reste auf und hält so die Platte frei.
++- Kleinere Verbesserungen.
 diff --git a/app/benachrichtigung.py b/app/benachrichtigung.py
 index 5287a2e..e678d24 100644
 --- a/app/benachrichtigung.py
