@@ -72,10 +72,13 @@ jobs:
             taleward-worker) TEIL="Worker" ;;
             *) TEIL="${GH_REPO#*/}" ;;
           esac
-          # Keine Erwähnungen (allowed_mentions leer), Text auf Discords Grenze gekürzt
+          # Keine Erwähnungen (allowed_mentions leer), Text auf Discords Grenze gekürzt.
+          # Die festen Standardtexte der Server- und Worker-Fassungen werden nicht mitgeschickt.
           jq --arg teil "$TEIL" '
             (.tag | sub("^(worker-)?v"; "")) as $nr
-            | (.text | gsub("\r"; "") | if length > 1500 then .[0:1500] + " …" else . end) as $text
+            | (.text | gsub("\r"; "") | sub("^\\s+"; "") | sub("\\s+$"; "")
+               | if test("^(Automatisch gebaut\\.|Freigegebene Server-Fassung\\.)") then "" else . end
+               | if length > 1500 then .[0:1500] + " …" else . end) as $text
             | { username: "Taleward",
                 allowed_mentions: { parse: [] },
                 content: ("**Taleward-\($teil) \($nr)** ist freigegeben. / is released.\n"
