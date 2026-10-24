@@ -1,0 +1,295 @@
+From 78604ae956727706083df6edb3c3983f8df27cea Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Sat, 24 Oct 2026 23:11:27 +0200
+Subject: [PATCH] Server 0.4.126
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Kein Zugriffsprotokoll mehr: der Server schreibt keine Aufrufe mit, Caddy-Meldungen ohne Adressen der Aufrufer; Zähler für Anmeldeversuche vergessen Adressen nach Ablauf. Update startet Caddy bei neuer Caddyfile neu.
+---
+ NEU.md                       |  4 +--
+ app/begrenzung.py            | 14 ++++++++
+ app/cli.py                   |  4 ++-
+ app/datenschutz.py           |  3 +-
+ app/main.py                  |  6 ++++
+ deploy/Caddyfile             | 15 ++++++++
+ deploy/aktualisieren.sh      |  6 ++++
+ pyproject.toml               |  2 +-
+ tests/test_aktualisierung.py |  2 +-
+ tests/test_assistent.py      |  2 +-
+ tests/test_modellablage.py   |  2 +-
+ tests/test_server_04126.py   | 69 ++++++++++++++++++++++++++++++++++++
+ tests/test_worker_app.py     |  2 +-
+ uv.lock                      |  2 +-
+ 14 files changed, 123 insertions(+), 10 deletions(-)
+ create mode 100644 tests/test_server_04126.py
+
+diff --git a/NEU.md b/NEU.md
+index d2cd851..a7e4afa 100644
+--- a/NEU.md
++++ b/NEU.md
+@@ -1,3 +1,3 @@
+-Fassung 0.4.125
++Fassung 0.4.126
+ 
+ ## Was ist neu
+@@ -6,4 +6,4 @@ Fassung 0.4.125
+ - Der Server kann auf Wunsch eine eigene Website gleich mit ausliefern – nur unter den dafür eingetragenen Adressen.
+ - Antworten auf Mails des Servers, etwa bei „Passwort vergessen“, gehen an den Kontakt des Betreibers.
+-- Nach Updates räumt der Server alte Reste auf und hält so die Platte frei.
++- Der Server führt kein Zugriffsprotokoll mehr, IP-Adressen landen nicht in seinen Protokollen. Nach Updates räumt er alte Reste auf.
+ - Kleinere Verbesserungen.
+diff --git a/app/begrenzung.py b/app/begrenzung.py
+index 5b82ef5..cd5f290 100644
+--- a/app/begrenzung.py
++++ b/app/begrenzung.py
+@@ -156,4 +156,18 @@ class Zaehler:
+                         pass
+ 
++    def abgelaufene_vergessen(self) -> int:
++        """Schlüssel ohne Versuch im eigenen Fenster entfernen (Wartung, 0.4.126). Die Schlüssel enthalten Adressen;
++        so bleiben sie nicht länger im Speicher als ihr Fenster (höchstens eine Stunde) plus ein Wartungstakt."""
++        with self._sperre:
++            jetzt = time.monotonic()
++            weg = 0
++            for k in list(self._daten):
++                q = self._daten[k]
++                self._abgelaufen_entfernen(q, self._fenster.get(k, 0.0), jetzt)
++                if not q:
++                    self._weg(k)
++                    weg += 1
++            return weg
++
+     def loeschen(self, schluessel: str) -> None:
+         with self._sperre:
+diff --git a/app/cli.py b/app/cli.py
+index 207f9f8..5c56f1c 100644
+--- a/app/cli.py
++++ b/app/cli.py
+@@ -1177,6 +1177,8 @@ def serve(
+         get_settings.cache_clear()
+ 
++    # Ohne Zugriffsprotokoll: Es stünden je Aufruf IP-Adresse, Zeit und Adresse (auch mit einmaligen Schlüsseln) darin.
++    # Fehler und Hinweise des Servers selbst werden weiter protokolliert, ohne Adressen der Aufrufer.
+     uvicorn.run(
+-        "app.main:app", host=host, port=port, reload=reload,
++        "app.main:app", host=host, port=port, reload=reload, access_log=False,
+         proxy_headers=not get_settings().taleward_einzelplatz, forwarded_allow_ips=get_settings().forwarded_allow_ips,
+     )
+diff --git a/app/datenschutz.py b/app/datenschutz.py
+index 78e8708..31771e6 100644
+--- a/app/datenschutz.py
++++ b/app/datenschutz.py
+@@ -62,5 +62,6 @@ def vorlage(db: Session, hosting: str = "") -> str:
+          "DSGVO), die jederzeit in der App widerrufen werden kann.",
+          "- Technisch nötige Daten beim Aufruf des Servers (IP-Adresse, Zeitpunkt), nur für den Betrieb und die "
+-         "Abwehr von Missbrauch.",
++         "Abwehr von Missbrauch. Der Server führt kein Zugriffsprotokoll; um Anmeldeversuche zu begrenzen, behält er "
++         "die IP-Adresse höchstens eine Stunde im Arbeitsspeicher.",
+          "## Zweck und Rechtsgrundlage",
+          f"Wir verarbeiten die Daten, um {wir} zu dokumentieren und den Mitgliedern die "
+diff --git a/app/main.py b/app/main.py
+index e42352b..44dfca2 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -88,4 +88,10 @@ def _wartung_starten() -> threading.Event | None:
+             except Exception:
+                 log.exception("Probeläufe: Aufräumen fehlgeschlagen")
++            try:
++                from app.begrenzung import ZAEHLER
++
++                ZAEHLER.abgelaufene_vergessen()  # 0.4.126: Adressen nicht länger als nötig im Speicher
++            except Exception:
++                log.exception("Begrenzung: Aufräumen fehlgeschlagen")
+             try:
+                 from app import woerterbuch
+diff --git a/deploy/Caddyfile b/deploy/Caddyfile
+index 55928fc..d07e0fc 100644
+--- a/deploy/Caddyfile
++++ b/deploy/Caddyfile
+@@ -2,4 +2,19 @@
+ {
+ 	email {$ACME_EMAIL}
++	# Kein Zugriffsprotokoll; in Caddys eigenen Meldungen (z. B. Fehler) ohne Adresse des Aufrufers und ohne
++	# aufgerufene Adresse (könnte einmalige Schlüssel enthalten)
++	log {
++		format filter {
++			wrap json
++			fields {
++				request>remote_ip delete
++				request>client_ip delete
++				request>remote_port delete
++				request>headers delete
++				request>uri delete
++				request>tls delete
++			}
++		}
++	}
+ }
+ 
+diff --git a/deploy/aktualisieren.sh b/deploy/aktualisieren.sh
+index f875efa..31d898f 100755
+--- a/deploy/aktualisieren.sh
++++ b/deploy/aktualisieren.sh
+@@ -212,4 +212,5 @@ if grundbild_bauen && docker compose build >>"$BAULOG" 2>&1 \
+   # fehlt eine in der Fassung, bleibt die vorhandene (docker-compose.override.yml wird nie angefasst)
+   QUELLE="$ROH/$COMMIT/deploy"
++  caddy_vorher=$(sha256sum Caddyfile 2>/dev/null || true)
+   compose=docker-compose.yml
+   [ "$(sed -n 's/^TALEWARD_MODUS=//p' .env)" = "heimnetz" ] && compose=docker-compose.heimnetz.yml
+@@ -227,4 +228,9 @@ if grundbild_bauen && docker compose build >>"$BAULOG" 2>&1 \
+   fi
+   docker compose up -d >/dev/null 2>&1
++  # Neue Caddyfile: Caddy sieht die ersetzte Datei erst nach einem Neustart (einzeln eingebundene Datei)
++  if [ "$(sha256sum Caddyfile 2>/dev/null || true)" != "$caddy_vorher" ] \
++     && docker compose ps --status running --services 2>/dev/null | grep -qx caddy; then
++    docker compose restart caddy >/dev/null 2>&1 || true
++  fi
+   # Platz sparen (kleine Platten): ungenutzte Bilder und Bau-Zwischenstände, die älter als eine Woche sind
+   docker image prune -af --filter "until=168h" >/dev/null 2>&1 || true
+diff --git a/pyproject.toml b/pyproject.toml
+index 8d9ad0d..aee49d1 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.125"
++version = "0.4.126"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index d4f1320..761b0ab 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -154,5 +154,5 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.125"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.126"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index c6af8e4..88917c4 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -135,5 +135,5 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.125"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.126"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index c5eff78..aaec202 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -84,5 +84,5 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.125"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.126"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+diff --git a/tests/test_server_04126.py b/tests/test_server_04126.py
+new file mode 100644
+index 0000000..83aa962
+--- /dev/null
++++ b/tests/test_server_04126.py
+@@ -0,0 +1,69 @@
++"""Server 0.4.126: kein Zugriffsprotokoll mit Adressen der Aufrufer (Server und Caddy); Zähler für Anmeldeversuche
++vergessen Adressen nach Ablauf ihres Fensters."""
++import json
++import os
++import shutil
++import subprocess
++from pathlib import Path
++
++import pytest
++
++WURZEL = Path(__file__).resolve().parent.parent
++
++
++def test_server_ohne_zugriffsprotokoll(monkeypatch):
++    import uvicorn
++    from typer.testing import CliRunner
++
++    from app.cli import app as cli
++
++    aufrufe = []
++    monkeypatch.setattr(uvicorn, "run", lambda *a, **k: aufrufe.append(k))
++    r = CliRunner().invoke(cli, ["serve", "--port", "8000"])
++    assert r.exit_code == 0, r.output
++    assert aufrufe and aufrufe[0]["access_log"] is False
++
++
++FELDER = ["request>remote_ip", "request>client_ip", "request>remote_port", "request>headers", "request>uri"]
++
++
++def test_caddy_meldungen_ohne_adressen(tmp_path):
++    text = (WURZEL / "deploy" / "Caddyfile").read_text(encoding="utf-8")
++    for feld in FELDER:
++        assert f"{feld} delete" in text
++    caddy = os.environ.get("CADDY") or shutil.which("caddy")
++    if not caddy:
++        pytest.skip("Caddy nicht vorhanden – nur der Text geprüft")
++    env = {**os.environ, "ACME_EMAIL": "a@example.org", "TALEWARD_DOMAIN": "srv.example.org"}
++    r = subprocess.run([caddy, "adapt", "--adapter", "caddyfile", "--config", str(WURZEL / "deploy" / "Caddyfile")],
++                       capture_output=True, text=True, env=env)
++    assert r.returncode == 0, r.stderr
++    encoder = json.loads(r.stdout)["logging"]["logs"]["default"]["encoder"]
++    assert encoder["format"] == "filter"
++    assert all(encoder["fields"][f] == {"filter": "delete"} for f in FELDER)
++
++
++def test_zaehler_vergessen_abgelaufene_adressen(monkeypatch):
++    from app import begrenzung
++
++    z = begrenzung.Zaehler()
++    jetzt = [1000.0]
++    monkeypatch.setattr(begrenzung.time, "monotonic", lambda: jetzt[0])
++    z.zaehlen("login-adr:198.51.100.7", 15 * 60)
++    z.zaehlen("join-adr:198.51.100.8", 60 * 60)
++    jetzt[0] += 16 * 60
++    assert z.abgelaufene_vergessen() == 1
++    assert list(z._daten) == ["join-adr:198.51.100.8"]
++    jetzt[0] += 60 * 60
++    assert z.abgelaufene_vergessen() == 1 and not z._daten
++
++
++def test_datenschutz_vorlage_nennt_die_frist():
++    text = (WURZEL / "app" / "datenschutz.py").read_text(encoding="utf-8")
++    assert "kein Zugriffsprotokoll" in text and "höchstens eine Stunde im Arbeitsspeicher" in text
++
++
++def test_update_startet_caddy_bei_neuer_caddyfile_neu():
++    akt = (WURZEL / "deploy" / "aktualisieren.sh").read_text(encoding="utf-8")
++    assert 'caddy_vorher=$(sha256sum Caddyfile' in akt and "docker compose restart caddy" in akt
++    assert akt.index("caddy_vorher=") < akt.index('for paar in aktualisieren.sh') < akt.index("restart caddy")
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index cf1a132..ccd272e 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -113,5 +113,5 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.125"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.126"
+ 
+ 
+diff --git a/uv.lock b/uv.lock
+index a92bc9e..a47fde1 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -2057,5 +2057,5 @@ wheels = [
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.125"
++version = "0.4.126"
+ source = { editable = "." }
+ dependencies = [
+-- 
+2.43.0
+
