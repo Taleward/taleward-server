@@ -20,6 +20,12 @@
 
 {$TALEWARD_DOMAIN} {
 	encode zstd gzip
+	# Keine Angaben zur Software in den Antworten
+	header {
+		-Server
+		-Via
+		defer
+	}
 	request_body {
 		max_size 64MB
 	}

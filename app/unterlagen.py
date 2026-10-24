@@ -22,6 +22,7 @@ import json
 import logging
 import re
 import shutil
+import threading
 import time
 import zipfile
 from dataclasses import dataclass
@@ -86,6 +87,8 @@ def _begrenzen(abschnitte: list[dict]) -> tuple[list[dict], int | None]:
 PDF_ZEIT = 120  # Sekunden für das Auslesen einer PDF (eigener Prozess, siehe app/pdf_lesen.py)
 PDF_ZEIT_SEITEN = 20  # nur Seiten zählen
 PDF_LESER = Path(__file__).with_name("pdf_lesen.py")
+PDF_GLEICHZEITIG = threading.BoundedSemaphore(2)  # höchstens zwei Leseprozesse zugleich (Speicher, Threads)
+PDF_WARTEN = 10  # Sekunden auf einen freien Platz, danach „gleich noch einmal“
 
 
 def _pdf_prozess(modus: str, daten: bytes, zeit: int) -> dict:
@@ -95,6 +98,8 @@ def _pdf_prozess(modus: str, daten: bytes, zeit: int) -> dict:
     import sys
 
     extra = {"creationflags": 0x08000000} if sys.platform == "win32" else {}  # CREATE_NO_WINDOW
+    if not PDF_GLEICHZEITIG.acquire(timeout=PDF_WARTEN):
+        raise errors.ApiError(429, "too_many_requests")
     try:
         r = subprocess.run([sys.executable, "-I", str(PDF_LESER), modus, str(MAX_SEITEN)],
                            input=daten, capture_output=True, timeout=zeit, **extra)
@@ -103,6 +108,8 @@ def _pdf_prozess(modus: str, daten: bytes, zeit: int) -> dict:
         raise errors.bad_request("unsupported_document") from None
     except OSError:
         raise errors.bad_request("unsupported_document") from None
+    finally:
+        PDF_GLEICHZEITIG.release()
     if r.returncode == 2:
         raise errors.bad_request("unsupported_document", "unsupported_document.password")
     try:

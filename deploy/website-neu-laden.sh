@@ -38,6 +38,11 @@ trap 'rm -rf "$NEU" "$ALT"; rm -f "$REGELN/pruefen.txt"' EXIT
 shopt -s nullglob
 # Erst kopieren (Verknüpfungen bleiben Verknüpfungen), dann die Kopie prüfen – was geprüft ist, wird auch übernommen
 for f in "$ORDNER"/_caddy/*.caddy; do
+  # nur normale Dateien – eine Pipe o. Ä. ließe cp hängen
+  if [ ! -f "$f" ] || [ -L "$f" ]; then
+    echo "Abgelehnt: $(basename "$f") ist keine normale Datei – nichts übernommen." >&2
+    exit 1
+  fi
   cp -P -- "$f" "$NEU/"
 done
 NEUE=("$NEU"/*)

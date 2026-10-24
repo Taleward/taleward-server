@@ -48,7 +48,7 @@ cat > "$EMPFANG" <<SKRIPT
 #!/bin/sh
 # Einziger Befehl für den Nutzer „$NUTZER“ per SSH (authorized_keys: command=…): hochladen oder neu laden
 case "\${SSH_ORIGINAL_COMMAND:-}" in
-  "rsync --server "*) exec /usr/bin/rrsync -wo -munge-links $ORDNER ;;
+  "rsync --server "*) exec /usr/bin/rrsync -wo -munge $ORDNER ;;
   neu-laden) exec sudo -n $NEULADEN ;;
   *) echo "Nicht erlaubt – nur rsync und „neu-laden“." >&2; exit 1 ;;
 esac

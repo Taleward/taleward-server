@@ -1179,7 +1179,7 @@ def serve(
     # Ohne Zugriffsprotokoll: Es stünden je Aufruf IP-Adresse, Zeit und Adresse (auch mit einmaligen Schlüsseln) darin.
     # Fehler und Hinweise des Servers selbst werden weiter protokolliert, ohne Adressen der Aufrufer.
     uvicorn.run(
-        "app.main:app", host=host, port=port, reload=reload, access_log=False,
+        "app.main:app", host=host, port=port, reload=reload, access_log=False, server_header=False,
         proxy_headers=not get_settings().taleward_einzelplatz, forwarded_allow_ips=get_settings().forwarded_allow_ips,
     )
 
