@@ -211,6 +211,7 @@ if grundbild_bauen && docker compose build >>"$BAULOG" 2>&1 \
   # Paketdateien (dieses Skript, docker-compose.yml, Caddyfile) aus genau dem freigegebenen Stand übernehmen –
   # fehlt eine in der Fassung, bleibt die vorhandene (docker-compose.override.yml wird nie angefasst)
   QUELLE="$ROH/$COMMIT/deploy"
+  caddy_vorher=$(sha256sum Caddyfile 2>/dev/null || true)
   compose=docker-compose.yml
   [ "$(sed -n 's/^TALEWARD_MODUS=//p' .env)" = "heimnetz" ] && compose=docker-compose.heimnetz.yml
   for paar in aktualisieren.sh:aktualisieren.sh "$compose":docker-compose.yml Caddyfile:Caddyfile \
@@ -226,6 +227,11 @@ if grundbild_bauen && docker compose build >>"$BAULOG" 2>&1 \
     install -m 755 -o root -g root website-neu-laden.sh /usr/local/sbin/taleward-website-neu-laden || true
   fi
   docker compose up -d >/dev/null 2>&1
+  # Neue Caddyfile: Caddy sieht die ersetzte Datei erst nach einem Neustart (einzeln eingebundene Datei)
+  if [ "$(sha256sum Caddyfile 2>/dev/null || true)" != "$caddy_vorher" ] \
+     && docker compose ps --status running --services 2>/dev/null | grep -qx caddy; then
+    docker compose restart caddy >/dev/null 2>&1 || true
+  fi
   # Platz sparen (kleine Platten): ungenutzte Bilder und Bau-Zwischenstände, die älter als eine Woche sind
   docker image prune -af --filter "until=168h" >/dev/null 2>&1 || true
   # Bau-Zwischenstände nur ohne eingebauten Worker – sonst müsste er sein großes KI-Paket neu laden

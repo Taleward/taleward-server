@@ -1176,8 +1176,10 @@ def serve(
         os.environ["WORKER_SERVER_URL"] = f"http://127.0.0.1:{port}"
         get_settings.cache_clear()
 
+    # Ohne Zugriffsprotokoll: Es stünden je Aufruf IP-Adresse, Zeit und Adresse (auch mit einmaligen Schlüsseln) darin.
+    # Fehler und Hinweise des Servers selbst werden weiter protokolliert, ohne Adressen der Aufrufer.
     uvicorn.run(
-        "app.main:app", host=host, port=port, reload=reload,
+        "app.main:app", host=host, port=port, reload=reload, access_log=False,
         proxy_headers=not get_settings().taleward_einzelplatz, forwarded_allow_ips=get_settings().forwarded_allow_ips,
     )
 

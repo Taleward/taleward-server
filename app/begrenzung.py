@@ -155,6 +155,20 @@ class Zaehler:
                     except ValueError:
                         pass
 
+    def abgelaufene_vergessen(self) -> int:
+        """Schlüssel ohne Versuch im eigenen Fenster entfernen (Wartung, 0.4.126). Die Schlüssel enthalten Adressen;
+        so bleiben sie nicht länger im Speicher als ihr Fenster (höchstens eine Stunde) plus ein Wartungstakt."""
+        with self._sperre:
+            jetzt = time.monotonic()
+            weg = 0
+            for k in list(self._daten):
+                q = self._daten[k]
+                self._abgelaufen_entfernen(q, self._fenster.get(k, 0.0), jetzt)
+                if not q:
+                    self._weg(k)
+                    weg += 1
+            return weg
+
     def loeschen(self, schluessel: str) -> None:
         with self._sperre:
             self._weg(schluessel)

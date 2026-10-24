@@ -1,6 +1,21 @@
 # HTTPS-Zertifikat holt Caddy selbst (Let's Encrypt) – die Domain muss auf diesen Server zeigen.
 {
 	email {$ACME_EMAIL}
+	# Kein Zugriffsprotokoll; in Caddys eigenen Meldungen (z. B. Fehler) ohne Adresse des Aufrufers und ohne
+	# aufgerufene Adresse (könnte einmalige Schlüssel enthalten)
+	log {
+		format filter {
+			wrap json
+			fields {
+				request>remote_ip delete
+				request>client_ip delete
+				request>remote_port delete
+				request>headers delete
+				request>uri delete
+				request>tls delete
+			}
+		}
+	}
 }
 
 {$TALEWARD_DOMAIN} {

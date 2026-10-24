@@ -61,7 +61,8 @@ def vorlage(db: Session, hosting: str = "") -> str:
          "ein biometrisches Merkmal; wir verarbeiten es nur mit ausdrücklicher Einwilligung (Art. 9 Abs. 2 lit. a "
          "DSGVO), die jederzeit in der App widerrufen werden kann.",
          "- Technisch nötige Daten beim Aufruf des Servers (IP-Adresse, Zeitpunkt), nur für den Betrieb und die "
-         "Abwehr von Missbrauch.",
+         "Abwehr von Missbrauch. Der Server führt kein Zugriffsprotokoll; um Anmeldeversuche zu begrenzen, behält er "
+         "die IP-Adresse höchstens eine Stunde im Arbeitsspeicher.",
          "## Zweck und Rechtsgrundlage",
          f"Wir verarbeiten die Daten, um {wir} zu dokumentieren und den Mitgliedern die "
          "Zusammenfassungen bereitzustellen (Art. 6 Abs. 1 lit. b DSGVO – Nutzung des Angebots; bei Aufnahmen und "

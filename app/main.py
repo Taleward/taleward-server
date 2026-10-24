@@ -88,6 +88,12 @@ def _wartung_starten() -> threading.Event | None:
             except Exception:
                 log.exception("Probeläufe: Aufräumen fehlgeschlagen")
             try:
+                from app.begrenzung import ZAEHLER
+
+                ZAEHLER.abgelaufene_vergessen()  # 0.4.126: Adressen nicht länger als nötig im Speicher
+            except Exception:
+                log.exception("Begrenzung: Aufräumen fehlgeschlagen")
+            try:
                 from app import woerterbuch
 
                 woerterbuch.automatisch()  # einmal laden; danach nichts mehr zu tun
