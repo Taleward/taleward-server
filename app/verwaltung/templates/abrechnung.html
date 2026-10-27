@@ -85,7 +85,8 @@
     <label>{{ _("oder Organisation") }} <select name="ziel_org"><option value="">–</option>{% for o in orgs %}<option value="{{ o.id }}">{{ o.name }}</option>{% endfor %}</select></label>
     {% endif %}
     <label>{{ _("Betrag (Euro)") }} <input type="text" name="betrag" inputmode="decimal" required maxlength="12"></label>
-    <label>{{ _("Grund") }} <input type="text" name="grund" required maxlength="500"></label>
+    <label>{{ _("Grund") }} <input type="text" name="grund" required maxlength="500" aria-describedby="grund-hilfe">
+      <span class="hilfe" id="grund-hilfe">{{ _("Sieht die SL in der App.") }}</span></label>
     <div><button class="tw-btn tw-btn--secondary" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Weiter") }}</button></div>
   </form>
   {% if gutschriften %}

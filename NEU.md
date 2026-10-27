@@ -1,9 +1,8 @@
-Fassung 0.4.131
+Fassung 0.4.132
 
 ## Was ist neu
 
-- Die Betriebsart (Nur Cloud, Lokaler Server oder beides) steht jetzt auf der Übersicht und lässt sich unter Einstellungen wechseln. Fehlt danach etwas, etwa ein Schlüssel oder ein Worker, führt die Verwaltung direkt dorthin.
-- Einstellungen in zwei Reitern: „Laufender Betrieb“ (Betriebsart, neue Konten, Aufnahmen, Kosten, Benachrichtigungen) und „Einrichtung“ (Angaben für die App, Web-App, Nutzungsbedingungen).
-- Verwaltung aufgeräumt (seit 0.4.130): Jede Seite zeigt zuerst, was zur Betriebsart passt, mit kürzeren Hilfetexten; Seltenes ist zugeklappt.
-- Server ohne eigenen Namen heißen jetzt „Taleward“.
+- Guthaben in der App: Spielleitungen sehen Stand, Buchungen und wartende Aufträge, bestätigen teure Aufträge mit „Verarbeiten“ und geben die Zahlung einer Kampagne ab oder übernehmen sie. Bezahlt wird weiter nur auf der Seite des Servers.
+- Die Zustimmung zur Auswertung eines Charakterbogens gilt zugleich als Freigabe der Kosten.
+- Kampagnen-Einstellungen an einem Ort, mit Protokoll, wer was wann umgestellt hat. Was der Server nicht anbietet, lässt sich nicht einschalten.
 - Kleinere Verbesserungen.

@@ -14,7 +14,7 @@ from app.models import AuthMethod, Organization, OrgMember, User
 from app.security import create_token, verify_password
 from app.services import user_out
 
-API_VERSION = "0.4.24"
+API_VERSION = "0.4.25"
 
 router = APIRouter(tags=["Auth"])
 
@@ -26,6 +26,7 @@ def info(request: Request, db: Session = Depends(get_db)):
     from app.einrichtung import betriebsart
     from app import cloudanbieter
     from app.einstellungen import llm_konfig
+    from app.routers.guthaben import server_billing
     from app.services import cloud_anbieter
 
     a = angaben(db)  # .env, überschreibbar in der Verwaltung
@@ -57,6 +58,7 @@ def info(request: Request, db: Session = Depends(get_db)):
         # 0.4.22: Nutzungsbedingungen (immer) und Impressum (Vorlage, Link oder null) dieses Servers
         terms_url=nutzungsbedingungen.adresse(db, basis), terms_version=nutzungsbedingungen.version(db),
         legal_notice_url=nutzungsbedingungen.impressum_adresse(db, basis),
+        billing=server_billing(db),  # 0.4.25
     )
 
 

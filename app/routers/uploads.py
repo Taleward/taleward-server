@@ -244,12 +244,12 @@ def _messen(db: Session, up: Upload):
 def complete(uploadId: str, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
     up, s = _load_upload(db, uploadId, user)
     if up.state == "completed":
-        return processing_status(db, s, sprache(request))  # doppelt abgeschickt – harmlos
+        return processing_status(db, s, sprache(request), user)  # doppelt abgeschickt – harmlos
     if up.state == "measuring":
         with _MESSUNG_SPERRE:
             laeuft = up.id in _IN_MESSUNG
         if laeuft:
-            return processing_status(db, s, sprache(request))
+            return processing_status(db, s, sprache(request), user)
         up.state = "open"  # Messung durch einen Neustart abgebrochen: noch einmal
     if up.state != "open":
         raise errors.conflict("upload_closed")
@@ -262,7 +262,7 @@ def complete(uploadId: str, request: Request, user: User = Depends(current_user)
     if abrechnung.an(db):  # 0.4.85: Länge selbst messen (Schätzung der Kosten) und die feste Obergrenze je Runde
         dauer = _messen(db, up)
         if dauer is _LAEUFT:  # zweiter Aufruf, während gemessen wird – harmlos, der erste schließt ab
-            return processing_status(db, s, sprache(request))
+            return processing_status(db, s, sprache(request), user)
         up.dauer_sekunden = dauer
         if dauer is None:  # 0.4.99: nicht messbar (kein lesbares Audio, sehr viele Tonspuren) → nicht annehmen
             storage.delete_upload_files(up.id)
@@ -281,4 +281,4 @@ def complete(uploadId: str, request: Request, user: User = Depends(current_user)
     up.completed_at = utcnow()
     create_transcribe_job(db, s, up)
     db.commit()
-    return processing_status(db, s, sprache(request))
+    return processing_status(db, s, sprache(request), user)

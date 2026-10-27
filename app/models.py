@@ -122,6 +122,10 @@ class Campaign(Base):
     # beigetretene SL). Abgeben nur ausdrücklich: Angebot an eine andere SL, die es annimmt.
     zahler_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     zahler_angebot_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # 0.4.25: Fassung der Kampagnen-Einstellungen (zählt bei jeder wirksamen Änderung hoch, app/kampagnen_einstellungen)
+    settings_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    settings_updated_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    settings_updated_by: Mapped[str | None] = mapped_column(String(36), nullable=True)  # Mitglied, None = Betreiber
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     members: Mapped[list["Member"]] = relationship(back_populates="campaign", cascade="all, delete-orphan")
@@ -837,4 +841,19 @@ class AbrechnungProtokoll(Base):
     guthaben_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     was: Mapped[str] = mapped_column(String(40))
     daten: Mapped[str] = mapped_column(Text, default="{}")
+    angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class EinstellungsProtokoll(Base):
+    """0.4.25: Änderungen an den Kampagnen-Einstellungen (je Feld alt/neu). Gelöscht mit der Kampagne."""
+
+    __tablename__ = "kampagnen_einstellungen_protokoll"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    campaign_id: Mapped[str] = mapped_column(ForeignKey("campaigns.id", ondelete="CASCADE"), index=True)
+    feld: Mapped[str] = mapped_column(String(40))
+    alt: Mapped[str | None] = mapped_column(String(20), nullable=True)  # JSON-Wert (true/false/Zahl/null)
+    neu: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    fassung: Mapped[int] = mapped_column(Integer)
+    von_member_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    vom_betreiber: Mapped[bool] = mapped_column(Boolean, default=False)
     angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)

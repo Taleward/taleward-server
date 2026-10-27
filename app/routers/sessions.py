@@ -139,7 +139,7 @@ def patch_session(
 
 @router.get("/sessions/{sessionId}/status", tags=["Sessions"], response_model=schemas.ProcessingStatusOut)
 def get_status(sessionId: str, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    return processing_status(db, load_session(db, sessionId, user).session, sprache(request))
+    return processing_status(db, load_session(db, sessionId, user).session, sprache(request), user)
 
 
 @router.post("/sessions/{sessionId}/retry", tags=["Sessions"], status_code=202, response_model=schemas.ProcessingStatusOut)
@@ -147,7 +147,7 @@ def retry(sessionId: str, request: Request, user: User = Depends(current_user), 
     s = load_session_gm(db, sessionId, user).session
     queue.neu_starten(db, s)
     db.commit()
-    return processing_status(db, s, sprache(request))
+    return processing_status(db, s, sprache(request), user)
 
 
 @router.post("/sessions/{sessionId}/seen", tags=["Kommentare"], status_code=204)

@@ -239,6 +239,18 @@ def seite(request: Request, db: Session = Depends(get_db)):
     return _hauptseite(request, db, user, meldung=tr(request)(MELDUNGEN[ok]) if ok in MELDUNGEN else None)
 
 
+def _ohne_fremde_titel(db: Session, user: User, g: Guthaben) -> list[dict]:
+    """G14: Runde, Unterlage und Auswertung (Titel) nur für die heutige SL der Kampagne – Verwalter eines Topfs, die dort
+    nicht SL sind, sehen nur Kampagne, Art und Betrag."""
+    aus = []
+    for w in abrechnung.wartende_auftraege(db, g):
+        w["ist_auswertung"] = w["auswertung"] is not None
+        if not abrechnung.ist_aktive_sl(db, user.id, w["kampagne"]):
+            w["runde"] = w["unterlage"] = w["auswertung"] = None
+        aus.append(w)
+    return aus
+
+
 def _hauptseite(request: Request, db: Session, user: User, meldung: str | None = None, fehler: str | None = None,
                 status: int = 200) -> HTMLResponse:
     from app.models import Organization
@@ -249,7 +261,7 @@ def _hauptseite(request: Request, db: Session, user: User, meldung: str | None =
         org = db.get(Organization, g.organization_id) if g.art == "organisation" else None
         toepfe.append({"g": g, "name": (org.name if org else "?") if g.art == "organisation" else None,
                        "saldo": abrechnung.saldo(db, g.id), "stand": abrechnung.stand(db, g),
-                       "buchungen": abrechnung.buchungen(db, g, 50), "wartend": abrechnung.wartende_auftraege(db, g)})
+                       "buchungen": abrechnung.buchungen(db, g, 50), "wartend": _ohne_fremde_titel(db, user, g)})
     db.commit()  # neu angelegte Guthaben-Zeilen
     antwort = _seite(request, "guthaben.html", None, db, person=user, toepfe=toepfe,
                      kampagnen=_sl_kampagnen(db, user), euro=abrechnung.euro, topf=abrechnung.modus(db) == "topf",

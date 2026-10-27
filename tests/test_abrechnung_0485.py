@@ -115,7 +115,7 @@ def test_leeres_guthaben_wartet_und_startet_nach_gutschrift(client, world, dbs, 
     knecht = _knecht(dbs)
     assert queue.claim(dbs, knecht, ["asr"]) is None
     st = status(client, world["gm"], s["id"])
-    assert "Guthaben ist aufgebraucht" in st["message"] and "/guthaben" in st["message"]
+    assert "Guthaben ist aufgebraucht" in st["message"] and "/guthaben" not in st["message"]
     assert "credit is used up" in status(client, world["gm"], s["id"], "en")["message"]
     g = _gutschreiben(dbs, _anna(dbs), 5)
     job = queue.claim(dbs, knecht, ["asr"])

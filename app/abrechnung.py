@@ -573,7 +573,9 @@ def offene_abrechnen(db: Session) -> int:
 def gutschreiben(db: Session, g: Guthaben, betrag_cent: int, grund: str, von: str) -> Buchung:
     if betrag_cent <= 0 or betrag_cent > preise(db).gutschrift_max:
         raise ValueError("betrag")
-    grund = " ".join((grund or "").split())[:500]
+    from app.aliasse import zeichen_bereinigen
+
+    grund = zeichen_bereinigen(grund)[:500].strip()  # G17: die SL sieht den Grund in der App
     if not grund:
         raise ValueError("grund")
     b = buchen(db, g, "gutschrift", betrag_cent, von=von, grund=grund)
@@ -654,25 +656,63 @@ def hinweis(db: Session, job: Job | None, lang: str) -> str | None:
     """Text, warum ein wartender Auftrag wegen der Abrechnung nicht startet – ohne Saldo (nur die SL sieht wartende
     Runden und Unterlagen). None = kein Grund aus der Abrechnung."""
     from app import errors
-    from app.einstellungen import oeffentliche_adresse
 
     if job is None:
         return None
     grund = warte_grund(db, job)
     if grund is None:
         return None
-    adresse = oeffentliche_adresse(db).rstrip("/") + "/guthaben"
     topf = modus(db) == "topf" and bool(getattr(kampagne_von_auftrag(db, job), "organization_id", None))
     schluessel = {"zahler_fehlt": "status.credit_no_payer", "freigabe": "status.credit_approval",
                   "leer": "status.credit_pot_empty" if topf else "status.credit_empty",
                   "zu_knapp": "status.credit_pot_empty" if topf else "status.credit_low"}[grund]
-    return errors.ApiError(0, schluessel, adresse=adresse, betrag=euro(schaetzung(db, job))).message(lang)
+    return errors.ApiError(0, schluessel, betrag=euro(schaetzung(db, job))).message(lang)
 
 
 # ---------------------------------------------------------------- Für Seiten
-def buchungen(db: Session, g: Guthaben, anzahl: int = 100) -> list[Buchung]:
-    return list(db.scalars(select(Buchung).where(Buchung.guthaben_id == g.id)
-                           .order_by(Buchung.angelegt.desc()).limit(anzahl)))
+def buchungen(db: Session, g: Guthaben, anzahl: int = 100, vor: Buchung | None = None) -> list[Buchung]:
+    """Neueste zuerst. vor: nur Buchungen, die vor dieser stehen (Weiterblättern)."""
+    from sqlalchemy import and_, or_
+
+    q = select(Buchung).where(Buchung.guthaben_id == g.id)
+    if vor is not None:
+        q = q.where(or_(Buchung.angelegt < vor.angelegt, and_(Buchung.angelegt == vor.angelegt, Buchung.id < vor.id)))
+    return list(db.scalars(q.order_by(Buchung.angelegt.desc(), Buchung.id.desc()).limit(anzahl)))
+
+
+def ist_aktive_sl(db: Session, user_id: str, c: Campaign | None) -> bool:
+    """G14: Titel von Runden, Unterlagen und Auswertungen in Guthaben-Ansichten nur für die heutige SL der Kampagne."""
+    return c is not None and user_id in {m.user_id for m in aktive_sl(db, c)}
+
+
+def ist_topf(g: Guthaben | None) -> bool:
+    return g is not None and g.art == "organisation"
+
+
+# 0.4.25: Wartegrund als Code für die App (CreditWait.reason)
+GRUND_API = {"freigabe": "approval", "leer": "empty", "zu_knapp": "too_low", "zahler_fehlt": "no_payer"}
+STAND_API = {"gut": "good", "knapp": "low", "leer": "empty", "minus": "negative"}
+
+
+def warten_fuer(db: Session, job: Job | None, user_id: str) -> dict | None:
+    """CreditWait für eine SL der Kampagne (Spieler bekommen None, das prüft der Aufrufer). Betrag, Guthaben und
+    Auftrag nur für Personen, die das zahlende Guthaben sehen dürfen; Topf ohne Verwalterrecht → pot."""
+    if job is None or not an(db):
+        return None
+    grund = warte_grund(db, job)
+    if grund is None:
+        return None
+    c = kampagne_von_auftrag(db, job)
+    g = zahler(db, c)
+    sieht = g is not None and darf_sehen(db, user_id, g)
+    if sieht and g.id is None:  # noch nie gebucht: Zeile anlegen, damit „Verarbeiten“ eine Kennung hat
+        g = zahler(db, c, anlegen=True)
+        db.commit()
+    if ist_topf(g) and not sieht:
+        return {"reason": "pot", "estimate_cents": None, "credit_id": None, "job_id": None}
+    if not sieht:
+        return {"reason": GRUND_API[grund], "estimate_cents": None, "credit_id": None, "job_id": None}
+    return {"reason": GRUND_API[grund], "estimate_cents": schaetzung(db, job), "credit_id": g.id, "job_id": job.id}
 
 
 def wartende_auftraege(db: Session, g: Guthaben) -> list[dict]:

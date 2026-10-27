@@ -22,7 +22,7 @@ def test_info_ist_oeffentlich(client):
     r = client.get(f"{API}/info")
     assert r.status_code == 200
     i = r.json()
-    assert i["apiVersion"] == "0.4.24" and i["externalTranscription"] is None and i["authMethods"] == ["password"] and i["registration"] == "invite_only"
+    assert i["apiVersion"] == "0.4.25" and i["externalTranscription"] is None and i["authMethods"] == ["password"] and i["registration"] == "invite_only"
 
 
 def test_registrierung_geschlossen(client, dbs):
@@ -294,9 +294,17 @@ def test_migration_aus_schritt1(tmp_path, monkeypatch):
 
 
 # ---------- 0.3.4 – 0.3.7 ----------
-def test_externe_transkription_schalter(client, world):
+def test_externe_transkription_schalter(client, world, dbs):
     url = f"{API}/campaigns/{world['cid']}"
     assert client.get(url, headers=world["gm"]).json()["allowExternalTranscription"] is False
+    r = client.patch(url, json={"allowExternalTranscription": True}, headers=world["gm"])
+    # 0.4.25: ohne Anbieter bietet der Server es nicht an (locks unavailable)
+    assert r.status_code == 400 and r.json()["code"] == "setting_locked"
+    from app.einstellungen import meta_schreiben
+
+    meta_schreiben(dbs, "extern.anbieter", "mistral")
+    meta_schreiben(dbs, "extern.api_key", "geheim-1234")
+    dbs.commit()
     r = client.patch(url, json={"allowExternalTranscription": True}, headers=world["gm"])
     assert r.json()["allowExternalTranscription"] is True
     assert client.patch(url, json={"allowExternalTranscription": False}, headers=world["pl"]).status_code == 403

@@ -15,7 +15,9 @@ from app.services import render_status_message
 router = APIRouter(tags=["Unterlagen"])
 
 
-def dokument_out(db: Session, doc: CampaignDocument, lang: str) -> schemas.CampaignDocumentOut:
+def dokument_out(db: Session, doc: CampaignDocument, lang: str, user: User | None = None
+                 ) -> schemas.CampaignDocumentOut:
+    """user: anfragende Person – creditWait (0.4.25) nur für die SL der Kampagne."""
     from app import queue
     from app.einstellungen import llm_konfig
 
@@ -41,18 +43,22 @@ def dokument_out(db: Session, doc: CampaignDocument, lang: str) -> schemas.Campa
                                               anbieter=cloud_anbieter_name(k)).message(lang)
             elif k.art == "api" and kosten.erreicht(db):
                 meldung = errors.ApiError(0, "status.cost_limit").message(lang)
+    warten = None
     if doc.state == "queued":  # 0.4.85: wartet auf Guthaben, Freigabe oder Zahler?
         from app import abrechnung
+        from app.models import Campaign
 
         if abrechnung.an(db):
             job = db.scalar(select(Job).where(Job.document_id == doc.id, Job.state == "queued").limit(1))
             meldung = abrechnung.hinweis(db, job, lang) or meldung
+            if user is not None and abrechnung.ist_aktive_sl(db, user.id, db.get(Campaign, doc.campaign_id)):
+                warten = abrechnung.warten_fuer(db, job, user.id)
     return schemas.CampaignDocumentOut(
         id=doc.id, campaign_id=doc.campaign_id, title=doc.title, file_name=doc.file_name, kind=doc.kind,
         size_bytes=doc.size_bytes, page_count=doc.page_count, state=doc.state, progress=doc.progress,
         message=meldung, proposal_count=sum(zaehlen.values()), open_proposal_count=zaehlen.get("open", 0),
         world_info_suggestion=doc.world_info_suggestion, uploaded_by_member_id=doc.uploaded_by_member_id,
-        analysis_id=_auswertung(db, doc), created_at=doc.created_at,
+        analysis_id=_auswertung(db, doc), credit_wait=warten, created_at=doc.created_at,
     )
 
 
@@ -84,7 +90,7 @@ def documents_list(campaignId: str, request: Request, user: User = Depends(curre
     if me.role != "gm":  # Spieler: nur die eigenen Charakterbögen
         stmt = stmt.where(CampaignDocument.kind == "character_sheet", CampaignDocument.uploaded_by_member_id == me.id)
     docs = db.scalars(stmt.order_by(CampaignDocument.created_at.desc()))
-    return [dokument_out(db, d, sprache(request)) for d in docs]
+    return [dokument_out(db, d, sprache(request), user) for d in docs]
 
 
 @router.post("/campaigns/{campaignId}/documents", status_code=201, response_model=schemas.CampaignDocumentOut)
@@ -98,13 +104,13 @@ def documents_upload(campaignId: str, request: Request, file: UploadFile = File(
     doc = unterlagen.hochladen(db, campaignId, me.id, file.filename or "", daten, kind, title)
     db.commit()
     db.refresh(doc)
-    return dokument_out(db, doc, sprache(request))
+    return dokument_out(db, doc, sprache(request), user)
 
 
 @router.get("/documents/{documentId}", response_model=schemas.CampaignDocumentOut)
 def document_get(documentId: str, request: Request, user: User = Depends(current_user),
                  db: Session = Depends(get_db)):
-    return dokument_out(db, _dokument(db, documentId, user, eigener_bogen=True), sprache(request))
+    return dokument_out(db, _dokument(db, documentId, user, eigener_bogen=True), sprache(request), user)
 
 
 @router.delete("/documents/{documentId}", status_code=204)
@@ -169,7 +175,7 @@ def document_apply(documentId: str, request: Request, body: schemas.DocumentAppl
     unterlagen.uebernehmen(db, doc, bool(body and body.apply_world_info))
     db.commit()
     db.refresh(doc)
-    return dokument_out(db, doc, sprache(request))
+    return dokument_out(db, doc, sprache(request), user)
 
 
 @router.post("/documents/{documentId}/retry", status_code=202, response_model=schemas.CampaignDocumentOut)
@@ -179,4 +185,4 @@ def document_retry(documentId: str, request: Request, user: User = Depends(curre
     unterlagen.neu_starten(db, doc)
     db.commit()
     db.refresh(doc)
-    return dokument_out(db, doc, sprache(request))
+    return dokument_out(db, doc, sprache(request), user)

@@ -325,27 +325,46 @@ MESSAGES: dict[str, tuple[str, str]] = {
                             "delete an old one or talk to your GM."),
     "sheet_too_many_pages": ("Der Bogen hat {seiten} Seiten. In dieser Kampagne sind höchstens {max} erlaubt.",
                              "The sheet has {seiten} pages. This campaign allows at most {max}."),
-    "status.credit_empty": ("Die Verarbeitung wartet: Das Guthaben ist aufgebraucht. Auf {adresse} siehst du, wie es "
-                            "weitergeht. Danach startet sie von selbst.",
-                            "Processing is waiting: the credit is used up. {adresse} shows how to continue. After "
-                            "that it starts by itself."),
-    "status.credit_low": ("Die Verarbeitung wartet: Das Guthaben reicht dafür voraussichtlich nicht. Auf {adresse} "
-                          "siehst du, wie es weitergeht. Danach startet sie von selbst.",
-                          "Processing is waiting: the credit is probably not enough for it. {adresse} shows how to "
-                          "continue. After that it starts by itself."),
-    "status.credit_approval": ("Die Verarbeitung kostet voraussichtlich {betrag}. Sie startet, sobald du sie auf "
-                               "{adresse} mit „Verarbeiten“ bestätigst.",
+    # 0.4.25: ohne Adresse – die Fassung aus dem Store darf nicht auf die Aufladeseite verweisen
+    "status.credit_empty": ("Die Verarbeitung wartet: Das Guthaben ist aufgebraucht. Auf der Seite deines Servers "
+                            "siehst du, wie es weitergeht. Danach startet sie von selbst.",
+                            "Processing is waiting: the credit is used up. Your server's page shows how to continue. "
+                            "After that it starts by itself."),
+    "status.credit_low": ("Die Verarbeitung wartet: Das Guthaben reicht dafür voraussichtlich nicht. Auf der Seite "
+                          "deines Servers siehst du, wie es weitergeht. Danach startet sie von selbst.",
+                          "Processing is waiting: the credit is probably not enough for it. Your server's page shows "
+                          "how to continue. After that it starts by itself."),
+    "status.credit_approval": ("Die Verarbeitung kostet voraussichtlich {betrag}. Sie startet, sobald du sie mit "
+                               "„Verarbeiten“ bestätigst.",
                                "Processing will probably cost {betrag}. It starts as soon as you confirm it with "
-                               "“Process” at {adresse}."),
+                               "“Process”."),
     "status.credit_no_payer": ("Die Verarbeitung wartet: Für diese Kampagne zahlt gerade keine Spielleitung. Eine SL "
-                               "kann die Zahlung auf {adresse} übernehmen.",
+                               "kann die Zahlung übernehmen.",
                                "Processing is waiting: no GM is paying for this campaign right now. A GM can take "
-                               "over payment at {adresse}."),
+                               "over payment."),
     "status.credit_pot_empty": ("Die Verarbeitung wartet: Das Guthaben der Organisation reicht gerade nicht. Die "
-                                "Verwalter sehen auf {adresse}, wie es weitergeht. Danach startet sie von selbst.",
+                                "Verwalter sehen auf der Seite des Servers, wie es weitergeht. Danach startet sie von "
+                                "selbst.",
                                 "Processing is waiting: the organisation's credit is not enough right now. The "
-                                "administrators can see at {adresse} how to continue. After that it starts by "
+                                "administrators can see on the server's page how to continue. After that it starts by "
                                 "itself."),
+    # 0.4.25: Guthaben und Kampagnen-Einstellungen in der App
+    "second_factor_required": ("Das Guthaben der Organisation lässt sich nur auf der Seite des Servers ändern, mit "
+                               "zweitem Faktor.",
+                               "The organisation's credit can only be changed on the server's page, with a second "
+                               "factor."),
+    "voucher_invalid": ("Der Code stimmt nicht, ist abgelaufen oder schon eingelöst.",
+                        "The code is not correct, has expired or was already redeemed."),
+    "settings_conflict": ("Die Einstellungen wurden inzwischen geändert. Sieh dir den neuen Stand an und wähl noch "
+                          "einmal.",
+                          "The settings were changed in the meantime. Have a look at the new state and choose again."),
+    "setting_locked": ("Diese Einstellung legt der Server fest.", "This setting is fixed by the server."),
+    "invalid_member": ("Bitte eine andere Spielleitung dieser Kampagne mit Konto wählen.",
+                       "Please choose another game master of this campaign who has an account."),
+    "wrong_state.payer": ("Die Zahlung lässt sich gerade nicht übernehmen.",
+                          "Payment can't be taken over right now."),
+    "wrong_state.approve": ("Dieser Auftrag wartet nicht auf „Verarbeiten“.",
+                            "This job is not waiting for “Process”."),
     # Status-Hinweise (ProcessingStatus.message)
     "status.no_worker": ("Zurzeit ist keine Transkription verfügbar. Die Aufnahme wird verarbeitet, sobald ein Worker bereitsteht.",
                          "Transcription is not available right now. The recording will be processed as soon as a worker is ready."),

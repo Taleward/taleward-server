@@ -23,7 +23,7 @@ def _ohne_ausnahmen(text: str) -> str:
 
 def test_yaml_nennt_409_bei_unterlagen():
     spec = yaml.safe_load((WURZEL / "contract" / "session-chronik-api.yaml").read_text(encoding="utf-8"))
-    assert spec["info"]["version"] == "0.4.24"
+    assert spec["info"]["version"] == "0.4.25"
     assert "409" in spec["paths"]["/campaigns/{campaignId}/documents"]["post"]["responses"]
     from tests.contract import BEKANNTE_LUECKEN
     assert not BEKANNTE_LUECKEN

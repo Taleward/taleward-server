@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Taleward API
-  version: 0.4.24
+  version: 0.4.25
   description: |
     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
 
@@ -239,6 +239,24 @@ info:
     Gast der Runde vor (z. B. aus der Vorstellungsrunde). Ältere Apps sehen keinen Vorschlag für diese Stimme.
     Außerdem 409 `budget_recording_waiting` bei POST /sessions/{id}/uploads: Mit Einzelzahler und leerem Guthaben
     wartet höchstens eine Aufnahme je Konto. Ältere Apps zeigen die Meldung und behalten die Aufnahme wie bei jedem 409.
+    Änderungen in 0.4.25 (Guthaben in der App, Kampagnen-Einstellungen an einem Ort):
+    - ServerInfo.billing meldet, ob der Server mit Guthaben abrechnet (fehlt/null = aus; dann fehlt alles Folgende und
+      die neuen Wege antworten 404). Kontostand, Buchungen, wartende Aufträge, Einstellungen und Gutscheine über
+      /credits. Bezahlt wird nie in der App: Der Server nennt nur die Adresse seiner eigenen Aufladeseite
+      (billing.topUpUrl). Beträge und Gebühren rechnet nur der Server.
+    - Sichtbar nur für die zahlende SL bzw. die Verwalter der Organisation; alle anderen 404, ohne Anzahl.
+    - Wartegründe der Abrechnung als Code (CreditWait) an Runde (ProcessingStatus), Unterlage und Auswertung, damit die
+      App den Satz je Fassung selbst formuliert. ProcessingStatus.message nennt ab 0.4.25 keine Adresse mehr.
+    - „Verarbeiten“ über dem Freigabe-Betrag: POST /credits/{creditId}/waiting/{jobId}/approve. Bei Charakterbögen und
+      Hintergründen zählt die Zustimmung der SL (POST /character-analyses/{id}/decision) zugleich als Freigabe; die
+      Schätzung steht vorher in CharacterAnalysis.costEstimateCents.
+    - Topf der Organisation: Ändern und Freigeben über die App → 403 `second_factor_required` (die App hat keinen
+      zweiten Faktor); das geht nur auf der Seite des Servers.
+    - Zahlende SL der Kampagne: Campaign.billing, Abgeben und Übernehmen über /campaigns/{id}/payer.
+    - Kampagnen-Einstellungen: GET/PATCH /campaigns/{id}/settings mit Fassungsnummer (409 `settings_conflict`),
+      Protokoll (GET …/settings/log), Vorgaben des Betreibers (locks). PATCH /campaigns/{id} nimmt die Felder weiter an
+      (ältere Apps) und zählt die Fassung ebenso hoch. POST /campaigns nimmt die Einstellungen beim Anlegen an.
+    Ältere Apps sehen von alldem nichts außer der Meldung am Kapitel (ohne Adresse).
 
 servers:
   - url: https://taleward.example.org/api/v1
@@ -265,6 +283,7 @@ tags:
   - name: Kapitelplan
   - name: Charaktere
   - name: Umzug
+  - name: Guthaben
 
 paths:
   /auth/login:
@@ -799,6 +818,12 @@ paths:
                     - { $ref: "#/components/schemas/GameSystem" }
                     - { type: "null" }
                 systemName: { type: [string, "null"], maxLength: 100 }
+                settings:
+                  description: |
+                    Ab 0.4.25, optional: Einstellungen gleich beim Anlegen (kurze Fragen in der App, überspringbar). Fehlt
+                    ein Feld, gilt die Voreinstellung des Servers. Vorgaben des Betreibers (CampaignSettings.locks) gehen
+                    vor; ein gesperrtes Feld mit anderem Wert → 400 `setting_locked` (nichts wird angelegt).
+                  $ref: "#/components/schemas/CampaignSettingsIn"
       responses:
         "201":
           description: Angelegt
@@ -1217,6 +1242,9 @@ paths:
         Nur im Zustand awaiting_gm (sonst 409 `wrong_state`). approve true → queued, die Auswertung läuft wie bei
         Unterlagen der SL und kostet wie diese (Usage, zahlt die SL bzw. Organisation). approve false → rejected; nichts
         wird ausgelesen. Spieler und Fremde → 404.
+        Ab 0.4.25 mit Guthaben: approve true gilt zugleich als Freigabe über dem Freigabe-Betrag (kein zweites
+        „Verarbeiten“). Ausnahme Topf der Organisation: Liegt die Schätzung über dem Freigabe-Betrag, wartet die
+        Auswertung danach mit creditWait.reason approval, bis ein Verwalter sie auf der Seite des Servers freigibt.
       requestBody:
         required: true
         content:
@@ -1558,6 +1586,264 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /campaigns/{campaignId}/settings:
+    parameters: [{ $ref: "#/components/parameters/campaignId" }]
+    get:
+      tags: [Kampagnen]
+      summary: Einstellungen der Kampagne an einem Ort (alle Mitglieder lesen, ab 0.4.25)
+      description: |
+        Quelle der Wahrheit für die Schalter, die heute auch in Campaign stehen (allowCloudSummary,
+        allowExternalTranscription, allowCharacterAnalysis, characterSheetLimits). Spieler bekommen dieselbe Antwort
+        ohne updatedByMemberId (sie sehen, was mit ihren Daten passiert, aber nicht, wer es geändert hat).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CampaignSettings" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Kampagnen]
+      summary: Einstellungen ändern (nur SL, ab 0.4.25)
+      description: |
+        version ist Pflicht und muss der aktuellen Fassung entsprechen, sonst 409 `settings_conflict` mit
+        details.current (CampaignSettings) – nichts wird geändert; die App zeigt den neuen Stand und lässt neu wählen.
+        Nur mitgeschickte Felder werden geändert. Jede wirksame Änderung zählt version hoch und schreibt eine Zeile ins
+        Protokoll (je Feld alt/neu). Gesperrte Felder (locks) mit anderem Wert → 400 `setting_locked` (details.field).
+        Ausschalten von allowCharacterAnalysis lehnt offene Anfragen ab wie bei PATCH /campaigns/{id}.
+        characterSheetLimits ist hier nur lesbar (eingestellt beim Guthaben, PATCH /credits/{id}/settings).
+        Spieler und Fremde → 404.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/CampaignSettingsIn"
+                - type: object
+                  required: [version]
+                  properties:
+                    version: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Neuer Stand
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CampaignSettings" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /campaigns/{campaignId}/settings/log:
+    parameters: [{ $ref: "#/components/parameters/campaignId" }]
+    get:
+      tags: [Kampagnen]
+      summary: Protokoll der Einstellungen (nur SL, ab 0.4.25)
+      description: |
+        Neueste zuerst, höchstens 100. Enthält auch Änderungen über PATCH /campaigns/{id} und durch den Betreiber
+        (byOperator true, ohne Namen). Spieler und Fremde → 404.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 100
+                items: { $ref: "#/components/schemas/CampaignSettingsLogEntry" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /campaigns/{campaignId}/payer/offer:
+    parameters: [{ $ref: "#/components/parameters/campaignId" }]
+    post:
+      tags: [Guthaben]
+      summary: Zahlung an eine andere SL der Kampagne abgeben (nur die zahlende SL, ab 0.4.25)
+      description: |
+        Nur bei ServerInfo.billing mode credit (bzw. Kampagne ohne Organisation), sonst 404. memberId muss eine aktive SL
+        mit Konto sein (sonst 400 `invalid_member`). Bis zur Übernahme zahlt die bisherige SL weiter. Ein neues Angebot
+        ersetzt das alte; memberId null nimmt das Angebot zurück. Andere als die zahlende SL → 404.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [memberId]
+              properties:
+                memberId: { type: [string, "null"] }
+      responses:
+        "200":
+          description: Neuer Stand
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CampaignBilling" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /campaigns/{campaignId}/payer/accept:
+    parameters: [{ $ref: "#/components/parameters/campaignId" }]
+    post:
+      tags: [Guthaben]
+      summary: Zahlung übernehmen (SL, ab 0.4.25)
+      description: |
+        Geht, wenn die zahlende SL sie dieser SL angeboten hat, oder wenn gerade niemand zahlt (payer null, z. B. die
+        zahlende SL hat die Kampagne verlassen). Ab dann zahlt das eigene Guthaben; wartende Aufträge prüft der Server neu.
+        Sonst 409 `wrong_state`. Spieler und Fremde → 404.
+      responses:
+        "200":
+          description: Neuer Stand
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CampaignBilling" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /credits:
+    get:
+      tags: [Guthaben]
+      summary: Eigene Guthaben (ab 0.4.25)
+      description: |
+        Das eigene Guthaben und – bei mode pot – die Töpfe der Organisationen, in denen man Verwalter ist. Andere Töpfe
+        erscheinen nicht. Ohne Abrechnung → 404. Das eigene Guthaben steht immer in der Liste (Stand 0, wenn noch nie
+        etwas gebucht wurde).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Credit" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /credits/{creditId}/bookings:
+    parameters: [{ $ref: "#/components/parameters/creditId" }]
+    get:
+      tags: [Guthaben]
+      summary: Buchungen eines Guthabens, neueste zuerst (ab 0.4.25)
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+        - name: before
+          in: query
+          description: Nur Buchungen vor dieser Buchung (id) – zum Weiterblättern
+          schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CreditBooking" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /credits/{creditId}/waiting:
+    parameters: [{ $ref: "#/components/parameters/creditId" }]
+    get:
+      tags: [Guthaben]
+      summary: Aufträge, die auf dieses Guthaben warten (ab 0.4.25)
+      responses:
+        "200":
+          description: OK, älteste zuerst, höchstens 100
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 100
+                items: { $ref: "#/components/schemas/CreditWaitingJob" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /credits/{creditId}/waiting/{jobId}/approve:
+    parameters:
+      - { $ref: "#/components/parameters/creditId" }
+      - { name: jobId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
+    post:
+      tags: [Guthaben]
+      summary: „Verarbeiten“ – Auftrag über dem Freigabe-Betrag freigeben (ab 0.4.25)
+      description: |
+        Nur für Aufträge dieses Guthabens mit reason approval (sonst 409 `wrong_state`). Danach startet der Auftrag,
+        sobald das Guthaben reicht. Protokolliert. Topf der Organisation → 403 `second_factor_required` (nur auf der Seite
+        des Servers mit zweitem Faktor).
+      responses:
+        "204": { description: Freigegeben }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /credits/{creditId}/settings:
+    parameters: [{ $ref: "#/components/parameters/creditId" }]
+    patch:
+      tags: [Guthaben]
+      summary: Freigabe-Betrag und Grenzen für Charakterbögen ändern (ab 0.4.25)
+      description: |
+        Nur mitgeschickte Felder. Werte außerhalb der Grenzen begrenzt der Server (wie auf der Seite /guthaben).
+        Protokolliert. Topf der Organisation → 403 `second_factor_required`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                approvalThresholdCents: { type: integer, minimum: 0, maximum: 100000 }
+                sheetMaxPages: { type: integer, minimum: 1, maximum: 2000 }
+                sheetsPerPlayer: { type: integer, minimum: 0, maximum: 50 }
+      responses:
+        "200":
+          description: Neuer Stand
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Credit" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /credits/{creditId}/vouchers:
+    parameters: [{ $ref: "#/components/parameters/creditId" }]
+    post:
+      tags: [Guthaben]
+      summary: Gutschein einlösen (ab 0.4.25)
+      description: |
+        Ungültig, abgelaufen, schon eingelöst oder schon ein Gutschein derselben Aktion → immer 400 `voucher_invalid`
+        mit demselben Satz (verrät nicht, ob es den Code gibt). Versuche begrenzt je Konto und je Adresse → 429. Groß-/
+        Kleinschreibung, Leerzeichen und Bindestriche zählen nicht. Topf der Organisation → 403
+        `second_factor_required`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, minLength: 1, maxLength: 40 }
+      responses:
+        "200":
+          description: Gutgeschrieben
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [amountCents, credit]
+                properties:
+                  amountCents: { type: integer, minimum: 1 }
+                  credit: { $ref: "#/components/schemas/Credit" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /campaigns/{campaignId}/cover-image:
     parameters: [{ $ref: "#/components/parameters/campaignId" }]
@@ -3152,6 +3438,7 @@ components:
     documentId: { name: documentId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
     planId: { name: planId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
     analysisId: { name: analysisId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
+    creditId: { name: creditId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
 
   responses:
     Unauthorized:
@@ -3215,6 +3502,30 @@ components:
             vor 0.4.23), wie none. Welche Regel dahinter steht (Einstellung des Betreibers, Abrechnung), entscheidet
             der Server; die App liest nur dieses Feld. SL einer bestehenden Kampagne werden (Einladung als SL,
             Übergabe) braucht keine Freigabe.
+        billing:
+          description: |
+            Ab 0.4.25. Rechnet dieser Server Verarbeitung über Guthaben ab? null oder fehlend = nein (Schalter in der
+            Verwaltung aus); dann zeigt die App nichts zu Guthaben und Kosten, und alle Wege unter /credits sowie
+            /campaigns/{id}/payer antworten 404. Steht in /info, also auch ohne Anmeldung lesbar; ohne Beträge.
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [mode, currency, topUpUrl]
+              properties:
+                mode:
+                  type: string
+                  enum: [credit, pot]
+                  description: |
+                    credit = jede SL zahlt aus ihrem eigenen Guthaben (die zahlende SL der Kampagne, Campaign.billing).
+                    pot = Kampagnen einer Organisation zahlen aus deren gemeinsamem Guthaben; Aufladen und Einstellungen
+                    nur durch die Verwalter. Kampagnen ohne Organisation zahlen wie bei credit.
+                currency: { type: string, enum: [EUR] }
+                topUpUrl:
+                  type: string
+                  format: uri
+                  description: |
+                    Die Aufladeseite dieses Servers (https://<server>/guthaben), nie eine fremde Adresse. Die App zeigt sie
+                    nur in der Fassung von der Website (nicht in Store-Fassungen) und öffnet sie im Browser.
         authMethods: { type: array, items: { type: string, enum: [password, oidc, passkey] }, description: "oidc, sobald mindestens ein Dienst eingerichtet ist" }
         privacyPolicyUrl: { type: [string, "null"] }
         legalNoticeUrl:
@@ -3317,6 +3628,182 @@ components:
             an statt einer zweiten Verbindung. Das Token geht dabei nicht an die neue Adresse; die Person meldet sich dort
             neu an (Name ist vorausgefüllt). Kein Geheimnis – nur zum Wiedererkennen.
 
+    CreditWait:
+      type: object
+      description: |
+        Ab 0.4.25. Warum ein Auftrag (Abschrift, Kapitel, Kapitel neu schreiben, Korrektur, Unterlage, Auswertung) wegen
+        der Abrechnung noch nicht startet. Nur für SL der Kampagne (Spieler bekommen null). Die App formuliert den Satz
+        selbst, je nach Fassung (Store-Fassung ohne Link und ohne Knopf zum Aufladen).
+        - approval: Schätzung über dem Freigabe-Betrag; wartet auf „Verarbeiten“.
+        - empty: Guthaben aufgebraucht (≤ 0).
+        - too_low: Guthaben reicht voraussichtlich nicht (Schätzung über dem Deckel).
+        - no_payer: Niemand zahlt für die Kampagne (zahlende SL ist weg); eine SL kann übernehmen.
+        - pot: Topf der Organisation reicht nicht oder wartet auf die Verwalter (SL ohne Verwalterrecht sehen nur das).
+        Unbekannte Werte zeigt die App als „wartet auf das Guthaben“.
+      required: [reason]
+      properties:
+        reason: { type: string, enum: [approval, empty, too_low, no_payer, pot] }
+        estimateCents:
+          type: [integer, "null"]
+          minimum: 0
+          description: Geschätzte Kosten in Cent – nur für Personen, die das zahlende Guthaben sehen dürfen, sonst null.
+        creditId:
+          type: [string, "null"]
+          description: Das zahlende Guthaben – nur für Personen, die es sehen dürfen, sonst null.
+        jobId:
+          type: [string, "null"]
+          description: Für „Verarbeiten“ (POST /credits/{creditId}/waiting/{jobId}/approve); nur zusammen mit creditId.
+
+    Credit:
+      type: object
+      description: |
+        Ab 0.4.25. Ein Guthaben: das eigene (kind account) oder der Topf einer Organisation (kind organization, nur für
+        deren Verwalter). Kein Feld wird anderen gezeigt.
+      required: [id, kind, balanceCents, status, approvalThresholdCents, sheetMaxPages, sheetsPerPlayer, canManage]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [account, organization] }
+        organizationId: { type: [string, "null"] }
+        organizationName: { type: [string, "null"] }
+        balanceCents: { type: integer, description: "Kann negativ sein (Auftrag lief ins Minus)" }
+        status:
+          type: string
+          enum: [good, low, empty, negative]
+          description: low = unter der Warnschwelle des Betreibers
+        approvalThresholdCents:
+          type: integer
+          minimum: 0
+          description: Aufträge mit höherer Schätzung warten auf „Verarbeiten“ (voreingestellt 200)
+        sheetMaxPages: { type: integer, minimum: 1, description: "Ausgewertete Seiten je Charakterbogen" }
+        sheetsPerPlayer: { type: integer, minimum: 0, description: "Bögen je Spieler und Kampagne" }
+        waitingCount: { type: integer, minimum: 0, description: "Aufträge, die gerade auf dieses Guthaben warten" }
+        canManage:
+          type: boolean
+          description: |
+            false = Ändern, „Verarbeiten“ und Gutscheine gehen nur auf der Seite des Servers (Topf der Organisation, zweiter
+            Faktor). Die App zeigt dann nur den Stand.
+
+    CreditBooking:
+      type: object
+      description: Ab 0.4.25. Eine Zeile im Buchungsbuch (wird nie geändert; Korrekturen sind eigene Buchungen).
+      required: [id, kind, amountCents, createdAt]
+      properties:
+        id: { type: string }
+        kind:
+          type: string
+          enum: [payment, credit, voucher, usage, chargeback, refund, correction]
+          description: |
+            payment = Aufladung, credit = Gutschrift des Betreibers, voucher = Gutschein, usage = Verbrauch, chargeback =
+            Rückbuchung, refund = Erstattung, correction = Gegenbuchung. Unbekannte Werte zeigt die App ohne Art.
+        amountCents: { type: integer, description: "+ gutgeschrieben, − verbraucht" }
+        createdAt: { type: string, format: date-time }
+        reason:
+          type: [string, "null"]
+          maxLength: 500
+          description: Bei credit und correction der Grund des Betreibers, sonst null
+        usage:
+          description: Nur bei usage, sonst null. Titel nur, wenn die Kampagne noch besteht.
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [jobKind]
+              properties:
+                jobKind: { type: string, enum: [transcribe, summarize, revise, document] }
+                campaignId: { type: [string, "null"] }
+                campaignTitle: { type: [string, "null"] }
+                sessionNumber: { type: [integer, "null"] }
+                documentTitle: { type: [string, "null"] }
+
+    CreditWaitingJob:
+      type: object
+      description: Ab 0.4.25. Ein Auftrag, der auf dieses Guthaben wartet.
+      required: [jobId, jobKind, campaignId, campaignTitle, reason]
+      properties:
+        jobId: { type: string }
+        jobKind: { type: string, enum: [transcribe, summarize, revise, document] }
+        campaignId: { type: string }
+        campaignTitle: { type: string }
+        sessionId: { type: [string, "null"] }
+        sessionNumber: { type: [integer, "null"] }
+        documentId: { type: [string, "null"] }
+        documentTitle: { type: [string, "null"] }
+        analysisId: { type: [string, "null"] }
+        estimateCents: { type: integer, minimum: 0 }
+        reason: { type: string, enum: [approval, empty, too_low, no_payer, pot] }
+        createdAt: { type: string, format: date-time }
+
+    CampaignBilling:
+      type: object
+      description: Ab 0.4.25, nur für SL. Wer für die Kampagne zahlt.
+      required: [paidBy]
+      properties:
+        paidBy:
+          type: string
+          enum: [gm, organization, nobody]
+          description: nobody = die zahlende SL ist weg; Aufträge warten, bis eine SL übernimmt (payer/accept)
+        payerMemberId: { type: [string, "null"], description: "Bei gm die zahlende SL" }
+        isMe: { type: boolean, description: "true = ich zahle" }
+        offeredToMemberId:
+          type: [string, "null"]
+          description: Offenes Angebot der zahlenden SL an diese SL (payer/offer), sonst null
+
+    CampaignSettingsIn:
+      type: object
+      description: Ab 0.4.25. Änderbare Einstellungen einer Kampagne (Bedeutung wie die gleichnamigen Felder in Campaign).
+      properties:
+        allowCloudSummary: { type: boolean }
+        allowExternalTranscription: { type: boolean }
+        allowCharacterAnalysis: { type: boolean }
+
+    CampaignSettings:
+      type: object
+      description: |
+        Ab 0.4.25. Alle Einstellungen einer Kampagne an einem Ort. version zählt bei jeder wirksamen Änderung hoch
+        (gleich, ob über PATCH …/settings, PATCH /campaigns/{id} oder den Betreiber) und steht auch in
+        Campaign.settingsVersion.
+      required: [version, allowCloudSummary, allowExternalTranscription, allowCharacterAnalysis, locks, updatedAt]
+      properties:
+        version: { type: integer, minimum: 1 }
+        allowCloudSummary: { type: boolean }
+        allowExternalTranscription: { type: boolean }
+        allowCharacterAnalysis: { type: boolean }
+        characterSheetLimits:
+          description: Nur lesbar, wie Campaign.characterSheetLimits
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [maxSheets, maxPages]
+              properties:
+                maxSheets: { type: integer, minimum: 0, maximum: 50 }
+                maxPages: { type: integer, minimum: 1 }
+        locks:
+          type: array
+          description: |
+            Vorgaben des Betreibers. Ein Feld hier kann die SL nicht ändern; value ist der feste Wert. unavailable = der
+            Server bietet es gar nicht an (z. B. cloudSummary null), operator = vom Betreiber festgelegt.
+          items:
+            type: object
+            required: [field, value, reason]
+            properties:
+              field: { type: string, enum: [allowCloudSummary, allowExternalTranscription, allowCharacterAnalysis] }
+              value: { type: boolean }
+              reason: { type: string, enum: [unavailable, operator] }
+        updatedAt: { type: string, format: date-time }
+        updatedByMemberId: { type: [string, "null"], description: "Nur für SL; null = Betreiber oder unbekannt" }
+
+    CampaignSettingsLogEntry:
+      type: object
+      description: Ab 0.4.25. Eine Änderung einer Einstellung.
+      required: [at, field, oldValue, newValue, version, byOperator]
+      properties:
+        at: { type: string, format: date-time }
+        field: { type: string, description: "Feldname wie in CampaignSettings; unbekannte zeigt die App als Feldname" }
+        oldValue: { type: [boolean, integer, "null"] }
+        newValue: { type: [boolean, integer, "null"] }
+        version: { type: integer, description: "Fassung nach der Änderung" }
+        byMemberId: { type: [string, "null"] }
+        byOperator: { type: boolean }
+
     CloudProviderInfo:
       type: object
       description: |
@@ -3370,6 +3857,11 @@ components:
         state: { type: string, enum: [queued, processing, awaiting_review, done, failed] }
         progress: { type: [number, "null"], minimum: 0, maximum: 1 }
         message: { type: [string, "null"] }
+        creditWait:
+          description: Ab 0.4.25, siehe CreditWait (nur im Zustand queued). Fehlt oder null = nichts aus der Abrechnung.
+          oneOf:
+            - $ref: "#/components/schemas/CreditWait"
+            - type: "null"
         proposalCount: { type: integer }
         openProposalCount: { type: integer }
         worldInfoSuggestion: { type: [string, "null"] }
@@ -3732,6 +4224,16 @@ components:
             worldInfo:
               type: [string, "null"]
               description: Hintergrund der Spielwelt für alle Mitglieder (Absätze durch Leerzeilen getrennt)
+            settingsVersion:
+              type: [integer, "null"]
+              description: Ab 0.4.25, siehe CampaignSettings.version (für alle Mitglieder). Fehlt bei älteren Servern.
+            billing:
+              description: |
+                Ab 0.4.25, nur für SL und nur bei eingeschaltetem Guthaben (sonst fehlt das Feld oder ist null; Spieler
+                bekommen es nie). Wer für diese Kampagne zahlt.
+              oneOf:
+                - type: "null"
+                - $ref: "#/components/schemas/CampaignBilling"
             hotwords:
               type: array
               maxItems: 200
@@ -3825,6 +4327,11 @@ components:
           description: |
             Geschätzte Restdauer in Sekunden (ab 0.4.6), vor allem in der 202-Antwort von POST …/corrections mit
             retranscribe (aus der letzten Rechenzeit dieser Session). null = keine Schätzung.
+        creditWait:
+          description: Ab 0.4.25, siehe CreditWait. Fehlt oder null = die Abrechnung hält nichts auf.
+          oneOf:
+            - $ref: "#/components/schemas/CreditWait"
+            - type: "null"
 
     Speaker:
       type: object
@@ -4471,6 +4978,19 @@ components:
         proposalCount:
           type: [integer, "null"]
           description: Nur für die SL (für Spieler null), sobald done
+        costEstimateCents:
+          type: [integer, "null"]
+          minimum: 0
+          description: |
+            Ab 0.4.25, nur bei eingeschaltetem Guthaben und nur für Personen, die das zahlende Guthaben sehen dürfen
+            (zahlende SL bzw. Verwalter); sonst null. Geschätzte Kosten der Auswertung in Cent (mit Aufschlag), damit die
+            SL sie vor „Auswerten“ sieht. Die Zustimmung (decision approve) gilt zugleich als Freigabe über dem
+            Freigabe-Betrag.
+        creditWait:
+          description: Ab 0.4.25, siehe CreditWait (nur im Zustand queued). Fehlt oder null = nichts aus der Abrechnung.
+          oneOf:
+            - $ref: "#/components/schemas/CreditWait"
+            - type: "null"
         createdAt: { type: string, format: date-time }
         decidedAt: { type: [string, "null"], format: date-time }
 

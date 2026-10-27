@@ -125,8 +125,9 @@ def _bogen_lesen(db: Session, a: CharacterAnalysis) -> list[dict]:
     return abschnitte
 
 
-def entscheiden(db: Session, a: CharacterAnalysis, zustimmen: bool) -> None:
-    """POST /character-analyses/{id}/decision (nur SL, nur awaiting_gm)."""
+def entscheiden(db: Session, a: CharacterAnalysis, zustimmen: bool, user_id: str | None = None) -> None:
+    """POST /character-analyses/{id}/decision (nur SL, nur awaiting_gm). 0.4.25: Zustimmen gilt zugleich als Freigabe
+    über dem Freigabe-Betrag – außer beim Topf der Organisation (dort geben die Verwalter frei)."""
     if a.state != "awaiting_gm":
         raise errors.conflict("wrong_state", "wrong_state.analysis")
     if not zustimmen:
@@ -143,7 +144,15 @@ def entscheiden(db: Session, a: CharacterAnalysis, zustimmen: bool) -> None:
         return
     a.abschnitte = json.dumps(abschnitte, ensure_ascii=False)
     a.state = "queued"
-    db.add(Job(type="document", analysis_id=a.id, required_capability="llm", engine="local"))
+    job = Job(type="document", analysis_id=a.id, required_capability="llm", engine="local")
+    from app import abrechnung
+
+    if abrechnung.an(db) and user_id is not None:
+        g = abrechnung.zahler(db, db.get(Campaign, a.campaign_id))
+        if g is not None and not abrechnung.ist_topf(g):
+            job.kosten_freigegeben_at = utcnow()
+            abrechnung.protokoll(db, user_id, "auftrag_freigegeben", g.id, auswertung=a.id, zustimmung=True)
+    db.add(job)
 
 
 def abgeschaltet(db: Session, c: Campaign) -> None:
@@ -195,15 +204,37 @@ def liste(db: Session, c: Campaign, me: Member) -> list[CharacterAnalysis]:
                            .limit(LISTE_HOECHSTENS)))
 
 
-def out(db: Session, a: CharacterAnalysis, sl: bool, lang: str = "de") -> schemas.CharacterAnalysisOut:
+def _kosten(db: Session, a: CharacterAnalysis, user_id: str | None) -> tuple[int | None, dict | None]:
+    """0.4.25: (costEstimateCents, creditWait) – nur für die SL der Kampagne, Betrag nur für Personen, die das zahlende
+    Guthaben sehen dürfen."""
+    from app import abrechnung
+
+    if user_id is None or not abrechnung.an(db) or a.state not in ("awaiting_gm", "queued"):
+        return None, None
+    c = db.get(Campaign, a.campaign_id)
+    if not abrechnung.ist_aktive_sl(db, user_id, c):
+        return None, None
+    job = db.scalar(select(Job).where(Job.analysis_id == a.id, Job.state == "queued").limit(1)) \
+        if a.state == "queued" else None
+    g = abrechnung.zahler(db, c)
+    schaetzung = None
+    if g is not None and abrechnung.darf_sehen(db, user_id, g):
+        schaetzung = abrechnung.schaetzung(db, job if job is not None else Job(type="document", analysis_id=a.id))
+    return schaetzung, abrechnung.warten_fuer(db, job, user_id) if job is not None else None
+
+
+def out(db: Session, a: CharacterAnalysis, sl: bool, lang: str = "de",
+        user_id: str | None = None) -> schemas.CharacterAnalysisOut:
     anzahl = None
     if sl and a.state == "done":
         anzahl = db.scalar(select(func.count()).select_from(Proposal).where(Proposal.analysis_id == a.id)) or 0
+    schaetzung, warten = _kosten(db, a, user_id if sl else None)
     return schemas.CharacterAnalysisOut(
         id=a.id, campaign_id=a.campaign_id, member_id=a.member_id, source=a.source, document_id=a.document_id,
         title=a.title, state=a.state, uses_cloud=a.uses_cloud, page_count=a.page_count,
         pages_limited=a.pages_limited, message=_meldung(a, sl, lang) if a.state == "failed" else None,
-        proposal_count=anzahl, created_at=a.created_at, decided_at=a.decided_at)
+        proposal_count=anzahl, cost_estimate_cents=schaetzung, credit_wait=warten, created_at=a.created_at,
+        decided_at=a.decided_at)
 
 
 FESTE_GRUENDE = ("doc.no_text",)  # Meldungen ohne Platzhalter – alles andere wird zum festen Satz

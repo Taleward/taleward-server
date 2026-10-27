@@ -222,7 +222,11 @@ def campaign_out(db: Session, c: Campaign, me: Member) -> schemas.CampaignOut:
         character_sheet_limits=_bogen_grenzen(db, c),  # 0.4.19
         members=[member_out(m, me) for m in members],
         links=links.lesen(c.links, nur_geteilt=me.role != "gm"),  # 0.4.13
+        settings_version=c.settings_version or 1,  # 0.4.25
     )
+    from app.routers.guthaben import billing_out
+
+    out.billing = billing_out(db, c, me)  # 0.4.25: nur SL bei eingeschaltetem Guthaben, sonst null
     if me.role == "gm":  # Namenshilfe (0.4.6) nur für die SL – für Spieler gar nicht im JSON
         from app import namenshilfe
 
@@ -311,7 +315,9 @@ def render_status_message(raw: str | None, lang: str) -> str | None:
     return errors.ApiError(0, key, key, **daten).message(lang)
 
 
-def processing_status(db: Session, s: GameSession, lang: str = "de") -> schemas.ProcessingStatusOut:
+def processing_status(db: Session, s: GameSession, lang: str = "de", user: User | None = None
+                      ) -> schemas.ProcessingStatusOut:
+    """user: Anfragende Person – creditWait (0.4.25) bekommt nur die SL der Kampagne."""
     from app import queue  # vermeidet Importschleife
 
     position = None
@@ -353,16 +359,19 @@ def processing_status(db: Session, s: GameSession, lang: str = "de") -> schemas.
             message = errors.ApiError(0, "status.cost_limit").message(lang)
         elif not k.bereit:
             message = errors.ApiError(0, "status.no_summarizer").message(lang)
+    warten = None
     if s.state in ("queued", "summarizing"):  # 0.4.85: wartet der Auftrag auf Guthaben, Freigabe oder Zahler?
         from app import abrechnung
 
         if abrechnung.an(db):
             job = queue.current_job(db, s.id, None)
-            message = abrechnung.hinweis(db, job if job is not None and job.state == "queued" else None,
-                                         lang) or message
+            job = job if job is not None and job.state == "queued" else None
+            message = abrechnung.hinweis(db, job, lang) or message
+            if user is not None and abrechnung.ist_aktive_sl(db, user.id, db.get(Campaign, s.campaign_id)):
+                warten = abrechnung.warten_fuer(db, job, user.id)
     return schemas.ProcessingStatusOut(
         state=s.state, progress=s.progress, queue_position=position,
-        message=message, updated_at=s.state_updated_at, estimated_seconds=restdauer(db, s),
+        message=message, updated_at=s.state_updated_at, estimated_seconds=restdauer(db, s), credit_wait=warten,
     )
 
 

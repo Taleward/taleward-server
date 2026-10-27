@@ -26,7 +26,7 @@
     {% endfor %}{% endfor %}{% endmacro %}
 {% macro konto() %}<div class="leiste__fuss">
     <form method="post" action="/verwaltung/abmelden"><input type="hidden" name="csrf" value="{{ csrf }}">
-      {{ user.display_name }} · <button class="tw-btn tw-btn--quiet leiste__abmelden" type="submit">{{ _("abmelden") }}</button></form>
+      {{ user.display_name|rein }} · <button class="tw-btn tw-btn--quiet leiste__abmelden" type="submit">{{ _("abmelden") }}</button></form>
     {% include "_sprachen.html" %}
   </div>{% endmacro %}
 {% macro marke() %}<a class="leiste__marke" href="/verwaltung/"><picture><source srcset="/verwaltung/static/marke/taleward-lockup-inverse.svg" media="(prefers-color-scheme: dark)"><img src="/verwaltung/static/marke/taleward-lockup.svg" alt="Taleward" width="132" height="32"></picture><small>{{ _("Verwaltung") }} · {{ angaben.server_name }}</small></a>{% endmacro %}

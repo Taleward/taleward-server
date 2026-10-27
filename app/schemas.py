@@ -73,6 +73,9 @@ class ServerInfoOut(ApiModel):
     legal_notice_url: str | None = None  # 0.4.22: Impressum (Vorlage /impressum oder eigener Link), null = keins
     terms_url: str | None = None  # 0.4.22: Nutzungsbedingungen, ab 0.4.22 immer gesetzt
     terms_version: int | None = None  # 0.4.22
+    # 0.4.25: {mode, currency, topUpUrl} bei eingeschaltetem Guthaben, sonst null. topUpUrl fehlt ohne eingetragene
+    # öffentliche Adresse (G15) – darum hier ein dict statt eines Modells.
+    billing: dict | None = None
 
 
 class InvitePreviewOut(ApiModel):
@@ -279,6 +282,8 @@ class CampaignOut(CampaignSummaryOut):
     hotwords: list[str] | None = None  # 0.4.6: nur für die SL, für Spieler weggelassen
     links: list[Link] = []  # 0.4.13: Spieler nur shared
     gm_notices: list["GmNoticeOut"] | None = None  # 0.4.7: nur für die SL, für Spieler weggelassen
+    settings_version: int | None = None  # 0.4.25, für alle Mitglieder
+    billing: "CampaignBillingOut | None" = None  # 0.4.25, nur für die SL bei eingeschaltetem Guthaben
     members: list[MemberOut]
 
 
@@ -311,6 +316,8 @@ class CharacterAnalysisOut(ApiModel):
     pages_limited: bool
     message: str | None
     proposal_count: int | None
+    cost_estimate_cents: int | None = None  # 0.4.25
+    credit_wait: "CreditWaitOut | None" = None  # 0.4.25
     created_at: datetime
     decided_at: datetime | None
 
@@ -365,6 +372,7 @@ class CampaignCreate(ApiModel):
     organization_id: str | None = None
     system: GameSystem | None = None
     system_name: str | None = Field(default=None, max_length=100)
+    settings: "CampaignSettingsIn | None" = None  # 0.4.25
 
 
 class CampaignPatch(ApiModel):
@@ -518,6 +526,7 @@ class ProcessingStatusOut(ApiModel):
     message: str | None
     updated_at: datetime
     estimated_seconds: int | None = None
+    credit_wait: "CreditWaitOut | None" = None  # 0.4.25
 
 
 class GmNoteOut(ApiModel):
@@ -799,6 +808,7 @@ class CampaignDocumentOut(ApiModel):
     world_info_suggestion: str | None
     uploaded_by_member_id: str | None = None  # 0.4.7
     analysis_id: str | None = None  # 0.4.18, nur bei character_sheet
+    credit_wait: "CreditWaitOut | None" = None  # 0.4.25
     created_at: datetime
 
 
@@ -876,4 +886,127 @@ class CorrectionsIn(ApiModel):
     retranscribe: bool = False
 
 
-CampaignOut.model_rebuild()
+
+# ---------- 0.4.25: Guthaben in der App, Kampagnen-Einstellungen ----------
+WarteGrund = Literal["approval", "empty", "too_low", "no_payer", "pot"]
+AuftragsArt = Literal["transcribe", "summarize", "revise", "document"]
+
+
+class CreditWaitOut(ApiModel):
+    reason: WarteGrund
+    estimate_cents: int | None = None
+    credit_id: str | None = None
+    job_id: str | None = None
+
+
+class CreditOut(ApiModel):
+    id: str
+    kind: Literal["account", "organization"]
+    organization_id: str | None
+    organization_name: str | None
+    balance_cents: int
+    status: Literal["good", "low", "empty", "negative"]
+    approval_threshold_cents: int
+    sheet_max_pages: int
+    sheets_per_player: int
+    waiting_count: int
+    can_manage: bool
+
+
+class CreditUsageOut(ApiModel):
+    job_kind: AuftragsArt
+    campaign_id: str | None
+    campaign_title: str | None
+    session_number: int | None
+    document_title: str | None
+
+
+class CreditBookingOut(ApiModel):
+    id: str
+    kind: Literal["payment", "credit", "voucher", "usage", "chargeback", "refund", "correction"]
+    amount_cents: int
+    created_at: datetime
+    reason: str | None
+    usage: CreditUsageOut | None
+
+
+class CreditWaitingJobOut(ApiModel):
+    job_id: str
+    job_kind: AuftragsArt
+    campaign_id: str
+    campaign_title: str
+    session_id: str | None
+    session_number: int | None
+    document_id: str | None
+    document_title: str | None
+    analysis_id: str | None
+    estimate_cents: int
+    reason: WarteGrund
+    created_at: datetime
+
+
+class CreditSettingsIn(ApiModel):
+    approval_threshold_cents: int | None = None
+    sheet_max_pages: int | None = None
+    sheets_per_player: int | None = None
+
+
+class VoucherIn(ApiModel):
+    code: str = Field(min_length=1, max_length=40)
+
+
+class VoucherOut(ApiModel):
+    amount_cents: int
+    credit: CreditOut
+
+
+class CampaignBillingOut(ApiModel):
+    paid_by: Literal["gm", "organization", "nobody"]
+    payer_member_id: str | None
+    is_me: bool
+    offered_to_member_id: str | None
+
+
+class PayerOfferIn(ApiModel):
+    member_id: str | None = Field(max_length=64)
+
+
+class CampaignSettingsIn(ApiModel):
+    allow_cloud_summary: bool | None = None
+    allow_external_transcription: bool | None = None
+    allow_character_analysis: bool | None = None
+
+
+class CampaignSettingsPatch(CampaignSettingsIn):
+    version: int = Field(ge=1)
+
+
+class SettingLockOut(ApiModel):
+    field: Literal["allowCloudSummary", "allowExternalTranscription", "allowCharacterAnalysis"]
+    value: bool
+    reason: Literal["unavailable", "operator"]
+
+
+class CampaignSettingsOut(ApiModel):
+    version: int
+    allow_cloud_summary: bool
+    allow_external_transcription: bool
+    allow_character_analysis: bool
+    character_sheet_limits: SheetLimitsOut | None
+    locks: list[SettingLockOut]
+    updated_at: datetime
+    updated_by_member_id: str | None
+
+
+class CampaignSettingsLogOut(ApiModel):
+    at: datetime
+    field: str
+    old_value: bool | int | None
+    new_value: bool | int | None
+    version: int
+    by_member_id: str | None
+    by_operator: bool
+
+
+for _m in (CampaignOut, CharacterAnalysisOut, CampaignCreate, ProcessingStatusOut, CampaignDocumentOut):
+    _m.model_rebuild()

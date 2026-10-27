@@ -189,12 +189,14 @@ def gutschrift(request: Request, ziel_konto: str = Form(""), ziel_org: str = For
     if not cent or cent > grenze:
         return _seite_abrechnung(request, user, db, 400, fehler=_(
             "Bitte einen Betrag über 0 und höchstens {betrag} eingeben.", betrag=abrechnung.euro(grenze)))
-    if not " ".join(grund.split()):
+    from app.aliasse import zeichen_bereinigen
+
+    if not zeichen_bereinigen(grund):
         return _seite_abrechnung(request, user, db, 400, fehler=_("Bitte einen Grund angeben."))
     if not bestaetigt:  # Rückfrage
         db.rollback()
         return _seite_abrechnung(request, user, db, bestaetigen={
-            "name": _name(db, g), "betrag": abrechnung.euro(cent), "grund": grund.strip()[:500],
+            "name": _name(db, g), "betrag": abrechnung.euro(cent), "grund": zeichen_bereinigen(grund)[:500],
             "ziel_konto": ziel_konto, "ziel_org": ziel_org, "roh": betrag})
     abrechnung.gutschreiben(db, g, cent, grund, user.id)
     db.commit()

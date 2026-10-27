@@ -37,6 +37,9 @@ def test_widerrufen_geht_erteilen_nicht(client, world, dbs):
 def test_cloud_freigabe_ausschalten_geht_einschalten_nicht(client, world, dbs):
     w = world
     an = {"allowCloudSummary": True, "allowExternalTranscription": True}
+    from tests.test_server_04132 import cloud_einrichten
+
+    cloud_einrichten(dbs)  # 0.4.25: sonst bietet der Server beides nicht an (locks)
     assert client.patch(f"{API}/campaigns/{w['cid']}", json=an, headers=w["gm"]).status_code == 200
     _ohne_zustimmung(dbs, "anna")
     r = client.patch(f"{API}/campaigns/{w['cid']}", json={"allowCloudSummary": False,

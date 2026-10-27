@@ -56,7 +56,8 @@
 {% if kosten.limit or kosten.monat %}
 <div class="karte">
   <h2>{{ _("Kosten für Cloud-Dienste") }}</h2>
-  <p>{{ _("Diesen Monat: {betrag} €", betrag="%.2f"|format(kosten.monat / 100)) }}{% if kosten.limit %} · {{ _("Limit: {betrag} €", betrag="%.2f"|format(kosten.limit / 100)) }}{% endif %}</p>
+  {% macro betrag(cent) %}{% set s = "%.2f"|format(cent / 100) %}{{ s.replace(".", ",") if sprache == "de" else s }}{% endmacro %}
+  <p>{{ _("Diesen Monat: {betrag} €", betrag=betrag(kosten.monat)) }}{% if kosten.limit %} · {{ _("Limit: {betrag} €", betrag=betrag(kosten.limit)) }}{% endif %}</p>
   {% if kosten.limit and kosten.monat >= kosten.limit %}<div class="meldung meldung--fehler">{{ _("Das Limit ist erreicht – Cloud-Aufträge warten bis zum nächsten Monat.") }} <a href="/verwaltung/einstellungen#kosten">{{ _("Limit ändern") }}</a></div>{% endif %}
 </div>
 {% endif %}

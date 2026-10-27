@@ -33,7 +33,8 @@ OPTIONAL_FIELDS = {"characterBackstory", "gmNotes", "hiddenFromMemberIds", "memb
                    "formerHolderMemberId",  # 0.4.9: nur für die SL
                    "assignedMemberId",  # 0.4.10: erst nach der Bestätigung der Stimmen
                    "gmWarnings",  # 0.4.21: nur für die SL, für Spieler weggelassen
-                   "user"}
+                   "user",
+                   "topUpUrl"}  # 0.4.25: fehlt ohne eingetragene öffentliche Adresse (G15)
 
 # Statuscodes, die in der YAML fehlen, aber fachlich nötig sind – für den nächsten Änderungswunsch notiert.
 BEKANNTE_LUECKEN: set[tuple[str, str, int]] = set()
@@ -60,6 +61,11 @@ class Contract:
         raw = yaml.safe_load(SPEC_PATH.read_text(encoding="utf-8"))
         # YAML 1.1 liest [yes, maybe, no] als Wahrheitswerte – gemeint sind die Texte (die YAML quotet sie inzwischen, ältere Fassungen nicht)
         raw["components"]["schemas"]["VoteAnswer"]["enum"] = ["yes", "maybe", "no"]
+        # G15 (Sicherheit): ServerInfo.billing.topUpUrl fehlt ohne eingetragene öffentliche Adresse – die YAML nennt sie
+        # noch als Pflicht (Wunsch an den App-Chat: optional machen)
+        for teil in raw["components"]["schemas"]["ServerInfo"]["properties"]["billing"]["oneOf"]:
+            if teil.get("type") == "object":
+                teil["required"] = [f for f in teil["required"] if f != "topUpUrl"]
         self.spec = copy.deepcopy(raw)
         _require_all(self.spec)
         self.registry = Registry().with_resource(URN, Resource.from_contents(self.spec, default_specification=DRAFT202012))

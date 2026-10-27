@@ -54,6 +54,11 @@ def create_campaign(body: schemas.CampaignCreate, user: User = Depends(current_u
     db.flush()
     me = Member(campaign_id=c.id, user_id=user.id, role="gm")
     db.add(me)
+    if body.settings is not None:  # 0.4.25: Einstellungen gleich beim Anlegen – derselbe Prüfweg wie beim Ändern
+        from app import kampagnen_einstellungen
+
+        db.flush()
+        kampagnen_einstellungen.aendern(db, c, me, user, _einstellungen(body.settings), neu_angelegt=True)
     db.commit()
     db.refresh(c)
     return campaign_out(db, c, me)
@@ -192,6 +197,15 @@ def get_campaign(campaignId: str, user: User = Depends(current_user), db: Sessio
 _NUR_AUSSCHALTEN = {"allow_external_transcription", "allow_cloud_summary", "allow_character_analysis"}
 
 
+def _einstellungen(body) -> dict[str, bool | None]:
+    """Schnittstellen-Namen → Wert (nur mitgeschickte Felder)."""
+    f = body.model_fields_set
+    return {"allowCloudSummary": body.allow_cloud_summary if "allow_cloud_summary" in f else None,
+            "allowExternalTranscription": body.allow_external_transcription
+            if "allow_external_transcription" in f else None,
+            "allowCharacterAnalysis": body.allow_character_analysis if "allow_character_analysis" in f else None}
+
+
 @router.patch("/campaigns/{campaignId}", response_model=schemas.CampaignOut, response_model_exclude_unset=True)
 def patch_campaign(
     campaignId: str, body: schemas.CampaignPatch, user: User = Depends(current_user), db: Session = Depends(get_db)
@@ -217,16 +231,10 @@ def patch_campaign(
         c.system = body.system
     if "system_name" in f:
         c.system_name = (body.system_name or "").strip() or None
-    if "allow_external_transcription" in f and body.allow_external_transcription is not None:
-        c.allow_external_transcription = body.allow_external_transcription
-    if "allow_cloud_summary" in f and body.allow_cloud_summary is not None:
-        c.allow_cloud_summary = body.allow_cloud_summary
-    if "allow_character_analysis" in f and body.allow_character_analysis is not None:
-        if c.allow_character_analysis and not body.allow_character_analysis:
-            from app import charakterauswertung
+    if f & _NUR_AUSSCHALTEN:  # 0.4.25 (G16): derselbe Prüfweg wie PATCH …/settings, zählt die Fassung hoch
+        from app import kampagnen_einstellungen
 
-            charakterauswertung.abgeschaltet(db, c)  # offene Anfragen gelten als abgelehnt
-        c.allow_character_analysis = body.allow_character_analysis
+        kampagnen_einstellungen.aendern(db, c, me, user, _einstellungen(body))
     if "archived" in f and body.archived is not None:
         if body.archived and c.archived_at is None:
             c.archived_at = utcnow()
@@ -254,6 +262,42 @@ def patch_campaign(
     db.commit()
     db.refresh(c)
     return campaign_out(db, c, me)
+
+
+@router.get("/campaigns/{campaignId}/settings", response_model=schemas.CampaignSettingsOut)
+def get_settings(campaignId: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """0.4.25: für alle Mitglieder (Cloud-Freigaben sind für alle am Tisch sichtbar)."""
+    from app import kampagnen_einstellungen
+
+    c, me = _load(db, campaignId, user)
+    return kampagnen_einstellungen.lesen(db, c, me)
+
+
+def _als_sl(db: Session, campaign_id: str, user: User) -> tuple[Campaign, Member]:
+    c, me = _load(db, campaign_id, user)
+    if me.role != "gm":
+        raise errors.not_found("campaign")  # Spieler: 404 wie Fremde
+    return c, me
+
+
+@router.patch("/campaigns/{campaignId}/settings", response_model=schemas.CampaignSettingsOut)
+def patch_settings(campaignId: str, body: schemas.CampaignSettingsPatch, user: User = Depends(current_user),
+                   db: Session = Depends(get_db)):
+    from app import kampagnen_einstellungen
+
+    c, me = _als_sl(db, campaignId, user)
+    kampagnen_einstellungen.aendern(db, c, me, user, _einstellungen(body), fassung=body.version)
+    db.commit()
+    db.refresh(c)
+    return kampagnen_einstellungen.lesen(db, c, me)
+
+
+@router.get("/campaigns/{campaignId}/settings/log", response_model=list[schemas.CampaignSettingsLogOut])
+def settings_log(campaignId: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from app import kampagnen_einstellungen
+
+    c, _me = _als_sl(db, campaignId, user)
+    return kampagnen_einstellungen.protokoll(db, c)
 
 
 @router.post("/campaigns/{campaignId}/invites", status_code=201, response_model=schemas.InviteOut)

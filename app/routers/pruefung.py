@@ -116,7 +116,7 @@ def confirm_speakers(sessionId: str, body: list[schemas.SpeakerAssignIn], reques
         korrektur.verwerfen(db, db.get(Recap, s.id))
     queue.create_summarize_job(db, s)
     db.commit()
-    return processing_status(db, s, sprache(request))
+    return processing_status(db, s, sprache(request), user)
 
 
 def _hat_abschrift(db: Session, s: GameSession) -> bool:
@@ -147,7 +147,7 @@ def resummarize(sessionId: str, request: Request, user: User = Depends(current_u
     korrektur.verwerfen(db, db.get(Recap, s.id))  # 0.4.15: ein offener Korrektur-Entwurf passt nicht mehr
     queue.create_summarize_job(db, s)
     db.commit()
-    return processing_status(db, s, sprache(request))
+    return processing_status(db, s, sprache(request), user)
 
 
 # ---------- Vorschläge ----------
@@ -454,7 +454,7 @@ def corrections(sessionId: str, body: schemas.CorrectionsIn, request: Request, u
         s.nachtranskription = True
         queue.create_transcribe_job(db, s, up)
         db.commit()
-        return JSONResponse(status_code=202, content=processing_status(db, s, sprache(request))
+        return JSONResponse(status_code=202, content=processing_status(db, s, sprache(request), user)
                             .model_dump(mode="json", by_alias=True))
     unsicher.ersetzen(db, s, paare)
     db.commit()

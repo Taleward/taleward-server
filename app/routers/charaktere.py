@@ -75,7 +75,7 @@ def character_analyses(campaignId: str, request: Request, user: User = Depends(c
     """SL alle, Spieler nur eigene (ohne proposalCount). Fremd → 404."""
     me = require_member(db, campaignId, user)
     sl = me.role == "gm"
-    return [charakterauswertung.out(db, a, sl, sprache(request))
+    return [charakterauswertung.out(db, a, sl, sprache(request), user.id)
             for a in charakterauswertung.liste(db, me.campaign, me)]
 
 
@@ -86,7 +86,7 @@ def backstory_analysis(campaignId: str, request: Request, user: User = Depends(c
     me = require_member(db, campaignId, user)
     a = charakterauswertung.hintergrund_abgeben(db, me)
     db.commit()
-    return charakterauswertung.out(db, a, me.role == "gm", sprache(request))
+    return charakterauswertung.out(db, a, me.role == "gm", sprache(request), user.id)
 
 
 @router.post("/character-analyses/{analysisId}/decision", response_model=schemas.CharacterAnalysisOut)
@@ -96,9 +96,9 @@ def analysis_decision(analysisId: str, body: schemas.AnalysisDecisionIn, request
     a, me = charakterauswertung.zu(db, analysisId, lambda cid: membership(db, cid, user))
     if me.role != "gm":
         raise errors.not_found("analysis")
-    charakterauswertung.entscheiden(db, a, body.approve)
+    charakterauswertung.entscheiden(db, a, body.approve, user.id)
     db.commit()
-    return charakterauswertung.out(db, a, True, sprache(request))
+    return charakterauswertung.out(db, a, True, sprache(request), user.id)
 
 
 @router.delete("/campaigns/{campaignId}/gm-notices/{noticeId}", tags=["Kampagnen"], status_code=204)

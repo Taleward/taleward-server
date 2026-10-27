@@ -1270,6 +1270,7 @@ EN: dict[str, str] = {
     "Laufender Betrieb": "Day-to-day",
     "Wählen": "Choose",
     "ändern": "change",
+    "Sieht die SL in der App.": "The GM sees this in the app.",
 }
 
 WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}
