@@ -107,6 +107,10 @@
         <label class="haken"><input type="radio" name="weg" value="notizen"{% if k.weg == "notizen" %} checked{% endif %}> {{ _("Erst Notizen je Abschnitt, dann das Kapitel (empfohlen)") }}</label>
         <label class="haken"><input type="radio" name="weg" value="abschrift"{% if k.weg == "abschrift" %} checked{% endif %}> {{ _("Ganze Abschrift auf einmal (früherer Weg)") }}</label>
         <span class="hilfe">{{ _("Der empfohlene Weg vergisst weniger und erfindet weniger, kostet über die Cloud aber etwa 30 Cent je Kapitel. Nur für die Cloud-API.") }}</span></fieldset>
+      <fieldset><legend>{{ _("Weg zum Kapitel – lokales Modell") }}</legend>
+        <label class="haken"><input type="radio" name="weg_lokal" value="abschrift"{% if k.weg_lokal == "abschrift" %} checked{% endif %}> {{ _("Ganze Abschrift auf einmal (bisher)") }}</label>
+        <label class="haken"><input type="radio" name="weg_lokal" value="notizen"{% if k.weg_lokal == "notizen" %} checked{% endif %}> {{ _("Erst Notizen je Abschnitt, dann das Kapitel (wie in der Cloud, zum Ausprobieren)") }}</label>
+        <span class="hilfe">{{ _("Der Weg über Notizen dauert auf dem Worker etwa zwei- bis dreimal so lange. Lange Runden bekommen dabei Teile im Kapitel.") }}</span></fieldset>
       <input type="hidden" name="gegenpruefen_feld" value="1">
       <fieldset><legend>{{ _("Prüfung") }}</legend>
         <label class="haken"><input type="checkbox" name="gegenpruefen" value="1"{% if llm.gegenpruefen %} checked{% endif %}> {{ _("Kapitel gegenprüfen") }}</label>

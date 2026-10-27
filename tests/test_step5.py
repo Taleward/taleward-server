@@ -308,7 +308,7 @@ def test_ollama_im_worker_starten(client, world, dbs, tmp_path):
     assert knecht.einen_auftrag()
     assert status(client, w["gm"], s["id"])["state"] == "awaiting_review"
     recap = modell.recap_aufruf()
-    assert recap["body"]["options"]["num_ctx"] == 8192 and recap["body"]["format"] == "json"
+    assert recap["body"]["options"]["num_ctx"] == 8192 and "format" not in recap["body"]  # 0.4.134: Prosa ohne JSON-Grammatik
     assert "MARKER" not in recap["nutzer"] and "Der Graue Fürst" not in recap["nutzer"]
     assert "MARKER-SL-NOTIZ" not in modell.vorschlags_aufruf()["nutzer"]
     vs = client.get(f"{API}/sessions/{s['id']}/proposals", headers=w["gm"]).json()

@@ -213,8 +213,24 @@ def llm_messwerte(klient, zaehler, abgestuft: bool) -> dict:
     m = {"art": "kapitel", "modell": klient.modell, "kontext": klient.kontext,
          "einlesenTokS": zaehler.einlesen_s_mittel, "schreibenTokS": zaehler.token_s_mittel,
          "quantisierung": b.get("quantisierung"), "ganzAufKarte": b.get("ganzAufKarte"), "abgestuft": abgestuft,
-         **grafikkarte()}
+         "jsonNachgefordert": getattr(zaehler, "nachgefordert", None) or None,
+         "abgeschnitten": getattr(zaehler, "abgeschnitten", None) or None, **grafikkarte()}
     return {k: v for k, v in m.items() if v is not None}
+
+
+def lokaler_ablauf(klient, z: dict):
+    """0.4.134: Ablauf für das lokale Modell nach dem Weg aus dem Auftrag („path“). Ohne Angabe (älterer Server): der
+    bisherige Weg „abschrift“. Im Weg „notizen“ wie in der Cloud ohne Nachbesserung; Abschnittsgröße nach Kontext."""
+    from app.sprachmodell import Ablauf, notiz_stueck_fuer
+
+    notizen = z.get("path") == "notizen"
+    ansicht = z.get("reviewView") if z.get("reviewView") in ("pflicht", "gegenpruefung") else "pflicht"
+    ablauf = Ablauf(klient, max_transkript_tokens=max(2000, klient.kontext - 5000),
+                    stueck_tokens=max(1500, (klient.kontext - 4000) // 2), notizen_zuerst=notizen,
+                    notiz_stueck=notiz_stueck_fuer(klient.kontext) if notizen else 15_000,
+                    nachbesserung=not notizen, zweiter_blick_an=bool(z.get("secondLook", True)),
+                    pruefansicht=ansicht)
+    return ablauf
 
 
 def lokales_sprachmodell(url: str, client: httpx.Client | None = None):
@@ -242,15 +258,15 @@ def lokales_sprachmodell(url: str, client: httpx.Client | None = None):
         klient, kennung, abgestuft = laden(z, lambda h: recapmodell.kontext_fuer(bedarf, h))
         fortschritt(0.05)
         # Stückgröße so, dass Anweisung, Stück und Antwort in den Kontext passen
-        ablauf = Ablauf(klient, max_transkript_tokens=max(2000, klient.kontext - 5000),
-                        stueck_tokens=max(1500, (klient.kontext - 4000) // 2))
+        ablauf = lokaler_ablauf(klient, z)
         try:
             d = ablauf.ausfuehren(z["recap"], z["proposals"], fortschritt, gegenpruefen=bool(z.get("review")))
             d["metrics"] = _messung["messwerte"] = llm_messwerte(klient, ablauf.zaehler, abgestuft)
         finally:
             klient.entladen()
         _messung["tokenS"] = ablauf.zaehler.token_s_mittel
-        d["model"] = f"ollama/{klient.modell}@{kennung}/ctx{klient.kontext}"
+        d["model"] = (f"ollama/{klient.modell}@{kennung}/ctx{klient.kontext}"
+                      + ("/notizen" if ablauf.notizen_zuerst else ""))[:100]
         d["computeSeconds"] = round(time.monotonic() - t0, 1)
         return d
 

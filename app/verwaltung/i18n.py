@@ -1329,6 +1329,12 @@ EN: dict[str, str] = {
     "{betrag} sind gutgeschrieben.": "{betrag} have been credited.",
     "Ältere Buchungen": "Older bookings",
     "Über Stripe. Auch Lastschrift, je nach Land.": "Via Stripe. Also direct debit, depending on the country.",
+    "Antworten neu angefordert: {n}": "Responses requested again: {n}",
+    "Antworten abgeschnitten: {n}": "Responses cut off: {n}",
+    "Weg zum Kapitel – lokales Modell": "Path to the chapter – local model",
+    "Ganze Abschrift auf einmal (bisher)": "Whole transcript at once (current)",
+    "Erst Notizen je Abschnitt, dann das Kapitel (wie in der Cloud, zum Ausprobieren)": "Notes per section first, then the chapter (as in the cloud, to try out)",
+    "Der Weg über Notizen dauert auf dem Worker etwa zwei- bis dreimal so lange. Lange Runden bekommen dabei Teile im Kapitel.": "The path via notes takes about two to three times as long on the worker. Long sessions get parts in the chapter.",
 }
 
 WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}

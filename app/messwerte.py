@@ -8,7 +8,8 @@ from __future__ import annotations
 import json
 import math
 
-ZAHLEN = ("minutenJeStunde", "einlesenTokS", "schreibenTokS", "kontext", "kartenspeicherMb")
+ZAHLEN = ("minutenJeStunde", "einlesenTokS", "schreibenTokS", "kontext", "kartenspeicherMb",
+          "jsonNachgefordert", "abgeschnitten")  # 0.4.134
 TEXTE = ("art", "modell", "quantisierung", "karte")
 WAHRHEITEN = ("ganzAufKarte", "abgestuft")
 STUFEN = ("einlesen", "erkennung", "ausrichtung", "sprechertrennung", "auswertung")
@@ -17,7 +18,8 @@ STUFEN = ("einlesen", "erkennung", "ausrichtung", "sprechertrennung", "auswertun
 # Texte der Verwaltung (Übersetzung in app/verwaltung/i18n.py, tests/test_server_04114.py prüft sie)
 TEXTE_UI = ("{n} min Rechenzeit je Aufnahmestunde", "Einlesen", "Erkennung", "Ausrichtung", "Sprechertrennung",
             "Auswertung", "Kontext {n}", "Einlesen {n} Token/s", "Schreiben {n} Token/s", "ganz auf der Grafikkarte",
-            "teils im Arbeitsspeicher", "kleiner gewählt, damit es auf die Grafikkarte passt", "Messwerte")
+            "teils im Arbeitsspeicher", "kleiner gewählt, damit es auf die Grafikkarte passt", "Messwerte",
+            "Antworten neu angefordert: {n}", "Antworten abgeschnitten: {n}")
 
 
 def _zahl(v) -> bool:
@@ -93,6 +95,10 @@ def zeilen(m: dict, _=lambda s, **k: s.format(**k)) -> list[str]:
             z.append(_("ganz auf der Grafikkarte") if m["ganzAufKarte"] else _("teils im Arbeitsspeicher"))
         if m.get("abgestuft"):
             z.append(_("kleiner gewählt, damit es auf die Grafikkarte passt"))
+        if m.get("jsonNachgefordert"):
+            z.append(_("Antworten neu angefordert: {n}", n=int(m["jsonNachgefordert"])))
+        if m.get("abgeschnitten"):
+            z.append(_("Antworten abgeschnitten: {n}", n=int(m["abgeschnitten"])))
     if m.get("karte"):
         z.append(m["karte"] + (f" ({_de(m['kartenspeicherMb'] / 1024)} GB)" if m.get("kartenspeicherMb") else ""))
     return z

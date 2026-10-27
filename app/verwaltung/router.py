@@ -1235,7 +1235,7 @@ def zusammenfassung_speichern(request: Request, art: str = Form("aus"), anbieter
                               lokal_kontext: str = Form("12288"), cent_ein: str = Form(""), cent_aus: str = Form(""),
                               gegenpruefen_feld: str = Form(""), gegenpruefen: str = Form(""),
                               zweiter_blick: str = Form(""), pruefansicht: str = Form(""),
-                              ausserhalb_eu: str = Form(""), weg: str = Form(""),
+                              ausserhalb_eu: str = Form(""), weg: str = Form(""), weg_lokal: str = Form(""),
                               user: User = Depends(verwalter), db: Session = Depends(get_db)):
     """Wer Recap und Vorschläge schreibt. Überschreibt die .env; der Schlüssel wird nie angezeigt."""
     from app import cloudanbieter
@@ -1314,6 +1314,8 @@ def zusammenfassung_speichern(request: Request, art: str = Form("aus"), anbieter
     meta_schreiben(db, "llm.cent_aus", preise[1])
     if weg in KAPITEL_WEGE:  # ältere offene Seiten ohne das Feld ändern den Weg nicht
         meta_schreiben(db, "llm.weg", weg)
+    if weg_lokal in KAPITEL_WEGE:  # 0.4.134: Weg für das lokale Modell
+        meta_schreiben(db, "llm.weg_lokal", weg_lokal)
     if gegenpruefen_feld:  # nur, wenn das Formular den Schalter enthält (ältere offene Seiten ändern ihn nicht)
         from app.zusammenfassung import K_GEGENPRUEFEN
 

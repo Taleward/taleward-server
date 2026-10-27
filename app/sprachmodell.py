@@ -32,13 +32,32 @@ MAX_VORSCHLAEGE = 15  # so viele sieht die Spielleitung höchstens …
 MAX_VORSCHLAEGE_LANG = 20  # … bei Runden ab VORSCHLAEGE_LANG_AB_MIN Minuten (0.4.79: 7 h füllten 15 ganz aus)
 VORSCHLAEGE_LANG_AB_MIN = 240
 MAX_VORSCHLAEGE_ROH = 25  # so viele darf das Modell liefern; der Server wählt die gewichtigsten aus
-ANTWORT_HOECHSTENS = 4096  # Tokens je Antwort eines lokalen Modells
+ANTWORT_HOECHSTENS = 4096  # Tokens je Antwort eines lokalen Modells (Standard; Kapitel und Kürzen rechnen selbst)
 NOTIZ_STUECK = 6000  # höchstens so viele Token Transkript je Aufruf für Szenennotizen
 BISHER = 8  # so viele Notizen des vorigen Abschnitts gehen als Vorgeschichte mit
 NOTIZEN_HOECHSTENS = 15  # je Abschnitt; mehr sprengt die Antwortlänge, und das Ende des Abschnitts geht verloren
 TEIL_TOKEN = 2000  # lange Runden: höchstens so viele Token Notizen je Teil, der vor dem Recap eigens zusammengefasst wird
 TEIL_MINUTEN = 30  # … und Teile nach Spielzeit geschnitten, damit jeder Teil gleich viel Platz im Kapitel bekommt
 ZEICHEN_PRO_TOKEN = 3.2  # grobe Schätzung für deutsche und englische Texte
+
+# 0.4.134: Abtastung des lokalen Modells je Aufgabenart (erster Versuch). Die Hersteller kleiner offener Modelle
+# empfehlen höhere Temperaturen und keine Wiederholungsstrafe; eine Strafe über 256 Token bestraft im Kapitel vor allem
+# die Figurennamen, und eine erzwungene JSON-Grammatik schadet bei Prosa. Grammatik daher nur für Urteile.
+PROFILE = {
+    "prosa": {"temperature": 0.7, "top_k": 64, "top_p": 0.95, "repeat_penalty": 1.0, "grammatik": False},
+    "sachlich": {"temperature": 0.3, "top_k": 64, "top_p": 0.95, "repeat_penalty": 1.0, "grammatik": False},
+    "urteil": {"temperature": 0.1, "top_k": 64, "top_p": 0.95, "repeat_penalty": 1.0, "grammatik": True},
+}
+PROFILE_ALT = "alt"  # Verhalten bis 0.4.133 (Rückweg und Vergleich): OllamaKlient.VERSUCHE, feste Antwortlänge
+# Leiter nach einer Wiederholungsschleife: (+Temperatur, Strafe oder None = Profil, Fenster, frequency_penalty,
+# Grammatik erlaubt). Eine kleine Strafe über ein langes Fenster stoppt Schleifen; der letzte Versuch ohne Grammatik.
+LEITER = ((0.0, None, 256, 0.0, True), (0.2, 1.05, 2048, 0.2, True), (0.4, 1.1, 4096, 0.4, False))
+# 0.4.134: Weg „Erst Notizen“ auch lokal. Reserve im Notizaufruf: System und Stand-Zusatz, Kopf (Welt), Stand,
+# Überlappung; Reserve im Kapitelaufruf je Teil: Pflichtliste, Stand, Bibel, System, Anknüpfabsatz.
+NOTIZ_RESERVE = 4_800
+PLATZ_RESERVE = 4_300
+TOKEN_JE_WORT = 2.4  # Deckel für die Antwortlänge: Prosa liegt bei etwa 1,5–2 Token je Wort, JSON kommt dazu
+ANTWORT_RESERVE = 256
 
 # Cent je 1 Mio. Tokens (ein, aus) – Stand 09/2026, Dollarpreise ≈ Euro. Nur für die Verbrauchsanzeige.
 PREISE = {
@@ -68,6 +87,7 @@ class Antwort:
     tokens_in: int = 0
     tokens_out: int = 0
     tokens_zwischengespeichert: int = 0  # Teil von tokens_in, den der Anbieter aus seinem Zwischenspeicher nahm
+    abgeschnitten: bool = False  # 0.4.134: Längengrenze erreicht (Ollama done_reason „length“)
 
 
 class Klient(Protocol):
@@ -255,7 +275,12 @@ class OllamaKlient:
         self.token_s: float | None = None  # gemessene Geschwindigkeit des letzten Aufrufs (Schreiben)
         self.einlesen_s: float | None = None  # gemessene Geschwindigkeit beim Einlesen der Anfrage (Token/s)
         self._denkt: bool | None = None  # Modell mit Denkmodus (Qwen3 u. a.)? Einmal bei Ollama nachgefragt
-        self.temperatur: float | None = None  # Testoption: feste Temperatur für den ersten Versuch statt 0.3
+        self.temperatur: float | None = None  # Testoption: feste Temperatur für den ersten Versuch
+        # 0.4.134: Abtastung je Aufgabenart. Zaehler.aufruf setzt profil und antwort_hoechstens je Aufruf.
+        self.profile: dict | str = PROFILE  # PROFILE_ALT = Verhalten bis 0.4.133
+        self.profil = "prosa"
+        self.grammatik: bool | None = None  # None = nach Profil; True/False erzwingt
+        self.antwort_hoechstens = ANTWORT_HOECHSTENS
 
     def denkmodus(self) -> bool:
         """Kann das Modell „laut denken“? Dann schalten wir es ab: Für Recaps bringt es nichts außer langer Laufzeit
@@ -336,13 +361,8 @@ class OllamaKlient:
         # Streamend, mit Stillstands-Zeitgrenze statt Gesamtzeit: auf einem schwachen Rechner dauert eine Antwort
         # auch mal 20 Minuten – solange Stücke kommen, ist alles gut; kommt drei Minuten nichts, hängt Ollama.
         status, fehler, d = 0, "", {}
-        for versuch, (temperatur, strafe, grammatik) in enumerate(self.VERSUCHE):
-            if versuch == 0 and self.temperatur is not None:
-                temperatur = self.temperatur
-            optionen = {"num_ctx": self.kontext, "temperature": temperatur, "repeat_penalty": strafe,
-                        "repeat_last_n": 256, "num_predict": ANTWORT_HOECHSTENS}
-            if versuch:
-                optionen["frequency_penalty"] = 0.2 * versuch
+        for versuch in range(len(self.VERSUCHE)):
+            optionen, grammatik = self.optionen(versuch)
             body = {"model": self.modell, "stream": True, "keep_alive": "2m", "options": optionen,
                     "messages": [{"role": "system", "content": system}, {"role": "user", "content": nutzer}]}
             if grammatik:
@@ -358,7 +378,7 @@ class OllamaKlient:
                 raise SprachmodellFehler(f"Ollama ist nicht erreichbar ({type(e).__name__}).") from e
             if (status >= 400 or fehler) and "repeat" in fehler and versuch + 1 < len(self.VERSUCHE):
                 log.info("Sprachmodell hat sich wiederholt – %s Versuch mit mehr Streuung%s",
-                         ("zweiter", "dritter")[versuch], "" if self.VERSUCHE[versuch + 1][2] else ", ohne JSON-Grammatik")
+                         ("zweiter", "dritter")[versuch], "" if self.optionen(versuch + 1)[1] else ", ohne JSON-Grammatik")
                 continue
             break
         if (status >= 400 or fehler) and "repeat" in fehler:
@@ -375,7 +395,33 @@ class OllamaKlient:
             if self.token_s < self.LANGSAM_TOKEN_S:
                 log.warning("Sprachmodell sehr langsam (%.1f Token/s) – dieser Rechner sollte Recaps dem Server "
                             "überlassen (Worker-App: „Kapitel auch auf diesem PC schreiben“ abschalten)", self.token_s)
-        return Antwort(d.get("inhalt", ""), int(d.get("prompt_eval_count") or 0), tokens_aus)
+        abgeschnitten = d.get("done_reason") == "length"
+        if abgeschnitten:
+            log.warning("Antwort des Sprachmodells an der Längengrenze abgeschnitten (%d Token)", tokens_aus)
+        return Antwort(d.get("inhalt", ""), int(d.get("prompt_eval_count") or 0), tokens_aus, abgeschnitten=abgeschnitten)
+
+    def optionen(self, versuch: int) -> tuple[dict, bool]:
+        """(Ollama-Optionen, JSON-Grammatik?) für einen Versuch. Bis 0.4.133 (PROFILE_ALT): feste Werte aus VERSUCHE."""
+        if self.profile == PROFILE_ALT:
+            temperatur, strafe, grammatik = self.VERSUCHE[versuch]
+            if versuch == 0 and self.temperatur is not None:
+                temperatur = self.temperatur
+            optionen = {"num_ctx": self.kontext, "temperature": temperatur, "repeat_penalty": strafe,
+                        "repeat_last_n": 256, "num_predict": ANTWORT_HOECHSTENS}
+            if versuch:
+                optionen["frequency_penalty"] = 0.2 * versuch
+            return optionen, grammatik
+        p = self.profile.get(self.profil) or self.profile["prosa"]
+        plus, strafe, fenster, frequenz, grammatik_erlaubt = LEITER[versuch]
+        basis = self.temperatur if versuch == 0 and self.temperatur is not None else p["temperature"]
+        optionen = {"num_ctx": self.kontext, "temperature": round(min(1.0, basis + plus), 2),
+                    "top_k": p["top_k"], "top_p": p["top_p"],
+                    "repeat_penalty": strafe if strafe is not None else p["repeat_penalty"],
+                    "repeat_last_n": fenster, "num_predict": self.antwort_hoechstens}
+        if frequenz:
+            optionen["frequency_penalty"] = frequenz
+        grammatik = (self.grammatik if self.grammatik is not None else p["grammatik"]) and grammatik_erlaubt
+        return optionen, bool(grammatik)
 
     def _streamen(self, body: dict) -> tuple[int, str, dict]:
         """(Status, Fehlertext, Daten) – Daten enthalten den zusammengesetzten Text unter „inhalt“."""
@@ -1061,6 +1107,32 @@ def einschnitte_lesen(d: dict, notizen: str, dauer_s: float, hoechstens: int, sp
     grenzen = [0.0] + [s for s, _t in gewaehlt] + [dauer_s]
     return [{"von": grenzen[i], "bis": grenzen[i + 1], "titel": titel[i] or ersatz.format(n=i + 1)}
             for i in range(len(titel))]
+
+
+def notiz_stueck_fuer(kontext: int) -> int:
+    """0.4.134: Abschnittsgröße im Weg „Erst Notizen“ für einen lokalen Kontext: 24 576 → 15 000, 20 480 → 11 584,
+    12 288 → 3 392 Token (höchstens 15 000 wie in der Cloud, mindestens 3 000)."""
+    return max(3_000, min(15_000, kontext - ANTWORT_HOECHSTENS - NOTIZ_RESERVE))
+
+
+def teile_nach_platz(notizen: str, von: float, bis: float, grenze: int, sprache: str = "de",
+                     nummer: int = 1) -> list[dict]:
+    """0.4.134: Teile [{von, bis, titel}] nach Platz – so viele gleich lange Zeitteile, dass die Notizen jedes Teils
+    höchstens grenze Token haben. Grenzen auf die nächste Notiz mit Zeitstempel; Titel „Teil n“ ab nummer."""
+    stueck = teil_notizen(notizen, von, bis)
+    anzahl = max(1, -(-tokens(stueck) // max(1, grenze)))
+    zeiten = sorted({z for z in (_zeit_vorn(x) for x in stueck.splitlines()) if z is not None})
+    grenzen = [von]
+    for k in range(1, anzahl):
+        ziel = von + (bis - von) * k / anzahl
+        schnitt = next((z for z in zeiten if z >= ziel and z > grenzen[-1]), None)
+        if schnitt is None or schnitt >= bis:
+            break
+        grenzen.append(schnitt)
+    grenzen.append(bis)
+    ersatz = "Part {n}" if sprache == "en" else "Teil {n}"
+    return [{"von": grenzen[i], "bis": grenzen[i + 1], "titel": ersatz.format(n=nummer + i)}
+            for i in range(len(grenzen) - 1)]
 
 
 def teil_notizen(notizen: str, von: float, bis: float) -> str:
@@ -2049,22 +2121,41 @@ class Zaehler:
     einlesen_s: list[float] = field(default_factory=list)  # Einlesen der Anfrage, Token/s je Aufruf
 
     letzte_antwort: str = ""  # Rohtext der letzten Antwort (nur für die Fehlersuche im Modellvergleich)
+    nachgefordert: int = 0  # 0.4.134: zweite Versuche, weil die erste Antwort kein gültiges JSON war
+    abgeschnitten: int = 0  # 0.4.134: Antworten an der Längengrenze
     kosten: float = 0.0  # Cent, je Aufruf mit dem Preis des jeweiligen Klienten (zwei Modelle möglich)
 
     def kosten_cent(self) -> int:
         return round(self.kosten)
 
-    def aufruf(self, klient: Klient, system: str, nutzer: str, retten: bool = False) -> dict:
-        a = self._chat(klient, system, nutzer)
+    def aufruf(self, klient: Klient, system: str, nutzer: str, retten: bool = False, profil: str = "prosa",
+               antwort_hoechstens: int | None = None) -> dict:
+        """Ein Aufruf mit JSON-Antwort. profil (prosa | sachlich | urteil) und antwort_hoechstens gelten nur für das
+        lokale Modell; andere Klienten kennen sie nicht und bleiben unverändert."""
+        lokal = hasattr(klient, "profil")
+        vorher = (klient.profil, klient.antwort_hoechstens, klient.grammatik) if lokal else None
+        if lokal:
+            klient.profil = profil
+            klient.antwort_hoechstens = antwort_hoechstens or ANTWORT_HOECHSTENS
         try:
-            return _json(a, retten)
-        except SprachmodellFehler:  # ein zweiter Versuch – kleine Modelle stolpern gelegentlich
-            a = self._chat(klient, system, nutzer + "\n\nAntworte ausschließlich mit gültigem JSON.")
-            return _json(a, retten)
+            a = self._chat(klient, system, nutzer)
+            try:
+                return _json(a, retten)
+            except SprachmodellFehler:  # ein zweiter Versuch – kleine Modelle stolpern gelegentlich
+                self.nachgefordert += 1
+                if lokal:
+                    klient.grammatik = True  # diesmal mit JSON-Grammatik
+                a = self._chat(klient, system, nutzer + "\n\nAntworte ausschließlich mit gültigem JSON.")
+                return _json(a, retten)
+        finally:
+            if lokal:
+                klient.profil, klient.antwort_hoechstens, klient.grammatik = vorher
 
     def _chat(self, klient: Klient, system: str, nutzer: str) -> Antwort:
         a = klient.chat(system, nutzer)
         self.letzte_antwort = a.text
+        if getattr(a, "abgeschnitten", False):
+            self.abgeschnitten += 1
         self.tokens_in += a.tokens_in
         self.tokens_out += a.tokens_out
         self.aufrufe += 1
@@ -2212,6 +2303,18 @@ class Ablauf:
     stil: str = "bisher"  # 0.4.129: „biograf“ = Bericht eines Biografen (vorerst nur im Probelauf, siehe STILE)
     grundlage_vorn: bool = False  # 0.4.129: Grundlage als erste Nachricht für den Zwischenspeicher (GrundlageVorn)
 
+    def _antwortlaenge(self, system: str, nutzer: str, woerter: int) -> int | None:
+        """0.4.134: Antwortlänge für Texte nach Bedarf statt fest 4096 Token – lange Kapitel wurden sonst abgeschnitten
+        und der Auftrag scheiterte. Nie weniger als bisher, nie mehr, als in den Kontext passt. None: Klient ohne Grenze."""
+        if not hasattr(self.klient, "profil"):
+            return None
+        bedarf = max(ANTWORT_HOECHSTENS, int(woerter * TOKEN_JE_WORT) + 500)
+        kontext = getattr(self.klient, "kontext", None)
+        if kontext:
+            frei = kontext - tokens(system) - tokens(nutzer) - ANTWORT_RESERVE
+            bedarf = min(bedarf, max(1024, frei))
+        return bedarf
+
     def _schritt(self, name: str) -> None:
         try:
             if self.schritt is not None:
@@ -2297,7 +2400,8 @@ class Ablauf:
         if self.temperatur_notizen is not None and hasattr(self.klient, "temperatur"):
             self.klient.temperatur = self.temperatur_notizen
         try:
-            d = self.zaehler.aufruf(self.notiz_klient or self.klient, system, vorspann + "\n".join(zeilen), retten=True)
+            d = self.zaehler.aufruf(self.notiz_klient or self.klient, system, vorspann + "\n".join(zeilen), retten=True,
+                                        profil="sachlich")
         except AntwortFehler:
             if tiefe >= 2 or len(zeilen) < 8:
                 raise
@@ -2386,7 +2490,8 @@ class Ablauf:
             zeiten = re.findall(r"^\[(\d{1,2}(?::\d{2}){1,2})\]", teil, re.M)
             von_bis = f" ({zeiten[0]}–{zeiten[-1]})" if zeiten else ""
             try:
-                d = self.zaehler.aufruf(self.klient, system, f"{kopf}\n\nTeil {i + 1} von {len(teile)}{von_bis}:\n{teil}")
+                d = self.zaehler.aufruf(self.klient, system, f"{kopf}\n\nTeil {i + 1} von {len(teile)}{von_bis}:\n{teil}",
+                                        profil="prosa")
                 text = klartext(d.get("zusammenfassung") or d.get("summary") or "")
             except AntwortFehler:
                 text = ""
@@ -2428,7 +2533,8 @@ class Ablauf:
             extra = "" if not versuch else (
                 f"\n\nDein erster Entwurf hatte nur {len(r['text'].split())} Wörter. Schreib das ganze Kapitel mit "
                 f"{unten} bis {oben} Wörtern, alle Abschnitte in ihrer Reihenfolge, als Fließtext im Feld „text“.")
-            d = self.zaehler.aufruf(self.klient, system, nutzer + extra)
+            d = self.zaehler.aufruf(self.klient, system, nutzer + extra, profil="prosa",
+                                    antwort_hoechstens=self._antwortlaenge(system, nutzer + extra, oben))
             neu = self._recap_lesen(d)
             if r is None or len(neu["text"].split()) > len(r["text"].split()):
                 r = neu
@@ -2460,7 +2566,7 @@ class Ablauf:
                   .replace("{hoechstens}", str(FEHLEND_HOECHSTENS)))
         nutzer = f"{_kopf(ein)}\n\n{titel}:\n{grundlage}\n\nRecap:\n{text}"
         self._schritt("review")
-        aus = fehlend_lesen(self.zaehler.aufruf(self.klient, system, nutzer), grundlage)
+        aus = fehlend_lesen(self.zaehler.aufruf(self.klient, system, nutzer, profil="urteil"), grundlage)
         return [f for f in aus if not _schon_erzaehlt(f["notiz"], text)]
 
     def ergaenzen(self, ein: dict, text: str, fehlend: list[dict]) -> str | None:
@@ -2481,7 +2587,9 @@ class Ablauf:
         nummeriert = "\n\n".join(f"Absatz {i + 1}:\n{a}" for i, a in enumerate(teile))
         nutzer = f"{_kopf(ein)}\n\nFehlende Ereignisse:\n{liste}\n\nRecap, Absatz für Absatz:\n{nummeriert}"
         self._schritt("revision")
-        d = self.zaehler.aufruf(self.klient, mit_ton(SYSTEM_ERGAENZUNG.replace("{sprache}", _sprache(ein)), self.stil), nutzer)
+        system = mit_ton(SYSTEM_ERGAENZUNG.replace("{sprache}", _sprache(ein)), self.stil)
+        d = self.zaehler.aufruf(self.klient, system, nutzer, profil="sachlich",
+                                antwort_hoechstens=self._antwortlaenge(system, nutzer, len(text.split()) + 400))
         neu = {}
         for a in d.get("absaetze") or d.get("paragraphs") or []:
             try:
@@ -2530,7 +2638,8 @@ class Ablauf:
             stand_titel = ("Stand am Ende der Runde" if am_ende else f"Stand bis {_zeit(a['bis'])}")
             nutzer = (f"{_kopf(ein)}\n\nSzenennotizen{' dieses Abschnitts' if a['n'] > 1 else ' der Runde'}:\n"
                       f"{a['notizen']}\n\n{stand_titel} (mit dem Zeitpunkt der Änderung):\n{stand}")
-            for e in auswahl_lesen(self.zaehler.aufruf(self.notiz_klient or self.klient, system, nutzer), a["anteil"]):
+            for e in auswahl_lesen(self.zaehler.aufruf(self.notiz_klient or self.klient, system, nutzer, profil="sachlich"),
+                                   a["anteil"]):
                 if e["ereignis"].casefold() not in gesehen:
                     gesehen.add(e["ereignis"].casefold())
                     aus.append(e)
@@ -2549,7 +2658,8 @@ class Ablauf:
         system = (SYSTEM_EINSCHNITT.replace("{sprache}", _sprache(ein)).replace("{anzahl}", str(anzahl))
                   .replace("{von}", _zeit(dauer * TEILE_FENSTER[0])).replace("{bis}", _zeit(dauer * TEILE_FENSTER[1])))
         self._schritt("recap")
-        d = self.zaehler.aufruf(self.notiz_klient or self.klient, system, f"{_kopf(ein)}\n\nSzenennotizen:\n{notizen}")
+        d = self.zaehler.aufruf(self.notiz_klient or self.klient, system, f"{_kopf(ein)}\n\nSzenennotizen:\n{notizen}",
+                                profil="sachlich")
         teile = einschnitte_lesen(d, notizen, dauer, anzahl, "en" if ein.get("sprache") == "en" else "de")
         self.letzte_einschnitte = {"antwort": d, "teile": teile}
         return teile
@@ -2577,7 +2687,7 @@ class Ablauf:
                                + (f" – Ausgang: {p['ausgang']}" if p["ausgang"] else "")
                                + f"\nAbschrift dazu:\n{fenster[i]}")
             d = self.zaehler.aufruf(self.klient, SYSTEM_ZWEITER_BLICK.replace("{sprache}", _sprache(ein)),
-                                    f"{_kopf(ein)}\n\n" + "\n\n---\n\n".join(bloecke))
+                                    f"{_kopf(ein)}\n\n" + "\n\n---\n\n".join(bloecke), profil="urteil")
             antworten = {}
             for a in d.get("ereignisse") or d.get("events") or []:
                 if isinstance(a, dict):
@@ -2619,7 +2729,8 @@ class Ablauf:
         nutzer = (f"Ereignisse, die vorkommen müssen:\n{auswahl_text(punkte)}\n\nKapitel, Absatz für Absatz:\n"
                   + "\n\n".join(f"Absatz {i + 1}:\n{a}" for i, a in enumerate(teile)))
         self._schritt("review")
-        return pflicht_lesen(self.zaehler.aufruf(self.klient, SYSTEM_PFLICHT.replace("{sprache}", _sprache(ein)), nutzer),
+        return pflicht_lesen(self.zaehler.aufruf(self.klient, SYSTEM_PFLICHT.replace("{sprache}", _sprache(ein)), nutzer,
+                                                 profil="urteil"),
                              len(punkte), len(teile), text, "en" if ein.get("sprache") == "en" else "de", punkte)
 
     def pflicht_nachbessern(self, ein: dict, punkte: list[dict], befund: list[dict], text: str) -> str | None:
@@ -2638,8 +2749,9 @@ class Ablauf:
         liste = "\n\n".join(f"Absatz {i + 1}:\n{teile[i]}\nZu tun:\n" + "\n".join(je_absatz[i])
                               for i in sorted(je_absatz))
         self._schritt("revision")
-        d = self.zaehler.aufruf(self.klient, mit_ton(SYSTEM_PFLICHT_NACH.replace("{sprache}", _sprache(ein)), self.stil),
-                                f"{_kopf(ein)}\n\n{liste}")
+        system = mit_ton(SYSTEM_PFLICHT_NACH.replace("{sprache}", _sprache(ein)), self.stil)
+        d = self.zaehler.aufruf(self.klient, system, f"{_kopf(ein)}\n\n{liste}", profil="sachlich",
+                                antwort_hoechstens=self._antwortlaenge(system, liste, len(text.split()) + 400))
         neu = {}
         for a in d.get("absaetze") or d.get("paragraphs") or []:
             try:
@@ -2692,7 +2804,8 @@ class Ablauf:
             zusatz = "" if not versuch else (
                 f"\n\nDeine erste Kürzung hatte nur {m} Wörter – du hast {n - m} gestrichen statt etwa {weg}. Streiche nur "
                 f"etwa {weg} Wörter, gleichmäßig über alle Absätze; das Ende bleibt vollständig.")
-            d = self.zaehler.aufruf(self.klient, system, nutzer + zusatz)
+            d = self.zaehler.aufruf(self.klient, system, nutzer + zusatz, profil="prosa",
+                                    antwort_hoechstens=self._antwortlaenge(system, nutzer + zusatz, n))
             t = klartext(d.get("text") if isinstance(d.get("text"), str) else "")
             if "\n\n" not in t and "\n" in t:
                 t = re.sub(r"\n+", "\n\n", t)
@@ -2749,7 +2862,9 @@ class Ablauf:
                   + "\n\n".join(f"Absatz {i + 1}:\n{a}" for i, a in enumerate(teile))
                   + "\n\nHinweise der Spielleitung:\n" + "\n".join(liste))
         self._schritt("revision")
-        d = self.zaehler.aufruf(self.klient, mit_ton(SYSTEM_KORREKTUR.replace("{sprache}", _sprache(ein)), self.stil), nutzer)
+        system = mit_ton(SYSTEM_KORREKTUR.replace("{sprache}", _sprache(ein)), self.stil)
+        d = self.zaehler.aufruf(self.klient, system, nutzer, profil="sachlich",
+                                antwort_hoechstens=self._antwortlaenge(system, nutzer, len(text.split()) + 400))
         neu, bericht["verworfen"] = korrektur_anwenden(d, teile, hinweise, frei)
         geschuetzt = [e["name"] for e in ein.get("bibel") or []]
         for i, t in list(neu.items()):
@@ -2788,7 +2903,7 @@ class Ablauf:
             return []
         self._schritt("review")
         d = self.zaehler.aufruf(self.klient, SYSTEM_RELATIONEN.replace("{sprache}", _sprache(ein)),
-                                f"{_kopf(ein)}\n\n" + "\n\n---\n\n".join(bloecke))
+                                f"{_kopf(ein)}\n\n" + "\n\n---\n\n".join(bloecke), profil="urteil")
         aus = []
         for a in d.get("absaetze") or d.get("paragraphs") or []:
             if not isinstance(a, dict):
@@ -2825,7 +2940,7 @@ class Ablauf:
         liste = "\n\n".join(f"Absatz {i + 1}:\n{a}" for i, a in enumerate(teile))
         nutzer = f"{_kopf(ein)}\n\n{titel}:\n{grundlage}\n\nRecap, Absatz für Absatz:\n{liste}"
         system = SYSTEM_PRUEFUNG.replace("{sprache}", _sprache(ein))
-        return pruefung_lesen(self.zaehler.aufruf(self.klient, system, nutzer), len(teile))
+        return pruefung_lesen(self.zaehler.aufruf(self.klient, system, nutzer, profil="urteil"), len(teile))
 
     def nachbessern(self, ein: dict, titel: str, grundlage: str, text: str, befund: list[dict]) -> str | None:
         """Beanstandete Absätze einmal neu schreiben lassen. None, wenn nichts zu tun war oder nichts kam."""
@@ -2837,7 +2952,8 @@ class Ablauf:
                              for b in schlecht)
         nutzer = f"{_kopf(ein)}\n\n{titel}:\n{grundlage}\n\nBeanstandete Absätze:\n{liste}"
         system = mit_ton(SYSTEM_NACHBESSERUNG.replace("{sprache}", _sprache(ein)), self.stil)
-        d = self.zaehler.aufruf(self.klient, system, nutzer)
+        d = self.zaehler.aufruf(self.klient, system, nutzer, profil="sachlich",
+                                antwort_hoechstens=self._antwortlaenge(system, nutzer, len(text.split()) + 400))
         neu = {}
         for a in d.get("absaetze") or d.get("paragraphs") or []:
             try:
@@ -2890,14 +3006,33 @@ class Ablauf:
                 z += f"\n  gmNotes: {e['gm_notes'][:600]}"
             return z
 
-        bibel = "\n".join(eintrag(e) for e in ein["bibel"])
-        geheim = "\n".join(eintrag(e) for e in ein["geheim"])
-        nutzer = (f"{_kopf(ein)}\n\nBibel (für Spieler sichtbar; gmNotes sind geheim):\n{bibel or '(leer)'}"
-                  f"\n\nGeheime Einträge (nur Spielleitung oder nur einzelne Spieler kennen sie):\n{geheim or '(keine)'}\n\n{titel}:\n{grundlage}")
-        system = (SYSTEM_VORSCHLAEGE.replace("{sprache}", _sprache(ein)).replace("{max}", str(MAX_VORSCHLAEGE_ROH)))
+        def nutzer_fuer(text: str) -> str:
+            bibel = "\n".join(eintrag(e) for e in ein["bibel"])
+            geheim = "\n".join(eintrag(e) for e in ein["geheim"])
+            return (f"{_kopf(ein)}\n\nBibel (für Spieler sichtbar; gmNotes sind geheim):\n{bibel or '(leer)'}"
+                    f"\n\nGeheime Einträge (nur Spielleitung oder nur einzelne Spieler kennen sie):\n{geheim or '(keine)'}"
+                    f"\n\n{titel}:\n{text}")
+
         self._schritt("proposals")
-        d = self.zaehler.aufruf(self.vorschlag_klient or self.klient, system, nutzer)
-        return pruefen(d.get("proposals") or [], {e["id"] for e in ein["bibel"]}, {e["id"] for e in ein["geheim"]},
+        platz = self.max_transkript_tokens - 3_000
+        teile: list[dict] = []
+        if self.notizen_zuerst and titel.startswith("Szenennotizen") and tokens(grundlage) > platz:
+            # 0.4.134: Notizen passen nicht in den Kontext – je Zeitteil ein Aufruf, geprüft wird einmal am Ende
+            teile = teile_nach_platz(grundlage, 0.0, max(_minuten(ein) * 60, 1.0), platz)
+        roh: list = []
+        if len(teile) > 1:
+            je = max(8, -(-MAX_VORSCHLAEGE_ROH // len(teile)))
+            system = SYSTEM_VORSCHLAEGE.replace("{sprache}", _sprache(ein)).replace("{max}", str(je))
+            for t in teile:
+                d = self.zaehler.aufruf(self.vorschlag_klient or self.klient, system,
+                                        nutzer_fuer(teil_notizen(grundlage, t["von"], t["bis"])), profil="sachlich")
+                roh += d.get("proposals") or []
+        else:
+            system = SYSTEM_VORSCHLAEGE.replace("{sprache}", _sprache(ein)).replace("{max}", str(MAX_VORSCHLAEGE_ROH))
+            d = self.zaehler.aufruf(self.vorschlag_klient or self.klient, system, nutzer_fuer(grundlage),
+                                    profil="sachlich")
+            roh = d.get("proposals") or []
+        return pruefen(roh, {e["id"] for e in ein["bibel"]}, {e["id"] for e in ein["geheim"]},
                        charaktere=[p["charakter"] for p in ein["personen"] if p.get("charakter")],
                        namen={e["id"]: e["name"] for e in ein["bibel"] + ein["geheim"]}, grundlage=grundlage,
                        hoechstens=vorschlaege_hoechstens(ein))
@@ -2908,6 +3043,26 @@ class Ablauf:
         if self.notizen_zuerst and self.letztes_transkript and tokens(self.letztes_transkript) <= self.max_transkript_tokens:
             return "Transkript", self.letztes_transkript
         return titel, grundlage
+
+    def _teile_mit_platz(self, ein: dict, notizen: str, teile: list[dict]) -> list[dict]:
+        """0.4.134: Passt ein Teil (bzw. ohne Einschnitt die ganze Runde) nicht in den Kontext, wird er in gleich lange
+        Zeitteile nach Platz geteilt. Der Titel eines Einschnitts bleibt am ersten Stück."""
+        grenze = self.max_transkript_tokens - PLATZ_RESERVE
+        sprache = "en" if ein.get("sprache") == "en" else "de"
+        dauer = _minuten(ein) * 60
+        if not teile:
+            if tokens(notizen) <= grenze or dauer <= 0:
+                return []
+            teile = [{"von": 0.0, "bis": dauer, "titel": ""}]
+        aus: list[dict] = []
+        for t in teile:
+            stuecke_ = teile_nach_platz(notizen, t["von"], t["bis"], grenze, sprache, len(aus) + 1)
+            if t["titel"]:
+                stuecke_[0]["titel"] = t["titel"]
+            aus += stuecke_
+        if len(aus) > len(teile):
+            self.warnungen.append({"schritt": "teile", "fehler": f"Notizen nach Platz in {len(aus)} Teile gegliedert"})
+        return aus if len(aus) > 1 else []
 
     def _recap_in_teilen(self, ein: dict, notizen: str, teile: list[dict]) -> dict:
         """0.4.78: Ein Kapitel aus Teilen. Jeder Teil wird für sich geschrieben – mit seinen Notizen, dem Stand bis zu
@@ -2966,7 +3121,9 @@ class Ablauf:
             # sie direkt, nur in Zeitabschnitte gegliedert: Jede weitere Zusammenfassung kostet Fakten, die in den
             # Notizen schon richtig standen. Teil-Zusammenfassungen nur, wenn die Notizen doch zu groß sind.
             zu_gross = tokens(grundlage) > self.max_transkript_tokens
-            if self.gliederung == "teile" or (self.gliederung != "direkt" and zu_gross):
+            # 0.4.134: Im Weg „Erst Notizen“ keine Prosa aus Prosa – zu große Notizen werden in Teile nach Platz
+            # gegliedert (unten), damit Auswahl, Pflichtprüfung und Stand je Teil erhalten bleiben.
+            if self.gliederung == "teile" or (self.gliederung != "direkt" and zu_gross and not self.notizen_zuerst):
                 verlauf = self.verlauf(recap_ein, grundlage)
         self.letzter_verlauf = verlauf
         if verlauf:
@@ -2984,6 +3141,7 @@ class Ablauf:
                     log.warning("Suche nach Einschnitten übersprungen: %s", e)
                     self.warnungen.append({"schritt": "einschnitte", "fehler": str(e),
                                            "antwort": (self.zaehler.letzte_antwort or "")[:3000]})
+                teile = self._teile_mit_platz(recap_ein, grundlage, teile)
                 try:
                     if teile:  # 0.4.78: je Teil eigene Pflichtereignisse
                         for t in teile:
@@ -3430,7 +3588,7 @@ class DokumentAblauf:
                         z += f"\n  gmNotes: {e['gm_notes'][:600]}"
                 return z
             liste = "\n".join(eintrag(e) for e in ein["bibel"]) or "(leer)"
-            d = self.zaehler.aufruf(self.klient, system, f"{kopf}\n\nBibel:\n{liste}\n\nUnterlage „{ein['titel']}“, "
+            d = self.zaehler.aufruf(self.klient, system, profil="sachlich", nutzer=f"{kopf}\n\nBibel:\n{liste}\n\nUnterlage „{ein['titel']}“, "
                                                          f"Teil {i + 1} von {len(teile)}:\n{teil}")
             alle += dokument_pruefen(d.get("proposals") or [], bibel)
             if ein["art"] != "gm" and ein.get("quelle") != "character" and str(d.get("worldInfo") or "").strip():
@@ -3440,7 +3598,8 @@ class DokumentAblauf:
         if len(welt) == 1:
             welt_text = welt[0][:1500]
         elif welt:
-            d = self.zaehler.aufruf(self.klient, SYSTEM_WELT.replace("{sprache}", _sprache(ein)), "\n\n---\n\n".join(welt))
+            d = self.zaehler.aufruf(self.klient, SYSTEM_WELT.replace("{sprache}", _sprache(ein)), "\n\n---\n\n".join(welt),
+                                    profil="sachlich")
             welt_text = str(d.get("worldInfo") or "").strip()[:1500] or None
         fortschritt(1.0)
         return {"proposals": _zusammenlegen(alle), "worldInfoSuggestion": welt_text, "model": self.klient.modell,

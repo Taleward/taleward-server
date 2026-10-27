@@ -169,6 +169,9 @@ class Ergebnis:
     tokens_ein: int = 0
     tokens_aus: int = 0
     grundlage: str = ""  # „Transkript“ oder „Szenennotizen …“
+    einstellung: str = ""  # 0.4.134: Profil, Weg und Testoptionen dieses Laufs
+    nachgefordert: int = 0  # 0.4.134: Antworten ohne gültiges JSON, die neu angefordert wurden
+    abgeschnitten: int = 0  # 0.4.134: Antworten an der Längengrenze
     letzte_antwort: str = ""  # bei einem Fehler: Rohtext der letzten Modellantwort (Fehlersuche, bleibt lokal)
     notizen: str = ""  # Grundlage, wenn verdichtet (Szenennotizen) – zur Fehlersuche, bleibt lokal
     verlauf: str = ""  # Zusammenfassungen der Teile bei langen Runden
@@ -241,6 +244,41 @@ class Einstellungen:
     pruefliste: list[dict] = field(default_factory=list)
     notizen: str = ""  # fertige Szenennotizen statt neuer Extraktion (A/B auf identischen Notizen)
     nachbesserung: bool = True  # False: Faktenprüfung ohne Umschreiben (--ohne-nachbesserung)
+    # 0.4.134: Abtastung und Weg zum Kapitel (Messung „neu gegen alt“, „abschrift gegen notizen“)
+    profil: str = "neu"  # neu | alt (Verhalten bis 0.4.133)
+    temperatur_kapitel: float | None = None  # nur das Kapitel (Profil „prosa“)
+    strafe: float | None = None  # Wiederholungsstrafe aller Profile (1.0 = aus)
+    grammatik: str = "profil"  # profil | immer | nie
+    weg: str = "abschrift"  # abschrift | notizen (wie der Worker nach der Einstellung in der Verwaltung)
+
+    def beschreibung(self) -> str:
+        teile = [f"Profil {self.profil}", f"Weg {self.weg}"]
+        if self.temperatur_kapitel is not None:
+            teile.append(f"Temperatur Kapitel {self.temperatur_kapitel:g}")
+        if self.strafe is not None:
+            teile.append(f"Strafe {self.strafe:g}")
+        if self.grammatik != "profil":
+            teile.append(f"Grammatik {self.grammatik}")
+        return ", ".join(teile)
+
+
+def abtastung_setzen(k, einst: "Einstellungen") -> None:
+    """Profile des lokalen Klienten nach den Testoptionen (Kopie – die Vorgaben im Modul bleiben unberührt)."""
+    import copy
+
+    from app.sprachmodell import PROFILE, PROFILE_ALT
+
+    if einst.profil == "alt":
+        k.profile = PROFILE_ALT
+    else:
+        profile = copy.deepcopy(PROFILE)
+        if einst.temperatur_kapitel is not None:
+            profile["prosa"]["temperature"] = einst.temperatur_kapitel
+        if einst.strafe is not None:
+            for p in profile.values():
+                p["repeat_penalty"] = einst.strafe
+        k.profile = profile
+    k.grammatik = {"immer": True, "nie": False}.get(einst.grammatik)
 
 
 def modell_laufen(url: str, modell: str, kontext: int, recap_ein: dict, vorschlag_ein: dict,
@@ -259,10 +297,18 @@ def modell_laufen(url: str, modell: str, kontext: int, recap_ein: dict, vorschla
         erg.fehler = f"Laden fehlgeschlagen: {e}"
         return erg, None
     erg.laden_s = time.monotonic() - t0
+    if hasattr(k, "profil"):
+        abtastung_setzen(k, einst)
+    erg.einstellung = einst.beschreibung()
+    notizen_weg = einst.weg == "notizen"
+    from app.sprachmodell import notiz_stueck_fuer
+
     ablauf = _ablauf_klasse()(k, max_transkript_tokens=max(2000, kontext - 5000),
                               stueck_tokens=max(1500, (kontext - 4000) // 2), schritt=lambda n: melden(f"  … {n}"),
-                              gliederung=einst.gliederung, temperatur_notizen=einst.temperatur)
-    ablauf.nachbesserung = einst.nachbesserung
+                              gliederung=einst.gliederung, temperatur_notizen=einst.temperatur,
+                              notizen_zuerst=notizen_weg,
+                              notiz_stueck=notiz_stueck_fuer(kontext) if notizen_weg else 15_000)
+    ablauf.nachbesserung = einst.nachbesserung and not notizen_weg  # wie der Worker
     ablauf.notizen_vorgabe = einst.notizen
     erg.ollama = ollama_fassung(url, client)
     t0 = time.monotonic()
@@ -280,6 +326,8 @@ def modell_laufen(url: str, modell: str, kontext: int, recap_ein: dict, vorschla
         erg.dauer_s = time.monotonic() - t0
         erg.aufrufe, erg.tokens_ein, erg.tokens_aus = (ablauf.zaehler.aufrufe, ablauf.zaehler.tokens_in,
                                                        ablauf.zaehler.tokens_out)
+        erg.nachgefordert = getattr(ablauf.zaehler, "nachgefordert", 0)
+        erg.abgeschnitten = getattr(ablauf.zaehler, "abgeschnitten", 0)
         erg.grundlage = ablauf.letzte_grundlage[0]
         if erg.grundlage.startswith("Szenennotizen"):
             erg.notizen = ablauf.letzte_grundlage[1]
@@ -430,14 +478,16 @@ def bericht_md(info: dict, richter: str, ergebnisse: list[Ergebnis]) -> str:
               f"{info['zeilen']} Transkriptzeilen, Aufnahme {_zeit(info['dauer_s'])}. Richter: {richter or '–'}."
               + (f" Ollama: {ergebnisse[0].ollama}." if ergebnisse and ergebnisse[0].ollama else ""), "",
               "| Modell | Ergebnis | Dauer | Token/s | belegt (selbst) | unbelegt/widersprochen (selbst) | "
-              "belegt (Richter) | unbelegt/widersprochen (Richter) | Vorschläge | nachgebessert | Grundlage |",
-              "|---|---|---|---|---|---|---|---|---|---|---|"]
+              "belegt (Richter) | unbelegt/widersprochen (Richter) | Vorschläge | nachgebessert | Grundlage | "
+              "Einstellung | neu angefordert | abgeschnitten |",
+              "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for e in ergebnisse:
         zeilen.append(
             f"| {_name(e)} | {'ok' if e.ok else 'Fehler'} | {_zeit(e.dauer_s)} | {e.token_s:.1f} | "
             f"{_anteil(e.selbst, 'supported')} | {_anteil(e.selbst, 'unsupported', 'contradicted')} | "
             f"{_anteil(e.richter, 'supported')} | {_anteil(e.richter, 'unsupported', 'contradicted')} | "
-            f"{len(e.vorschlaege)} | {'ja' if e.nachgebessert else 'nein'} | {e.grundlage or '–'} |")
+            f"{len(e.vorschlaege)} | {'ja' if e.nachgebessert else 'nein'} | {e.grundlage or '–'} | "
+            f"{e.einstellung or '–'} | {e.nachgefordert} | {e.abgeschnitten} |")
     for e in ergebnisse:
         zeilen += ["", f"## {_name(e)}", ""]
         if not e.ok:
@@ -467,13 +517,15 @@ def bericht_html(info: dict, richter: str, ergebnisse: list[Ergebnis]) -> str:
     e_ = html.escape
     kopf = "".join(f"<th>{e_(x)}</th>" for x in (
         "Modell", "Ergebnis", "Dauer", "Token/s", "belegt (selbst)", "unbelegt (selbst)", "belegt (Richter)",
-        "unbelegt (Richter)", "Vorschläge", "nachgebessert", "Grundlage"))
+        "unbelegt (Richter)", "Vorschläge", "nachgebessert", "Grundlage", "Einstellung", "neu angefordert",
+        "abgeschnitten"))
     reihen = "".join(
         "<tr>" + "".join(f"<td>{e_(str(x))}</td>" for x in (
             _name(e), "ok" if e.ok else "Fehler", _zeit(e.dauer_s), f"{e.token_s:.1f}",
             _anteil(e.selbst, "supported"), _anteil(e.selbst, "unsupported", "contradicted"),
             _anteil(e.richter, "supported"), _anteil(e.richter, "unsupported", "contradicted"),
-            len(e.vorschlaege), "ja" if e.nachgebessert else "nein", e.grundlage or "–")) + "</tr>"
+            len(e.vorschlaege), "ja" if e.nachgebessert else "nein", e.grundlage or "–", e.einstellung or "–",
+            e.nachgefordert, e.abgeschnitten)) + "</tr>"
         for e in ergebnisse)
 
     def spalte(e: Ergebnis) -> str:

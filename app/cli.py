@@ -854,6 +854,11 @@ def modellvergleich(
     pruefliste: Path = typer.Option(None, "--pruefliste", help="Textdatei mit Prüfpunkten (Beschreibung :: Stichwort; Stichwort/Alias); der Bericht zeigt je Punkt, in welcher Stufe er vorkommt"),
     notizen: Path = typer.Option(None, "--notizen", help="Fertige notizen.txt eines früheren Laufs statt neuer Szenennotizen – für Vergleiche auf identischer Grundlage"),
     ohne_nachbesserung: bool = typer.Option(False, "--ohne-nachbesserung", help="Testoption: Faktenprüfung läuft, aber das Kapitel wird nicht umgeschrieben"),
+    profil: str = typer.Option("neu", "--profil", help="Abtastung des Modells: neu (seit 0.4.134) | alt (bis 0.4.133)"),
+    weg: str = typer.Option("abschrift", "--weg", help="Weg zum Kapitel: abschrift (bisher) | notizen (erst Notizen je Abschnitt)"),
+    temperatur_kapitel: float = typer.Option(None, "--temperatur-kapitel", min=0.0, max=1.0, help="Testoption: Temperatur nur für das Kapitel"),
+    strafe: float = typer.Option(None, "--strafe", min=1.0, max=2.0, help="Testoption: Wiederholungsstrafe (1.0 = aus)"),
+    grammatik: str = typer.Option("profil", "--grammatik", help="Testoption: JSON-Grammatik profil | immer | nie"),
 ):
     """Mehrere lokale Sprachmodelle schreiben Recap, Gegenprüfung und Vorschläge für dieselbe Session – zum
     Vergleichen am eigenen PC. Liest nur über die Schnittstelle, ändert nichts auf dem Server."""
@@ -871,6 +876,8 @@ def modellvergleich(
         typer.echo(f"Ollama unter {mv.ollama_fassung(url)}")
         if grundlage not in ("auto", "direkt", "teile"):
             raise mv.VergleichFehler("--grundlage: auto, direkt oder teile")
+        if profil not in ("neu", "alt") or weg not in ("abschrift", "notizen") or grammatik not in ("profil", "immer", "nie"):
+            raise mv.VergleichFehler("--profil neu|alt, --weg abschrift|notizen, --grammatik profil|immer|nie")
         for name, datei in (("Prüfliste", pruefliste), ("Notizen", notizen)):
             if datei is not None and not datei.is_file():
                 raise mv.VergleichFehler(f"{name} nicht gefunden: {datei.resolve()} – Datei in diesen Ordner legen "
@@ -878,7 +885,9 @@ def modellvergleich(
         einst = mv.Einstellungen(laeufe=laeufe, gliederung=grundlage, temperatur=temperatur,
                                  pruefliste=mv.pruefliste_lesen(pruefliste.read_text(encoding="utf-8")) if pruefliste else [],
                                  notizen=notizen.read_text(encoding="utf-8") if notizen else "",
-                                 nachbesserung=not ohne_nachbesserung)
+                                 nachbesserung=not ohne_nachbesserung, profil=profil, weg=weg,
+                                 temperatur_kapitel=temperatur_kapitel, strafe=strafe, grammatik=grammatik)
+        typer.echo(f"Einstellung: {einst.beschreibung()}")
         if ohne_nachbesserung:
             typer.echo("Ohne Nachbesserung: Prüfung läuft, Kapitel bleibt wie geschrieben")
         if pruefliste:

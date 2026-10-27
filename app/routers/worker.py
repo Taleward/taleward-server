@@ -150,7 +150,8 @@ def _modell_angabe(k) -> dict:
 def _zusammenfassungs_auftrag(db: Session, job: Job) -> dict:
     """Zusammenfassung auf einem Worker mit Sprachmodell: die beiden getrennten Eingaben, kein Audio."""
     from app.einstellungen import llm_konfig
-    from app.zusammenfassung import eingabe_bauen, gegenpruefen_an, recap_eingabe, vorschlag_eingabe
+    from app.zusammenfassung import (eingabe_bauen, gegenpruefen_an, pruefansicht_art, recap_eingabe, vorschlag_eingabe,
+                                     zweiter_blick_an)
 
     s = db.get(GameSession, job.session_id)
     k = llm_konfig(db)
@@ -159,7 +160,9 @@ def _zusammenfassungs_auftrag(db: Session, job: Job) -> dict:
         "jobId": job.id, "type": job.type, "leaseSeconds": get_settings().lease_seconds, "attempt": job.attempts,
         "files": [],
         "summarize": {"recap": recap_eingabe(basis), "proposals": vorschlag_eingabe(db, s, basis),
-                      **_modell_angabe(k), "review": gegenpruefen_an(db)},
+                      **_modell_angabe(k), "review": gegenpruefen_an(db),
+                      # 0.4.134: Weg zum Kapitel für das lokale Modell (ältere Motoren lassen die Felder liegen)
+                      "path": k.weg_lokal, "secondLook": zweiter_blick_an(db), "reviewView": pruefansicht_art(db)},
     }
 
 

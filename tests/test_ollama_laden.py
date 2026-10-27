@@ -77,7 +77,7 @@ def test_wiederholungsschleife_wird_einmal_neu_versucht():
     a = k.chat("sys", "nutzer")
     assert a.text == '{"ok": true}' and a.tokens_out == 5
     erste, zweite = (b["options"] for b in koerper)
-    assert erste["repeat_penalty"] > 1 and erste["num_predict"] > 0
+    assert erste["repeat_penalty"] >= 1 and erste["num_predict"] > 0  # 0.4.134: Prosa ohne Strafe im ersten Versuch
     assert zweite["temperature"] > erste["temperature"] and zweite["repeat_penalty"] > erste["repeat_penalty"]
 
 
@@ -87,6 +87,7 @@ def test_dritter_versuch_ohne_json_grammatik():
         (500, {"error": "token repeat limit reached"}),
         (200, {"message": {"content": 'Hier: {"ok": true}'}, "prompt_eval_count": 10, "eval_count": 5}),
     ])
+    k.profil = "urteil"  # 0.4.134: JSON-Grammatik nur noch für Urteile
     assert k.chat("sys", "nutzer").text == 'Hier: {"ok": true}'
     assert [b.get("format") for b in koerper] == ["json", "json", None]
     assert koerper[2]["options"]["frequency_penalty"] > koerper[1]["options"]["frequency_penalty"] > 0
