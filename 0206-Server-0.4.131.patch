@@ -1,0 +1,617 @@
+From b0199c5abb01ce9b60fd80be1d2b44927ab9c850 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 12:36:05 +0100
+Subject: [PATCH] Server 0.4.131
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Verwaltung: Betriebsart auf der Übersicht und in den Einstellungen
+wählbar; Einstellungen in zwei Reitern (Laufender Betrieb, Einrichtung).
+---
+ NEU.md                                      |   8 +-
+ app/verwaltung/assistent.py                 |   4 +-
+ app/verwaltung/i18n.py                      |  10 ++
+ app/verwaltung/router.py                    |  57 +++++++-
+ app/verwaltung/static/verwaltung.css        |   7 +
+ app/verwaltung/templates/einstellungen.html | 136 ++++++++++++--------
+ app/verwaltung/templates/uebersicht.html    |   3 +
+ app/verwaltung/templates/updates.html       |   2 +-
+ pyproject.toml                              |   2 +-
+ tests/test_aktualisierung.py                |   2 +-
+ tests/test_assistent.py                     |   2 +-
+ tests/test_modellablage.py                  |   2 +-
+ tests/test_schnittstelle_0422.py            |   2 +-
+ tests/test_server_04105.py                  |   2 +-
+ tests/test_server_04115.py                  |  13 +-
+ tests/test_server_04130.py                  |   1 +
+ tests/test_server_04131.py                  |  67 ++++++++++
+ tests/test_webapp.py                        |   4 +-
+ tests/test_worker_app.py                    |   2 +-
+ uv.lock                                     |   2 +-
+ 20 files changed, 246 insertions(+), 82 deletions(-)
+ create mode 100644 tests/test_server_04131.py
+
+diff --git a/NEU.md b/NEU.md
+index 5373853..c83f052 100644
+--- a/NEU.md
++++ b/NEU.md
+@@ -1,9 +1,9 @@
+-Fassung 0.4.130
++Fassung 0.4.131
+ 
+ ## Was ist neu
+ 
+-- Verwaltung aufgeräumt: Jede Seite zeigt zuerst, was zur Betriebsart passt, mit kürzeren Hilfetexten. Bei „Nur Cloud“ stehen Worker, lokales Modell und Worker-Preise zugeklappt darunter.
+-- Seltene Einstellungen (App-Fassungen, neue Fassung der Nutzungsbedingungen, Prüfung der Kapitel, nicht eingerichtete Anmeldedienste, Preise bei ausgeschalteter Abrechnung) sind zugeklappt.
+-- Die Übersicht sagt bei „Nur Cloud“, wenn die Cloud-Transkription noch nicht eingerichtet ist, statt einen Worker zu verlangen.
++- Die Betriebsart (Nur Cloud, Lokaler Server oder beides) steht jetzt auf der Übersicht und lässt sich unter Einstellungen wechseln. Fehlt danach etwas, etwa ein Schlüssel oder ein Worker, führt die Verwaltung direkt dorthin.
++- Einstellungen in zwei Reitern: „Laufender Betrieb“ (Betriebsart, neue Konten, Aufnahmen, Kosten, Benachrichtigungen) und „Einrichtung“ (Angaben für die App, Web-App, Nutzungsbedingungen).
++- Verwaltung aufgeräumt (seit 0.4.130): Jede Seite zeigt zuerst, was zur Betriebsart passt, mit kürzeren Hilfetexten; Seltenes ist zugeklappt.
+ - Server ohne eigenen Namen heißen jetzt „Taleward“.
+ - Kleinere Verbesserungen.
+diff --git a/app/verwaltung/assistent.py b/app/verwaltung/assistent.py
+index 09a33ae..3fc206f 100644
+--- a/app/verwaltung/assistent.py
++++ b/app/verwaltung/assistent.py
+@@ -523,8 +523,8 @@ def nutzungsbedingungen_neue_fassung(request: Request, bestaetigung: str = Form(
+     name = (angaben(db).server_name or "").strip()
+     if not name or bestaetigung.strip() != name:  # ohne Servernamen gäbe es nichts zu bestätigen
+-        return RedirectResponse("/verwaltung/einstellungen?nb=falsch#nutzungsbedingungen", status_code=303)
++        return RedirectResponse("/verwaltung/einstellungen/einrichtung?nb=falsch#nutzungsbedingungen", status_code=303)
+     nutzungsbedingungen.hochzaehlen(db)
+     db.commit()
+-    return RedirectResponse("/verwaltung/einstellungen?nb=neu#nutzungsbedingungen", status_code=303)
++    return RedirectResponse("/verwaltung/einstellungen/einrichtung?nb=neu#nutzungsbedingungen", status_code=303)
+ 
+ 
+diff --git a/app/verwaltung/i18n.py b/app/verwaltung/i18n.py
+index 4a74ad5..1eeaed3 100644
+--- a/app/verwaltung/i18n.py
++++ b/app/verwaltung/i18n.py
+@@ -1261,4 +1261,14 @@ EN: dict[str, str] = {
+     "{name} einrichten": "Set up {name}",
+     "Am {zeit} kamen mehr neue Konten über die offene Registrierung, als der Server zulässt (30 je Stunde, 200 je Tag). Weitere mussten warten.": "On {zeit}, more new accounts arrived through open registration than the server allows (30 per hour, 200 per day). Further ones had to wait.",
++    # 0.4.131: Betriebsart in den Einstellungen, zwei Reiter
++    "Bestehende Kampagnen behalten ihre Cloud-Freigaben. Nach einem Wechsel den Datenschutzhinweis prüfen.": "Existing campaigns keep their cloud permissions. After a change, check the privacy notice.",
++    "Betriebsart gespeichert. Jetzt hier den API-Schlüssel von Mistral eintragen.": "Operating mode saved. Now enter the Mistral API key here.",
++    "Betriebsart gespeichert. Jetzt hier einen Worker anbinden.": "Operating mode saved. Now connect a worker here.",
++    "Betriebsart noch nicht gewählt – die Seiten zeigen deshalb alles.": "No operating mode chosen yet – so the pages show everything.",
++    "Betriebsart:": "Operating mode:",
++    "Eure Worker verarbeiten alles. Nichts verlässt euren Verein.": "Your workers process everything. Nothing leaves your club.",
++    "Laufender Betrieb": "Day-to-day",
++    "Wählen": "Choose",
++    "ändern": "change",
+ }
+ 
+diff --git a/app/verwaltung/router.py b/app/verwaltung/router.py
+index b05491c..4bf0fc8 100644
+--- a/app/verwaltung/router.py
++++ b/app/verwaltung/router.py
+@@ -128,4 +128,6 @@ MELDUNGEN = {
+     "konto_geloescht": "Konto gelöscht. Kommentare der Person bleiben als „gelöschtes Konto“ stehen.",
+     "gespeichert": "Gespeichert.",
++    "betrieb_schluessel": "Betriebsart gespeichert. Jetzt hier den API-Schlüssel von Mistral eintragen.",
++    "betrieb_worker": "Betriebsart gespeichert. Jetzt hier einen Worker anbinden.",
+     "worker_einstellungen": "Gespeichert. Der Worker startet nach dem laufenden Auftrag mit den neuen Einstellungen neu.",
+     "worker_neustart": "Der Worker startet neu, sobald er keinen Auftrag bearbeitet (spätestens in einer Minute).",
+@@ -1377,10 +1379,22 @@ def neustart(request: Request, session_id: str, user: User = Depends(verwalter),
+ 
+ # ---------------------------------------------------------------- Einstellungen und Sicherung
+-EINSTELLUNGS_BEREICHE = ("betreiber", "konten", "aufnahmen", "kosten", "app")
++EINSTELLUNGS_BEREICHE = ("betreiber", "konten", "aufnahmen", "kosten", "app", "betrieb")
++EINRICHTUNG_BEREICHE = ("betreiber", "app", "nutzungsbedingungen")  # 0.4.131: Reiter „Einrichtung“, Rest „Laufender Betrieb“
++
++
++def _einstellungen_ziel(bereich: str) -> str:
++    if bereich in EINRICHTUNG_BEREICHE:
++        return f"/einstellungen/einrichtung#{bereich}"
++    return f"/einstellungen#{bereich}" if bereich else "/einstellungen"
++
++
++@router.get("/einstellungen/einrichtung", response_class=HTMLResponse)
++def einstellungen_einrichtung(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)):
++    return einstellungen(request, user, db, teil="einrichtung")
+ 
+ 
+ @router.get("/einstellungen", response_class=HTMLResponse)
+ def einstellungen(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db),
+-                  fehler: str = ""):
++                  fehler: str = "", teil: str = "betrieb"):
+     from app import slfreigabe
+     from app.konto import registrierung, registrierungscode_gesetzt
+@@ -1398,5 +1412,6 @@ def einstellungen(request: Request, user: User = Depends(verwalter), db: Session
+     from app import betreiber, nutzungsbedingungen
+ 
+-    return _seite(request, "einstellungen.html", user, db, orgs=orgs, fehler=fehler, betreiber=betreiber.lesen(db),
++    teil = teil if teil in ("betrieb", "einrichtung") else "betrieb"
++    return _seite(request, "einstellungen.html", user, db, orgs=orgs, fehler=fehler, betreiber=betreiber.lesen(db), teil=teil,
+                   impressum_text=bool(meta_lesen(db, "impressum.text")), impressum_url=meta_lesen(db, "impressum.url"),
+                   nb=nutzungsbedingungen.stand(db), nb_meldung=request.query_params.get("nb", ""),
+@@ -1425,4 +1440,5 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
+                             betreiber_vertretung: str = Form(""), betreiber_register: str = Form(""),
+                             registrierungscode: str = Form(""), sl_freigabe: str = Form(""),
++                            betriebsart: str = Form(""),
+                             bereich: str = Form(""), user: User = Depends(verwalter),
+                             db: Session = Depends(get_db)):
+@@ -1438,5 +1454,6 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
+ 
+     def fehler(text: str):
+-        antwort = einstellungen(request, user, db, fehler=text)
++        antwort = einstellungen(request, user, db, fehler=text,
++                                teil="einrichtung" if bereich in EINRICHTUNG_BEREICHE else "betrieb")
+         antwort.status_code = 400
+         return antwort
+@@ -1466,4 +1483,8 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
+         return fehler(_("Unbekannte Auswahl."))
+     neuer_code = "".join(registrierungscode.split())
++    from app import einrichtung
++
++    if betriebsart and betriebsart not in einrichtung.BETRIEBSARTEN:
++        return fehler(_("Unbekannte Auswahl."))
+     if teil("konten") and neuer_code and not 6 <= len(neuer_code) <= 64:
+         return fehler(_("Der Registrierungscode braucht 6 bis 64 Zeichen (ohne Leerzeichen)."))
+@@ -1510,4 +1531,7 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
+             meta_schreiben(db, "web.zentral", "an" if web_zentral == "an" else "aus")
+         meta_schreiben(db, "web.herkuenfte", "\n".join(herkunft(z) for z in zeilen[:20]))
++    weiter = None
++    if teil("betrieb") and betriebsart:
++        weiter = _betriebsart_setzen(db, betriebsart)
+     if teil("konten") and registrierung:
+         meta_schreiben(db, "registrierung", registrierung)
+@@ -1534,5 +1558,28 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
+     if geaendert:
+         return _zurueck("/einstellungen#aufnahmen", "aufbewahrung_zustimmung" if zurueckgesetzt else "aufbewahrung")
+-    return _zurueck(f"/einstellungen#{bereich}" if bereich else "/einstellungen", "gespeichert")
++    if weiter:
++        return _zurueck(*weiter)
++    return _zurueck(_einstellungen_ziel(bereich), "gespeichert")
++
++
++def _betriebsart_setzen(db: Session, art: str) -> tuple[str, str] | None:
++    """0.4.131: Betriebsart in den Einstellungen wechseln – mit denselben Folgen wie im Einrichtungsassistenten
++    (Cloud-Transkription als Hauptweg, als Ausweichlösung oder aus). Fehlt danach etwas, geht es dorthin weiter."""
++    from app.einstellungen import extern_konfig
++
++    meta_schreiben(db, "betrieb.art", art)
++    ext = extern_konfig(db)
++    if art == "lokal":
++        meta_schreiben(db, "extern.anbieter", "")
++    else:
++        if ext.api_key:
++            meta_schreiben(db, "extern.anbieter", "mistral")
++        meta_schreiben(db, "extern.after_hours", "0" if art == "cloud" else f"{ext.stunden or 12:g}")
++    if art in ("cloud", "beides") and not ext.api_key:
++        return "/transkription#extern", "betrieb_schluessel"
++    if art in ("lokal", "beides") and db.scalar(select(func.count()).select_from(Worker)
++                                                 .where(Worker.revoked_at.is_(None))) == 0:
++        return "/transkription#koppeln", "betrieb_worker"
++    return None
+ 
+ 
+diff --git a/app/verwaltung/static/verwaltung.css b/app/verwaltung/static/verwaltung.css
+index 893ba79..5ff284a 100644
+--- a/app/verwaltung/static/verwaltung.css
++++ b/app/verwaltung/static/verwaltung.css
+@@ -165,4 +165,5 @@ form + .hilfe, .formular + .hilfe, .formular--zeile + .hilfe { margin-top:var(--
+ label { display:grid; gap:var(--space-1); font:500 14px/20px var(--font-sans); }
+ label.haken { display:flex; gap:var(--space-2); align-items:center; font-weight:400; }
++label.haken > input { flex-shrink:0; }  /* 0.4.131: Kästchen schrumpfen neben langem Text nicht */
+ [hidden] { display:none !important; }
+ input[type=text], input[type=password], input[type=url], input[type=number], input[type=email], input[type=date], select, textarea {
+@@ -299,2 +300,8 @@ code.ganz { user-select:all; } /* ein Tippen markiert die ganze Adresse zum Kopi
+ .klappteil[open] > summary { margin-bottom:var(--space-4); }
+ .formular > .klappe[open], .formular .klappe[open] { display:grid; gap:var(--space-4); }
++/* 0.4.131: Einstellungen in zwei Reitern („Laufender Betrieb“, „Einrichtung“) */
++.reiter { display:flex; flex-wrap:wrap; gap:var(--space-2); margin:0 0 var(--space-4); border-bottom:1px solid var(--line); }
++.reiter a { display:inline-flex; align-items:center; min-height:48px; padding:0 var(--space-4); color:var(--ink-muted);
++  text-decoration:none; font:500 15px/22px var(--font-sans); border-bottom:3px solid transparent; margin-bottom:-1px; }
++.reiter a:hover { color:var(--ink); }
++.reiter a[aria-current="page"] { color:var(--ink); font-weight:700; border-bottom-color:var(--ink); }
+diff --git a/app/verwaltung/templates/einstellungen.html b/app/verwaltung/templates/einstellungen.html
+index cc3af89..fb41726 100644
+--- a/app/verwaltung/templates/einstellungen.html
++++ b/app/verwaltung/templates/einstellungen.html
+@@ -4,32 +4,24 @@
+ <h1>{{ _("Einstellungen") }}</h1>
+ <div class="schmal">
++<nav class="reiter" aria-label="{{ _('Einstellungen') }}">
++  <a href="/verwaltung/einstellungen"{% if teil == "betrieb" %} aria-current="page"{% endif %}>{{ _("Laufender Betrieb") }}</a>
++  <a href="/verwaltung/einstellungen/einrichtung"{% if teil == "einrichtung" %} aria-current="page"{% endif %}>{{ _("Einrichtung") }}</a>
++</nav>
+ <p class="leise">{{ _("Jeder Abschnitt wird für sich gespeichert.") }}</p>
++{% if teil == "betrieb" %}
+ <form method="post" action="/verwaltung/einstellungen">
+-<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="bereich" value="betreiber">
+-<div class="karte" id="betreiber">
+-  <h2>{{ _("Angaben für die App") }}</h2>
+-  <p class="leise">{{ _("Zeigt die App beim Hinzufügen des Servers. Daraus entstehen auch Datenschutzhinweis und Impressum.") }}</p>
++<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="bereich" value="betrieb">
++<div class="karte" id="betrieb">
++  <h2>{{ _("Betriebsart") }}</h2>
+   <div class="formular">
+-    <label>{{ _("Name des Servers") }} <input type="text" name="server_name" value="{{ angaben.server_name }}" required maxlength="100"></label>
+-    <fieldset><legend>{{ _("Betrieben von") }}</legend>
+-      <label class="haken"><input type="radio" name="betreiber_art" value="privat" {% if betreiber.art == "privat" %}checked{% endif %}> {{ _("Privat, für die eigene Runde") }}</label>
+-      <label class="haken"><input type="radio" name="betreiber_art" value="verein" {% if betreiber.art in ("verein", "") %}checked{% endif %}> {{ _("Einem Verein") }}</label>
+-      <label class="haken"><input type="radio" name="betreiber_art" value="firma" {% if betreiber.art == "firma" %}checked{% endif %}> {{ _("Einer Firma oder anderen Organisation") }}</label>
++    <fieldset><legend>{{ _("Wie sollen Aufnahmen verarbeitet werden?") }}</legend>
++      <label class="haken"><input type="radio" name="betriebsart" value="cloud"{% if betrieb == "cloud" %} checked{% endif %}>
++        <span><strong>{{ _("Nur Cloud") }}</strong> – {{ _("Transkription und Zusammenfassung über Mistral (EU). Kein lokaler Server nötig.") }}</span></label>
++      <label class="haken"><input type="radio" name="betriebsart" value="lokal"{% if betrieb == "lokal" %} checked{% endif %}>
++        <span><strong>{{ _("Lokaler Server") }}</strong> – {{ _("Eure Worker verarbeiten alles. Nichts verlässt euren Verein.") }}</span></label>
++      <label class="haken"><input type="radio" name="betriebsart" value="beides"{% if betrieb == "beides" %} checked{% endif %}>
++        <span><strong>{{ _("Lokaler Server, Cloud als Ausweichlösung") }}</strong> – {{ _("Normalerweise der lokale Server. Ist er länger nicht erreichbar, springt Mistral ein – nur für Kampagnen, deren Spielleitung das erlaubt.") }}</span></label>
+     </fieldset>
+-    <label>{{ _("Name (Betreiber)") }} <input type="text" name="server_operator" value="{{ angaben.server_operator }}" required maxlength="200"></label>
+-    <label>{{ _("Anschrift") }} <textarea name="betreiber_anschrift" rows="3" maxlength="500">{{ betreiber.anschrift }}</textarea></label>
+-    <label>{{ _("Kontakt") }} <input type="text" name="server_contact" value="{{ angaben.server_contact or '' }}" maxlength="200">
+-      <span class="hilfe">{{ _("E-Mail-Adresse oder Webseite für Fragen zum Datenschutz.") }}</span></label>
+-    <details{% if betreiber.vertretung or betreiber.register %} open{% endif %}><summary>{{ _("Bei Verein oder Firma: weitere Angaben (freiwillig)") }}</summary>
+-      <div class="formular">
+-      <label>{{ _("Vertreten durch") }} <input type="text" name="betreiber_vertretung" value="{{ betreiber.vertretung }}" maxlength="300"></label>
+-      <label>{{ _("Registereintrag") }} <input type="text" name="betreiber_register" value="{{ betreiber.register }}" maxlength="300"></label>
+-      </div></details>
+-    <label>{{ _("Link zum Datenschutzhinweis") }} <input type="url" name="privacy_policy_url" value="{{ angaben.privacy_policy_url or '' }}" maxlength="500" placeholder="https://…"></label>
+-    <p class="hilfe">{{ _("Impressum:") }} {% if impressum_text %}<a href="/impressum">{{ _("veröffentlicht") }}</a>{% elif impressum_url %}<a href="{{ impressum_url }}" rel="noopener noreferrer">{{ _("eigener Link") }}</a>{% else %}{{ _("keins") }}{% endif %} · <a href="/verwaltung/assistent/impressum">{{ _("Bearbeiten") }}</a>
+-      · {{ _("Nutzungsbedingungen:") }} {% if nb.quelle == "link" %}<a href="{{ nb.url }}" rel="noopener noreferrer">{{ _("eigener Link") }}</a>{% elif nb.quelle == "eigen" %}<a href="/nutzungsbedingungen">{{ _("eigener Text") }}</a>{% else %}<a href="/nutzungsbedingungen">{{ _("Vorlage") }}</a>{% endif %} ({{ _("Fassung") }} {{ nb.version }}) · <a href="/verwaltung/assistent/nutzungsbedingungen">{{ _("Bearbeiten") }}</a></p>
+-    <label>{{ _("Öffentliche Adresse des Servers") }} <input type="url" name="public_url" value="{{ angaben.public_url or '' }}" maxlength="300" placeholder="https://taleward.meinverein.example">
+-      <span class="hilfe">{{ _("Für Links in E-Mails und für Anmeldedienste. Leer = die Adresse, unter der die Verwaltung gerade aufgerufen wird.") }}</span></label>
+-    <label>{{ _("Mindestalter") }} <input type="number" name="min_age" value="{{ angaben.min_age }}" min="0" max="99"></label>
++    <span class="hilfe">{{ _("Bestehende Kampagnen behalten ihre Cloud-Freigaben. Nach einem Wechsel den Datenschutzhinweis prüfen.") }} <a href="/verwaltung/assistent/datenschutz">{{ _("Datenschutzhinweis") }}</a></span>
+   </div>
+   <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
+@@ -97,35 +89,4 @@
+ </div>
+ </form>
+-{% set app_offen = angaben.app_min_version or angaben.app_latest_version or angaben.app_download_url or web_herkuenfte %}
+-<details class="klappteil" id="app"{% if app_offen %} open{% endif %}><summary>{{ _("App im Browser und App-Fassungen (selten nötig)") }}</summary>
+-<form method="post" action="/verwaltung/einstellungen">
+-<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="bereich" value="app">
+-<div class="karte">
+-  <div class="formular">
+-    <details{% if angaben.app_min_version or angaben.app_latest_version or angaben.app_download_url %} open{% endif %}>
+-    <summary>{{ _("App-Fassung von Hand festlegen (selten nötig)") }}</summary>
+-    <p class="leise">{{ _("Normalerweise bietet der Server neue App-Fassungen selbst an, siehe „Updates“. Was du hier einträgst, gilt vorrangig.") }}</p>
+-    <div class="formular">
+-    <label>{{ _("Mindestversion der App") }} <input type="text" name="app_min_version" value="{{ angaben.app_min_version or '' }}" maxlength="20" placeholder="0.9.0" pattern="[0-9]+(\.[0-9]+)*">
+-      <span class="hilfe">{{ _("Leer = keine Grenze. Ältere Apps bekommen dann keinen Zugang mehr (426).") }}</span></label>
+-    <label>{{ _("Neueste Version") }} <input type="text" name="app_latest_version" value="{{ angaben.app_latest_version or '' }}" maxlength="20" placeholder="0.9.1" pattern="[0-9]+(\.[0-9]+)*"></label>
+-    <label>{{ _("Download-Link") }} <input type="url" name="app_download_url" value="{{ angaben.app_download_url or '' }}" maxlength="500" placeholder="https://…">
+-      <span class="hilfe">{{ _("APK- oder Store-Link. Erscheint auch auf der Einladungsseite („App herunterladen“).") }}</span></label>
+-    <label>{{ _("Was ist neu") }} <textarea name="app_release_notes" rows="3" maxlength="1000">{{ angaben.app_release_notes or '' }}</textarea></label>
+-    </div>
+-    </details>
+-    {% if zentrale_webapp %}
+-    <input type="hidden" name="web_zentral_feld" value="1">
+-    <label class="haken"><input type="checkbox" name="web_zentral" value="an" {% if web_zentral %}checked{% endif %}>
+-      <span>{{ _("Auch die Web-App des Projekts Taleward ({adresse}) darf diesen Server nutzen", adresse=zentrale_webapp) }}</span></label>
+-    <span class="hilfe">{{ _("Die eigene Web-App dieses Servers geht immer. Die des Projekts sieht keine Inhalte – der Browser spricht direkt mit diesem Server. Nur mit HTTPS.") }}</span>
+-    {% endif %}
+-    <label>{{ _("Weitere Adressen für die Web-App") }} <textarea name="web_herkuenfte" rows="2" maxlength="2000" placeholder="https://…">{{ web_herkuenfte }}</textarea>
+-      <span class="hilfe">{{ _("Eine je Zeile. Nur nötig, wenn die Web-App noch woanders läuft. Die eigene Adresse ist immer erlaubt.") }}</span></label>
+-  </div>
+-  <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
+-</div>
+-</form>
+-</details>
+ 
+ <form method="post" action="/verwaltung/benachrichtigungen">
+@@ -177,4 +138,68 @@
+ </div>
+ </form>
++{% else %}
++<form method="post" action="/verwaltung/einstellungen">
++<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="bereich" value="betreiber">
++<div class="karte" id="betreiber">
++  <h2>{{ _("Angaben für die App") }}</h2>
++  <p class="leise">{{ _("Zeigt die App beim Hinzufügen des Servers. Daraus entstehen auch Datenschutzhinweis und Impressum.") }}</p>
++  <div class="formular">
++    <label>{{ _("Name des Servers") }} <input type="text" name="server_name" value="{{ angaben.server_name }}" required maxlength="100"></label>
++    <fieldset><legend>{{ _("Betrieben von") }}</legend>
++      <label class="haken"><input type="radio" name="betreiber_art" value="privat" {% if betreiber.art == "privat" %}checked{% endif %}> {{ _("Privat, für die eigene Runde") }}</label>
++      <label class="haken"><input type="radio" name="betreiber_art" value="verein" {% if betreiber.art in ("verein", "") %}checked{% endif %}> {{ _("Einem Verein") }}</label>
++      <label class="haken"><input type="radio" name="betreiber_art" value="firma" {% if betreiber.art == "firma" %}checked{% endif %}> {{ _("Einer Firma oder anderen Organisation") }}</label>
++    </fieldset>
++    <label>{{ _("Name (Betreiber)") }} <input type="text" name="server_operator" value="{{ angaben.server_operator }}" required maxlength="200"></label>
++    <label>{{ _("Anschrift") }} <textarea name="betreiber_anschrift" rows="3" maxlength="500">{{ betreiber.anschrift }}</textarea></label>
++    <label>{{ _("Kontakt") }} <input type="text" name="server_contact" value="{{ angaben.server_contact or '' }}" maxlength="200">
++      <span class="hilfe">{{ _("E-Mail-Adresse oder Webseite für Fragen zum Datenschutz.") }}</span></label>
++    <details{% if betreiber.vertretung or betreiber.register %} open{% endif %}><summary>{{ _("Bei Verein oder Firma: weitere Angaben (freiwillig)") }}</summary>
++      <div class="formular">
++      <label>{{ _("Vertreten durch") }} <input type="text" name="betreiber_vertretung" value="{{ betreiber.vertretung }}" maxlength="300"></label>
++      <label>{{ _("Registereintrag") }} <input type="text" name="betreiber_register" value="{{ betreiber.register }}" maxlength="300"></label>
++      </div></details>
++    <label>{{ _("Link zum Datenschutzhinweis") }} <input type="url" name="privacy_policy_url" value="{{ angaben.privacy_policy_url or '' }}" maxlength="500" placeholder="https://…"></label>
++    <p class="hilfe">{{ _("Impressum:") }} {% if impressum_text %}<a href="/impressum">{{ _("veröffentlicht") }}</a>{% elif impressum_url %}<a href="{{ impressum_url }}" rel="noopener noreferrer">{{ _("eigener Link") }}</a>{% else %}{{ _("keins") }}{% endif %} · <a href="/verwaltung/assistent/impressum">{{ _("Bearbeiten") }}</a>
++      · {{ _("Nutzungsbedingungen:") }} {% if nb.quelle == "link" %}<a href="{{ nb.url }}" rel="noopener noreferrer">{{ _("eigener Link") }}</a>{% elif nb.quelle == "eigen" %}<a href="/nutzungsbedingungen">{{ _("eigener Text") }}</a>{% else %}<a href="/nutzungsbedingungen">{{ _("Vorlage") }}</a>{% endif %} ({{ _("Fassung") }} {{ nb.version }}) · <a href="/verwaltung/assistent/nutzungsbedingungen">{{ _("Bearbeiten") }}</a></p>
++    <label>{{ _("Öffentliche Adresse des Servers") }} <input type="url" name="public_url" value="{{ angaben.public_url or '' }}" maxlength="300" placeholder="https://taleward.meinverein.example">
++      <span class="hilfe">{{ _("Für Links in E-Mails und für Anmeldedienste. Leer = die Adresse, unter der die Verwaltung gerade aufgerufen wird.") }}</span></label>
++    <label>{{ _("Mindestalter") }} <input type="number" name="min_age" value="{{ angaben.min_age }}" min="0" max="99"></label>
++  </div>
++  <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
++</div>
++</form>
++{% set app_offen = angaben.app_min_version or angaben.app_latest_version or angaben.app_download_url or web_herkuenfte %}
++<details class="klappteil" id="app"{% if app_offen %} open{% endif %}><summary>{{ _("App im Browser und App-Fassungen (selten nötig)") }}</summary>
++<form method="post" action="/verwaltung/einstellungen">
++<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="bereich" value="app">
++<div class="karte">
++  <div class="formular">
++    <details{% if angaben.app_min_version or angaben.app_latest_version or angaben.app_download_url %} open{% endif %}>
++    <summary>{{ _("App-Fassung von Hand festlegen (selten nötig)") }}</summary>
++    <p class="leise">{{ _("Normalerweise bietet der Server neue App-Fassungen selbst an, siehe „Updates“. Was du hier einträgst, gilt vorrangig.") }}</p>
++    <div class="formular">
++    <label>{{ _("Mindestversion der App") }} <input type="text" name="app_min_version" value="{{ angaben.app_min_version or '' }}" maxlength="20" placeholder="0.9.0" pattern="[0-9]+(\.[0-9]+)*">
++      <span class="hilfe">{{ _("Leer = keine Grenze. Ältere Apps bekommen dann keinen Zugang mehr (426).") }}</span></label>
++    <label>{{ _("Neueste Version") }} <input type="text" name="app_latest_version" value="{{ angaben.app_latest_version or '' }}" maxlength="20" placeholder="0.9.1" pattern="[0-9]+(\.[0-9]+)*"></label>
++    <label>{{ _("Download-Link") }} <input type="url" name="app_download_url" value="{{ angaben.app_download_url or '' }}" maxlength="500" placeholder="https://…">
++      <span class="hilfe">{{ _("APK- oder Store-Link. Erscheint auch auf der Einladungsseite („App herunterladen“).") }}</span></label>
++    <label>{{ _("Was ist neu") }} <textarea name="app_release_notes" rows="3" maxlength="1000">{{ angaben.app_release_notes or '' }}</textarea></label>
++    </div>
++    </details>
++    {% if zentrale_webapp %}
++    <input type="hidden" name="web_zentral_feld" value="1">
++    <label class="haken"><input type="checkbox" name="web_zentral" value="an" {% if web_zentral %}checked{% endif %}>
++      <span>{{ _("Auch die Web-App des Projekts Taleward ({adresse}) darf diesen Server nutzen", adresse=zentrale_webapp) }}</span></label>
++    <span class="hilfe">{{ _("Die eigene Web-App dieses Servers geht immer. Die des Projekts sieht keine Inhalte – der Browser spricht direkt mit diesem Server. Nur mit HTTPS.") }}</span>
++    {% endif %}
++    <label>{{ _("Weitere Adressen für die Web-App") }} <textarea name="web_herkuenfte" rows="2" maxlength="2000" placeholder="https://…">{{ web_herkuenfte }}</textarea>
++      <span class="hilfe">{{ _("Eine je Zeile. Nur nötig, wenn die Web-App noch woanders läuft. Die eigene Adresse ist immer erlaubt.") }}</span></label>
++  </div>
++  <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
++</div>
++</form>
++</details>
++
+ <p class="hilfe"><a href="/verwaltung/uebergabe">{{ _("Auftragsverarbeitung und Übergabe der Verwaltung") }} →</a></p>
+ <hr class="trenner">
+@@ -191,4 +216,5 @@
+ </div>
+ </details>
++{% endif %}
+ 
+ </div>
+diff --git a/app/verwaltung/templates/uebersicht.html b/app/verwaltung/templates/uebersicht.html
+index 6536fbc..f0b3d57 100644
+--- a/app/verwaltung/templates/uebersicht.html
++++ b/app/verwaltung/templates/uebersicht.html
+@@ -29,4 +29,7 @@
+ </dl>
+ <p class="leise bestand">{{ _("1 Kampagne") if zahlen.kampagnen == 1 else _("{n} Kampagnen", n=zahlen.kampagnen) }} · {{ _("1 Kapitel veröffentlicht") if zahlen.veroeffentlicht == 1 else _("{n} Kapitel veröffentlicht", n=zahlen.veroeffentlicht) }} · {{ _("1 Konto") if zahlen.konten == 1 else _("{n} Konten", n=zahlen.konten) }}</p>
++{% set arten = {"cloud": _("Nur Cloud"), "lokal": _("Lokaler Server"), "beides": _("Lokaler Server, Cloud als Ausweichlösung")} %}
++<p class="leise">{% if betrieb %}{{ _("Betriebsart:") }} <strong>{{ arten[betrieb] }}</strong> · <a href="/verwaltung/einstellungen#betrieb">{{ _("ändern") }}</a>
++  {%- else %}{{ _("Betriebsart noch nicht gewählt – die Seiten zeigen deshalb alles.") }} <a href="/verwaltung/einstellungen#betrieb">{{ _("Wählen") }}</a>{% endif %}</p>
+ {% if zahlen.sl_anfragen %}<p class="lage"><span>{{ _("Eine Anfrage zur SL-Freigabe wartet.") if zahlen.sl_anfragen == 1 else _("{n} Anfragen zur SL-Freigabe warten.", n=zahlen.sl_anfragen) }}</span> <a href="/verwaltung/sl-freigaben">{{ _("Ansehen") }}</a></p>{% endif %}
+ {% if eingebaut %}
+diff --git a/app/verwaltung/templates/updates.html b/app/verwaltung/templates/updates.html
+index 081d74a..b93c2ee 100644
+--- a/app/verwaltung/templates/updates.html
++++ b/app/verwaltung/templates/updates.html
+@@ -58,5 +58,5 @@
+   </form>
+   {% if app_von_hand %}
+-  <div class="meldung">{{ _("Für die App sind unter Einstellungen eine Fassung bzw. ein Download-Link von Hand eingetragen – diese Angaben gelten vor den Updates hier.") }} <a href="/verwaltung/einstellungen">{{ _("Einstellungen") }}</a></div>
++  <div class="meldung">{{ _("Für die App sind unter Einstellungen eine Fassung bzw. ein Download-Link von Hand eingetragen – diese Angaben gelten vor den Updates hier.") }} <a href="/verwaltung/einstellungen/einrichtung#app">{{ _("Einstellungen") }}</a></div>
+   {% endif %}
+   <div class="tabelle-huelle"><table>
+diff --git a/pyproject.toml b/pyproject.toml
+index cc29d36..3eeed73 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.130"
++version = "0.4.131"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index 8755577..252200b 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -154,5 +154,5 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.130"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.131"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index 58afcaa..e1c192e 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -135,5 +135,5 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.130"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.131"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index 930febd..f28bc10 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -84,5 +84,5 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.130"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.131"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+diff --git a/tests/test_schnittstelle_0422.py b/tests/test_schnittstelle_0422.py
+index 1a13801..977dfd7 100644
+--- a/tests/test_schnittstelle_0422.py
++++ b/tests/test_schnittstelle_0422.py
+@@ -144,5 +144,5 @@ def test_neue_fassung_in_der_verwaltung(client, world, dbs, admin):  # noqa: F81
+                     follow_redirects=False)
+     assert "nb=neu" in r.headers["location"]
+-    seite = client.get("/verwaltung/einstellungen?nb=neu").text
++    seite = client.get("/verwaltung/einstellungen/einrichtung?nb=neu").text
+     assert "Neue Fassung 2." in seite and "Fassung</span>" not in seite
+     assert client.get(f"{API}/info").json()["termsVersion"] == 2
+diff --git a/tests/test_server_04105.py b/tests/test_server_04105.py
+index d502d7f..f556295 100644
+--- a/tests/test_server_04105.py
++++ b/tests/test_server_04105.py
+@@ -79,5 +79,5 @@ def test_einstellungen_betreiber_ohne_doppelte_felder(client, dbs, admin):  # no
+     from app.models import Organization
+ 
+-    seite = client.get("/verwaltung/einstellungen").text
++    seite = client.get("/verwaltung/einstellungen/einrichtung").text
+     assert 'name="org_name"' not in seite and 'name="betreiber_anschrift"' in seite
+     assert "App-Fassung von Hand festlegen" in seite
+diff --git a/tests/test_server_04115.py b/tests/test_server_04115.py
+index 59c331c..3bdb65f 100644
+--- a/tests/test_server_04115.py
++++ b/tests/test_server_04115.py
+@@ -56,5 +56,5 @@ def test_leiste_menue_und_symbole(client, admin):  # noqa: F811
+     assert 'class="kopf"' not in seite and "abmelden" in leiste  # keine dunkle Kopfleiste mehr
+     assert '<details class="menue"><summary>' in seite  # am Handy, ohne JavaScript
+-    assert seite.count('aria-current="page"') == 2  # in der Leiste und im eingeklappten Menü
++    assert seite.count('aria-current="page"') == 3  # Leiste, eingeklapptes Menü und (0.4.131) Reiter
+     uebersicht = client.get("/verwaltung/").text
+     assert HAKEN not in uebersicht and KREIS not in uebersicht
+@@ -69,8 +69,11 @@ def _formulare(seite: str) -> list[str]:
+ def test_einstellungen_je_abschnitt(client, admin):  # noqa: F811
+     seite = client.get("/verwaltung/einstellungen").text
+-    assert _formulare(seite) == ["betreiber", "konten", "aufnahmen", "kosten", "app"]
+-    # Neue Fassung der Nutzungsbedingungen ganz am Ende, nach den Benachrichtigungen
+-    assert seite.index('id="benachrichtigungen"') < seite.index('id="nutzungsbedingungen"')
+-    assert '<details class="klappteil" id="nutzungsbedingungen">' in seite  # 0.4.130: zugeklappt
++    # 0.4.131: zwei Reiter – „Laufender Betrieb“ und „Einrichtung“
++    assert _formulare(seite) == ["betrieb", "konten", "aufnahmen", "kosten"] and 'id="benachrichtigungen"' in seite
++    einrichtung = client.get("/verwaltung/einstellungen/einrichtung").text
++    assert _formulare(einrichtung) == ["betreiber", "app"]
++    # Neue Fassung der Nutzungsbedingungen ganz am Ende
++    assert einrichtung.index('id="app"') < einrichtung.index('id="nutzungsbedingungen"')
++    assert '<details class="klappteil" id="nutzungsbedingungen">' in einrichtung  # 0.4.130: zugeklappt
+     # Nur das Kostenlimit – Name und Betreiber fehlen im Formular und bleiben, wie sie sind
+     vorher = client.get("/api/v1/info").json()
+diff --git a/tests/test_server_04130.py b/tests/test_server_04130.py
+index 0607425..9a854b2 100644
+--- a/tests/test_server_04130.py
++++ b/tests/test_server_04130.py
+@@ -92,4 +92,5 @@ def test_einstellungen_klappen(client, dbs, admin):  # noqa: F811
+     seite = client.get("/verwaltung/einstellungen").text
+     assert "Registrierungscode (nur für „Mit Registrierungscode“)" in seite
++    seite = client.get("/verwaltung/einstellungen/einrichtung").text
+     assert '<details class="klappteil" id="app">' in seite
+     assert '<details class="klappteil" id="nutzungsbedingungen">' in seite
+diff --git a/tests/test_server_04131.py b/tests/test_server_04131.py
+new file mode 100644
+index 0000000..870bcc5
+--- /dev/null
++++ b/tests/test_server_04131.py
+@@ -0,0 +1,67 @@
++"""Server 0.4.131: Betriebsart in den Einstellungen und auf der Übersicht; Einstellungen in zwei Reitern."""
++from tests.test_verwaltung import admin  # noqa: F401 (Fixture)
++
++
++def _art(client, admin, art, **mehr):  # noqa: F811
++    return client.post("/verwaltung/einstellungen", data={"csrf": admin, "bereich": "betrieb", "betriebsart": art,
++                                                           **mehr}, follow_redirects=False)
++
++
++def test_uebersicht_zeigt_betriebsart(client, dbs, admin):  # noqa: F811
++    seite = client.get("/verwaltung/").text
++    assert "Betriebsart noch nicht gewählt" in seite and 'href="/verwaltung/einstellungen#betrieb"' in seite
++    from app.einstellungen import meta_schreiben
++
++    meta_schreiben(dbs, "betrieb.art", "cloud")
++    dbs.commit()
++    seite = client.get("/verwaltung/").text
++    assert "Betriebsart: <strong>Nur Cloud</strong>" in seite
++    assert "Operating mode: <strong>Cloud only" in client.get("/verwaltung/", headers={"Accept-Language": "en"}).text
++
++
++def test_betriebsart_wechseln_mit_folgen(client, dbs, admin):  # noqa: F811
++    from app.einrichtung import betriebsart
++    from app.einstellungen import extern_konfig, meta_schreiben
++
++    # Nur Cloud ohne Schlüssel → weiter zur Transkription, um ihn einzutragen
++    r = _art(client, admin, "cloud")
++    assert r.status_code == 303 and r.headers["location"] == "/verwaltung/transkription?ok=betrieb_schluessel#extern"
++    assert betriebsart(dbs) == "cloud" and extern_konfig(dbs).stunden == 0
++    # mit Schlüssel: Cloud-Transkription an, sofort
++    meta_schreiben(dbs, "extern.api_key", "geheim-1234")
++    dbs.commit()
++    r = _art(client, admin, "cloud")
++    assert r.headers["location"] == "/verwaltung/einstellungen?ok=gespeichert#betrieb"
++    dbs.expire_all()
++    assert extern_konfig(dbs).anbieter and extern_konfig(dbs).stunden == 0
++    # Ausweichlösung: Wartezeit 12 h, ohne Worker weiter zum Anbinden
++    r = _art(client, admin, "beides")
++    assert r.headers["location"] == "/verwaltung/transkription?ok=betrieb_worker#koppeln"
++    dbs.expire_all()
++    assert extern_konfig(dbs).anbieter and extern_konfig(dbs).stunden == 12
++    # Lokaler Server: Cloud-Transkription aus
++    _art(client, admin, "lokal")
++    dbs.expire_all()
++    assert betriebsart(dbs) == "lokal" and not extern_konfig(dbs).anbieter
++    # Unbekanntes ändert nichts
++    r = _art(client, admin, "alles")
++    assert r.status_code == 400 and betriebsart(dbs) == "lokal"
++    assert "Schlüssel von Mistral eintragen" in client.get("/verwaltung/transkription?ok=betrieb_schluessel").text
++
++
++def test_reiter_und_ziele(client, dbs, admin):  # noqa: F811
++    betrieb = client.get("/verwaltung/einstellungen").text
++    assert '<a href="/verwaltung/einstellungen" aria-current="page">Laufender Betrieb</a>' in betrieb
++    assert 'id="betrieb"' in betrieb and 'name="server_name"' not in betrieb
++    einrichtung = client.get("/verwaltung/einstellungen/einrichtung").text
++    assert 'aria-current="page">Einrichtung</a>' in einrichtung and 'name="server_name"' in einrichtung
++    r = client.post("/verwaltung/einstellungen", data={"csrf": admin, "bereich": "betreiber", "server_name": "Hort",
++                                                       "server_operator": "Verein", "min_age": "16"},
++                    follow_redirects=False)
++    assert r.headers["location"] == "/verwaltung/einstellungen/einrichtung?ok=gespeichert#betreiber"
++    r = client.post("/verwaltung/einstellungen", data={"csrf": admin, "bereich": "betreiber", "server_name": "",
++                                                       "server_operator": "Verein", "min_age": "16"})
++    assert r.status_code == 400 and 'name="server_name"' in r.text  # Fehler auf dem richtigen Reiter
++    r = client.post("/verwaltung/nutzungsbedingungen/neue-fassung", data={"csrf": admin, "bestaetigung": "falsch"},
++                    follow_redirects=False)
++    assert r.headers["location"].startswith("/verwaltung/einstellungen/einrichtung?nb=falsch")
+diff --git a/tests/test_webapp.py b/tests/test_webapp.py
+index 89be8d6..d268ec8 100644
+--- a/tests/test_webapp.py
++++ b/tests/test_webapp.py
+@@ -37,5 +37,5 @@ def test_cors_zentral_eigene_und_fremde(client, dbs, admin):  # noqa: F811
+         "https://taleward.meinverein.de"
+     # In der Verwaltung abschalten
+-    seite = client.get("/verwaltung/einstellungen").text
++    seite = client.get("/verwaltung/einstellungen/einrichtung").text
+     assert "Auch die Web-App des Projekts Taleward (https://app.taleward.org) darf diesen Server nutzen" in seite
+     csrf = admin
+@@ -177,5 +177,5 @@ def test_weitere_herkuenfte(client, dbs, admin):  # noqa: F811
+     assert r.status_code == 303
+     assert vorab(client, "https://app.beispiel.de").headers["access-control-allow-origin"] == "https://app.beispiel.de"
+-    assert "https://app.beispiel.de" in client.get("/verwaltung/einstellungen").text
++    assert "https://app.beispiel.de" in client.get("/verwaltung/einstellungen/einrichtung").text
+ 
+ 
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index b0b16fc..0388cbd 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -113,5 +113,5 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.130"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.131"
+ 
+ 
+diff --git a/uv.lock b/uv.lock
+index 9de4ffe..318683f 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -2089,5 +2089,5 @@ wheels = [
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.130"
++version = "0.4.131"
+ source = { editable = "." }
+ dependencies = [
+-- 
+2.43.0
+
