@@ -1,0 +1,1784 @@
+From b1248234e48dd0f4cbd20b22d6b47a0523ea9a97 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Wed, 28 Oct 2026 00:11:42 +0100
+Subject: [PATCH] Server 0.4.133
+
+Guthaben aufladen auf der Seite des Servers (Testmodus der Zahlungsanbieter),
+neue Guthaben-Seite, Einstellungen dazu in der Verwaltung. Kleinere Verbesserungen.
+---
+ NEU.md                                        |   9 +-
+ app/abrechnung.py                             |   9 +-
+ app/benachrichtigung.py                       |  15 +
+ app/dpapi.py                                  |   3 +-
+ app/errors.py                                 |   4 +
+ app/main.py                                   |   3 +
+ app/models.py                                 |  22 +
+ app/routers/zahlung_meldungen.py              |  58 +++
+ app/verwaltung/abrechnung_seite.py            |  85 ++++
+ app/verwaltung/guthaben.py                    | 112 ++++-
+ app/verwaltung/i18n.py                        |  58 +++
+ app/verwaltung/static/verwaltung.css          |  33 ++
+ app/verwaltung/templates/abrechnung.html      |  40 +-
+ app/verwaltung/templates/guthaben.html        | 114 +++--
+ .../templates/guthaben_aufladen.html          |  36 ++
+ app/zahlung.py                                | 475 ++++++++++++++++++
+ migrations/versions/f8b2d4a6c1e3_aufladen.py  |  43 ++
+ pyproject.toml                                |   2 +-
+ tests/test_aktualisierung.py                  |   2 +-
+ tests/test_assistent.py                       |   2 +-
+ tests/test_modellablage.py                    |   2 +-
+ tests/test_server_04133.py                    | 320 ++++++++++++
+ tests/test_worker_app.py                      |   2 +-
+ uv.lock                                       |   2 +-
+ 24 files changed, 1389 insertions(+), 62 deletions(-)
+ create mode 100644 app/routers/zahlung_meldungen.py
+ create mode 100644 app/verwaltung/templates/guthaben_aufladen.html
+ create mode 100644 app/zahlung.py
+ create mode 100644 migrations/versions/f8b2d4a6c1e3_aufladen.py
+ create mode 100644 tests/test_server_04133.py
+
+diff --git a/NEU.md b/NEU.md
+index c0513f8..fe83e36 100644
+--- a/NEU.md
++++ b/NEU.md
+@@ -1,8 +1,9 @@
+-Fassung 0.4.132
++Fassung 0.4.133
+ 
+ ## Was ist neu
+ 
+-- Guthaben in der App: Spielleitungen sehen Stand, Buchungen und wartende Aufträge, bestätigen teure Aufträge mit „Verarbeiten“ und geben die Zahlung einer Kampagne ab oder übernehmen sie. Bezahlt wird weiter nur auf der Seite des Servers.
+-- Die Zustimmung zur Auswertung eines Charakterbogens gilt zugleich als Freigabe der Kosten.
+-- Kampagnen-Einstellungen an einem Ort, mit Protokoll, wer was wann umgestellt hat. Was der Server nicht anbietet, lässt sich nicht einschalten.
++- Spielleitungen können ihr Guthaben auf der Seite ihres Servers aufladen, mit Karte, Apple Pay, Google Pay oder PayPal. Vor der Zahlung steht da, was gutgeschrieben wird und was die Gebühr kostet. Vorerst nur im Testmodus der Zahlungsanbieter.
++- Die Guthaben-Seite ist neu aufgeräumt: Stand groß oben, Aufladen als Hauptweg, Gutschein, Einstellungen und ältere Buchungen zugeklappt.
++- In der Verwaltung unter Abrechnung → Aufladen: feste Beträge, Gebühren und die Zugänge zu den Zahlungsanbietern.
++- Seit 0.4.132: Guthaben und Kampagnen-Einstellungen für die kommende App.
+ - Kleinere Verbesserungen.
+diff --git a/app/abrechnung.py b/app/abrechnung.py
+index 5845af4..cdf90b2 100644
+--- a/app/abrechnung.py
++++ b/app/abrechnung.py
+@@ -426,4 +426,6 @@ def warte_grund(db: Session, job: Job) -> str | None:
+     if g is None:
+         return "zahler_fehlt"
++    if g.gesperrt_at is not None:  # 0.4.133: nach einer Rückbuchung, bis der Betreiber entscheidet
++        return "gesperrt"
+     geschaetzt = schaetzung(db, job)
+     if job.kosten_freigegeben_at is None and geschaetzt > g.freigabe_ab_cent:
+@@ -450,4 +452,7 @@ def starten(db: Session, job: Job, weg: str) -> str | None:
+         db.rollback()
+         return "zahler_fehlt"
++    if g.gesperrt_at is not None:
++        db.rollback()
++        return "gesperrt"
+     weg_preis = "worker" if weg == "worker" else "cloud"
+     m = menge(db, job)
+@@ -665,4 +670,5 @@ def hinweis(db: Session, job: Job | None, lang: str) -> str | None:
+     topf = modus(db) == "topf" and bool(getattr(kampagne_von_auftrag(db, job), "organization_id", None))
+     schluessel = {"zahler_fehlt": "status.credit_no_payer", "freigabe": "status.credit_approval",
++                  "gesperrt": "status.credit_locked",
+                   "leer": "status.credit_pot_empty" if topf else "status.credit_empty",
+                   "zu_knapp": "status.credit_pot_empty" if topf else "status.credit_low"}[grund]
+@@ -691,5 +697,6 @@ def ist_topf(g: Guthaben | None) -> bool:
+ 
+ # 0.4.25: Wartegrund als Code für die App (CreditWait.reason)
+-GRUND_API = {"freigabe": "approval", "leer": "empty", "zu_knapp": "too_low", "zahler_fehlt": "no_payer"}
++GRUND_API = {"freigabe": "approval", "leer": "empty", "zu_knapp": "too_low", "zahler_fehlt": "no_payer",
++             "gesperrt": "empty"}  # gesperrt: die App kennt keinen eigenen Code – wie „aufgebraucht“
+ STAND_API = {"gut": "good", "knapp": "low", "leer": "empty", "minus": "negative"}
+ 
+diff --git a/app/benachrichtigung.py b/app/benachrichtigung.py
+index 1f33ac4..83e499d 100644
+--- a/app/benachrichtigung.py
++++ b/app/benachrichtigung.py
+@@ -186,4 +186,10 @@ TEXTE = {
+                  "Im Datenordner sind nur noch {gb} GB frei. Alte Sicherungen löschen oder den Speicher erweitern."),
+     "test": ("Test", "Diese Testnachricht zeigt: Benachrichtigungen kommen an."),
++    "zahlung_abweichung": ("Zahlung passt nicht zum Vorgang",
++                           "Eine Meldung eines Zahlungsanbieters passt nicht zu einem begonnenen Aufladen. Es wurde nichts "
++                           "gutgeschrieben. Einzelheiten in der Verwaltung → Abrechnung → Protokoll."),
++    "zahlung_streit": ("Rückbuchung einer Zahlung",
++                       "Eine Zahlung wurde zurückgebucht oder angefochten. Das Guthaben ist gesperrt, bis du in der "
++                       "Verwaltung → Abrechnung entscheidest."),
+     "server_aktualisiert": ("Server aktualisiert auf {nach}",
+                             "Der Taleward-Server wurde automatisch von {von} auf {nach} aktualisiert. Vorher wurde eine "
+@@ -240,4 +246,13 @@ EN = {
+     "Im Datenordner sind nur noch {gb} GB frei. Alte Sicherungen löschen oder den Speicher erweitern.":
+         "Only {gb} GB left in the data folder. Delete old backups or add storage.",
++    "Zahlung passt nicht zum Vorgang": "Payment does not match",
++    "Eine Meldung eines Zahlungsanbieters passt nicht zu einem begonnenen Aufladen. Es wurde nichts "
++    "gutgeschrieben. Einzelheiten in der Verwaltung → Abrechnung → Protokoll.":
++        "A notification from a payment provider does not match a started top-up. Nothing was credited. Details in "
++        "Admin → Billing → Log.",
++    "Rückbuchung einer Zahlung": "Payment reversed",
++    "Eine Zahlung wurde zurückgebucht oder angefochten. Das Guthaben ist gesperrt, bis du in der "
++    "Verwaltung → Abrechnung entscheidest.":
++        "A payment was reversed or disputed. The credit is locked until you decide in Admin → Billing.",
+     "Test": "Test",
+     "Diese Testnachricht zeigt: Benachrichtigungen kommen an.": "This test message shows: notifications arrive.",
+diff --git a/app/dpapi.py b/app/dpapi.py
+index 0df136e..52fc971 100644
+--- a/app/dpapi.py
++++ b/app/dpapi.py
+@@ -83,5 +83,6 @@ def text_oeffnen(wert: str | None) -> str | None:
+ 
+ # Zugänge in server_meta, die geschützt abgelegt werden
+-GEHEIME_SCHLUESSEL = ("extern.api_key", "llm.api_key", "hf.token", "melden.ntfy_token", "melden.smtp_pass")
++GEHEIME_SCHLUESSEL = ("extern.api_key", "llm.api_key", "hf.token", "melden.ntfy_token", "melden.smtp_pass",
++                      "zahlung.stripe_schluessel", "zahlung.stripe_webhook", "zahlung.paypal_geheim")  # 0.4.133
+ 
+ 
+diff --git a/app/errors.py b/app/errors.py
+index 824b8c2..0b3d101 100644
+--- a/app/errors.py
++++ b/app/errors.py
+@@ -349,4 +349,8 @@ MESSAGES: dict[str, tuple[str, str]] = {
+                                 "administrators can see on the server's page how to continue. After that it starts by "
+                                 "itself."),
++    "status.credit_locked": ("Die Verarbeitung wartet: Eine Zahlung für dieses Guthaben wird gerade geprüft. Die "
++                             "Verwaltung deines Servers meldet sich.",
++                             "Processing is waiting: a payment for this credit is being reviewed. The administrators "
++                             "of your server will get in touch."),
+     # 0.4.25: Guthaben und Kampagnen-Einstellungen in der App
+     "second_factor_required": ("Das Guthaben der Organisation lässt sich nur auf der Seite des Servers ändern, mit "
+diff --git a/app/main.py b/app/main.py
+index 1d3b79f..bdc83ae 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -236,4 +236,7 @@ def create_app() -> FastAPI:
+ 
+     app.include_router(downloads.router)
++    from app.routers import zahlung_meldungen
++
++    app.include_router(zahlung_meldungen.router)  # 0.4.133: Meldungen der Zahlungsanbieter
+     app.include_router(webapp_seiten.router)
+     from app.verwaltung.router import einbinden
+diff --git a/app/models.py b/app/models.py
+index dd57fa7..9ea67d6 100644
+--- a/app/models.py
++++ b/app/models.py
+@@ -769,4 +769,6 @@ class Guthaben(Base):
+     bogen_seiten: Mapped[int] = mapped_column(Integer, default=20)
+     boegen_je_spieler: Mapped[int] = mapped_column(Integer, default=3)
++    # 0.4.133: nach einer Rückbuchung gesperrt, bis der Betreiber entscheidet (keine neuen Verarbeitungen, kein Aufladen)
++    gesperrt_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+     angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+ 
+@@ -858,2 +860,22 @@ class EinstellungsProtokoll(Base):
+     vom_betreiber: Mapped[bool] = mapped_column(Boolean, default=False)
+     angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
++
++
++class Bezahlvorgang(Base):
++    """0.4.133: Aufladen über einen Zahlungsanbieter (app/zahlung.py). Angelegt vor der Weiterleitung; gutgeschrieben
++    wird nur, was der Anbieter bestätigt und genau zum Vorgang passt."""
++
++    __tablename__ = "bezahlvorgaenge"
++    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
++    guthaben_id: Mapped[str] = mapped_column(ForeignKey("guthaben.id"), index=True)
++    von: Mapped[str] = mapped_column(String(36), index=True)  # Konto, das aufgeladen hat
++    anbieter: Mapped[str] = mapped_column(String(16))  # stripe | paypal
++    netto_cent: Mapped[int] = mapped_column(Integer)  # wird gutgeschrieben
++    brutto_cent: Mapped[int] = mapped_column(Integer)  # wird bezahlt (mit Gebühr)
++    zustand: Mapped[str] = mapped_column(String(16), default="offen")  # offen|bezahlt|abgebrochen|fehlgeschlagen|abweichung
++    anbieter_ref: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)  # Sitzung bzw. Auftrag
++    zahlung_ref: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)  # Zahlung bzw. Abbuchung
++    erstattet_cent: Mapped[int] = mapped_column(Integer, default=0)
++    buchung_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
++    angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
++    abgeschlossen: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+diff --git a/app/routers/zahlung_meldungen.py b/app/routers/zahlung_meldungen.py
+new file mode 100644
+index 0000000..8885ba5
+--- /dev/null
++++ b/app/routers/zahlung_meldungen.py
+@@ -0,0 +1,58 @@
++"""Meldungen der Zahlungsanbieter (Webhooks, 0.4.133, S28 G6). Nur diese zwei Wege, ohne weitere Funktionen.
++
++- Abrechnung aus oder Anbieter nicht eingerichtet → 404.
++- Signatur falsch oder fehlt → 400 ohne Einzelheiten, nichts gebucht.
++- Sonst 200, auch für Ereignisse, die nichts bewirken (sonst wiederholt der Anbieter sie tagelang).
++"""
++from __future__ import annotations
++
++import json
++
++from fastapi import APIRouter, Depends, Request, Response
++from sqlalchemy.orm import Session
++
++from app import zahlung
++from app.db import get_db
++from app.einstellungen import meta_lesen
++
++router = APIRouter(prefix="/zahlung", include_in_schema=False)
++HOECHSTENS_BYTES = 256 * 1024
++
++
++async def _roh(request: Request) -> bytes | None:
++    roh = await request.body()
++    return roh if len(roh) <= HOECHSTENS_BYTES else None
++
++
++@router.post("/stripe")
++async def stripe(request: Request, db: Session = Depends(get_db)):
++    if "stripe" not in zahlung.bereit(db):
++        return Response(status_code=404)
++    roh = await _roh(request)
++    geheimnis = meta_lesen(db, "zahlung.stripe_webhook") or ""
++    if roh is None or not zahlung.stripe_signatur_gueltig(roh, request.headers.get("stripe-signature", ""), geheimnis):
++        return Response(status_code=400)
++    try:
++        ereignis = json.loads(roh)
++    except ValueError:
++        return Response(status_code=400)
++    zahlung.stripe_meldung(db, ereignis)
++    db.commit()
++    return Response(status_code=200)
++
++
++@router.post("/paypal")
++async def paypal(request: Request, db: Session = Depends(get_db)):
++    if "paypal" not in zahlung.bereit(db):
++        return Response(status_code=404)
++    roh = await _roh(request)
++    try:
++        ereignis = json.loads(roh) if roh is not None else None
++    except ValueError:
++        ereignis = None
++    if not isinstance(ereignis, dict) or not zahlung.paypal_signatur_gueltig(
++            db, {k.lower(): v for k, v in request.headers.items()}, ereignis):
++        return Response(status_code=400)
++    zahlung.paypal_meldung(db, ereignis)
++    db.commit()
++    return Response(status_code=200)
+diff --git a/app/verwaltung/abrechnung_seite.py b/app/verwaltung/abrechnung_seite.py
+index 3f7680b..29b5bf4 100644
+--- a/app/verwaltung/abrechnung_seite.py
++++ b/app/verwaltung/abrechnung_seite.py
+@@ -51,4 +51,21 @@ def _euro_feld(cent: int) -> str:
+ 
+ 
++def _euro_kurz(cent: int) -> str:
++    return str(cent // 100) if cent % 100 == 0 else _euro_feld(cent)
++
++
++def _prozent_text(bp: int) -> str:
++    return f"{bp // 100},{bp % 100:02d}"
++
++
++def _prozent_lesen(text: str) -> int | None:
++    t = (text or "").strip().replace("%", "").replace(" ", "").replace(",", ".")
++    try:
++        wert = round(float(t) * 100)
++    except ValueError:
++        return None
++    return wert if 0 <= wert <= 2000 else None
++
++
+ def _name(db: Session, g: Guthaben) -> str:
+     if g.art == "organisation":
+@@ -104,4 +121,16 @@ def _seite_abrechnung(request: Request, user: User, db: Session, status: int = 2
+     daten = {"bestaetigen": None, "codes": None, "cloud_ohne_schaetzung": ", ".join(ohne), "automatisch": automatisch,
+              **ctx}
++    from app import zahlung
++    from app.einstellungen import meta_lesen
++
++    geb = zahlung.gebuehren(db)
++    daten.update(
++        zahlwege=zahlung.bereit(db), zahl_basis=zahlung.basis(db),
++        betraege_text=", ".join(_euro_kurz(b) for b in zahlung.betraege(db)),
++        zahl_gesetzt={n: bool(meta_lesen(db, f"zahlung.{n}")) for n in ("stripe_schluessel", "stripe_webhook",
++                                                                       "paypal_geheim")},
++        paypal_id=meta_lesen(db, "zahlung.paypal_id") or "", paypal_webhook_id=meta_lesen(db, "zahlung.paypal_webhook_id") or "",
++        gebuehren_text={"stripe_prozent": _prozent_text(geb.stripe_bp), "stripe_fest": _euro_feld(geb.stripe_fest),
++                        "paypal_prozent": _prozent_text(geb.paypal_bp), "paypal_fest": _euro_feld(geb.paypal_fest)})
+     antwort = _seite(request, "abrechnung.html", user, db, modus=abrechnung.modus(db), preisfelder=PREISFELDER,
+                      werte=werte, euro_feld=_euro_feld, euro=abrechnung.euro, konten=konten, aktionen=aktionen,
+@@ -255,2 +284,58 @@ def gutscheine(request: Request, anzahl: str = Form(""), betrag: str = Form(""),
+     return _seite_abrechnung(request, user, db, codes={"liste": codes, "betrag": abrechnung.euro(cent or 0),
+                                                        "aktion": aktion.strip()})
++
++
++# ---------------------------------------------------------------- Aufladen (0.4.133)
++@router.post("/abrechnung/zahlung", dependencies=[Depends(csrf_pruefen)])
++def zahlung_einstellen(request: Request, betraege: str = Form(""), stripe_schluessel: str = Form(""),
++                       stripe_webhook: str = Form(""), stripe_prozent: str = Form(""), stripe_fest: str = Form(""),
++                       paypal_id: str = Form(""), paypal_geheim: str = Form(""), paypal_webhook_id: str = Form(""),
++                       paypal_prozent: str = Form(""), paypal_fest: str = Form(""), user: User = Depends(verwalter),
++                       db: Session = Depends(get_db)):
++    """Schlüssel und Gebühren der Zahlungsanbieter – nur mit zweitem Faktor; Geheimes nur schreibbar."""
++    from app import zahlung
++
++    sperre = _vorbedingungen(request, user, db)
++    if sperre is not None:
++        return sperre
++    _ = tr(request)
++    liste = [_euro_lesen(x) for x in betraege.split(",") if x.strip()]
++    if not liste or any(b is None or not zahlung.MINDEST_CENT <= b <= zahlung.HOECHST_CENT for b in liste) \
++            or len(liste) > 4:
++        return _seite_abrechnung(request, user, db, 400, fehler=_(
++            "Bitte ein bis vier Beträge zwischen 10 und 500 Euro eingeben, z. B. 10, 20, 50."))
++    geb = zahlung.Gebuehren(stripe_bp=_prozent_lesen(stripe_prozent), stripe_fest=_euro_lesen(stripe_fest),
++                            paypal_bp=_prozent_lesen(paypal_prozent), paypal_fest=_euro_lesen(paypal_fest))
++    if None in (geb.stripe_bp, geb.stripe_fest, geb.paypal_bp, geb.paypal_fest) or max(geb.stripe_fest,
++                                                                                      geb.paypal_fest) > 500:
++        return _seite_abrechnung(request, user, db, 400, fehler=_(
++            "Bitte die Gebühren als Zahl eingeben (Prozent bis 20, fester Betrag bis 5 Euro)."))
++    schluessel = stripe_schluessel.strip()
++    if schluessel and not zahlung.stripe_schluessel_erlaubt(schluessel, db):
++        text = _("Bitte den Test-Schlüssel von Stripe eintragen (beginnt mit sk_test_ oder rk_test_). Echtes Geld ist noch nicht freigegeben.")  # noqa: E501
++        return _seite_abrechnung(request, user, db, 400, fehler=text)
++    webhook = stripe_webhook.strip()
++    if webhook and not webhook.startswith("whsec_"):
++        return _seite_abrechnung(request, user, db, 400, fehler=_(
++            "Das Signatur-Geheimnis von Stripe beginnt mit whsec_."))
++    zahlung.einstellungen_schreiben(db, user.id, betraege=sorted(set(liste)), gebuehren=geb,
++                                    stripe_schluessel=schluessel, stripe_webhook=webhook,
++                                    paypal_id=paypal_id.strip(), paypal_geheim=paypal_geheim.strip(),
++                                    paypal_webhook_id=paypal_webhook_id.strip())
++    db.commit()
++    return _zurueck("/abrechnung#aufladen", "gespeichert")
++
++
++@router.post("/abrechnung/entsperren/{guthaben_id}", dependencies=[Depends(csrf_pruefen)])
++def entsperren(request: Request, guthaben_id: str, user: User = Depends(verwalter), db: Session = Depends(get_db)):
++    from app import zahlung
++
++    sperre = _vorbedingungen(request, user, db)
++    if sperre is not None:
++        return sperre
++    g = db.get(Guthaben, guthaben_id[:64])
++    if g is None:
++        raise errors.not_found()
++    zahlung.entsperren(db, g, user.id)
++    db.commit()
++    return _zurueck("/abrechnung", "gespeichert")
+diff --git a/app/verwaltung/guthaben.py b/app/verwaltung/guthaben.py
+index d77352f..815a4d9 100644
+--- a/app/verwaltung/guthaben.py
++++ b/app/verwaltung/guthaben.py
+@@ -22,5 +22,5 @@ from sqlalchemy import select
+ from sqlalchemy.orm import Session
+ 
+-from app import abrechnung, begrenzung, errors
++from app import abrechnung, begrenzung, errors, zahlung
+ from app.config import get_settings
+ from app.db import get_db, server_id, utcnow
+@@ -44,4 +44,6 @@ MELDUNGEN = {
+     "uebernommen": "Du zahlst jetzt für diese Kampagne.",
+ }
++# 0.4.133: Die Bestätigungsseite schickt das Formular an den Zahlungsanbieter weiter – nur an diese Adressen
++FORM_ZIELE = "https://checkout.stripe.com https://www.paypal.com https://www.sandbox.paypal.com"
+ 
+ 
+@@ -253,5 +255,5 @@ def _ohne_fremde_titel(db: Session, user: User, g: Guthaben) -> list[dict]:
+ 
+ def _hauptseite(request: Request, db: Session, user: User, meldung: str | None = None, fehler: str | None = None,
+-                status: int = 200) -> HTMLResponse:
++                status: int = 200, gutschein_offen: bool = False) -> HTMLResponse:
+     from app.models import Organization
+ 
+@@ -262,9 +264,11 @@ def _hauptseite(request: Request, db: Session, user: User, meldung: str | None =
+         toepfe.append({"g": g, "name": (org.name if org else "?") if g.art == "organisation" else None,
+                        "saldo": abrechnung.saldo(db, g.id), "stand": abrechnung.stand(db, g),
+-                       "buchungen": abrechnung.buchungen(db, g, 50), "wartend": _ohne_fremde_titel(db, user, g)})
++                       "buchungen": abrechnung.buchungen(db, g, 50), "wartend": _ohne_fremde_titel(db, user, g),
++                       "offen": zahlung.offene(db, g) if g.id else []})
+     db.commit()  # neu angelegte Guthaben-Zeilen
+     antwort = _seite(request, "guthaben.html", None, db, person=user, toepfe=toepfe,
+                      kampagnen=_sl_kampagnen(db, user), euro=abrechnung.euro, topf=abrechnung.modus(db) == "topf",
+-                     meldung=meldung, fehler=fehler)
++                     meldung=meldung, fehler=fehler, zahlwege_an=zahlung.bereit(db), betraege=zahlung.betraege(db),
++                     testmodus=not zahlung.live(db), gutschein_offen=gutschein_offen)
+     antwort.status_code = status
+     return antwort
+@@ -278,6 +282,6 @@ def _eigenes(db: Session, user: User, guthaben_id: str) -> Guthaben:
+ 
+ 
+-def _fehler(request: Request, db: Session, user: User, text: str) -> HTMLResponse:
+-    return _hauptseite(request, db, user, fehler=text, status=400)
++def _fehler(request: Request, db: Session, user: User, text: str, gutschein: bool = False) -> HTMLResponse:
++    return _hauptseite(request, db, user, fehler=text, status=400, gutschein_offen=gutschein)
+ 
+ 
+@@ -299,5 +303,5 @@ def gutschein(request: Request, code: str = Form(""), guthaben_id: str = Form(""
+         text = tr(request)("Diesen Gutschein hast du aus derselben Aktion schon eingelöst.") if str(e) == "aktion" \
+             else tr(request)("Der Code stimmt nicht, ist abgelaufen oder schon eingelöst.")
+-        return _fehler(request, db, user, text)
++        return _fehler(request, db, user, text, gutschein=True)
+     ZAEHLER.freigeben(versuch)
+     db.commit()
+@@ -332,4 +336,98 @@ def verarbeiten(job_id: str, user: User = Depends(_angemeldet), db: Session = De
+ 
+ 
++# ---------------------------------------------------------------- Aufladen (0.4.133)
++def _zahl_oder_none(text: str) -> int | None:
++    try:
++        return int((text or "").strip())
++    except ValueError:
++        return None
++
++
++@router.post("/aufladen", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
++def aufladen(request: Request, guthaben_id: str = Form(""), betrag: str = Form(""), anbieter: str = Form(""),
++             user: User = Depends(_angemeldet), db: Session = Depends(get_db)):
++    """Schritt 1: Betrag und Gebühr zeigen, bevor es zum Anbieter geht."""
++    g = _eigenes(db, user, guthaben_id)
++    netto = _zahl_oder_none(betrag)
++    if anbieter not in zahlung.bereit(db) or netto not in zahlung.betraege(db) or g.gesperrt_at is not None:
++        return _fehler(request, db, user, tr(request)("Bitte einen Betrag und eine Zahlweise wählen."))
++    antwort = _seite(request, "guthaben_aufladen.html", None, db, schritt="pruefen", guthaben_id=g.id, netto=netto,
++                     brutto=zahlung.brutto(db, anbieter, netto), anbieter=anbieter, euro=abrechnung.euro,
++                     testmodus=not zahlung.live(db))
++    from app.verwaltung.router import SICHERHEITS_KOPFZEILEN
++
++    antwort.headers["Content-Security-Policy"] = SICHERHEITS_KOPFZEILEN["Content-Security-Policy"].replace(
++        "form-action 'self'", f"form-action 'self' {FORM_ZIELE}")
++    return antwort
++
++
++@router.post("/aufladen/weiter", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
++def aufladen_weiter(request: Request, guthaben_id: str = Form(""), betrag: str = Form(""), anbieter: str = Form(""),
++                    user: User = Depends(_angemeldet), db: Session = Depends(get_db)):
++    """Schritt 2: Vorgang anlegen und zum Anbieter weiterleiten."""
++    from app.verwaltung.router import sprache_von
++
++    g = _eigenes(db, user, guthaben_id)
++    netto = _zahl_oder_none(betrag)
++    _ = tr(request)
++    try:
++        url = zahlung.starten(db, g, user.id, anbieter, netto if netto is not None else -1, sprache_von(request))
++    except ValueError as e:
++        db.rollback()
++        text = {"grenze": _("Für heute sind genug Aufladungen begonnen. Bitte morgen noch einmal."),
++                "gesperrt": _("Dieses Guthaben ist gerade gesperrt.")}.get(str(e),
++                                                                           _("Bitte einen Betrag und eine Zahlweise wählen."))
++        return _fehler(request, db, user, text)
++    except zahlung.ZahlungFehler:
++        text = _("Der Zahlungsanbieter ist gerade nicht erreichbar. Es wurde nichts abgebucht. Bitte später noch einmal.")
++        return _fehler(request, db, user, text)
++    return RedirectResponse(url, status_code=303)
++
++
++def _ende(request: Request, db: Session, titel: str, text: str) -> HTMLResponse:
++    return _seite(request, "guthaben_aufladen.html", None, db, schritt="ende", titel=titel, text=text)
++
++
++def _vorgang(db: Session, v: str):
++    from app.models import Bezahlvorgang
++
++    return db.get(Bezahlvorgang, (v or "")[:64]) if v else None
++
++
++@router.get("/aufladen/fertig", response_class=HTMLResponse, dependencies=[Depends(_an)])
++def aufladen_fertig(request: Request, v: str = "", db: Session = Depends(get_db)):
++    """Rücksprung nach der Zahlung. Ohne Anmeldung (das Cookie kommt beim Rücksprung nicht mit) – zeigt nur den Stand."""
++    _ = tr(request)
++    vorgang = _vorgang(db, v)
++    if vorgang is not None and vorgang.zustand == "bezahlt":
++        return _ende(request, db, _("Danke"), _("{betrag} sind gutgeschrieben.", betrag=abrechnung.euro(vorgang.netto_cent)))
++    text = _("Sobald der Zahlungsanbieter die Zahlung bestätigt, steht der Betrag in deinem Guthaben. Das dauert meist nur ein paar Sekunden, bei Lastschrift auch einige Tage.")  # noqa: E501
++    return _ende(request, db, _("Danke"), text)
++
++
++@router.get("/aufladen/paypal", dependencies=[Depends(_an)])
++def aufladen_paypal(request: Request, v: str = "", token: str = "", db: Session = Depends(get_db)):
++    """Rücksprung von PayPal: Der Server bucht ab und schreibt nur gut, was PayPal bestätigt."""
++    vorgang = _vorgang(db, v)
++    if vorgang is None or vorgang.anbieter != "paypal":
++        return RedirectResponse("/guthaben/aufladen/fertig", status_code=303)
++    try:
++        zahlung.paypal_zurueck(db, vorgang, token[:100])
++        db.commit()
++    except Exception:  # noqa: BLE001 – kommt die Abbuchung später per Meldung, ist nichts verloren
++        db.rollback()
++    return RedirectResponse(f"/guthaben/aufladen/fertig?v={vorgang.id}", status_code=303)
++
++
++@router.get("/aufladen/abbruch", response_class=HTMLResponse, dependencies=[Depends(_an)])
++def aufladen_abbruch(request: Request, v: str = "", db: Session = Depends(get_db)):
++    _ = tr(request)
++    vorgang = _vorgang(db, v)
++    if vorgang is not None and vorgang.zustand == "offen":
++        vorgang.zustand = "abgebrochen"
++        db.commit()
++    return _ende(request, db, _("Abgebrochen"), _("Die Zahlung wurde abgebrochen. Es wurde nichts abgebucht."))
++
++
+ def _kampagne_als_sl(db: Session, user: User, campaign_id: str) -> Campaign:
+     c = db.get(Campaign, campaign_id)
+diff --git a/app/verwaltung/i18n.py b/app/verwaltung/i18n.py
+index 6e20c79..706a099 100644
+--- a/app/verwaltung/i18n.py
++++ b/app/verwaltung/i18n.py
+@@ -1272,4 +1272,62 @@ EN: dict[str, str] = {
+     "ändern": "change",
+     "Sieht die SL in der App.": "The GM sees this in the app.",
++    # 0.4.133: Aufladen
++    "Abgebrochen": "Cancelled",
++    "Adressen für die Meldungen der Anbieter (beim Anbieter als Webhook eintragen):": "Addresses for the providers’ notifications (enter them at the provider as webhook):",
++    "Auf der nächsten Seite siehst du die Gebühr des Zahlungsanbieters, bevor du bezahlst.": "On the next page you see the payment provider’s fee before you pay.",
++    "Aufladen": "Top-up",
++    "Aufladen mit Bezahlung gibt es auf diesem Server noch nicht. Bis dahin: Gutschein einlösen oder beim Betreiber melden.": "Topping up with a payment is not available on this server yet. Until then: redeem a voucher or contact the operator.",
++    "Aufladung": "Top-up",
++    "Beträge zum Aufladen (Euro, durch Komma getrennt, 10 bis 500)": "Top-up amounts (euros, separated by commas, 10 to 500)",
++    "Bitte den Test-Schlüssel von Stripe eintragen (beginnt mit sk_test_ oder rk_test_). Echtes Geld ist noch nicht freigegeben.": "Please enter Stripe’s test key (starts with sk_test_ or rk_test_). Real money is not enabled yet.",
++    "Bitte die Gebühren als Zahl eingeben (Prozent bis 20, fester Betrag bis 5 Euro).": "Please enter the fees as numbers (percent up to 20, fixed amount up to 5 euros).",
++    "Bitte ein bis vier Beträge zwischen 10 und 500 Euro eingeben, z. B. 10, 20, 50.": "Please enter one to four amounts between 10 and 500 euros, e.g. 10, 20, 50.",
++    "Bitte einen Betrag und eine Zahlweise wählen.": "Please choose an amount and a payment method.",
++    "Danke": "Thank you",
++    "Das Signatur-Geheimnis von Stripe beginnt mit whsec_.": "Stripe’s signing secret starts with whsec_.",
++    "Deine Zahldaten sieht Taleward nicht. Danach kommst du hierher zurück.": "Taleward does not see your payment details. Afterwards you come back here.",
++    "Der Zahlungsanbieter ist gerade nicht erreichbar. Es wurde nichts abgebucht. Bitte später noch einmal.": "The payment provider cannot be reached right now. Nothing was charged. Please try again later.",
++    "Die Gebühr wird aufgeschlagen, damit genau der gewählte Betrag ankommt. Die SL sieht beides vor der Zahlung.": "The fee is added on top so that exactly the chosen amount arrives. The GM sees both before paying.",
++    "Die Zahlung wurde abgebrochen. Es wurde nichts abgebucht.": "The payment was cancelled. Nothing was charged.",
++    "Dieses Guthaben ist gerade gesperrt.": "This credit is locked right now.",
++    "Du wechselst zu PayPal.": "You are switching to PayPal.",
++    "Du wechselst zur Bezahlseite von Stripe. Dort zahlst du mit Karte, Apple Pay oder Google Pay.": "You are switching to Stripe’s payment page. There you pay by card, Apple Pay or Google Pay.",
++    "Du zahlst": "You pay",
++    "Eine Zahlung ist begonnen und noch nicht bestätigt. Das Guthaben erscheint, sobald der Zahlungsanbieter sie bestätigt. Seite später neu laden.": "A payment has been started and is not confirmed yet. The credit appears as soon as the payment provider confirms it. Reload the page later.",
++    "Eine Zahlung wurde zurückgebucht oder angefochten. Bis die Verwaltung das geprüft hat, starten keine neuen Verarbeitungen und Aufladen geht nicht.": "A payment was reversed or disputed. Until the administrators have checked it, no new processing starts and topping up is not possible.",
++    "Für heute sind genug Aufladungen begonnen. Bitte morgen noch einmal.": "Enough top-ups have been started today. Please try again tomorrow.",
++    "Gebühr des Zahlungsanbieters": "Payment provider’s fee",
++    "Gebühr fest (Euro)": "Fixed fee (euros)",
++    "Gebühr in Prozent": "Fee in percent",
++    "Geheimer Schlüssel (sk_test_… oder rk_test_…)": "Secret key (sk_test_… or rk_test_…)",
++    "Gutgeschrieben werden": "Credited",
++    "Guthaben aufladen": "Top up credit",
++    "Karte, Apple Pay oder Google Pay": "Card, Apple Pay or Google Pay",
++    "Letzte Buchungen": "Latest bookings",
++    "Mit deinem PayPal-Konto.": "With your PayPal account.",
++    "PayPal": "PayPal",
++    "Restguthaben erstattet der Betreiber auf Anfrage zurück auf dieselbe Zahlung. Gutscheine und Gutschriften werden nicht ausgezahlt.": "On request, the operator refunds remaining credit back to the same payment. Vouchers and manual credits are not paid out.",
++    "Secret": "Secret",
++    "Signatur-Geheimnis der Meldungen (whsec_…)": "Signing secret of the notifications (whsec_…)",
++    "Sobald der Zahlungsanbieter die Zahlung bestätigt, steht der Betrag in deinem Guthaben. Das dauert meist nur ein paar Sekunden, bei Lastschrift auch einige Tage.": "As soon as the payment provider confirms the payment, the amount is in your credit. That usually takes a few seconds, with direct debit a few days.",
++    "Sperre aufheben": "Unlock",
++    "Spielleitungen laden ihr Guthaben auf der Guthaben-Seite auf und bezahlen bei Stripe bzw. PayPal. Gutgeschrieben wird erst, wenn der Anbieter die Zahlung bestätigt. Echtes Geld ist noch nicht freigegeben: Stripe nimmt nur Test-Schlüssel, PayPal läuft in der Sandbox.": "Game masters top up their credit on the credit page and pay with Stripe or PayPal. Credit is only added once the provider confirms the payment. Real money is not enabled yet: Stripe only takes test keys, PayPal runs in the sandbox.",
++    "Stripe": "Stripe",
++    "Testmodus: Aufladen ist nur zum Ausprobieren eingerichtet. Es fließt kein echtes Geld.": "Test mode: topping up is only set up for trying it out. No real money is moved.",
++    "Testmodus: Es fließt kein echtes Geld.": "Test mode: no real money is moved.",
++    "Wartet, bis die Verwaltung die Zahlung geprüft hat.": "Waiting until the administrators have checked the payment.",
++    "Webhook-ID": "Webhook ID",
++    "Weiter zu PayPal": "Continue to PayPal",
++    "Weiter zu Stripe": "Continue to Stripe",
++    "Zu deinem Guthaben": "To your credit",
++    "Zuerst die öffentliche Adresse des Servers eintragen (Einstellungen → Einrichtung → Angaben für die App). Ohne sie gibt es kein Aufladen.": "First enter the server’s public address (Settings → Setup → Details for the app). Without it there is no top-up.",
++    "Zurück": "Back",
++    "eingetragen – leer lassen, um es zu behalten": "saved – leave empty to keep it",
++    "eingetragen – leer lassen, um ihn zu behalten": "saved – leave empty to keep it",
++    "gesperrt seit {zeit}": "locked since {zeit}",
++    "nicht eingerichtet": "not set up",
++    "{betrag} sind gutgeschrieben.": "{betrag} have been credited.",
++    "Ältere Buchungen": "Older bookings",
++    "Über Stripe. Auch Lastschrift, je nach Land.": "Via Stripe. Also direct debit, depending on the country.",
+ }
+ 
+diff --git a/app/verwaltung/static/verwaltung.css b/app/verwaltung/static/verwaltung.css
+index 5ff284a..b5218ff 100644
+--- a/app/verwaltung/static/verwaltung.css
++++ b/app/verwaltung/static/verwaltung.css
+@@ -306,2 +306,35 @@ code.ganz { user-select:all; } /* ein Tippen markiert die ganze Adresse zum Kopi
+ .reiter a:hover { color:var(--ink); }
+ .reiter a[aria-current="page"] { color:var(--ink); font-weight:700; border-bottom-color:var(--ink); }
++/* 0.4.133: Seite „Guthaben“ – Stand groß oben, Aufladen als Hauptweg, Seltenes zugeklappt */
++.seite-guthaben { max-width:760px; margin:0 auto; }
++.seite-guthaben--schmal { max-width:520px; }
++.gkopf { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:var(--space-3);
++  margin:0 0 var(--space-4); }
++.gkopf img { display:block; height:32px; width:auto; }
++.gkopf form { display:flex; align-items:center; gap:var(--space-1); margin:0; }
++.unsichtbar { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
++.guthaben__wer { font:500 15px/22px var(--font-sans); color:var(--ink-muted); margin:0; }
++.guthaben__stand { font:700 48px/56px var(--font-serif); color:var(--ink); margin:var(--space-1) 0 var(--space-2);
++  font-variant-numeric:lining-nums tabular-nums; }
++.guthaben__stand--minus { color:var(--siegel-text); }
++.guthaben__satz { margin:0 0 var(--space-6); }
++.aufladen fieldset { display:grid; gap:var(--space-4); margin:0 0 var(--space-6); padding:var(--space-4);
++  border:1px solid var(--line); border-radius:var(--radius-md); min-width:0; }
++.aufladen legend { padding:0 var(--space-2); font:700 18px/24px var(--font-serif); color:var(--ink); }
++.chips { display:flex; flex-wrap:wrap; gap:var(--space-2); }
++.chip { display:inline-flex; align-items:center; gap:var(--space-2); min-height:48px; padding:0 var(--space-4);
++  border:1.5px solid var(--line-strong); border-radius:var(--radius-pill); background:var(--paper); cursor:pointer;
++  font:700 17px/24px var(--font-sans); font-variant-numeric:lining-nums tabular-nums; }
++.chip:has(input:checked) { border-color:var(--ink); background:var(--paper-raised); box-shadow:inset 0 0 0 1px var(--ink); }
++.chip input { margin:0; }
++.karten-wahl--zwei { grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); margin:0; }
++.guthaben .klappe { margin-top:var(--space-2); }
++.guthaben .klappe[open] > :not(summary) { margin-top:var(--space-3); }
++td.betrag { white-space:nowrap; font-variant-numeric:lining-nums tabular-nums; }
++.summe { display:grid; grid-template-columns:1fr auto; gap:var(--space-2) 0; margin:var(--space-4) 0 var(--space-6);
++  font-variant-numeric:lining-nums tabular-nums; }
++.summe dt { color:var(--ink-muted); }
++.summe dd { margin:0; padding-left:var(--space-4); text-align:right; }
++.summe .summe__gesamt { font:700 20px/28px var(--font-serif); color:var(--ink); border-top:1px solid var(--line-strong);
++  padding-top:var(--space-2); }
++@media (max-width: 720px) { .guthaben__stand { font-size:40px; line-height:48px; } }
+diff --git a/app/verwaltung/templates/abrechnung.html b/app/verwaltung/templates/abrechnung.html
+index 307adfa..5a1b12c 100644
+--- a/app/verwaltung/templates/abrechnung.html
++++ b/app/verwaltung/templates/abrechnung.html
+@@ -63,4 +63,39 @@
+ 
+ {% if an %}
++<div class="karte" id="aufladen">
++  <h2>{{ _("Aufladen") }}</h2>
++  <p class="hilfe">{{ _("Spielleitungen laden ihr Guthaben auf der Guthaben-Seite auf und bezahlen bei Stripe bzw. PayPal. Gutgeschrieben wird erst, wenn der Anbieter die Zahlung bestätigt. Echtes Geld ist noch nicht freigegeben: Stripe nimmt nur Test-Schlüssel, PayPal läuft in der Sandbox.") }}</p>
++  <ul class="liste">
++    <li>{{ _("Stripe") }}: {% if "stripe" in zahlwege %}<span class="marke-status marke-status--gut">{{ _("bereit") }}</span>{% else %}<span class="marke-status">{{ _("nicht eingerichtet") }}</span>{% endif %}</li>
++    <li>{{ _("PayPal") }}: {% if "paypal" in zahlwege %}<span class="marke-status marke-status--gut">{{ _("bereit") }}</span>{% else %}<span class="marke-status">{{ _("nicht eingerichtet") }}</span>{% endif %}</li>
++  </ul>
++  {% if zahl_basis %}
++  <p>{{ _("Adressen für die Meldungen der Anbieter (beim Anbieter als Webhook eintragen):") }}</p>
++  <p class="kopierzeile"><span>Stripe</span> <code class="ganz">{{ zahl_basis }}/zahlung/stripe</code></p>
++  <p class="kopierzeile"><span>PayPal</span> <code class="ganz">{{ zahl_basis }}/zahlung/paypal</code></p>
++  {% else %}
++  <p class="meldung meldung--fehler">{{ _("Zuerst die öffentliche Adresse des Servers eintragen (Einstellungen → Einrichtung → Angaben für die App). Ohne sie gibt es kein Aufladen.") }}</p>
++  {% endif %}
++  <form class="formular" method="post" action="/verwaltung/abrechnung/zahlung">
++    <input type="hidden" name="csrf" value="{{ csrf }}">
++    <label>{{ _("Beträge zum Aufladen (Euro, durch Komma getrennt, 10 bis 500)") }} <input type="text" name="betraege" value="{{ betraege_text }}" required maxlength="40"></label>
++    <fieldset><legend>Stripe</legend>
++      <label>{{ _("Geheimer Schlüssel (sk_test_… oder rk_test_…)") }} <input type="password" name="stripe_schluessel" autocomplete="off" maxlength="300" placeholder="{{ _('eingetragen – leer lassen, um ihn zu behalten') if zahl_gesetzt.stripe_schluessel else '' }}"></label>
++      <label>{{ _("Signatur-Geheimnis der Meldungen (whsec_…)") }} <input type="password" name="stripe_webhook" autocomplete="off" maxlength="300" placeholder="{{ _('eingetragen – leer lassen, um es zu behalten') if zahl_gesetzt.stripe_webhook else '' }}"></label>
++      <label>{{ _("Gebühr in Prozent") }} <input type="text" name="stripe_prozent" value="{{ gebuehren_text.stripe_prozent }}" inputmode="decimal" required maxlength="6"></label>
++      <label>{{ _("Gebühr fest (Euro)") }} <input type="text" name="stripe_fest" value="{{ gebuehren_text.stripe_fest }}" inputmode="decimal" required maxlength="6"></label>
++    </fieldset>
++    <fieldset><legend>PayPal</legend>
++      <label>{{ _("Client-ID") }} <input type="text" name="paypal_id" value="{{ paypal_id }}" autocomplete="off" maxlength="300"></label>
++      <label>{{ _("Secret") }} <input type="password" name="paypal_geheim" autocomplete="off" maxlength="300" placeholder="{{ _('eingetragen – leer lassen, um es zu behalten') if zahl_gesetzt.paypal_geheim else '' }}"></label>
++      <label>{{ _("Webhook-ID") }} <input type="text" name="paypal_webhook_id" value="{{ paypal_webhook_id }}" autocomplete="off" maxlength="100"></label>
++      <label>{{ _("Gebühr in Prozent") }} <input type="text" name="paypal_prozent" value="{{ gebuehren_text.paypal_prozent }}" inputmode="decimal" required maxlength="6"></label>
++      <label>{{ _("Gebühr fest (Euro)") }} <input type="text" name="paypal_fest" value="{{ gebuehren_text.paypal_fest }}" inputmode="decimal" required maxlength="6"></label>
++    </fieldset>
++    <p class="hilfe">{{ _("Die Gebühr wird aufgeschlagen, damit genau der gewählte Betrag ankommt. Die SL sieht beides vor der Zahlung.") }}</p>
++    <div><button class="tw-btn tw-btn--secondary" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Speichern") }}</button></div>
++  </form>
++</div>
++
+ <div class="karte">
+   <h2>{{ _("Guthaben") }}</h2>
+@@ -69,5 +104,8 @@
+     <tbody>
+     {% for k in konten %}
+-      <tr><td data-label="{{ _('Wer') }}">{{ k.name }}{% if k.g.art == "organisation" %} <span class="leise">({{ _("Organisation") }})</span>{% endif %}</td><td data-label="{{ _('Saldo') }}">{{ euro(k.saldo) }}</td></tr>
++      <tr><td data-label="{{ _('Wer') }}">{{ k.name }}{% if k.g.art == "organisation" %} <span class="leise">({{ _("Organisation") }})</span>{% endif %}
++        {% if k.g.gesperrt_at %}<br><span class="marke-status marke-status--fehler">{{ _("gesperrt seit {zeit}", zeit=zeit(k.g.gesperrt_at)) }}</span>
++        <form method="post" action="/verwaltung/abrechnung/entsperren/{{ k.g.id }}"><input type="hidden" name="csrf" value="{{ csrf }}">
++          <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Sperre aufheben") }}</button></form>{% endif %}</td><td data-label="{{ _('Saldo') }}">{{ euro(k.saldo) }}</td></tr>
+     {% else %}
+       <tr><td colspan="2" class="leise">{{ _("Noch kein Guthaben angelegt.") }}</td></tr>
+diff --git a/app/verwaltung/templates/guthaben.html b/app/verwaltung/templates/guthaben.html
+index 0b4a1bb..5bb1fdf 100644
+--- a/app/verwaltung/templates/guthaben.html
++++ b/app/verwaltung/templates/guthaben.html
+@@ -2,34 +2,49 @@
+ {% block titel %}{{ _("Guthaben") }}{% endblock %}
+ {% block inhalt %}
+-{% set arten = {"zahlung": _("Zahlung"), "gutschrift": _("Gutschrift"), "gutschein": _("Gutschein"), "verbrauch": _("Verarbeitung"), "rueckbuchung": _("Rückbuchung"), "erstattung": _("Erstattung"), "korrektur": _("Korrektur")} %}
++{% set arten = {"zahlung": _("Aufladung"), "gutschrift": _("Gutschrift"), "gutschein": _("Gutschein"), "verbrauch": _("Verarbeitung"), "rueckbuchung": _("Rückbuchung"), "erstattung": _("Erstattung"), "korrektur": _("Korrektur")} %}
+ {% set auftragsarten = {"transcribe": _("Transkription"), "summarize": _("Kapitel"), "revise": _("Korrektur per Hinweis"), "document": _("SL-Unterlage")} %}
+-{% set gruende = {"zahler_fehlt": _("Für diese Kampagne zahlt gerade niemand."), "freigabe": _("Wartet auf deine Bestätigung."), "leer": _("Wartet auf Guthaben."), "zu_knapp": _("Das Guthaben reicht dafür voraussichtlich nicht.")} %}
+-<div class="aktionen">
+-  <h1>{{ _("Guthaben") }}</h1>
++{% set gruende = {"zahler_fehlt": _("Für diese Kampagne zahlt gerade niemand."), "freigabe": _("Wartet auf deine Bestätigung."), "leer": _("Wartet auf Guthaben."), "zu_knapp": _("Das Guthaben reicht dafür voraussichtlich nicht."), "gesperrt": _("Wartet, bis die Verwaltung die Zahlung geprüft hat.")} %}
++{% set zahlwege = {"stripe": _("Karte, Apple Pay oder Google Pay"), "paypal": _("PayPal")} %}
++<div class="seite-guthaben">
++<header class="gkopf">
++  <picture><source srcset="/verwaltung/static/marke/taleward-lockup-inverse.svg" media="(prefers-color-scheme: dark)"><img src="/verwaltung/static/marke/taleward-lockup.svg" alt="Taleward" width="132" height="32"></picture>
+   <form method="post" action="/guthaben/abmelden"><input type="hidden" name="csrf" value="{{ csrf }}">
+-    <button class="tw-btn tw-btn--quiet" type="submit">{{ person.display_name|rein }} · {{ _("abmelden") }}</button></form>
+-</div>
++    <span class="leise">{{ person.display_name|rein }}</span> <button class="tw-btn tw-btn--quiet" type="submit">{{ _("abmelden") }}</button></form>
++</header>
++<h1 class="unsichtbar">{{ _("Guthaben") }}</h1>
+ <p class="leise">{{ angaben.server_name }} · {{ angaben.server_operator }}</p>
++{% if testmodus and zahlwege_an %}<p class="hinweis">{{ _("Testmodus: Aufladen ist nur zum Ausprobieren eingerichtet. Es fließt kein echtes Geld.") }}</p>{% endif %}
+ 
+ {% for t in toepfe %}
+-<section class="karte" aria-labelledby="topf-{{ loop.index }}">
+-  <h2 id="topf-{{ loop.index }}">{% if t.name %}{{ _("Guthaben der Organisation {name}", name=t.name) }}{% else %}{{ _("Dein Guthaben") }}{% endif %}</h2>
+-  <div class="zahl {% if t.saldo < 0 %}zahl--warnung{% endif %}">
+-    <div class="zahl__wert">{{ euro(t.saldo) }}</div>
+-    <div class="zahl__text">
+-      {% if t.stand == "minus" %}{{ _("Im Minus. Neue Verarbeitungen starten erst, wenn das Guthaben wieder über null ist.") }}
+-      {% elif t.stand == "leer" %}{{ _("Leer. Neue Verarbeitungen warten, bis wieder Guthaben da ist.") }}
+-      {% elif t.stand == "knapp" %}{{ _("Knapp. Für die nächste lange Runde reicht es vielleicht nicht.") }}
+-      {% else %}{{ _("Reicht für die nächsten Verarbeitungen.") }}{% endif %}
+-    </div>
+-  </div>
+-  <p class="hilfe">{{ _("Aufladen mit Bezahlung kommt später. Bis dahin: Gutschein einlösen oder beim Betreiber melden.") }}{% if angaben.server_contact %} {{ angaben.server_contact }}{% endif %}</p>
++<section class="karte guthaben" aria-labelledby="topf-{{ loop.index }}">
++  <h2 class="guthaben__wer" id="topf-{{ loop.index }}">{% if t.name %}{{ _("Guthaben der Organisation {name}", name=t.name) }}{% else %}{{ _("Dein Guthaben") }}{% endif %}</h2>
++  <p class="guthaben__stand {% if t.saldo < 0 %}guthaben__stand--minus{% endif %}">{{ euro(t.saldo) }}</p>
++  <p class="guthaben__satz">
++    {% if t.stand == "minus" %}{{ _("Im Minus. Neue Verarbeitungen starten erst, wenn das Guthaben wieder über null ist.") }}
++    {% elif t.stand == "leer" %}{{ _("Leer. Neue Verarbeitungen warten, bis wieder Guthaben da ist.") }}
++    {% elif t.stand == "knapp" %}{{ _("Knapp. Für die nächste lange Runde reicht es vielleicht nicht.") }}
++    {% else %}{{ _("Reicht für die nächsten Verarbeitungen.") }}{% endif %}
++  </p>
++  {% if t.g.gesperrt_at %}<p class="meldung meldung--fehler">{{ _("Eine Zahlung wurde zurückgebucht oder angefochten. Bis die Verwaltung das geprüft hat, starten keine neuen Verarbeitungen und Aufladen geht nicht.") }}{% if angaben.server_contact %} {{ angaben.server_contact }}{% endif %}</p>{% endif %}
++  {% if t.offen %}<p class="meldung" role="status">{{ _("Eine Zahlung ist begonnen und noch nicht bestätigt. Das Guthaben erscheint, sobald der Zahlungsanbieter sie bestätigt. Seite später neu laden.") }}</p>{% endif %}
+ 
+-  <h3>{{ _("Gutschein einlösen") }}</h3>
+-  <form class="formular formular--zeile" method="post" action="/guthaben/gutschein">
++  {% if zahlwege_an and not t.g.gesperrt_at %}
++  <form class="aufladen" method="post" action="/guthaben/aufladen">
+     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="guthaben_id" value="{{ t.g.id }}">
+-    <label>{{ _("Code") }} <input type="text" name="code" required maxlength="40" autocomplete="off" spellcheck="false"></label>
+-    <button class="tw-btn tw-btn--secondary" type="submit">{{ _("Einlösen") }}</button>
++    <fieldset>
++      <legend>{{ _("Guthaben aufladen") }}</legend>
++      <div class="chips" role="radiogroup" aria-label="{{ _('Betrag') }}">
++        {% for b in betraege %}<label class="chip"><input type="radio" name="betrag" value="{{ b }}" {% if loop.first %}checked{% endif %} required> {{ euro(b) }}</label>{% endfor %}
++      </div>
++      <div class="karten-wahl karten-wahl--zwei">
++        {% for z in zahlwege_an %}<label class="wahl"><input type="radio" name="anbieter" value="{{ z }}" {% if loop.first %}checked{% endif %} required><strong>{{ zahlwege[z] }}</strong><span class="hilfe">{% if z == "stripe" %}{{ _("Über Stripe. Auch Lastschrift, je nach Land.") }}{% else %}{{ _("Mit deinem PayPal-Konto.") }}{% endif %}</span></label>{% endfor %}
++      </div>
++      <p class="hilfe">{{ _("Auf der nächsten Seite siehst du die Gebühr des Zahlungsanbieters, bevor du bezahlst.") }}</p>
++      <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Weiter") }}</button></div>
++    </fieldset>
+   </form>
++  {% elif not zahlwege_an %}
++  <p class="hilfe">{{ _("Aufladen mit Bezahlung gibt es auf diesem Server noch nicht. Bis dahin: Gutschein einlösen oder beim Betreiber melden.") }}{% if angaben.server_contact %} {{ angaben.server_contact }}{% endif %}</p>
++  {% endif %}
+ 
+   {% if t.wartend %}
+@@ -51,29 +66,43 @@
+   {% endif %}
+ 
+-  <h3 id="einstellungen">{{ _("Einstellungen") }}</h3>
+-  <form class="formular" method="post" action="/guthaben/einstellungen">
+-    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="guthaben_id" value="{{ t.g.id }}">
+-    <label>{{ _("Aufträge über diesem Betrag warten auf „Verarbeiten“ (Euro)") }}
+-      <input type="text" name="freigabe_ab" value="{{ '%d,%02d' % (t.g.freigabe_ab_cent // 100, t.g.freigabe_ab_cent % 100) }}" inputmode="decimal" required maxlength="12"></label>
+-    <label>{{ _("Charakterbögen von Spielern: höchstens Seiten je Bogen") }}
+-      <input type="number" name="bogen_seiten" value="{{ t.g.bogen_seiten }}" min="1" max="2000" required></label>
+-    <label>{{ _("Charakterbögen je Spieler und Kampagne") }}
+-      <input type="number" name="boegen_je_spieler" value="{{ t.g.boegen_je_spieler }}" min="0" max="50" required>
+-      <span class="hilfe">{{ _("Voreinstellung 3, höchstens 50. 0 = keine Abgabe.") }}</span></label>
+-    <p class="hilfe">{{ _("Jede Änderung wird festgehalten.") }}</p>
+-    <div><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
+-  </form>
+-
+-  <h3>{{ _("Buchungen") }}</h3>
++  <h3>{{ _("Letzte Buchungen") }}</h3>
++  {% macro zeilen(liste) %}{% for b in liste %}
++      <tr><td data-label="{{ _('Datum') }}">{{ zeit(b.angelegt) }}</td><td data-label="{{ _('Art') }}">{{ arten.get(b.art, b.art) }}{% if b.grund %}<br><span class="leise">{{ b.grund }}</span>{% endif %}</td><td data-label="{{ _('Betrag') }}" class="betrag">{{ euro(b.betrag_cent) }}</td></tr>
++  {% endfor %}{% endmacro %}
+   <div class="tabelle-huelle"><table>
+     <thead><tr><th>{{ _("Datum") }}</th><th>{{ _("Art") }}</th><th>{{ _("Betrag") }}</th></tr></thead>
+     <tbody>
+-    {% for b in t.buchungen %}
+-      <tr><td data-label="{{ _('Datum') }}">{{ zeit(b.angelegt) }}</td><td data-label="{{ _('Art') }}">{{ arten.get(b.art, b.art) }}{% if b.grund %}<br><span class="leise">{{ b.grund }}</span>{% endif %}</td><td data-label="{{ _('Betrag') }}">{{ euro(b.betrag_cent) }}</td></tr>
+-    {% else %}
+-      <tr><td colspan="3" class="leise">{{ _("Noch keine Buchungen.") }}</td></tr>
+-    {% endfor %}
++    {{ zeilen(t.buchungen[:5]) }}
++    {% if not t.buchungen %}<tr><td colspan="3" class="leise">{{ _("Noch keine Buchungen.") }}</td></tr>{% endif %}
+     </tbody>
+   </table></div>
++  {% if t.buchungen|length > 5 %}
++  <details class="klappe"><summary>{{ _("Ältere Buchungen") }}</summary>
++    <div class="tabelle-huelle"><table><tbody>{{ zeilen(t.buchungen[5:]) }}</tbody></table></div>
++  </details>
++  {% endif %}
++
++  <details class="klappe" {% if gutschein_offen %}open{% endif %}><summary>{{ _("Gutschein einlösen") }}</summary>
++    <form class="formular formular--zeile" method="post" action="/guthaben/gutschein">
++      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="guthaben_id" value="{{ t.g.id }}">
++      <label>{{ _("Code") }} <input type="text" name="code" required maxlength="40" autocomplete="off" spellcheck="false"></label>
++      <button class="tw-btn tw-btn--secondary" type="submit">{{ _("Einlösen") }}</button>
++    </form>
++  </details>
++
++  <details class="klappe" id="einstellungen"><summary>{{ _("Einstellungen") }}</summary>
++    <form class="formular" method="post" action="/guthaben/einstellungen">
++      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="guthaben_id" value="{{ t.g.id }}">
++      <label>{{ _("Aufträge über diesem Betrag warten auf „Verarbeiten“ (Euro)") }}
++        <input type="text" name="freigabe_ab" value="{{ '%d,%02d' % (t.g.freigabe_ab_cent // 100, t.g.freigabe_ab_cent % 100) }}" inputmode="decimal" required maxlength="12"></label>
++      <label>{{ _("Charakterbögen von Spielern: höchstens Seiten je Bogen") }}
++        <input type="number" name="bogen_seiten" value="{{ t.g.bogen_seiten }}" min="1" max="2000" required></label>
++      <label>{{ _("Charakterbögen je Spieler und Kampagne") }}
++        <input type="number" name="boegen_je_spieler" value="{{ t.g.boegen_je_spieler }}" min="0" max="50" required>
++        <span class="hilfe">{{ _("Voreinstellung 3, höchstens 50. 0 = keine Abgabe.") }}</span></label>
++      <p class="hilfe">{{ _("Jede Änderung wird festgehalten.") }}</p>
++      <div><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
++    </form>
++  </details>
+ </section>
+ {% endfor %}
+@@ -109,3 +138,4 @@
+ {% endif %}
+ <p class="zentriert">{% include "_sprachen.html" %}</p>
++</div>
+ {% endblock %}
+diff --git a/app/verwaltung/templates/guthaben_aufladen.html b/app/verwaltung/templates/guthaben_aufladen.html
+new file mode 100644
+index 0000000..fd20ab3
+--- /dev/null
++++ b/app/verwaltung/templates/guthaben_aufladen.html
+@@ -0,0 +1,36 @@
++{% extends "basis.html" %}
++{% block titel %}{{ _("Guthaben aufladen") }}{% endblock %}
++{% block inhalt %}
++<div class="seite-guthaben seite-guthaben--schmal">
++<header class="gkopf">
++  <picture><source srcset="/verwaltung/static/marke/taleward-lockup-inverse.svg" media="(prefers-color-scheme: dark)"><img src="/verwaltung/static/marke/taleward-lockup.svg" alt="Taleward" width="132" height="32"></picture>
++</header>
++{% if schritt == "pruefen" %}
++<section class="karte">
++  <h1>{{ _("Guthaben aufladen") }}</h1>
++  <dl class="summe">
++    <dt>{{ _("Gutgeschrieben werden") }}</dt><dd>{{ euro(netto) }}</dd>
++    <dt>{{ _("Gebühr des Zahlungsanbieters") }}</dt><dd>{{ euro(brutto - netto) }}</dd>
++    <dt class="summe__gesamt">{{ _("Du zahlst") }}</dt><dd class="summe__gesamt">{{ euro(brutto) }}</dd>
++  </dl>
++  <p>{% if anbieter == "stripe" %}{{ _("Du wechselst zur Bezahlseite von Stripe. Dort zahlst du mit Karte, Apple Pay oder Google Pay.") }}{% else %}{{ _("Du wechselst zu PayPal.") }}{% endif %}
++    {{ _("Deine Zahldaten sieht Taleward nicht. Danach kommst du hierher zurück.") }}</p>
++  {% if testmodus %}<p class="hinweis">{{ _("Testmodus: Es fließt kein echtes Geld.") }}</p>{% endif %}
++  <form method="post" action="/guthaben/aufladen/weiter" class="knopfzeile">
++    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="guthaben_id" value="{{ guthaben_id }}">
++    <input type="hidden" name="betrag" value="{{ netto }}"><input type="hidden" name="anbieter" value="{{ anbieter }}">
++    <button class="tw-btn tw-btn--primary" type="submit">{% if anbieter == "stripe" %}{{ _("Weiter zu Stripe") }}{% else %}{{ _("Weiter zu PayPal") }}{% endif %}</button>
++    <a class="tw-btn tw-btn--quiet" href="/guthaben">{{ _("Zurück") }}</a>
++  </form>
++  <p class="hilfe">{{ _("Restguthaben erstattet der Betreiber auf Anfrage zurück auf dieselbe Zahlung. Gutscheine und Gutschriften werden nicht ausgezahlt.") }}</p>
++</section>
++{% else %}
++<section class="karte">
++  <h1>{{ titel }}</h1>
++  <p>{{ text }}</p>
++  <p><a class="tw-btn tw-btn--primary" href="/guthaben">{{ _("Zu deinem Guthaben") }}</a></p>
++</section>
++{% endif %}
++<p class="zentriert">{% include "_sprachen.html" %}</p>
++</div>
++{% endblock %}
+diff --git a/app/zahlung.py b/app/zahlung.py
+new file mode 100644
+index 0000000..963cb5b
+--- /dev/null
++++ b/app/zahlung.py
+@@ -0,0 +1,475 @@
++"""Aufladen des Guthabens über Stripe und PayPal (0.4.133, S28 G4, G6, G9, G11).
++
++Ablauf:
++1. Die SL wählt auf /guthaben einen der festen Beträge und den Zahlweg. Der Server legt einen Bezahlvorgang an
++   (Guthaben, Betrag, Gebühr) und leitet auf die Bezahlseite des Anbieters weiter. Kartendaten tippt niemand in
++   Taleward ein; an den Anbieter gehen nur Betrag und die Kennung des Vorgangs.
++2. Gutgeschrieben wird nur, was der Anbieter bestätigt: bei Stripe über die signierte Meldung (Webhook), bei PayPal
++   beim Rücksprung über die Abbuchung durch den Server bzw. die geprüfte Meldung. Betrag und Währung müssen genau zum
++   Vorgang passen; sonst wird nichts gebucht und der Betreiber bekommt einen Hinweis.
++3. Jeder Vorgang wird höchstens einmal gebucht (`ereignis_id` = „zahlung:<Vorgang>“, eindeutig in der Datenbank).
++   Erstattungen und Rückbuchungen erzeugen Gegenbuchungen; bei einem Streitfall wird das Guthaben gesperrt, bis der
++   Betreiber entscheidet.
++
++Gebühr: wird aufgeschlagen und rückwärts gerechnet, damit genau der gewählte Betrag ankommt. Vor der Zahlung zeigt die
++Seite beides. Kleine Abweichungen durch die tatsächliche Gebühr des Anbieters sind hinnehmbar.
++
++Echtes Geld ist noch nicht freigegeben: Stripe nimmt nur Test-Schlüssel, PayPal läuft in der Sandbox, solange
++`zahlung.live` nicht gesetzt ist (in der Verwaltung nicht einstellbar).
++"""
++from __future__ import annotations
++
++import hashlib
++import hmac
++import json
++import math
++import time
++from dataclasses import dataclass
++from datetime import timedelta
++
++import httpx
++from sqlalchemy import func, select
++from sqlalchemy.exc import IntegrityError
++from sqlalchemy.orm import Session
++
++from app import abrechnung
++from app.db import utcnow
++from app.einstellungen import meta_lesen, meta_schreiben
++from app.models import Bezahlvorgang, Buchung, Guthaben
++
++ANBIETER = ("stripe", "paypal")
++MINDEST_CENT, HOECHST_CENT = 1000, 50_000  # je Aufladung (Entscheidung Benjamin 27.10.: mindestens 10 €)
++STANDARD_BETRAEGE = (1000, 2000, 5000)
++JE_TAG_VORGAENGE, JE_TAG_CENT = 5, 30_000  # G11: je Konto und Tag (begonnen, nicht nur bezahlt)
++STRIPE_API = "https://api.stripe.com"
++PAYPAL_API = {"sandbox": "https://api-m.sandbox.paypal.com", "live": "https://api-m.paypal.com"}
++STRIPE_TOLERANZ = 300  # Sekunden: so alt darf eine signierte Meldung sein
++
++_client: httpx.Client | None = None  # in Tests ersetzt
++
++
++def _c() -> httpx.Client:
++    return _client or httpx.Client(timeout=httpx.Timeout(20.0, connect=5.0))
++
++
++class ZahlungFehler(Exception):
++    """Anbieter nicht erreichbar oder lehnt ab – für die Seite ein fester Satz, Einzelheiten nur im Protokoll."""
++
++
++# ---------------------------------------------------------------- Einstellungen des Betreibers
++@dataclass
++class Gebuehren:
++    """Gebühr je Anbieter: Prozent in Hundertstel (150 = 1,50 %) plus fester Betrag in Cent."""
++
++    stripe_bp: int = 150
++    stripe_fest: int = 25
++    paypal_bp: int = 299
++    paypal_fest: int = 39
++
++
++def gebuehren(db: Session) -> Gebuehren:
++    try:
++        roh = json.loads(meta_lesen(db, "zahlung.gebuehren") or "{}")
++    except ValueError:
++        roh = {}
++    g = Gebuehren()
++    for name in ("stripe_bp", "stripe_fest", "paypal_bp", "paypal_fest"):
++        try:
++            setattr(g, name, max(0, min(2000 if name.endswith("bp") else 500, int(roh.get(name, getattr(g, name))))))
++        except (TypeError, ValueError):
++            pass
++    return g
++
++
++def betraege(db: Session) -> list[int]:
++    """Feste Beträge zum Aufladen in Cent (Entscheidung Benjamin: Knöpfe, kein freies Feld)."""
++    try:
++        werte = [int(x) for x in (meta_lesen(db, "zahlung.betraege") or "").split(",") if x.strip()]
++    except ValueError:
++        werte = []
++    werte = sorted({w for w in werte if MINDEST_CENT <= w <= HOECHST_CENT})
++    return werte[:4] or list(STANDARD_BETRAEGE)
++
++
++def live(db: Session) -> bool:
++    return meta_lesen(db, "zahlung.live") == "1"
++
++
++def stripe_schluessel_erlaubt(schluessel: str, db: Session) -> bool:
++    if schluessel.startswith(("sk_test_", "rk_test_")):
++        return True
++    return live(db) and schluessel.startswith(("sk_live_", "rk_live_"))
++
++
++def basis(db: Session) -> str | None:
++    """Rücksprung-Adressen nur aus der eingetragenen öffentlichen Adresse (https, im Heimnetz auch http)."""
++    from app.einstellungen import mail_adresse
++    from app.routers.auth import oeffentliche_herkunft
++
++    adresse = mail_adresse(db)
++    return adresse if adresse and oeffentliche_herkunft(adresse) else None
++
++
++def bereit(db: Session) -> list[str]:
++    """Zahlwege, die eingerichtet sind (leer = Aufladen gibt es auf diesem Server nicht)."""
++    if not abrechnung.an(db) or basis(db) is None:
++        return []
++    aus = []
++    s = meta_lesen(db, "zahlung.stripe_schluessel") or ""
++    if s and meta_lesen(db, "zahlung.stripe_webhook") and stripe_schluessel_erlaubt(s, db):
++        aus.append("stripe")
++    if meta_lesen(db, "zahlung.paypal_id") and meta_lesen(db, "zahlung.paypal_geheim") and \
++            meta_lesen(db, "zahlung.paypal_webhook_id"):
++        aus.append("paypal")
++    return aus
++
++
++def brutto(db: Session, anbieter: str, netto: int) -> int:
++    """Rückwärts gerechnet: brutto − Gebühr(brutto) ≥ netto."""
++    g = gebuehren(db)
++    bp, fest = (g.stripe_bp, g.stripe_fest) if anbieter == "stripe" else (g.paypal_bp, g.paypal_fest)
++    return int(math.ceil((netto + fest) * 10_000 / (10_000 - bp) - 1e-9))
++
++
++def _euro_text(cent: int) -> str:
++    return f"{cent // 100}.{cent % 100:02d}"
++
++
++# ---------------------------------------------------------------- Starten
++def heute(db: Session, user_id: str) -> tuple[int, int]:
++    seit = utcnow() - timedelta(days=1)
++    anzahl, summe = db.execute(select(func.count(), func.coalesce(func.sum(Bezahlvorgang.netto_cent), 0)).where(
++        Bezahlvorgang.von == user_id, Bezahlvorgang.angelegt >= seit)).one()
++    return int(anzahl or 0), int(summe or 0)
++
++
++def starten(db: Session, g: Guthaben, user_id: str, anbieter: str, netto: int, sprache: str = "de") -> str:
++    """Bezahlvorgang anlegen und die Adresse der Bezahlseite des Anbieters zurückgeben. ValueError bei unzulässigem
++    Betrag oder Zahlweg bzw. über der Tagesgrenze, ZahlungFehler, wenn der Anbieter nicht will."""
++    if anbieter not in bereit(db) or netto not in betraege(db):
++        raise ValueError("eingabe")
++    if g.gesperrt_at is not None:
++        raise ValueError("gesperrt")
++    anzahl, summe = heute(db, user_id)
++    if anzahl >= JE_TAG_VORGAENGE or summe + netto > JE_TAG_CENT:
++        raise ValueError("grenze")
++    v = Bezahlvorgang(guthaben_id=g.id, von=user_id, anbieter=anbieter, netto_cent=netto,
++                      brutto_cent=brutto(db, anbieter, netto), zustand="offen")
++    db.add(v)
++    db.flush()
++    zurueck = basis(db)
++    try:
++        if anbieter == "stripe":
++            v.anbieter_ref, url = _stripe_sitzung(db, v, zurueck, sprache)
++        else:
++            v.anbieter_ref, url = _paypal_auftrag(db, v, zurueck, sprache)
++    except (httpx.HTTPError, KeyError, ValueError, TypeError) as e:
++        v.zustand = "fehlgeschlagen"
++        abrechnung.protokoll(db, user_id, "zahlung_start_fehler", g.id, vorgang=v.id, anbieter=anbieter,
++                             fehler=type(e).__name__)
++        db.commit()
++        raise ZahlungFehler(anbieter) from None
++    abrechnung.protokoll(db, user_id, "zahlung_start", g.id, vorgang=v.id, anbieter=anbieter, netto_cent=netto,
++                         brutto_cent=v.brutto_cent)
++    db.commit()
++    return url
++
++
++def _stripe_kopf(db: Session, **mehr) -> dict:
++    return {"Authorization": f"Bearer {meta_lesen(db, 'zahlung.stripe_schluessel')}", **mehr}
++
++
++def _stripe_sitzung(db: Session, v: Bezahlvorgang, zurueck: str, sprache: str) -> tuple[str, str]:
++    name = ("Taleward-Guthaben " if sprache == "de" else "Taleward credit ") + abrechnung.euro(v.netto_cent)
++    daten = {
++        "mode": "payment", "client_reference_id": v.id, "metadata[vorgang]": v.id,
++        "payment_intent_data[metadata][vorgang]": v.id,
++        "line_items[0][quantity]": "1", "line_items[0][price_data][currency]": "eur",
++        "line_items[0][price_data][unit_amount]": str(v.brutto_cent),
++        "line_items[0][price_data][product_data][name]": name,
++        "success_url": f"{zurueck}/guthaben/aufladen/fertig?v={v.id}",
++        "cancel_url": f"{zurueck}/guthaben/aufladen/abbruch?v={v.id}",
++        "locale": "de" if sprache == "de" else "en",
++        "expires_at": str(int(time.time()) + 60 * 60),
++    }
++    r = _c().post(f"{STRIPE_API}/v1/checkout/sessions", data=daten,
++                  headers=_stripe_kopf(db, **{"Idempotency-Key": v.id}))
++    r.raise_for_status()
++    antwort = r.json()
++    url = antwort["url"]
++    if not str(url).startswith("https://checkout.stripe.com/"):
++        raise ValueError("url")
++    return antwort["id"], url
++
++
++def _paypal_basis(db: Session) -> str:
++    return PAYPAL_API["live" if live(db) else "sandbox"]
++
++
++def _paypal_token(db: Session) -> str:
++    r = _c().post(f"{_paypal_basis(db)}/v1/oauth2/token", data={"grant_type": "client_credentials"},
++                  auth=(meta_lesen(db, "zahlung.paypal_id") or "", meta_lesen(db, "zahlung.paypal_geheim") or ""))
++    r.raise_for_status()
++    return r.json()["access_token"]
++
++
++def _paypal_auftrag(db: Session, v: Bezahlvorgang, zurueck: str, sprache: str) -> tuple[str, str]:
++    daten = {"intent": "CAPTURE", "purchase_units": [{
++        "reference_id": v.id, "custom_id": v.id,
++        "description": ("Taleward-Guthaben " if sprache == "de" else "Taleward credit ") + abrechnung.euro(v.netto_cent),
++        "amount": {"currency_code": "EUR", "value": _euro_text(v.brutto_cent)}}],
++        "payment_source": {"paypal": {"experience_context": {
++            "brand_name": "Taleward", "shipping_preference": "NO_SHIPPING", "user_action": "PAY_NOW",
++            "locale": "de-DE" if sprache == "de" else "en-GB",
++            "return_url": f"{zurueck}/guthaben/aufladen/paypal?v={v.id}",
++            "cancel_url": f"{zurueck}/guthaben/aufladen/abbruch?v={v.id}"}}}}
++    r = _c().post(f"{_paypal_basis(db)}/v2/checkout/orders", json=daten,
++                  headers={"Authorization": f"Bearer {_paypal_token(db)}", "PayPal-Request-Id": v.id})
++    r.raise_for_status()
++    antwort = r.json()
++    url = next(x["href"] for x in antwort["links"] if x.get("rel") in ("payer-action", "approve"))
++    if not str(url).startswith(("https://www.paypal.com/", "https://www.sandbox.paypal.com/")):
++        raise ValueError("url")
++    return antwort["id"], url
++
++
++# ---------------------------------------------------------------- Gutschreiben
++def _hinweis(db: Session, art: str, v: Bezahlvorgang | None, **daten) -> None:
++    """Abweichung oder Streitfall: Protokoll und Benachrichtigung an den Betreiber (ohne Beträge in Push)."""
++    abrechnung.protokoll(db, "system", art, v.guthaben_id if v else None, vorgang=v.id if v else None, **daten)
++    try:
++        from app import benachrichtigung
++
++        benachrichtigung.melden(db, art, wichtig=True)
++    except Exception:  # noqa: BLE001 – eine fehlende Benachrichtigung darf die Buchung nicht verhindern
++        pass
++
++
++def bezahlt(db: Session, v: Bezahlvorgang, brutto_cent: int, waehrung: str, zahlung_ref: str | None) -> bool:
++    """Zahlung bestätigt: genau einmal den gewählten Betrag gutschreiben. False, wenn nichts gebucht wurde."""
++    if waehrung.upper() != "EUR" or brutto_cent != v.brutto_cent:
++        if v.zustand == "offen":
++            v.zustand = "abweichung"
++        _hinweis(db, "zahlung_abweichung", v, erwartet=v.brutto_cent, gemeldet=brutto_cent, waehrung=waehrung)
++        return False
++    if v.zustand == "bezahlt":
++        return False
++    g = db.get(Guthaben, v.guthaben_id)
++    try:
++        with db.begin_nested():
++            b = abrechnung.buchen(db, g, "zahlung", v.netto_cent, ereignis_id=f"zahlung:{v.id}")
++    except IntegrityError:
++        return False  # schon gebucht (gleichzeitige Meldung)
++    v.zustand, v.zahlung_ref, v.buchung_id, v.abgeschlossen = "bezahlt", zahlung_ref or v.zahlung_ref, b.id, utcnow()
++    abrechnung.protokoll(db, "system", "zahlung", g.id, vorgang=v.id, anbieter=v.anbieter, netto_cent=v.netto_cent)
++    return True
++
++
++def _anteil(v: Bezahlvorgang, brutto_cent: int) -> int:
++    """Anteil am gutgeschriebenen Betrag für einen Teil der Zahlung (Erstattung, Rückbuchung)."""
++    return min(v.netto_cent, int(round(brutto_cent * v.netto_cent / max(1, v.brutto_cent))))
++
++
++def _gegenbuchen(db: Session, v: Bezahlvorgang, art: str, brutto_cent: int, ereignis: str) -> bool:
++    if v.zustand != "bezahlt" or brutto_cent <= 0:
++        return False
++    g = db.get(Guthaben, v.guthaben_id)
++    try:
++        with db.begin_nested():
++            abrechnung.buchen(db, g, art, -_anteil(v, brutto_cent), ereignis_id=ereignis)
++    except IntegrityError:
++        return False
++    abrechnung.protokoll(db, "system", art, g.id, vorgang=v.id, brutto_cent=brutto_cent)
++    return True
++
++
++def streitfall(db: Session, v: Bezahlvorgang, brutto_cent: int, ereignis: str) -> None:
++    """Rückbuchung: Gegenbuchung und Sperre, bis der Betreiber entscheidet."""
++    _gegenbuchen(db, v, "rueckbuchung", brutto_cent, ereignis)
++    g = db.get(Guthaben, v.guthaben_id)
++    if g.gesperrt_at is None:
++        g.gesperrt_at = utcnow()
++    _hinweis(db, "zahlung_streit", v)
++
++
++# ---------------------------------------------------------------- Stripe
++def stripe_signatur_gueltig(roh: bytes, kopf: str, geheimnis: str, jetzt: float | None = None) -> bool:
++    teile: dict[str, list[str]] = {}
++    for stueck in (kopf or "").split(","):
++        k, _, w = stueck.strip().partition("=")
++        teile.setdefault(k, []).append(w)
++    try:
++        t = int(teile.get("t", [""])[0])
++    except ValueError:
++        return False
++    if abs((jetzt or time.time()) - t) > STRIPE_TOLERANZ:
++        return False
++    erwartet = hmac.new(geheimnis.encode(), f"{t}.".encode() + roh, hashlib.sha256).hexdigest()
++    return any(hmac.compare_digest(erwartet, s) for s in teile.get("v1", []))
++
++
++def _vorgang(db: Session, vid: str | None, anbieter: str) -> Bezahlvorgang | None:
++    v = db.get(Bezahlvorgang, str(vid or "")[:64]) if vid else None
++    return v if v is not None and v.anbieter == anbieter else None
++
++
++def stripe_meldung(db: Session, ereignis: dict) -> None:
++    art = ereignis.get("type", "")
++    obj = (ereignis.get("data") or {}).get("object") or {}
++    if art in ("checkout.session.completed", "checkout.session.async_payment_succeeded"):
++        v = _vorgang(db, (obj.get("metadata") or {}).get("vorgang") or obj.get("client_reference_id"), "stripe")
++        if v is None or obj.get("id") != v.anbieter_ref:
++            _hinweis(db, "zahlung_abweichung", v, grund="unbekannter Vorgang")
++            return
++        if obj.get("payment_status") != "paid":
++            return  # z. B. Lastschrift: kommt später als async_payment_succeeded
++        bezahlt(db, v, int(obj.get("amount_total") or 0), str(obj.get("currency") or ""), obj.get("payment_intent"))
++    elif art in ("checkout.session.expired", "checkout.session.async_payment_failed"):
++        v = _vorgang(db, (obj.get("metadata") or {}).get("vorgang"), "stripe")
++        if v is not None and v.zustand == "offen" and obj.get("id") == v.anbieter_ref:
++            v.zustand = "abgebrochen" if art.endswith("expired") else "fehlgeschlagen"
++    elif art == "charge.refunded":
++        pi = obj.get("payment_intent")
++        v = db.scalar(select(Bezahlvorgang).where(Bezahlvorgang.anbieter == "stripe",
++                                                  Bezahlvorgang.zahlung_ref == pi)) if pi else None
++        if v is None:
++            return
++        neu = int(obj.get("amount_refunded") or 0) - (v.erstattet_cent or 0)
++        if _gegenbuchen(db, v, "erstattung", neu, f"stripe:{ereignis.get('id')}"):
++            v.erstattet_cent = int(obj.get("amount_refunded") or 0)
++    elif art == "charge.dispute.created":
++        pi = obj.get("payment_intent")
++        v = db.scalar(select(Bezahlvorgang).where(Bezahlvorgang.anbieter == "stripe",
++                                                  Bezahlvorgang.zahlung_ref == pi)) if pi else None
++        if v is not None:
++            streitfall(db, v, int(obj.get("amount") or 0), f"stripe:{obj.get('id')}")
++
++
++# ---------------------------------------------------------------- PayPal
++def _capture_lesen(antwort: dict) -> dict | None:
++    for pu in antwort.get("purchase_units") or []:
++        for cap in ((pu.get("payments") or {}).get("captures") or []):
++            return cap
++    return None
++
++
++def paypal_zurueck(db: Session, v: Bezahlvorgang, auftrag: str) -> str:
++    """Rücksprung von PayPal: Der Server bucht die Zahlung selbst ab und schreibt nur gut, was PayPal bestätigt."""
++    if v.zustand != "offen" or auftrag != v.anbieter_ref:
++        return v.zustand
++    kopf = {"Authorization": f"Bearer {_paypal_token(db)}", "PayPal-Request-Id": f"capture-{v.id}"}
++    r = _c().post(f"{_paypal_basis(db)}/v2/checkout/orders/{v.anbieter_ref}/capture", json={}, headers=kopf)
++    if r.status_code == 422:  # schon abgebucht – Stand nachlesen
++        r = _c().get(f"{_paypal_basis(db)}/v2/checkout/orders/{v.anbieter_ref}", headers=kopf)
++    r.raise_for_status()
++    cap = _capture_lesen(r.json())
++    if cap is None or cap.get("custom_id") not in (None, v.id):
++        return v.zustand
++    if cap.get("status") == "COMPLETED":
++        betrag = cap.get("amount") or {}
++        bezahlt(db, v, _cent(betrag.get("value")), str(betrag.get("currency_code") or ""), cap.get("id"))
++    elif cap.get("status") in ("PENDING",):
++        v.zahlung_ref = cap.get("id")
++    elif cap.get("status") in ("DECLINED", "FAILED"):
++        v.zustand = "fehlgeschlagen"
++    return v.zustand
++
++
++def _cent(wert) -> int:
++    try:
++        euro, _, cent = str(wert).partition(".")
++        return int(euro) * 100 + int((cent + "00")[:2])
++    except ValueError:
++        return -1
++
++
++def paypal_signatur_gueltig(db: Session, kopf: dict, ereignis: dict) -> bool:
++    daten = {"auth_algo": kopf.get("paypal-auth-algo"), "cert_url": kopf.get("paypal-cert-url"),
++             "transmission_id": kopf.get("paypal-transmission-id"),
++             "transmission_sig": kopf.get("paypal-transmission-sig"),
++             "transmission_time": kopf.get("paypal-transmission-time"),
++             "webhook_id": meta_lesen(db, "zahlung.paypal_webhook_id"), "webhook_event": ereignis}
++    if not all(daten.values()):
++        return False
++    try:
++        r = _c().post(f"{_paypal_basis(db)}/v1/notifications/verify-webhook-signature", json=daten,
++                      headers={"Authorization": f"Bearer {_paypal_token(db)}"})
++        return r.status_code == 200 and r.json().get("verification_status") == "SUCCESS"
++    except (httpx.HTTPError, ValueError, KeyError):
++        return False
++
++
++def _capture_id(res: dict) -> str | None:
++    for link in res.get("links") or []:
++        if link.get("rel") == "up" and "/captures/" in str(link.get("href")):
++            return str(link["href"]).rstrip("/").rsplit("/", 1)[-1]
++    return None
++
++
++def paypal_meldung(db: Session, ereignis: dict) -> None:
++    art = ereignis.get("event_type", "")
++    res = ereignis.get("resource") or {}
++    if art == "PAYMENT.CAPTURE.COMPLETED":
++        v = _vorgang(db, res.get("custom_id"), "paypal")
++        if v is None:
++            return
++        betrag = res.get("amount") or {}
++        bezahlt(db, v, _cent(betrag.get("value")), str(betrag.get("currency_code") or ""), res.get("id"))
++    elif art in ("PAYMENT.CAPTURE.REFUNDED", "PAYMENT.CAPTURE.REVERSED"):
++        cap = _capture_id(res) or res.get("id")
++        v = db.scalar(select(Bezahlvorgang).where(Bezahlvorgang.anbieter == "paypal",
++                                                  Bezahlvorgang.zahlung_ref == cap)) if cap else None
++        if v is None:
++            return
++        betrag = _cent((res.get("amount") or {}).get("value"))
++        if art.endswith("REVERSED"):
++            streitfall(db, v, betrag, f"paypal:{ereignis.get('id')}")
++        else:
++            _gegenbuchen(db, v, "erstattung", betrag, f"paypal:{ereignis.get('id')}")
++    elif art == "CUSTOMER.DISPUTE.CREATED":
++        for t in res.get("disputed_transactions") or []:
++            cap = t.get("seller_transaction_id")
++            v = db.scalar(select(Bezahlvorgang).where(Bezahlvorgang.anbieter == "paypal",
++                                                      Bezahlvorgang.zahlung_ref == cap)) if cap else None
++            if v is not None:
++                betrag = _cent((res.get("dispute_amount") or {}).get("value"))
++                streitfall(db, v, betrag if betrag > 0 else v.brutto_cent, f"paypal:{ereignis.get('id')}")
++
++
++# ---------------------------------------------------------------- Für Seiten
++def offene(db: Session, g: Guthaben) -> list[Bezahlvorgang]:
++    """Begonnene Zahlungen der letzten Stunde, die noch nicht bestätigt sind (Hinweis auf /guthaben)."""
++    seit = utcnow() - timedelta(hours=1)
++    return list(db.scalars(select(Bezahlvorgang).where(Bezahlvorgang.guthaben_id == g.id,
++                                                       Bezahlvorgang.zustand == "offen",
++                                                       Bezahlvorgang.anbieter_ref.is_not(None),
++                                                       Bezahlvorgang.angelegt >= seit)))
++
++
++def einstellungen_schreiben(db: Session, von: str, **werte) -> None:
++    """Werte aus der Verwaltung. Geheimes nur, wenn neu eingetragen (leer = unverändert)."""
++    alt = {"betraege": betraege(db), "gebuehren": gebuehren(db).__dict__}
++    for name in ("stripe_schluessel", "stripe_webhook", "paypal_geheim"):
++        if werte.get(name):
++            meta_schreiben(db, f"zahlung.{name}", werte[name])
++    for name in ("paypal_id", "paypal_webhook_id"):
++        if name in werte and werte[name] is not None:
++            meta_schreiben(db, f"zahlung.{name}", werte[name])
++    if werte.get("betraege") is not None:
++        meta_schreiben(db, "zahlung.betraege", ",".join(str(b) for b in werte["betraege"]))
++    if werte.get("gebuehren") is not None:
++        meta_schreiben(db, "zahlung.gebuehren", json.dumps(werte["gebuehren"].__dict__))
++    abrechnung.protokoll(db, von, "zahlung_einstellungen", alt=alt,
++                         neu={"betraege": betraege(db), "gebuehren": gebuehren(db).__dict__,
++                              "geheimes_neu": [n for n in ("stripe_schluessel", "stripe_webhook", "paypal_geheim")
++                                               if werte.get(n)]})
++
++
++def entsperren(db: Session, g: Guthaben, von: str) -> None:
++    if g.gesperrt_at is not None:
++        g.gesperrt_at = None
++        abrechnung.protokoll(db, von, "sperre_aufgehoben", g.id)
++
++
++def gebucht(db: Session, v: Bezahlvorgang) -> Buchung | None:
++    return db.get(Buchung, v.buchung_id) if v.buchung_id else None
+diff --git a/migrations/versions/f8b2d4a6c1e3_aufladen.py b/migrations/versions/f8b2d4a6c1e3_aufladen.py
+new file mode 100644
+index 0000000..74caa8b
+--- /dev/null
++++ b/migrations/versions/f8b2d4a6c1e3_aufladen.py
+@@ -0,0 +1,43 @@
++"""Aufladen über Zahlungsanbieter (Server 0.4.133)
++
++Revision ID: f8b2d4a6c1e3
++Revises: e4a7c1f9b3d6
++"""
++from typing import Sequence, Union
++
++import sqlalchemy as sa
++from alembic import op
++
++revision: str = 'f8b2d4a6c1e3'
++down_revision: Union[str, Sequence[str], None] = 'e4a7c1f9b3d6'
++branch_labels: Union[str, Sequence[str], None] = None
++depends_on: Union[str, Sequence[str], None] = None
++
++
++def upgrade() -> None:
++    # ohne Tabellen-Neubau: guthaben wird von buchungen (nur Einfügen, Trigger) referenziert
++    op.add_column("guthaben", sa.Column("gesperrt_at", sa.DateTime(), nullable=True))
++    op.create_table(
++        "bezahlvorgaenge",
++        sa.Column("id", sa.String(36), primary_key=True),
++        sa.Column("guthaben_id", sa.String(36), sa.ForeignKey("guthaben.id"), nullable=False),
++        sa.Column("von", sa.String(36), nullable=False),
++        sa.Column("anbieter", sa.String(16), nullable=False),
++        sa.Column("netto_cent", sa.Integer(), nullable=False),
++        sa.Column("brutto_cent", sa.Integer(), nullable=False),
++        sa.Column("zustand", sa.String(16), nullable=False, server_default="offen"),
++        sa.Column("anbieter_ref", sa.String(100), nullable=True),
++        sa.Column("zahlung_ref", sa.String(100), nullable=True),
++        sa.Column("erstattet_cent", sa.Integer(), nullable=False, server_default="0"),
++        sa.Column("buchung_id", sa.String(36), nullable=True),
++        sa.Column("angelegt", sa.DateTime(), nullable=False),
++        sa.Column("abgeschlossen", sa.DateTime(), nullable=True),
++    )
++    for spalte in ("guthaben_id", "von", "anbieter_ref", "zahlung_ref"):
++        op.create_index(f"ix_bezahlvorgaenge_{spalte}", "bezahlvorgaenge", [spalte])
++
++
++def downgrade() -> None:
++    op.drop_table("bezahlvorgaenge")
++    with op.batch_alter_table("guthaben") as b:
++        b.drop_column("gesperrt_at")
+diff --git a/pyproject.toml b/pyproject.toml
+index 3c3a338..3811813 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.132"
++version = "0.4.133"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index 02596a2..1213130 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -154,5 +154,5 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.132"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.133"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index b4c2b87..f8ebd7d 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -135,5 +135,5 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.132"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.133"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index 015f19d..4708fb9 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -84,5 +84,5 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.132"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.133"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+diff --git a/tests/test_server_04133.py b/tests/test_server_04133.py
+new file mode 100644
+index 0000000..751fca6
+--- /dev/null
++++ b/tests/test_server_04133.py
+@@ -0,0 +1,320 @@
++"""Server 0.4.133: Aufladen über Stripe und PayPal (S28 G4, G6, G9, G11) und die neue Seite „Guthaben“.
++Die Anbieter sind durch einen nachgestellten Gegenüber ersetzt – es geht nichts ins Netz."""
++import hashlib
++import hmac
++import json
++import re
++import time
++
++import httpx
++import pytest
++from sqlalchemy import select
++
++from tests.test_abrechnung_0485 import _anna, _modus, _sl_anmelden
++from tests.test_verwaltung import admin, csrf_von  # noqa: F401 (Fixture)
++
++WEBHOOK = "whsec_testgeheimnis"
++
++
++class Anbieter:
++    """Nachgestellte Schnittstellen von Stripe und PayPal; merkt sich die Anfragen."""
++
++    def __init__(self):
++        self.anfragen: list[httpx.Request] = []
++        self.capture = {"status": "COMPLETED"}
++        self.verifiziert = True
++
++    def __call__(self, req: httpx.Request) -> httpx.Response:
++        self.anfragen.append(req)
++        pfad = req.url.path
++        if req.url.host == "api.stripe.com" and pfad == "/v1/checkout/sessions":
++            return httpx.Response(200, json={"id": "cs_test_1", "url": "https://checkout.stripe.com/c/pay/cs_test_1"})
++        if pfad == "/v1/oauth2/token":
++            return httpx.Response(200, json={"access_token": "A21"})
++        if pfad == "/v2/checkout/orders":
++            daten = json.loads(req.content)
++            self.paypal_betrag = daten["purchase_units"][0]["amount"]
++            self.paypal_vorgang = daten["purchase_units"][0]["custom_id"]
++            return httpx.Response(201, json={"id": "ORDER1", "links": [
++                {"rel": "payer-action", "href": "https://www.sandbox.paypal.com/checkoutnow?token=ORDER1"}]})
++        if pfad == "/v2/checkout/orders/ORDER1/capture":
++            return httpx.Response(201, json={"purchase_units": [{"payments": {"captures": [{
++                "id": "CAP1", "custom_id": self.paypal_vorgang, "amount": self.paypal_betrag, **self.capture}]}}]})
++        if pfad == "/v1/notifications/verify-webhook-signature":
++            return httpx.Response(200, json={"verification_status": "SUCCESS" if self.verifiziert else "FAILURE"})
++        return httpx.Response(404)
++
++
++@pytest.fixture()
++def anbieter(monkeypatch):
++    from app import zahlung
++
++    a = Anbieter()
++    monkeypatch.setattr(zahlung, "_client", httpx.Client(transport=httpx.MockTransport(a)))
++    return a
++
++
++def _einrichten(dbs, stripe=True, paypal=True, modus="guthaben"):
++    from app import zahlung
++    from app.einstellungen import meta_schreiben
++
++    _modus(dbs, modus)
++    meta_schreiben(dbs, "angabe.public_url", "https://chronik.example.org")
++    zahlung.einstellungen_schreiben(dbs, "test", stripe_schluessel="sk_test_abc" if stripe else "",
++                                    stripe_webhook=WEBHOOK if stripe else "",
++                                    paypal_id="client" if paypal else "", paypal_geheim="geheim" if paypal else "",
++                                    paypal_webhook_id="WH-1" if paypal else "")
++    dbs.commit()
++
++
++def _signiert(daten: dict, geheimnis=WEBHOOK, t=None) -> tuple[bytes, dict]:
++    roh = json.dumps(daten).encode()
++    t = int(t or time.time())
++    sig = hmac.new(geheimnis.encode(), f"{t}.".encode() + roh, hashlib.sha256).hexdigest()
++    return roh, {"Stripe-Signature": f"t={t},v1={sig}", "Content-Type": "application/json"}
++
++
++def _aufladen(client, dbs, anbieter_name="stripe", betrag=1000):
++    from app import abrechnung
++
++    csrf, seite = _sl_anmelden(client)
++    gid = abrechnung.guthaben_konto(dbs, _anna(dbs).id).id
++    r = client.post("/guthaben/aufladen", data={"csrf": csrf, "guthaben_id": gid, "betrag": str(betrag),
++                                                "anbieter": anbieter_name})
++    assert r.status_code == 200, r.text
++    weiter = client.post("/guthaben/aufladen/weiter", data={"csrf": csrf, "guthaben_id": gid, "betrag": str(betrag),
++                                                            "anbieter": anbieter_name}, follow_redirects=False)
++    return r, weiter, gid
++
++
++def _vorgang(dbs):
++    from app.models import Bezahlvorgang
++
++    dbs.expire_all()
++    return dbs.scalars(select(Bezahlvorgang).order_by(Bezahlvorgang.angelegt.desc())).first()
++
++
++def _saldo(dbs, gid):
++    from app import abrechnung
++
++    dbs.expire_all()
++    return abrechnung.saldo(dbs, gid)
++
++
++# ---------------------------------------------------------------- Seite und Stripe
++def test_seite_ohne_zahlwege_und_gebuehr_vor_der_zahlung(client, world, dbs, anbieter):
++    _modus(dbs)
++    _csrf, seite = _sl_anmelden(client)
++    assert "Aufladen mit Bezahlung gibt es auf diesem Server noch nicht" in seite and 'class="guthaben__stand' in seite
++    assert "taleward-lockup.svg" in seite  # mit Logo
++    _einrichten(dbs)
++    _csrf, seite = _sl_anmelden(client)
++    assert "Guthaben aufladen" in seite and "10,00 €" in seite and "50,00 €" in seite and "Testmodus" in seite
++    r, weiter, gid = _aufladen(client, dbs)
++    assert "Du zahlst" in r.text and "10,41 €" in r.text and "Weiter zu Stripe" in r.text  # (10 € + 0,25 €) / 98,5 %
++    assert "form-action 'self' https://checkout.stripe.com" in r.headers["content-security-policy"]
++    assert weiter.status_code == 303 and weiter.headers["location"] == "https://checkout.stripe.com/c/pay/cs_test_1"
++    gesendet = dict(httpx.QueryParams(anbieter.anfragen[-1].content.decode()))
++    v = _vorgang(dbs)
++    assert gesendet["line_items[0][price_data][unit_amount]"] == "1041" and gesendet["metadata[vorgang]"] == v.id
++    assert gesendet["success_url"] == f"https://chronik.example.org/guthaben/aufladen/fertig?v={v.id}"
++    assert anbieter.anfragen[-1].headers["idempotency-key"] == v.id
++    assert (v.zustand, v.netto_cent, v.brutto_cent, v.anbieter_ref) == ("offen", 1000, 1041, "cs_test_1")
++    # Betrag außerhalb der festen Knöpfe
++    csrf, _ = _sl_anmelden(client)
++    r = client.post("/guthaben/aufladen", data={"csrf": csrf, "guthaben_id": gid, "betrag": "500", "anbieter": "stripe"})
++    assert r.status_code == 400
++
++
++def test_stripe_meldung_nur_signiert_und_genau_einmal(client, world, dbs, anbieter):
++    _einrichten(dbs)
++    _r, _w, gid = _aufladen(client, dbs)
++    v = _vorgang(dbs)
++    ereignis = {"id": "evt_1", "type": "checkout.session.completed", "data": {"object": {
++        "id": "cs_test_1", "metadata": {"vorgang": v.id}, "payment_status": "paid", "amount_total": 1041,
++        "currency": "eur", "payment_intent": "pi_1"}}}
++    roh, kopf = _signiert(ereignis)
++    assert client.post("/zahlung/stripe", content=roh, headers={"Content-Type": "application/json"}).status_code == 400
++    _f, falsch = _signiert(ereignis, geheimnis="whsec_falsch")
++    assert client.post("/zahlung/stripe", content=roh, headers=falsch).status_code == 400
++    _a, alt = _signiert(ereignis, t=time.time() - 3600)
++    assert client.post("/zahlung/stripe", content=roh, headers=alt).status_code == 400
++    assert _saldo(dbs, gid) == 0
++    for _ in range(2):  # doppelt gemeldet → einmal gebucht
++        assert client.post("/zahlung/stripe", content=roh, headers=kopf).status_code == 200
++    assert _saldo(dbs, gid) == 1000 and _vorgang(dbs).zustand == "bezahlt"
++    seite = client.get(f"/guthaben/aufladen/fertig?v={v.id}").text
++    assert "10,00 € sind gutgeschrieben" in seite
++    # Erstattung: Gegenbuchung; Rückbuchung: Gegenbuchung und Sperre
++    roh, kopf = _signiert({"id": "evt_2", "type": "charge.refunded", "data": {"object": {
++        "payment_intent": "pi_1", "amount_refunded": 520}}})
++    client.post("/zahlung/stripe", content=roh, headers=kopf)
++    assert _saldo(dbs, gid) == 500
++    roh, kopf = _signiert({"id": "evt_3", "type": "charge.dispute.created", "data": {"object": {
++        "id": "dp_1", "payment_intent": "pi_1", "amount": 521}}})
++    client.post("/zahlung/stripe", content=roh, headers=kopf)
++    from app.models import Guthaben
++
++    dbs.expire_all()
++    g = dbs.get(Guthaben, gid)
++    assert _saldo(dbs, gid) == 0 and g.gesperrt_at is not None
++    _csrf, seite = _sl_anmelden(client)
++    assert "zurückgebucht oder angefochten" in seite and 'action="/guthaben/aufladen"' not in seite
++
++
++def test_stripe_falscher_betrag_bucht_nichts(client, world, dbs, anbieter):
++    _einrichten(dbs)
++    _r, _w, gid = _aufladen(client, dbs)
++    v = _vorgang(dbs)
++    roh, kopf = _signiert({"id": "evt_9", "type": "checkout.session.completed", "data": {"object": {
++        "id": "cs_test_1", "metadata": {"vorgang": v.id}, "payment_status": "paid", "amount_total": 100,
++        "currency": "eur", "payment_intent": "pi_9"}}})
++    assert client.post("/zahlung/stripe", content=roh, headers=kopf).status_code == 200
++    assert _saldo(dbs, gid) == 0 and _vorgang(dbs).zustand == "abweichung"
++
++
++def test_sperre_haelt_verarbeitung_an_und_verwaltung_hebt_sie_auf(client, world, dbs, admin):  # noqa: F811
++    from app import abrechnung
++    from app.db import utcnow
++    from app.models import Campaign, Job
++
++    _einrichten(dbs)
++    g = abrechnung.guthaben_konto(dbs, _anna(dbs).id)
++    abrechnung.buchen(dbs, g, "gutschrift", 5000, grund="Test")
++    g.gesperrt_at = utcnow()
++    job = Job(type="document", required_capability="llm")
++    dbs.add(job)
++    dbs.commit()
++    from unittest import mock
++
++    with mock.patch.object(abrechnung, "kampagne_von_auftrag", return_value=dbs.get(Campaign, world["cid"])):
++        assert abrechnung.warte_grund(dbs, job) == "gesperrt"
++    seite = client.get("/verwaltung/abrechnung").text
++    assert "Sperre aufheben" in seite
++    from app.verwaltung import zweiter_faktor
++
++    zweiter_faktor_an = mock.patch.object(zweiter_faktor, "aktiv", return_value=True)
++    with zweiter_faktor_an:
++        r = client.post(f"/verwaltung/abrechnung/entsperren/{g.id}", data={"csrf": admin}, follow_redirects=False)
++    assert r.status_code == 303
++    dbs.expire_all()
++    assert abrechnung.guthaben_konto(dbs, _anna(dbs).id).gesperrt_at is None
++
++
++# ---------------------------------------------------------------- PayPal
++def test_paypal_ruecksprung_bucht_ab_und_meldung_bucht_nicht_doppelt(client, world, dbs, anbieter):
++    from app import zahlung
++
++    _einrichten(dbs)
++    r, weiter, gid = _aufladen(client, dbs, "paypal")
++    erwartet = zahlung.brutto(dbs, "paypal", 1000)
++    assert erwartet == 1072 and "10,72 €" in r.text and "Weiter zu PayPal" in r.text
++    assert weiter.headers["location"].startswith("https://www.sandbox.paypal.com/")
++    assert anbieter.paypal_betrag == {"currency_code": "EUR", "value": "10.72"}
++    v = _vorgang(dbs)
++    r = client.get(f"/guthaben/aufladen/paypal?v={v.id}&token=FREMD", follow_redirects=False)
++    assert r.status_code == 303 and _saldo(dbs, gid) == 0  # anderer Auftrag: nichts
++    r = client.get(f"/guthaben/aufladen/paypal?v={v.id}&token=ORDER1", follow_redirects=False)
++    assert r.headers["location"] == f"/guthaben/aufladen/fertig?v={v.id}"
++    assert _saldo(dbs, gid) == 1000 and _vorgang(dbs).zahlung_ref == "CAP1"
++    meldung = {"id": "WH-EV1", "event_type": "PAYMENT.CAPTURE.COMPLETED", "resource": {
++        "id": "CAP1", "custom_id": v.id, "amount": {"currency_code": "EUR", "value": "10.72"}}}
++    kopf = {"PAYPAL-AUTH-ALGO": "SHA256withRSA", "PAYPAL-CERT-URL": "https://api.sandbox.paypal.com/cert",
++            "PAYPAL-TRANSMISSION-ID": "t1", "PAYPAL-TRANSMISSION-SIG": "sig", "PAYPAL-TRANSMISSION-TIME": "now"}
++    assert client.post("/zahlung/paypal", json=meldung, headers=kopf).status_code == 200
++    assert _saldo(dbs, gid) == 1000
++    anbieter.verifiziert = False
++    erstattung = {"id": "WH-EV2", "event_type": "PAYMENT.CAPTURE.REFUNDED", "resource": {
++        "id": "R1", "amount": {"currency_code": "EUR", "value": "10.72"},
++        "links": [{"rel": "up", "href": "https://api.sandbox.paypal.com/v2/payments/captures/CAP1"}]}}
++    assert client.post("/zahlung/paypal", json=erstattung, headers=kopf).status_code == 400
++    assert _saldo(dbs, gid) == 1000
++    anbieter.verifiziert = True
++    assert client.post("/zahlung/paypal", json=erstattung, headers=kopf).status_code == 200
++    assert _saldo(dbs, gid) == 0
++
++
++def test_paypal_ausstehend_wartet_auf_meldung(client, world, dbs, anbieter):
++    _einrichten(dbs, stripe=False)
++    anbieter.capture = {"status": "PENDING"}
++    _r, _w, gid = _aufladen(client, dbs, "paypal")
++    v = _vorgang(dbs)
++    client.get(f"/guthaben/aufladen/paypal?v={v.id}&token=ORDER1")
++    assert _saldo(dbs, gid) == 0 and _vorgang(dbs).zustand == "offen"
++    _csrf, seite = _sl_anmelden(client)
++    assert "noch nicht bestätigt" in seite
++
++
++# ---------------------------------------------------------------- Grenzen, Abbruch, Schalter
++def test_tagesgrenze_und_abbruch(client, world, dbs, anbieter):
++    from app import zahlung
++
++    _einrichten(dbs)
++    for _ in range(zahlung.JE_TAG_VORGAENGE):
++        _r, weiter, _gid = _aufladen(client, dbs)
++        assert weiter.status_code == 303
++    _r, weiter, _gid = _aufladen(client, dbs)
++    assert weiter.status_code == 400 and "Für heute sind genug Aufladungen begonnen" in weiter.text
++    v = _vorgang(dbs)
++    seite = client.get(f"/guthaben/aufladen/abbruch?v={v.id}").text
++    assert "nichts abgebucht" in seite and _vorgang(dbs).zustand == "abgebrochen"
++
++
++def test_anbieter_nicht_erreichbar(client, world, dbs, monkeypatch):
++    from app import zahlung
++
++    _einrichten(dbs)
++    monkeypatch.setattr(zahlung, "_client", httpx.Client(transport=httpx.MockTransport(
++        lambda req: httpx.Response(500))))
++    _r, weiter, _gid = _aufladen(client, dbs)
++    assert weiter.status_code == 400 and "nicht erreichbar" in weiter.text
++    assert _vorgang(dbs).zustand == "fehlgeschlagen"
++
++
++def test_ohne_abrechnung_oder_adresse_nichts_da(client, world, dbs):
++    from app import zahlung
++    from app.einstellungen import meta_schreiben
++
++    assert client.post("/zahlung/stripe", content=b"{}").status_code == 404
++    _einrichten(dbs)
++    meta_schreiben(dbs, "angabe.public_url", "")
++    dbs.commit()
++    assert zahlung.bereit(dbs) == [] and client.post("/zahlung/paypal", json={}).status_code == 404
++    _modus(dbs, "aus")
++    assert client.get("/guthaben/aufladen/fertig").status_code == 404
++
++
++def test_verwaltung_nur_test_schluessel_und_geheimes_bleibt_verborgen(client, dbs, admin):  # noqa: F811
++    from unittest import mock
++
++    from app.einstellungen import meta_lesen
++    from app.verwaltung import zweiter_faktor
++
++    _modus(dbs)
++    from app.einstellungen import meta_schreiben
++
++    meta_schreiben(dbs, "angabe.public_url", "https://chronik.example.org")
++    dbs.commit()
++    daten = {"csrf": admin, "betraege": "10, 20, 50", "stripe_prozent": "1,5", "stripe_fest": "0,25",
++             "paypal_prozent": "2,99", "paypal_fest": "0,39", "paypal_id": "client", "paypal_webhook_id": "WH-1"}
++    r = client.post("/verwaltung/abrechnung/zahlung", data=daten | {"stripe_schluessel": "sk_test_x"})
++    assert r.status_code == 403  # ohne zweiten Faktor
++    with mock.patch.object(zweiter_faktor, "aktiv", return_value=True):
++        r = client.post("/verwaltung/abrechnung/zahlung", data=daten | {"stripe_schluessel": "sk_live_x"})
++        assert r.status_code == 400 and "Echtes Geld ist noch nicht freigegeben" in r.text
++        r = client.post("/verwaltung/abrechnung/zahlung", data=daten | {"betraege": "5, 20"})
++        assert r.status_code == 400
++        r = client.post("/verwaltung/abrechnung/zahlung", data=daten | {
++            "stripe_schluessel": "sk_test_geheim1234", "stripe_webhook": WEBHOOK, "paypal_geheim": "pp-geheim"},
++            follow_redirects=False)
++        assert r.status_code == 303
++        seite = client.get("/verwaltung/abrechnung").text
++    assert "sk_test_geheim1234" not in seite and "pp-geheim" not in seite and WEBHOOK not in seite
++    assert "https://chronik.example.org/zahlung/stripe" in seite and seite.count("marke-status--gut") >= 2
++    assert meta_lesen(dbs, "zahlung.stripe_schluessel") == "sk_test_geheim1234"
++    # leer lassen behält den Schlüssel
++    with mock.patch.object(zweiter_faktor, "aktiv", return_value=True):
++        client.post("/verwaltung/abrechnung/zahlung", data=daten)
++    dbs.expire_all()
++    assert meta_lesen(dbs, "zahlung.stripe_schluessel") == "sk_test_geheim1234"
++    assert re.search(r'name="betraege" value="10, 20, 50"', client.get("/verwaltung/abrechnung").text)
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index 38eab9a..aca0939 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -113,5 +113,5 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.132"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.133"
+ 
+ 
+diff --git a/uv.lock b/uv.lock
+index 505bc53..d49ce45 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -2089,5 +2089,5 @@ wheels = [
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.132"
++version = "0.4.133"
+ source = { editable = "." }
+ dependencies = [
+-- 
+2.43.0
+
