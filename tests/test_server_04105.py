@@ -78,7 +78,7 @@ def test_einstellungen_betreiber_ohne_doppelte_felder(client, dbs, admin):  # no
     from app import betreiber
     from app.models import Organization
 
-    seite = client.get("/verwaltung/einstellungen").text
+    seite = client.get("/verwaltung/einstellungen/einrichtung").text
     assert 'name="org_name"' not in seite and 'name="betreiber_anschrift"' in seite
     assert "App-Fassung von Hand festlegen" in seite
     r = client.post("/verwaltung/einstellungen", data={

@@ -522,10 +522,10 @@ def nutzungsbedingungen_neue_fassung(request: Request, bestaetigung: str = Form(
 
     name = (angaben(db).server_name or "").strip()
     if not name or bestaetigung.strip() != name:  # ohne Servernamen gäbe es nichts zu bestätigen
-        return RedirectResponse("/verwaltung/einstellungen?nb=falsch#nutzungsbedingungen", status_code=303)
+        return RedirectResponse("/verwaltung/einstellungen/einrichtung?nb=falsch#nutzungsbedingungen", status_code=303)
     nutzungsbedingungen.hochzaehlen(db)
     db.commit()
-    return RedirectResponse("/verwaltung/einstellungen?nb=neu#nutzungsbedingungen", status_code=303)
+    return RedirectResponse("/verwaltung/einstellungen/einrichtung?nb=neu#nutzungsbedingungen", status_code=303)
 
 
 @oeffentlich.get("/nutzungsbedingungen", response_class=HTMLResponse)

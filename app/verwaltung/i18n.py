@@ -1260,6 +1260,16 @@ EN: dict[str, str] = {
     "Zum Vergleichen: Abschrift, Weg, Stil, Modell": "For comparison: transcript, path, style, model",
     "{name} einrichten": "Set up {name}",
     "Am {zeit} kamen mehr neue Konten über die offene Registrierung, als der Server zulässt (30 je Stunde, 200 je Tag). Weitere mussten warten.": "On {zeit}, more new accounts arrived through open registration than the server allows (30 per hour, 200 per day). Further ones had to wait.",
+    # 0.4.131: Betriebsart in den Einstellungen, zwei Reiter
+    "Bestehende Kampagnen behalten ihre Cloud-Freigaben. Nach einem Wechsel den Datenschutzhinweis prüfen.": "Existing campaigns keep their cloud permissions. After a change, check the privacy notice.",
+    "Betriebsart gespeichert. Jetzt hier den API-Schlüssel von Mistral eintragen.": "Operating mode saved. Now enter the Mistral API key here.",
+    "Betriebsart gespeichert. Jetzt hier einen Worker anbinden.": "Operating mode saved. Now connect a worker here.",
+    "Betriebsart noch nicht gewählt – die Seiten zeigen deshalb alles.": "No operating mode chosen yet – so the pages show everything.",
+    "Betriebsart:": "Operating mode:",
+    "Eure Worker verarbeiten alles. Nichts verlässt euren Verein.": "Your workers process everything. Nothing leaves your club.",
+    "Laufender Betrieb": "Day-to-day",
+    "Wählen": "Choose",
+    "ändern": "change",
 }
 
 WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}

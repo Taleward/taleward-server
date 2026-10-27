@@ -127,6 +127,8 @@ MELDUNGEN = {
     "sl_unveraendert": "Nichts geändert – der Stand hatte sich schon geändert.",
     "konto_geloescht": "Konto gelöscht. Kommentare der Person bleiben als „gelöschtes Konto“ stehen.",
     "gespeichert": "Gespeichert.",
+    "betrieb_schluessel": "Betriebsart gespeichert. Jetzt hier den API-Schlüssel von Mistral eintragen.",
+    "betrieb_worker": "Betriebsart gespeichert. Jetzt hier einen Worker anbinden.",
     "worker_einstellungen": "Gespeichert. Der Worker startet nach dem laufenden Auftrag mit den neuen Einstellungen neu.",
     "worker_neustart": "Der Worker startet neu, sobald er keinen Auftrag bearbeitet (spätestens in einer Minute).",
     "pausiert": "Worker pausiert – er nimmt keine neuen Aufträge an.",
@@ -1376,12 +1378,24 @@ def neustart(request: Request, session_id: str, user: User = Depends(verwalter),
 
 
 # ---------------------------------------------------------------- Einstellungen und Sicherung
-EINSTELLUNGS_BEREICHE = ("betreiber", "konten", "aufnahmen", "kosten", "app")
+EINSTELLUNGS_BEREICHE = ("betreiber", "konten", "aufnahmen", "kosten", "app", "betrieb")
+EINRICHTUNG_BEREICHE = ("betreiber", "app", "nutzungsbedingungen")  # 0.4.131: Reiter „Einrichtung“, Rest „Laufender Betrieb“
+
+
+def _einstellungen_ziel(bereich: str) -> str:
+    if bereich in EINRICHTUNG_BEREICHE:
+        return f"/einstellungen/einrichtung#{bereich}"
+    return f"/einstellungen#{bereich}" if bereich else "/einstellungen"
+
+
+@router.get("/einstellungen/einrichtung", response_class=HTMLResponse)
+def einstellungen_einrichtung(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)):
+    return einstellungen(request, user, db, teil="einrichtung")
 
 
 @router.get("/einstellungen", response_class=HTMLResponse)
 def einstellungen(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db),
-                  fehler: str = ""):
+                  fehler: str = "", teil: str = "betrieb"):
     from app import slfreigabe
     from app.konto import registrierung, registrierungscode_gesetzt
 
@@ -1397,7 +1411,8 @@ def einstellungen(request: Request, user: User = Depends(verwalter), db: Session
 
     from app import betreiber, nutzungsbedingungen
 
-    return _seite(request, "einstellungen.html", user, db, orgs=orgs, fehler=fehler, betreiber=betreiber.lesen(db),
+    teil = teil if teil in ("betrieb", "einrichtung") else "betrieb"
+    return _seite(request, "einstellungen.html", user, db, orgs=orgs, fehler=fehler, betreiber=betreiber.lesen(db), teil=teil,
                   impressum_text=bool(meta_lesen(db, "impressum.text")), impressum_url=meta_lesen(db, "impressum.url"),
                   nb=nutzungsbedingungen.stand(db), nb_meldung=request.query_params.get("nb", ""),
                   registrierung=registrierung(db), limit_euro=(limit or 0) / 100,
@@ -1424,6 +1439,7 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
                             betreiber_art: str = Form(""), betreiber_anschrift: str = Form(""),
                             betreiber_vertretung: str = Form(""), betreiber_register: str = Form(""),
                             registrierungscode: str = Form(""), sl_freigabe: str = Form(""),
+                            betriebsart: str = Form(""),
                             bereich: str = Form(""), user: User = Depends(verwalter),
                             db: Session = Depends(get_db)):
     """Jeder Abschnitt der Seite speichert für sich (`bereich`); ohne Angabe alles auf einmal (ältere Formulare)."""
@@ -1437,7 +1453,8 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
         return bereich in ("", name)
 
     def fehler(text: str):
-        antwort = einstellungen(request, user, db, fehler=text)
+        antwort = einstellungen(request, user, db, fehler=text,
+                                teil="einrichtung" if bereich in EINRICHTUNG_BEREICHE else "betrieb")
         antwort.status_code = 400
         return antwort
 
@@ -1465,6 +1482,10 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
             or sl_freigabe not in ("", *slfreigabe.ARTEN):
         return fehler(_("Unbekannte Auswahl."))
     neuer_code = "".join(registrierungscode.split())
+    from app import einrichtung
+
+    if betriebsart and betriebsart not in einrichtung.BETRIEBSARTEN:
+        return fehler(_("Unbekannte Auswahl."))
     if teil("konten") and neuer_code and not 6 <= len(neuer_code) <= 64:
         return fehler(_("Der Registrierungscode braucht 6 bis 64 Zeichen (ohne Leerzeichen)."))
     if teil("konten") and registrierung == "code" and not neuer_code and not konto.registrierungscode_gesetzt(db):
@@ -1509,6 +1530,9 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
         if web_zentral_feld:  # Kästchen war auf der Seite (sonst gar nicht angezeigt)
             meta_schreiben(db, "web.zentral", "an" if web_zentral == "an" else "aus")
         meta_schreiben(db, "web.herkuenfte", "\n".join(herkunft(z) for z in zeilen[:20]))
+    weiter = None
+    if teil("betrieb") and betriebsart:
+        weiter = _betriebsart_setzen(db, betriebsart)
     if teil("konten") and registrierung:
         meta_schreiben(db, "registrierung", registrierung)
     if teil("konten") and neuer_code:
@@ -1533,7 +1557,30 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
     webapp.vergessen()
     if geaendert:
         return _zurueck("/einstellungen#aufnahmen", "aufbewahrung_zustimmung" if zurueckgesetzt else "aufbewahrung")
-    return _zurueck(f"/einstellungen#{bereich}" if bereich else "/einstellungen", "gespeichert")
+    if weiter:
+        return _zurueck(*weiter)
+    return _zurueck(_einstellungen_ziel(bereich), "gespeichert")
+
+
+def _betriebsart_setzen(db: Session, art: str) -> tuple[str, str] | None:
+    """0.4.131: Betriebsart in den Einstellungen wechseln – mit denselben Folgen wie im Einrichtungsassistenten
+    (Cloud-Transkription als Hauptweg, als Ausweichlösung oder aus). Fehlt danach etwas, geht es dorthin weiter."""
+    from app.einstellungen import extern_konfig
+
+    meta_schreiben(db, "betrieb.art", art)
+    ext = extern_konfig(db)
+    if art == "lokal":
+        meta_schreiben(db, "extern.anbieter", "")
+    else:
+        if ext.api_key:
+            meta_schreiben(db, "extern.anbieter", "mistral")
+        meta_schreiben(db, "extern.after_hours", "0" if art == "cloud" else f"{ext.stunden or 12:g}")
+    if art in ("cloud", "beides") and not ext.api_key:
+        return "/transkription#extern", "betrieb_schluessel"
+    if art in ("lokal", "beides") and db.scalar(select(func.count()).select_from(Worker)
+                                                 .where(Worker.revoked_at.is_(None))) == 0:
+        return "/transkription#koppeln", "betrieb_worker"
+    return None
 
 
 @router.post("/benachrichtigungen", dependencies=[Depends(csrf_pruefen)])

@@ -1,9 +1,9 @@
-Fassung 0.4.130
+Fassung 0.4.131
 
 ## Was ist neu
 
-- Verwaltung aufgeräumt: Jede Seite zeigt zuerst, was zur Betriebsart passt, mit kürzeren Hilfetexten. Bei „Nur Cloud“ stehen Worker, lokales Modell und Worker-Preise zugeklappt darunter.
-- Seltene Einstellungen (App-Fassungen, neue Fassung der Nutzungsbedingungen, Prüfung der Kapitel, nicht eingerichtete Anmeldedienste, Preise bei ausgeschalteter Abrechnung) sind zugeklappt.
-- Die Übersicht sagt bei „Nur Cloud“, wenn die Cloud-Transkription noch nicht eingerichtet ist, statt einen Worker zu verlangen.
+- Die Betriebsart (Nur Cloud, Lokaler Server oder beides) steht jetzt auf der Übersicht und lässt sich unter Einstellungen wechseln. Fehlt danach etwas, etwa ein Schlüssel oder ein Worker, führt die Verwaltung direkt dorthin.
+- Einstellungen in zwei Reitern: „Laufender Betrieb“ (Betriebsart, neue Konten, Aufnahmen, Kosten, Benachrichtigungen) und „Einrichtung“ (Angaben für die App, Web-App, Nutzungsbedingungen).
+- Verwaltung aufgeräumt (seit 0.4.130): Jede Seite zeigt zuerst, was zur Betriebsart passt, mit kürzeren Hilfetexten; Seltenes ist zugeklappt.
 - Server ohne eigenen Namen heißen jetzt „Taleward“.
 - Kleinere Verbesserungen.

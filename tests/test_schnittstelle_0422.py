@@ -143,7 +143,7 @@ def test_neue_fassung_in_der_verwaltung(client, world, dbs, admin):  # noqa: F81
     r = client.post("/verwaltung/nutzungsbedingungen/neue-fassung", data={"csrf": admin, "bestaetigung": name},
                     follow_redirects=False)
     assert "nb=neu" in r.headers["location"]
-    seite = client.get("/verwaltung/einstellungen?nb=neu").text
+    seite = client.get("/verwaltung/einstellungen/einrichtung?nb=neu").text
     assert "Neue Fassung 2." in seite and "Fassung</span>" not in seite
     assert client.get(f"{API}/info").json()["termsVersion"] == 2
     # Alle Konten müssen erneut zustimmen – lesen geht, ändern nicht

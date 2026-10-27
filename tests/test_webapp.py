@@ -36,7 +36,7 @@ def test_cors_zentral_eigene_und_fremde(client, dbs, admin):  # noqa: F811
     assert vorab(client, "https://taleward.meinverein.de").headers["access-control-allow-origin"] == \
         "https://taleward.meinverein.de"
     # In der Verwaltung abschalten
-    seite = client.get("/verwaltung/einstellungen").text
+    seite = client.get("/verwaltung/einstellungen/einrichtung").text
     assert "Auch die Web-App des Projekts Taleward (https://app.taleward.org) darf diesen Server nutzen" in seite
     csrf = admin
     r = client.post("/verwaltung/einstellungen", data={"csrf": csrf, "server_name": "S", "server_operator": "B",
@@ -176,7 +176,7 @@ def test_weitere_herkuenfte(client, dbs, admin):  # noqa: F811
                     follow_redirects=False)
     assert r.status_code == 303
     assert vorab(client, "https://app.beispiel.de").headers["access-control-allow-origin"] == "https://app.beispiel.de"
-    assert "https://app.beispiel.de" in client.get("/verwaltung/einstellungen").text
+    assert "https://app.beispiel.de" in client.get("/verwaltung/einstellungen/einrichtung").text
 
 
 def test_alte_zentrale_in_der_konfiguration_wird_gehoben(dbs, monkeypatch):

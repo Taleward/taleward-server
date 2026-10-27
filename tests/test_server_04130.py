@@ -91,6 +91,7 @@ def test_anmeldung_dienste_zugeklappt_bis_eingerichtet(client, dbs, admin):  # n
 def test_einstellungen_klappen(client, dbs, admin):  # noqa: F811
     seite = client.get("/verwaltung/einstellungen").text
     assert "Registrierungscode (nur für „Mit Registrierungscode“)" in seite
+    seite = client.get("/verwaltung/einstellungen/einrichtung").text
     assert '<details class="klappteil" id="app">' in seite
     assert '<details class="klappteil" id="nutzungsbedingungen">' in seite
     _betrieb(dbs, "cloud")

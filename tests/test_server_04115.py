@@ -55,7 +55,7 @@ def test_leiste_menue_und_symbole(client, admin):  # noqa: F811
         "abrechnung"]
     assert 'class="kopf"' not in seite and "abmelden" in leiste  # keine dunkle Kopfleiste mehr
     assert '<details class="menue"><summary>' in seite  # am Handy, ohne JavaScript
-    assert seite.count('aria-current="page"') == 2  # in der Leiste und im eingeklappten Menü
+    assert seite.count('aria-current="page"') == 3  # Leiste, eingeklapptes Menü und (0.4.131) Reiter
     uebersicht = client.get("/verwaltung/").text
     assert HAKEN not in uebersicht and KREIS not in uebersicht
     assert '<svg class="icon" aria-hidden="true"' in uebersicht  # Einrichtungsliste mit Symbolen
@@ -68,10 +68,13 @@ def _formulare(seite: str) -> list[str]:
 
 def test_einstellungen_je_abschnitt(client, admin):  # noqa: F811
     seite = client.get("/verwaltung/einstellungen").text
-    assert _formulare(seite) == ["betreiber", "konten", "aufnahmen", "kosten", "app"]
-    # Neue Fassung der Nutzungsbedingungen ganz am Ende, nach den Benachrichtigungen
-    assert seite.index('id="benachrichtigungen"') < seite.index('id="nutzungsbedingungen"')
-    assert '<details class="klappteil" id="nutzungsbedingungen">' in seite  # 0.4.130: zugeklappt
+    # 0.4.131: zwei Reiter – „Laufender Betrieb“ und „Einrichtung“
+    assert _formulare(seite) == ["betrieb", "konten", "aufnahmen", "kosten"] and 'id="benachrichtigungen"' in seite
+    einrichtung = client.get("/verwaltung/einstellungen/einrichtung").text
+    assert _formulare(einrichtung) == ["betreiber", "app"]
+    # Neue Fassung der Nutzungsbedingungen ganz am Ende
+    assert einrichtung.index('id="app"') < einrichtung.index('id="nutzungsbedingungen"')
+    assert '<details class="klappteil" id="nutzungsbedingungen">' in einrichtung  # 0.4.130: zugeklappt
     # Nur das Kostenlimit – Name und Betreiber fehlen im Formular und bleiben, wie sie sind
     vorher = client.get("/api/v1/info").json()
     r = client.post("/verwaltung/einstellungen", data={"csrf": admin, "bereich": "kosten", "limit_euro": "12"},
