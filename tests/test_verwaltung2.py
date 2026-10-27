@@ -76,7 +76,7 @@ def test_titel_ohne_html(client, admin):  # noqa: F811
 # ---------------------------------------------------------------- Transkription-Seite
 def test_worker_und_extern_auf_einer_seite(client, admin):  # noqa: F811
     seite = client.get("/verwaltung/transkription").text
-    assert "Lokaler Worker" in seite and "Alle Worker" in seite and "Externe Transkription" in seite
+    assert "Lokaler Worker" in seite and "Alle Worker" in seite and "Cloud als Ausweichlösung" in seite
     alt = client.get("/verwaltung/worker", follow_redirects=False)
     assert alt.status_code == 301 and alt.headers["location"] == "/verwaltung/transkription"
     assert 'href="/verwaltung/transkription" aria-current="page"' in seite

@@ -2,7 +2,45 @@
 {% block titel %}{{ _("Transkription") }}{% endblock %}
 {% block inhalt %}
 <h1>{{ _("Transkription") }}</h1>
-<p class="leise">{{ _("Wer die Aufnahmen in Text verwandelt: eigene Worker und – als Ausweichlösung – ein externer Anbieter.") }}</p>
+{% set nur_cloud = betrieb == "cloud" %}
+<p class="leise">{{ _("Die Aufnahmen schreibt der Cloud-Anbieter ab.") if nur_cloud else _("Eure Worker schreiben die Aufnahmen ab, auf Wunsch mit der Cloud als Ausweichlösung.") }}</p>
+{% macro extern_karte() %}
+<div class="karte" id="extern">
+  <h2>{{ _("Transkription über die Cloud") if nur_cloud else _("Cloud als Ausweichlösung") }}</h2>
+  {% if ext.anbieter %}
+  <p><span class="marke-status marke-status--gut">{{ _("freigegeben") }}</span> {{ ext.anbieter_name }}</p>
+  {% elif ext.gewaehlt %}
+  <p><span class="marke-status marke-status--fehler">{{ _("nicht aktiv") }}</span> {{ _("Es fehlt der API-Schlüssel.") }}</p>
+  {% else %}
+  <p><span class="marke-status">{{ _("aus") }}</span> {{ _("Aufnahmen werden nur von eigenen Workern transkribiert.") }}</p>
+  {% endif %}
+  {% set kampagnen = _("1 Kampagne erlaubt es") if ext.kampagnen == 1 else _("{n} Kampagnen erlauben es", n=ext.kampagnen) %}
+  <p class="hilfe">{% if nur_cloud %}{{ _("Gilt für Kampagnen, in denen die SL die Cloud erlaubt ({kampagnen}). Etwa {cent} Cent pro Stunde Aufnahme.", kampagnen=kampagnen, cent="%.0f"|format(ext.cent * 60)) }}
+    {%- else %}{{ _("Springt ein, wenn eine Runde länger als die Wartezeit auf einen Worker wartet und die SL die Cloud erlaubt ({kampagnen}). Etwa {cent} Cent pro Stunde Aufnahme.", kampagnen=kampagnen, cent="%.0f"|format(ext.cent * 60)) }}{% endif %}</p>
+  <form class="formular" method="post" action="/verwaltung/transkription/extern">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>{{ _("Anbieter") }}
+      <select name="anbieter">
+        <option value="" {% if not ext.gewaehlt %}selected{% endif %}>{{ _("Aus") }}</option>
+        <option value="mistral" {% if ext.gewaehlt == "mistral" %}selected{% endif %}>Mistral (Voxtral)</option>
+      </select></label>
+    <details class="anbieter-info"><summary>{{ _("Mistral: Standort, Training, Schlüssel") }}</summary>
+      <p class="hilfe">{{ _("Mistral verarbeitet in der EU. Im kostenlosen Tarif darf Mistral Aufnahmen und Abschriften zum Training nutzen, im bezahlten Tarif lässt sich das abschalten: admin.mistral.ai → Privacy → „Anonymous improvement data“ aus. Schlüssel: console.mistral.ai → „API Keys“ → „Create new key“. Angaben des Anbieters, Stand {datum}, ohne Gewähr.", datum=ext.stand) }}</p>
+      <p class="hilfe">{{ _("Das Audio geht dann an den Anbieter. Dafür braucht es einen Vertrag zur Auftragsverarbeitung und einen Absatz im Datenschutzhinweis.") }}</p>
+    </details>
+    <label>{{ _("API-Schlüssel") }}
+      <input type="password" name="api_key" autocomplete="new-password" data-lpignore="true" data-1p-ignore data-bwignore placeholder="{{ _('hinterlegt, endet auf …{ende}', ende=ext.key_ende) if ext.key_ende else _('von console.mistral.ai') }}">
+      <span class="hilfe">{{ _("Leer lassen, um den hinterlegten Schlüssel zu behalten.") }}</span></label>
+    {% if ext.key_ende %}<label class="haken"><input type="checkbox" name="key_loeschen" value="1"> {{ _("Hinterlegten Schlüssel löschen") }}</label>{% endif %}
+    {% if nur_cloud %}<input type="hidden" name="stunden" value="{{ "%g"|format(ext.stunden) }}">
+    {% else %}<label>{{ _("Wartezeit in Stunden") }} <input type="number" name="stunden" value="{{ "%g"|format(ext.stunden) }}" min="0" max="720" step="0.5"></label>{% endif %}
+    <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Speichern") }}</button></div>
+  </form>
+</div>
+{% endmacro %}
+{% if nur_cloud %}{{ extern_karte() }}
+<details class="klappteil" id="worker-teil"{% if neuer_token or koppel %} open{% endif %}><summary>{{ _("Eigene Worker (für die Betriebsart „Lokaler Server“)") }}</summary>
+{% endif %}
 {% if neuer_token %}
 <div class="karte">
   <h2>{{ _("Zugangsschlüssel für „{name}“", name=neuer_name) }}</h2>
@@ -116,7 +154,7 @@
       <label class="haken"><input type="checkbox" name="autostart" value="1" {% if autostart != "aus" %}checked{% endif %}> {{ _("Beim Start des Servers automatisch mitstarten") }}</label>
       <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Starten") }}</button></div>
     </form>
-    {% if not ki %}<p class="hilfe">{{ _("Für die echte Transkription: „uv sync --extra ki“ und den Zugang zum Sprechermodell (Transkription → Sprechermodell, docs/ENTWICKLUNG.md), dann den Server neu starten.") }}</p>{% endif %}
+    {% if not ki %}<details><summary>{{ _("Echte Transkription einschalten") }}</summary><p class="hilfe">{{ _("Für die echte Transkription: „uv sync --extra ki“ und den Zugang zum Sprechermodell (Transkription → Sprechermodell, docs/ENTWICKLUNG.md), dann den Server neu starten.") }}</p></details>{% endif %}
   {% endif %}
   {% if log %}
   <details {% if lokal.exitcode %}open{% endif %}><summary>{{ _("Protokoll (letzte Zeilen)") }}</summary><pre class="log">{{ log|join("\n") }}</pre></details>
@@ -141,7 +179,7 @@
       <label class="haken"><input type="checkbox" name="autostart" value="1" {% if autostart != "aus" %}checked{% endif %}> {{ _("Beim Start des Servers automatisch mitstarten") }}</label>
       <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Starten") }}</button></div>
     </form>
-    {% if not ki %}<p class="hilfe">{{ _("Für die echte Transkription: „uv sync --extra ki“ und den Zugang zum Sprechermodell (Transkription → Sprechermodell, docs/ENTWICKLUNG.md), dann den Server neu starten.") }}</p>{% endif %}
+    {% if not ki %}<details><summary>{{ _("Echte Transkription einschalten") }}</summary><p class="hilfe">{{ _("Für die echte Transkription: „uv sync --extra ki“ und den Zugang zum Sprechermodell (Transkription → Sprechermodell, docs/ENTWICKLUNG.md), dann den Server neu starten.") }}</p></details>{% endif %}
   {% endif %}
   {% if log %}
   <details {% if lokal.exitcode %}open{% endif %}><summary>{{ _("Protokoll (letzte Zeilen)") }}</summary><pre class="log">{{ log|join("\n") }}</pre></details>
@@ -221,8 +259,8 @@
     <label>{{ _("Name") }} <input type="text" name="name" placeholder="{{ _('z. B. pc-von-lilio') }}" required maxlength="100"></label>
     <button class="tw-btn tw-btn--secondary" type="submit">{{ _("Zugangsschlüssel erzeugen") }}</button>
   </form>
-  </details>
   <p class="hilfe">{{ _("Der Worker verbindet sich von sich aus mit diesem Server – auf seiner Seite muss kein Port geöffnet werden. Über das Internet nur per HTTPS.") }}</p>
+  </details>
 </div>
 
 <div class="karte" id="hf">
@@ -246,50 +284,23 @@
   {% if hf_klappe %}<details><summary>{{ _("Eigenen Hugging-Face-Zugang nutzen (freiwillig)") }}</summary>{% endif %}
   <h3>{{ _("Zugang zu Hugging Face") }}</h3>
   {% if not hf_ende and not modell.stand %}
-  <p>{{ _("So bekommst du den Zugangsschlüssel – einmalig und kostenlos:") }}</p>
+  <details><summary>{{ _("So bekommst du den Zugangsschlüssel – einmalig und kostenlos") }}</summary>
   <ol class="schritte">
     <li>{{ _("Auf huggingface.co ein Konto anlegen.") }} <a href="https://huggingface.co/join" rel="noopener noreferrer" target="_blank">huggingface.co/join</a></li>
     <li>{{ _("Angemeldet die Seite des Sprechermodells öffnen und den Bedingungen zustimmen.") }} <a href="https://huggingface.co/pyannote/speaker-diarization-community-1" rel="noopener noreferrer" target="_blank">{{ _("Seite des Sprechermodells") }}</a></li>
     <li>{{ _("Unter „Settings“ → „Access Tokens“ einen Schlüssel mit dem Recht „Read“ anlegen, kopieren und hier einfügen.") }} <a href="https://huggingface.co/settings/tokens" rel="noopener noreferrer" target="_blank">huggingface.co/settings/tokens</a></li>
   </ol>
+  </details>
   {% endif %}
   <p>{% if hf_ende %}<span class="marke-status marke-status--gut">{{ _("hinterlegt") }}</span> {{ _("endet auf …{ende}", ende=hf_ende) }}{% else %}<span class="marke-status">{{ _("nicht hinterlegt") }}</span>{% endif %}</p>
   <form class="formular" method="post" action="/verwaltung/transkription/hf">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label>{{ _("Zugangsschlüssel") }} <input type="password" name="hf_token" autocomplete="new-password" data-lpignore="true" data-1p-ignore data-bwignore placeholder="hf_…">
-      <span class="hilfe">{{ _("Bleibt auf dem Server. Damit lädt er das Sprechermodell und neue Fassungen nach Updates.") }}</span></label>
+    <label>{{ _("Zugangsschlüssel") }} <input type="password" name="hf_token" autocomplete="new-password" data-lpignore="true" data-1p-ignore data-bwignore placeholder="hf_…"></label>
     <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Prüfen und speichern") }}</button></div>
   </form>
   {% if hf_klappe %}</details>{% endif %}
   <p class="hilfe">{{ _("Das Modell: pyannote speaker-diarization-community-1 von pyannoteAI, Lizenz CC-BY-4.0, unverändert weitergegeben.") }}</p>
 </div>
 
-<div class="karte" id="extern">
-  <h2>{{ _("Externe Transkription (Ausweichlösung)") }}</h2>
-  {% if ext.anbieter %}
-  <p><span class="marke-status marke-status--warten">{{ _("freigegeben") }}</span> {{ ext.anbieter_name }}</p>
-  {% elif ext.gewaehlt %}
-  <p><span class="marke-status marke-status--fehler">{{ _("nicht aktiv") }}</span> {{ _("Es fehlt der API-Schlüssel.") }}</p>
-  {% else %}
-  <p><span class="marke-status">{{ _("aus") }}</span> {{ _("Aufnahmen werden nur von eigenen Workern transkribiert.") }}</p>
-  {% endif %}
-  <p>{{ _("Greift nur, wenn eine Runde länger als die Wartezeit wartet, in dieser Zeit kein Worker erreichbar war und die SL es für die Kampagne erlaubt hat ({n} Kampagne(n) erlauben es). Kosten etwa {cent} Cent pro Stunde Aufnahme.", n=ext.kampagnen, cent="%.0f"|format(ext.cent * 60)) }}</p>
-  <form class="formular" method="post" action="/verwaltung/transkription/extern">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label>{{ _("Anbieter") }}
-      <select name="anbieter">
-        <option value="" {% if not ext.gewaehlt %}selected{% endif %}>{{ _("Aus") }}</option>
-        <option value="mistral" {% if ext.gewaehlt == "mistral" %}selected{% endif %}>Mistral (Voxtral)</option>
-      </select></label>
-    <label>{{ _("API-Schlüssel") }}
-      <input type="password" name="api_key" autocomplete="new-password" data-lpignore="true" data-1p-ignore data-bwignore placeholder="{{ _('hinterlegt, endet auf …{ende}', ende=ext.key_ende) if ext.key_ende else _('von console.mistral.ai') }}">
-      <span class="hilfe">{{ _("Leer lassen, um den hinterlegten Schlüssel zu behalten. Er steht in der Datenbank (auch in Sicherungen) und wird nie wieder angezeigt.") }}</span></label>
-    {% if ext.key_ende %}<label class="haken"><input type="checkbox" name="key_loeschen" value="1"> {{ _("Hinterlegten Schlüssel löschen") }}</label>{% endif %}
-    <label>{{ _("Wartezeit in Stunden") }} <input type="number" name="stunden" value="{{ "%g"|format(ext.stunden) }}" min="0" max="720" step="0.5">
-      <span class="hilfe">{{ _("0 = sofort (Betriebsart „Nur Cloud“).") }}</span></label>
-    <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Speichern") }}</button></div>
-  </form>
-  <p class="hilfe">{{ _("Das Audio geht dann an den Anbieter. Dafür braucht es einen Vertrag zur Auftragsverarbeitung und einen Absatz im Datenschutzhinweis.") }}</p>
-  <p class="hilfe">{{ _("Mistral verarbeitet in der EU. Im kostenlosen Tarif darf Mistral Aufnahmen und Abschriften zum Training nutzen, im bezahlten Tarif lässt sich das abschalten: admin.mistral.ai → Privacy → „Anonymous improvement data“ aus. Schlüssel: console.mistral.ai → „API Keys“ → „Create new key“. Angaben des Anbieters, Stand {datum}, ohne Gewähr.", datum=ext.stand) }}</p>
-</div>
+{% if nur_cloud %}</details>{% else %}{{ extern_karte() }}{% endif %}
 {% endblock %}

@@ -8,7 +8,7 @@
 <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="bereich" value="betreiber">
 <div class="karte" id="betreiber">
   <h2>{{ _("Angaben für die App") }}</h2>
-  <p class="leise">{{ _("Die App zeigt sie beim Hinzufügen des Servers (Betreiber, Kontakt, Datenschutzhinweis). Daraus füllen sich auch die Vorlagen für Datenschutzhinweis und Impressum.") }}</p>
+  <p class="leise">{{ _("Zeigt die App beim Hinzufügen des Servers. Daraus entstehen auch Datenschutzhinweis und Impressum.") }}</p>
   <div class="formular">
     <label>{{ _("Name des Servers") }} <input type="text" name="server_name" value="{{ angaben.server_name }}" required maxlength="100"></label>
     <fieldset><legend>{{ _("Betrieben von") }}</legend>
@@ -39,6 +39,7 @@
 <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="bereich" value="konten">
 <div class="karte" id="konten">
   <h2>{{ _("Neue Konten") }}</h2>
+  {% if offen_grenze %}<div class="hinweis">{{ _("Am {zeit} kamen mehr neue Konten über die offene Registrierung, als der Server zulässt (30 je Stunde, 200 je Tag). Weitere mussten warten.", zeit=zeit(offen_grenze)) }}</div>{% endif %}
   <div class="formular">
     <label>{{ _("Registrierung") }}
       <select name="registrierung">
@@ -47,15 +48,17 @@
         <option value="open" {% if registrierung == "open" %}selected{% endif %}>{{ _("Offen – jede Person kann ein Konto anlegen") }}</option>
         <option value="closed" {% if registrierung == "closed" %}selected{% endif %}>{{ _("Geschlossen – Konten legt nur die Verwaltung an") }}</option>
       </select>
-      <span class="hilfe">{{ _("Einladungen der Spielleitung funktionieren in jeder Einstellung außer „Geschlossen“.") }} {{ _("Bei der Registrierung bestätigt jede Person den Datenschutzhinweis und das Mindestalter; beides wird mit Zeitpunkt gespeichert.") }}</span></label>
+      <span class="hilfe">{{ _("Einladungen der Spielleitung funktionieren in jeder Einstellung außer „Geschlossen“.") }}</span></label>
+    {% if registrierung != "code" %}<details class="klappe"><summary>{{ _("Registrierungscode (nur für „Mit Registrierungscode“)") }}</summary>{% endif %}
     <label>{{ _("Registrierungscode") }} <input type="text" name="registrierungscode" autocomplete="off" maxlength="80" placeholder="{{ _('eingetragen – zum Ändern neu eingeben') if registrierungscode else _('noch keiner') }}">
-      <span class="hilfe">{{ _("Nur für „Mit Registrierungscode“. Gib ihn persönlich weiter. Der Server merkt sich nur eine Prüfsumme und kann ihn dir nicht wieder anzeigen – notier ihn dir.") }}</span></label>
+      <span class="hilfe">{{ _("Gib ihn persönlich weiter. Der Server zeigt ihn nie wieder an – notier ihn dir.") }}</span></label>
+    {% if registrierung != "code" %}</details>{% endif %}
     <label>{{ _("SL-Freigabe verlangen") }}
       <select name="sl_freigabe" {% if einzelzahler %}aria-describedby="sl-freigabe-hilfe"{% endif %}>
         <option value="offen" {% if sl_freigabe == "offen" %}selected{% endif %}>{{ _("Nur bei offener Registrierung") }}</option>
         <option value="immer" {% if sl_freigabe == "immer" %}selected{% endif %}>{{ _("Immer") }}</option>
       </select>
-      <span class="hilfe" id="sl-freigabe-hilfe">{% if einzelzahler %}{{ _("Entfällt, weil jede Spielleitung ihr Guthaben selbst bezahlt (Abrechnung: Einzelzahler).") }}{% else %}{{ _("Mit SL-Freigabe legt nur eigene Kampagnen an, wen du freigegeben hast. Anfragen kommen per Mail und stehen unter „SL-Freigaben“. Wer eingeladen wird, spielt immer mit.") }}{% endif %}</span></label>
+      <span class="hilfe" id="sl-freigabe-hilfe">{% if einzelzahler %}{{ _("Entfällt, weil jede Spielleitung ihr Guthaben selbst bezahlt (Abrechnung: Einzelzahler).") }}{% else %}{{ _("Dann legt nur eigene Kampagnen an, wen du unter „SL-Freigaben“ freigegeben hast. Eingeladene spielen immer mit.") }}{% endif %}</span></label>
   </div>
   <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
 </div>
@@ -64,18 +67,20 @@
 <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="bereich" value="aufnahmen">
 <div class="karte" id="aufnahmen">
   <h2>{{ _("Aufnahmen") }}</h2>
-  <p class="leise">{{ _("Wie lange eine Aufnahme nach der Umwandlung in Text auf dem Server bleibt. Solange sie da ist, lässt sich die Zusammenfassung gegen sie prüfen und die Transkription wiederholen. Die App nennt die Frist im Einwilligungstext.") }}</p>
+  <p class="leise">{{ _("Wie lange eine Aufnahme nach der Umwandlung in Text bleibt. Die App nennt die Frist im Einwilligungstext.") }}</p>
   <div class="formular">
     <label>{{ _("Aufnahmen löschen") }}
       <select name="audio_modus">
         <option value="until_release" {% if aufbewahrung.bis_freigabe %}selected{% endif %}>{{ _("Wenn die Spielleitung das Kapitel freigibt, spätestens nach der Frist (empfohlen)") }}</option>
         <option value="immediate" {% if not aufbewahrung.bis_freigabe %}selected{% endif %}>{{ _("Sofort nach der Umwandlung in Text") }}</option>
       </select></label>
+    {% if not aufbewahrung.bis_freigabe %}<details class="klappe"><summary>{{ _("Frist (nur für „Wenn die Spielleitung das Kapitel freigibt“)") }}</summary>{% endif %}
     <label>{{ _("Höchstens (Tage)") }} <input type="number" name="audio_tage" value="{{ aufbewahrung.tage }}" min="1" max="{{ hoechstens_tage }}">
-      <span class="hilfe">{{ _("Gilt nur für „Wenn die Spielleitung das Kapitel freigibt“. Höchstens {n} Tage.", n=hoechstens_tage) }}</span></label>
+      <span class="hilfe">{{ _("Höchstens {n} Tage.", n=hoechstens_tage) }}</span></label>
+    {% if not aufbewahrung.bis_freigabe %}</details>{% endif %}
     <label class="haken"><input type="checkbox" name="audio_bestaetigt" value="ja">
       <span>{{ _("Mir ist klar: Sollen Aufnahmen länger bleiben als bisher, müssen alle Mitglieder in der App neu zustimmen (zurzeit {n} Zustimmungen).", n=zustimmungen) }}</span></label>
-    <span class="hilfe">{{ _("Nur nötig, wenn die Aufbewahrung verlängert wird. Kürzer stellen geht jederzeit ohne neue Zustimmung. Danach den Datenschutzhinweis anpassen.") }} <a href="/verwaltung/assistent/datenschutz">{{ _("Datenschutzhinweis") }}</a></span>
+    <span class="hilfe">{{ _("Nur nötig, wenn Aufnahmen länger bleiben sollen. Danach den Datenschutzhinweis anpassen.") }} <a href="/verwaltung/assistent/datenschutz">{{ _("Datenschutzhinweis") }}</a></span>
   </div>
   <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
 </div>
@@ -86,15 +91,16 @@
   <h2>{{ _("Kosten") }}</h2>
   <div class="formular">
     <label>{{ _("Monatliches Kostenlimit (Euro)") }} <input type="number" name="limit_euro" value="{{ '%g'|format(limit_euro) }}" min="0" max="10000" step="1">
-      <span class="hilfe">{{ _("Gilt für Cloud-Transkription und Cloud-Sprachmodell zusammen. Ist es erreicht, warten Aufträge bis zum nächsten Monat. 0 = ohne Limit.") }}</span></label>
+      <span class="hilfe">{{ _("Für alle Cloud-Dienste zusammen. Ist es erreicht, warten Aufträge bis zum nächsten Monat. 0 = ohne Limit.") }}</span></label>
   </div>
   <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
 </div>
 </form>
+{% set app_offen = angaben.app_min_version or angaben.app_latest_version or angaben.app_download_url or web_herkuenfte %}
+<details class="klappteil" id="app"{% if app_offen %} open{% endif %}><summary>{{ _("App im Browser und App-Fassungen (selten nötig)") }}</summary>
 <form method="post" action="/verwaltung/einstellungen">
 <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="bereich" value="app">
-<div class="karte" id="app">
-  <h2>{{ _("App im Browser und App-Fassungen") }}</h2>
+<div class="karte">
   <div class="formular">
     <details{% if angaben.app_min_version or angaben.app_latest_version or angaben.app_download_url %} open{% endif %}>
     <summary>{{ _("App-Fassung von Hand festlegen (selten nötig)") }}</summary>
@@ -112,7 +118,7 @@
     <input type="hidden" name="web_zentral_feld" value="1">
     <label class="haken"><input type="checkbox" name="web_zentral" value="an" {% if web_zentral %}checked{% endif %}>
       <span>{{ _("Auch die Web-App des Projekts Taleward ({adresse}) darf diesen Server nutzen", adresse=zentrale_webapp) }}</span></label>
-    <span class="hilfe">{{ _("Die eigene Web-App dieses Servers (unter /app/) geht immer. Die Web-App des Projekts ist ein Angebot von Taleward, nicht von diesem Server; sie sieht keine Inhalte – der Browser spricht direkt mit diesem Server. Ausschalten, wenn Mitglieder nur die eigene nutzen sollen. Nur mit HTTPS.") }}</span>
+    <span class="hilfe">{{ _("Die eigene Web-App dieses Servers geht immer. Die des Projekts sieht keine Inhalte – der Browser spricht direkt mit diesem Server. Nur mit HTTPS.") }}</span>
     {% endif %}
     <label>{{ _("Weitere Adressen für die Web-App") }} <textarea name="web_herkuenfte" rows="2" maxlength="2000" placeholder="https://…">{{ web_herkuenfte }}</textarea>
       <span class="hilfe">{{ _("Eine je Zeile. Nur nötig, wenn die Web-App noch woanders läuft. Die eigene Adresse ist immer erlaubt.") }}</span></label>
@@ -120,20 +126,23 @@
   <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
 </div>
 </form>
+</details>
 
 <form method="post" action="/verwaltung/benachrichtigungen">
 <input type="hidden" name="csrf" value="{{ csrf }}">
 <div class="karte" id="benachrichtigungen">
   <h2>{{ _("Benachrichtigungen") }}</h2>
-  <p class="leise">{{ _("Der Server meldet sich, wenn Aufträge lange auf einen Worker warten, Aufträge fehlschlagen, das Kostenlimit zu 80 % erreicht ist, eine Sicherung fehlschlägt oder der Speicher knapp wird. Inhalte aus Kampagnen stehen nie in den Meldungen.") }}</p>
-  <h3>{{ _("Per ntfy (Handy-App, ohne Konto)") }}</h3>
+  <p class="leise">{{ _("Der Server meldet Probleme wie fehlgeschlagene Aufträge, ein fast erreichtes Kostenlimit oder knappen Speicher – nie mit Inhalten aus Kampagnen.") }}</p>
+  {% macro zustand(an) %}<span class="marke-status{% if an %} marke-status--gut{% endif %}">{{ _("eingerichtet") if an else _("aus") }}</span>{% endmacro %}
+  <details class="klappe"{% if melden.ntfy_url %} open{% endif %}><summary>{{ _("Per ntfy (Handy-App, ohne Konto)") }}&nbsp;{{ zustand(melden.ntfy_url) }}</summary>
   <p class="hilfe">{{ _("App „ntfy“ installieren, ein schwer zu erratendes Thema abonnieren (z. B. mein-verein-taleward-7k2q) und hier dieselbe Adresse eintragen.") }}</p>
   <div class="formular">
     <label>{{ _("ntfy-Adresse") }} <input type="url" name="ntfy_url" value="{{ melden.ntfy_url }}" maxlength="500" placeholder="https://ntfy.sh/mein-verein-taleward-7k2q"></label>
     <label>{{ _("Zugangstoken (nur bei eigenem ntfy-Server mit Anmeldung)") }} <input type="password" name="ntfy_token" autocomplete="new-password" data-lpignore="true" data-1p-ignore data-bwignore placeholder="{{ _('gespeichert – leer lassen, um ihn zu behalten') if melden.ntfy_token else '' }}"></label>
   </div>
-  <h3>{{ _("E-Mail-Versand") }}</h3>
-  <p class="hilfe">{{ _("Derselbe Mailserver verschickt Benachrichtigungen an dich und – für Mitglieder, die freiwillig eine Adresse hinterlegen – Links für „Passwort vergessen“.") }}</p>
+  </details>
+  <details class="klappe"{% if melden.smtp_host %} open{% endif %}><summary>{{ _("E-Mail-Versand") }}&nbsp;{{ zustand(melden.smtp_host) }}</summary>
+  <p class="hilfe">{{ _("Verschickt Benachrichtigungen an dich und Links für „Passwort vergessen“.") }}</p>
   <div class="formular">
     <label>{{ _("Mailserver (SMTP)") }} <input type="text" name="smtp_host" value="{{ melden.smtp_host }}" maxlength="200" placeholder="smtp.example.org"></label>
     <label>{{ _("Port") }} <input type="number" name="smtp_port" value="{{ melden.smtp_port }}" min="1" max="65535"></label>
@@ -149,6 +158,7 @@
     <label>{{ _("Empfänger der Benachrichtigungen") }} <input type="email" name="email_an" value="{{ melden.email_an }}" maxlength="200">
       <span class="hilfe">{{ _("Leer = keine Benachrichtigungen per E-Mail.") }}</span></label>
   </div>
+  </details>
   <h3>{{ _("Allgemein") }}</h3>
   <div class="formular">
     <label>{{ _("Sprache der Meldungen") }}
@@ -156,7 +166,8 @@
         <option value="de" {% if melden.sprache == "de" %}selected{% endif %}>Deutsch</option>
         <option value="en" {% if melden.sprache == "en" %}selected{% endif %}>English</option>
       </select></label>
-    <label>{{ _("Melden, wenn Aufträge so viele Stunden ohne Worker warten") }} <input type="number" name="stunden" value="{{ melden.stunden }}" min="1" max="168"></label>
+    {% if betrieb == "cloud" %}<input type="hidden" name="stunden" value="{{ melden.stunden }}">
+    {% else %}<label>{{ _("Melden, wenn Aufträge so viele Stunden ohne Worker warten") }} <input type="number" name="stunden" value="{{ melden.stunden }}" min="1" max="168"></label>{% endif %}
     {% if melden.ntfy_token or melden.smtp_pass %}<label class="haken"><input type="checkbox" name="zugang_loeschen" value="1"> {{ _("Gespeicherten Token und Passwort löschen") }}</label>{% endif %}
   </div>
   <div class="knopfzeile">
@@ -167,17 +178,18 @@
 </form>
 <p class="hilfe"><a href="/verwaltung/uebergabe">{{ _("Auftragsverarbeitung und Übergabe der Verwaltung") }} →</a></p>
 <hr class="trenner">
-<div class="karte karte--achtung" id="nutzungsbedingungen">
-  <h2>{{ _("Nutzungsbedingungen: neue Fassung") }}</h2>
+<details class="klappteil" id="nutzungsbedingungen"{% if nb_meldung %} open{% endif %}><summary>{{ _("Nutzungsbedingungen: neue Fassung") }}</summary>
+<div class="karte karte--achtung">
   {% if nb_meldung == "neu" %}<div class="meldung" role="status">{{ _("Neue Fassung {n}. Alle Mitglieder sehen beim nächsten Öffnen der App die Bedingungen und stimmen erneut zu.", n=nb.version) }}</div>
   {% elif nb_meldung == "falsch" %}<div class="meldung meldung--fehler" role="alert">{{ _("Der eingegebene Name stimmt nicht mit dem Namen des Servers überein. Nichts geändert.") }}</div>{% endif %}
-  <p>{{ _("Geltende Fassung: {n}.", n=nb.version) }} {{ _("Hast du die Bedingungen so geändert, dass alle erneut zustimmen müssen, zähle die Fassung hoch. Bis zur Zustimmung können Mitglieder in der App nur lesen, Zustimmungen widerrufen, ihre Daten herunterladen und ihr Konto löschen. Tippfehler oder Umformulierungen brauchen keine neue Fassung.") }}</p>
+  <p>{{ _("Geltende Fassung: {n}.", n=nb.version) }} {{ _("Nur für Änderungen, denen alle erneut zustimmen müssen – bis dahin können Mitglieder in der App nur lesen. Tippfehler brauchen keine neue Fassung.") }}</p>
   <form class="formular" method="post" action="/verwaltung/nutzungsbedingungen/neue-fassung">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label>{{ _("Zur Bestätigung den Namen des Servers eingeben") }} <input type="text" name="bestaetigung" autocomplete="off" placeholder="{{ angaben.server_name }}"></label>
     <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Neue Fassung – alle müssen erneut zustimmen") }}</button></div>
   </form>
 </div>
+</details>
 
 </div>
 {% endblock %}

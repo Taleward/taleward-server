@@ -12,7 +12,7 @@ from app.security import hash_password
 from app.services import build_attendees, default_organization, ensure_org_member, random_cover, set_recording_consent
 from app import schemas
 
-app = typer.Typer(help="Verwaltung des Session-Chronik-Servers", no_args_is_help=True)
+app = typer.Typer(help="Verwaltung des Taleward-Servers", no_args_is_help=True)
 
 
 def _db():
@@ -25,7 +25,10 @@ def _neues_konto(db, username: str, display_name: str, password: str, admin: boo
     """Konto + Anmeldeart „Passwort“ + Mitgliedschaft in der (Standard-)Organisation.
     zugestimmt (0.4.22): Zustimmung zu den Nutzungsbedingungen gleich eintragen – nur für das eigene Konto des
     Betreibers (Einrichtung, Einzelplatz, Demo); für andere Personen stimmt niemand stellvertretend zu."""
-    u = User(username=username, display_name=display_name, gm_permission="granted" if admin else "none")
+    from app.aliasse import zeichen_bereinigen
+
+    u = User(username=username, display_name=zeichen_bereinigen(display_name)[:128] or username,
+             gm_permission="granted" if admin else "none")
     if zugestimmt:
         from app import nutzungsbedingungen
         from app.db import utcnow

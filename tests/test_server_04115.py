@@ -71,7 +71,7 @@ def test_einstellungen_je_abschnitt(client, admin):  # noqa: F811
     assert _formulare(seite) == ["betreiber", "konten", "aufnahmen", "kosten", "app"]
     # Neue Fassung der Nutzungsbedingungen ganz am Ende, nach den Benachrichtigungen
     assert seite.index('id="benachrichtigungen"') < seite.index('id="nutzungsbedingungen"')
-    assert 'class="karte karte--achtung" id="nutzungsbedingungen"' in seite
+    assert '<details class="klappteil" id="nutzungsbedingungen">' in seite  # 0.4.130: zugeklappt
     # Nur das Kostenlimit – Name und Betreiber fehlen im Formular und bleiben, wie sie sind
     vorher = client.get("/api/v1/info").json()
     r = client.post("/verwaltung/einstellungen", data={"csrf": admin, "bereich": "kosten", "limit_euro": "12"},

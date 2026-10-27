@@ -116,6 +116,11 @@ def text(db: Session, art: str, sprache: str, **werte) -> tuple[str, str]:
     from app.einstellungen import angaben
 
     a = angaben(db)
+    from app.aliasse import zeichen_bereinigen
+
     werte = {"server": a.server_name, "betreiber": a.server_operator, **werte}
+    # 0.4.130: Namen ohne Steuer- und Richtungszeichen (sie stehen auch im Betreff)
+    werte = {k: zeichen_bereinigen(v) if k in ("server", "betreiber", "name") and isinstance(v, str) else v
+             for k, v in werte.items()}
     betreff, inhalt = TEXTE[art]["en" if sprache == "en" else "de"]
     return betreff.format(**werte), inhalt.format(**werte)

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.models import ServerMeta
 
+ALTER_NAME = "Session-Chronik"
 FELDER = ("server_name", "server_operator", "server_contact", "privacy_policy_url", "min_age",
           "app_min_version", "app_latest_version", "app_download_url", "app_release_notes", "public_url")
 PREFIX = "angabe."
@@ -66,7 +67,9 @@ def angaben(db: Session) -> Angaben:
         if row is not None:
             werte[f] = row.value if row.value != "" else None
     werte["min_age"] = int(werte["min_age"] or 16)
-    werte["server_name"] = werte["server_name"] or s.server_name
+    # 0.4.130: Der frühere Standardname gilt als „nicht eingetragen“ (er stand oft nur durch Speichern drin)
+    if werte["server_name"] in (None, "", ALTER_NAME):
+        werte["server_name"] = s.server_name if s.server_name != ALTER_NAME else "Taleward"
     werte["server_operator"] = werte["server_operator"] or s.server_operator
     if s.taleward_einzelplatz:  # immer die aktuelle Heimnetz-Adresse des PCs (Einladungen, QR-Code, publicUrl)
         from app.einzelplatz import eigener_datenschutz, oeffentliche_url

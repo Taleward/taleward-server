@@ -97,7 +97,7 @@ def mail_an_verwaltung(db: Session, user: User, basis: str) -> bool:
         try:
             mail.senden(db, an, betreff, text)
             ok = True
-        except mail.MailFehler:
+        except (mail.MailFehler, ValueError):  # ValueError: Kopfzeile ungültig – wie ein Versandfehler
             pass
     if not ok:
         log.warning("Mail zur SL-Anfrage nicht verschickt (Konto %s)", user.id)

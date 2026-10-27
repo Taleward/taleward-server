@@ -36,6 +36,9 @@ LEICHT = {"passwort", "password", "12345678", "123456789", "1234567890", "qwertz
 
 # Begrenzung: höchstens so viele Registrierungsversuche je Adresse im Zeitfenster
 MAX_VERSUCHE, FENSTER = 10, 15 * 60
+# 0.4.130: Bei offener Registrierung serverweit höchstens so viele neue Konten (zusätzlich zur Grenze je Adresse)
+OFFEN_GRENZEN = (("registrierung-offen:stunde", 30, 3600.0), ("registrierung-offen:tag", 200, 86400.0))
+OFFEN_GRENZE_ERREICHT: dict[str, object] = {"zeit": None}  # für den Hinweis in der Verwaltung (bis zum Neustart)
 
 
 def registrierung(db: Session) -> str:
@@ -96,15 +99,16 @@ def passwort_zu_schwach(passwort: str, *namen: str) -> bool:
     return len(passwort) < 8 or p in LEICHT or any(n and p == n.lower() for n in namen) or len(set(p)) < 3
 
 
-def _zugang_pruefen(db: Session, adresse: str, invite_code: str | None, registration_code: str | None) -> None:
+def _zugang_pruefen(db: Session, adresse: str, invite_code: str | None, registration_code: str | None) -> bool:
     """0.4.23: Wer darf ein Konto anlegen? Eine Einladung wird in jeder Art außer closed geprüft; der
-    Registrierungscode gilt nur bei code. Falsche Codes zählen wie beim Beitritt (0.4.83: Adresse und serverweit)."""
+    Registrierungscode gilt nur bei code. Falsche Codes zählen wie beim Beitritt (0.4.83: Adresse und serverweit).
+    True, wenn das Konto ohne Einladung über die offene Registrierung entsteht."""
     art = registrierung(db)
     if art == "closed":
         raise errors.ApiError(403, "registration_closed")
     einladung, code = (invite_code or "").strip(), (registration_code or "").strip()
     if not einladung and art == "open":
-        return
+        return True
     if not einladung and art == "code" and not code:
         raise errors.bad_request("registration_code_required")
     from app.begrenzung import ZAEHLER
@@ -120,6 +124,19 @@ def _zugang_pruefen(db: Session, adresse: str, invite_code: str | None, registra
     elif not registrierungscode_passt(db, code):
         raise errors.bad_request("registration_code_invalid")
     ZAEHLER.freigeben(versuch)
+    return False
+
+
+def _offen_zaehlen() -> None:
+    """Serverweite Obergrenze für Konten aus der offenen Registrierung; voll → 429 und Hinweis in der Verwaltung."""
+    import logging
+
+    from app.begrenzung import ZAEHLER
+
+    if ZAEHLER.reservieren(list(OFFEN_GRENZEN)) is None:
+        OFFEN_GRENZE_ERREICHT["zeit"] = utcnow()
+        logging.getLogger(__name__).warning("Obergrenze für neue Konten (offene Registrierung) erreicht")
+        raise errors.ApiError(429, "too_many_requests")
 
 
 def registrieren(db: Session, adresse: str, invite_code: str | None, username: str, display_name: str,
@@ -131,7 +148,7 @@ def registrieren(db: Session, adresse: str, invite_code: str | None, username: s
     409 terms_changed); Zeitpunkt und Fassung stehen am Konto.
     0.4.23: Zugang nach der Registrierungsart (_zugang_pruefen). Ein neues Konto hat keine SL-Freigabe (none)."""
     _begrenzen(adresse)
-    _zugang_pruefen(db, adresse, invite_code, registration_code)
+    offen = _zugang_pruefen(db, adresse, invite_code, registration_code)
     if accept_privacy is not True or age_confirmed is not True:
         raise errors.bad_request("consent_required")
     from app import nutzungsbedingungen
@@ -143,7 +160,9 @@ def registrieren(db: Session, adresse: str, invite_code: str | None, username: s
     name = (username or "").strip().lower()
     if not BENUTZERNAME.fullmatch(name):
         raise errors.bad_request("username_invalid")
-    anzeige = (display_name or "").strip()
+    from app.aliasse import zeichen_bereinigen
+
+    anzeige = zeichen_bereinigen(display_name or "")  # 0.4.130: ohne Steuer- und Richtungszeichen
     if not anzeige:
         raise errors.bad_request("validation_error", "validation_error.empty", field="displayName")
     if len(anzeige) > 128:
@@ -152,6 +171,8 @@ def registrieren(db: Session, adresse: str, invite_code: str | None, username: s
         raise errors.bad_request("weak_password")
     if db.scalar(select(User).where(User.username == name)) is not None:
         raise errors.conflict("username_taken")
+    if offen:
+        _offen_zaehlen()
     jetzt = utcnow()
     u = User(username=name, display_name=anzeige, privacy_accepted_at=jetzt, age_confirmed_at=jetzt,
              terms_accepted_version=int(terms_version), terms_accepted_at=jetzt)

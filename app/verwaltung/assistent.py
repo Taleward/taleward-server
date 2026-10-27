@@ -156,10 +156,10 @@ def verein(request: Request, user: User = Depends(verwalter), db: Session = Depe
     from app import betreiber
 
     s, a = get_settings(), angaben(db)
-    # Standardwerte aus der Installation nicht vorschlagen – sonst heißt jeder Server „Session-Chronik“
+    # Standardwerte aus der Installation nicht vorschlagen – sonst heißt jeder Server gleich
     return _schritt(request, user, db, "verein",
                     verein_wert="" if a.server_operator == s.server_operator else a.server_operator,
-                    name_wert="" if a.server_name == s.server_name else a.server_name, betreiber=betreiber.lesen(db))
+                    name_wert="" if a.server_name in (s.server_name, "Taleward") else a.server_name, betreiber=betreiber.lesen(db))
 
 
 @router.post("/assistent/verein", dependencies=[Depends(csrf_pruefen)])

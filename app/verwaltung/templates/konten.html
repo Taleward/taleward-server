@@ -20,7 +20,7 @@
     <label class="haken"><input type="checkbox" name="admin" value="1"> {{ _("Verwalter") }}</label>
     <button class="tw-btn tw-btn--primary" type="submit">{{ _("Anlegen") }}</button>
   </form>
-  <p class="hilfe">{{ _("Das Startpasswort gibst du der Person persönlich weiter. Mitglieder einer Kampagne kommen über Einladungen der Spielleitung in der App dazu.") }} {{ _("Passwort vergessen? „Passwort-Link erstellen“ – die Person wählt ihr neues Passwort dann selbst.") }}</p>
+  <p class="hilfe">{{ _("Meist nicht nötig: Mitglieder kommen über Einladungen der Spielleitung dazu. Das Startpasswort gibst du persönlich weiter.") }}</p>
 </div>
 <div class="karte tabelle-huelle">
   <table>
@@ -28,7 +28,7 @@
     <tbody>
     {% for k in konten %}
       <tr>
-        <td data-label="{{ _('Konto') }}"><strong>{{ k.u.display_name }}</strong><br><span class="leise">{{ k.u.username }} · {{ _("seit {zeit}", zeit=zeit(k.u.created_at)) }}</span>
+        <td data-label="{{ _('Konto') }}"><strong>{{ k.u.display_name|rein }}</strong><br><span class="leise">{{ k.u.username }} · {{ _("seit {zeit}", zeit=zeit(k.u.created_at)) }}</span>
           <br><span class="leise">{{ _("Anmeldung") }}: {% for m in k.u.auth_methods %}{{ _("Passwort") if m.kind == "password" else m.kind.split(":")[-1]|capitalize }}{% if not loop.last %}, {% endif %}{% endfor %}{% if k.faktor %} · {{ _("zweiter Faktor") }}{% endif %}{% if k.u.email %} · {{ _("E-Mail bestätigt") }}{% endif %}</span></td>
         <td data-label="{{ _('Rolle') }}">{% if k.verwalter %}<span class="marke-status marke-status--gut">{{ _("Verwalter") }}</span>{% else %}<span class="leise">{{ _("Mitglied") }}</span>{% endif %}
           {% if gm_approval == "required" and not k.verwalter %}<br><span class="leise">{{ {"granted": _("SL-Freigabe erteilt"), "pending": _("SL-Freigabe angefragt"), "rejected": _("SL-Freigabe abgelehnt")}.get(k.u.gm_permission, _("ohne SL-Freigabe")) }}</span>{% endif %}</td>
@@ -65,5 +65,5 @@
     </tbody>
   </table>
 </div>
-<p class="hilfe">{{ _("Seine Daten exportieren und das eigene Konto löschen kann jede Person selbst in der App.") }} {{ _("Bittet dich jemand um die Löschung, erledigst du das hier unter „Konto löschen“ – vorher ggf. den Export in der App.") }}</p>
+<p class="hilfe">{{ _("Daten exportieren und das eigene Konto löschen kann jede Person selbst in der App.") }}</p>
 {% endblock %}

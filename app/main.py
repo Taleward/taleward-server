@@ -175,7 +175,7 @@ async def lifespan(_app: FastAPI):
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
-        title="Session-Chronik Server",
+        title="Taleward Server",
         version="0.1.0",
         lifespan=lifespan,
         docs_url=f"{API_PREFIX}/docs",

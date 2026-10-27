@@ -18,7 +18,8 @@
 })();
 
 // Verwaltung → Zusammenfassung: Anbieter-Auswahl zeigt den passenden Hinweis, trägt Adresse und empfohlenes Modell
-// ein und blendet die Bestätigung nur ein, wenn sie nötig ist. Ohne JavaScript bleiben alle Hinweise aufklappbar.
+// ein und blendet Adressfeld und Bestätigung nur ein, wenn sie nötig sind. Ohne JavaScript bleiben alle Hinweise
+// aufklappbar (der gewählte Anbieter oben, die übrigen unter „Andere Anbieter im Vergleich“).
 (function () {
   var wahl = document.getElementById("anbieter-wahl");
   if (!wahl) return;
@@ -39,11 +40,20 @@
   }
   var bestaetigung = document.getElementById("anbieter-bestaetigung");
   var infos = document.querySelectorAll(".anbieter-info");
+  var gruppe = document.querySelector(".anbieter-gruppe");
+  var urlFeld = document.getElementById("anbieter-url-feld");
   var vorher = wahl.value;
   function zeigen(gewechselt) {
     var o = wahl.options[wahl.selectedIndex];
-    for (var i = 0; i < infos.length; i++) { infos[i].open = infos[i].dataset.anbieter === wahl.value; }
+    if (gewechselt) {  // den Hinweis zum neuen Anbieter aufklappen, die übrigen zu
+      for (var i = 0; i < infos.length; i++) {
+        var passt = infos[i].dataset.anbieter === wahl.value;
+        infos[i].open = passt;
+        if (passt && gruppe && gruppe.contains(infos[i])) gruppe.open = true;
+      }
+    }
     if (url) { url.disabled = wahl.value !== "andere"; if (gewechselt && wahl.value !== "andere") url.value = ""; }
+    if (urlFeld) urlFeld.hidden = wahl.value !== "andere";
     if (gewechselt) {
       var liste = [];
       try { liste = JSON.parse(o.dataset.modelle || "[]"); } catch (e) { liste = []; }

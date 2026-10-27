@@ -5,12 +5,13 @@ import os
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import aktualisierung
 from app.db import get_db
 from app.einstellungen import angaben, meta_lesen
-from app.models import User
+from app.models import User, Worker
 from app.verwaltung.router import _seite, _zurueck, csrf_pruefen, verwalter
 
 router = APIRouter(prefix="/verwaltung", include_in_schema=False)
@@ -31,7 +32,8 @@ def seite(request: Request, user: User = Depends(verwalter), db: Session = Depen
                   app_von_hand=bool(a.app_latest_version or a.app_download_url),
                   server_auto=aktualisierung.server_auto(), server_status=aktualisierung.server_status(),
                   server_jetzt=aktualisierung.server_jetzt_angefordert(),
-                  status_zeit=_zeitpunkt((aktualisierung.server_status() or {}).get("zeit")))
+                  status_zeit=_zeitpunkt((aktualisierung.server_status() or {}).get("zeit")),
+                  hat_worker=db.scalar(select(func.count()).select_from(Worker)) > 0)
 
 
 def _zeitpunkt(wert: str | None):

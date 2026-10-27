@@ -5,17 +5,14 @@
 {% include "_zweiter_faktor.html" %}
 <div class="karte">
   <h2>{{ _("So melden sich Mitglieder an") }}</h2>
-  <p>{{ _("Benutzername und Passwort gehen immer. Zusätzlich könnt ihr hier Anmeldedienste einrichten – die App zeigt dann „Mit Google anmelden“ usw. Jeder Dienst ist für die Mitglieder freiwillig.") }}</p>
+  <p>{{ _("Benutzername und Passwort gehen immer. Anmeldedienste wie Google sind für Mitglieder freiwillig.") }}</p>
   <p><span class="marke-status{% if mail_bereit %} marke-status--gut{% endif %}">{{ _("„Passwort vergessen“ per E-Mail") }}: {{ _("eingerichtet") if mail_bereit else _("aus") }}</span>
     {% if not mail_bereit %}<a href="/verwaltung/einstellungen#benachrichtigungen">{{ _("Mailserver unter Einstellungen eintragen") }}</a>{% endif %}</p>
-  <p class="hilfe">{{ _("Die E-Mail-Adresse ist für Mitglieder freiwillig und dient nur dazu, das Passwort selbst zurückzusetzen.") }}</p>
   <p class="umbruch">{{ _("Öffentliche Adresse des Servers") }}: <code class="ganz">{{ basis }}</code>{% if not https %} <span class="marke-status marke-status--fehler">{{ _("ohne HTTPS") }}</span>{% endif %}</p>
   {% if not https %}<p class="hilfe">{{ _("Die Anmeldedienste verlangen eine eigene Domain mit HTTPS. Die Adresse stellst du unter Einstellungen ein.") }}</p>{% endif %}
 </div>
-{% for d in dienste %}
-<div class="karte" id="{{ d.id }}">
-  <h2>{{ d.name }} {% if d.k.eingerichtet %}<span class="marke-status marke-status--gut">{{ _("eingerichtet") }}</span>{% else %}<span class="marke-status">{{ _("aus") }}</span>{% endif %}</h2>
-  <details {% if not d.k.eingerichtet %}{% endif %}><summary>{{ _("Anleitung") }}</summary>
+{% macro dienst_formular(d) %}
+  <details><summary>{{ _("Anleitung") }}</summary>
     <ol class="hilfe">{% for s in d.schritte %}<li>{{ _(s) }}</li>{% endfor %}</ol>
     <p class="hilfe"><a href="{{ d.link }}" rel="noopener noreferrer" target="_blank">{{ _("Zur Seite des Anbieters") }}</a></p>
   </details>
@@ -33,7 +30,23 @@
     {% if d.k.eingerichtet %}<label class="haken"><input type="checkbox" name="entfernen" value="1"> {{ _("Diesen Dienst ausschalten und Schlüssel löschen") }}</label>{% endif %}
     <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Speichern") }}</button></div>
   </form>
+{% endmacro %}
+{% for d in dienste if d.k.eingerichtet %}
+<div class="karte" id="{{ d.id }}">
+  <h2>{{ d.name }} <span class="marke-status marke-status--gut">{{ _("eingerichtet") }}</span></h2>
+  {{ dienst_formular(d) }}
 </div>
 {% endfor %}
-<p class="hilfe">{{ _("Nicht vergessen: Jeder eingeschaltete Dienst gehört in den Datenschutzhinweis. Die Vorlage im Assistenten ergänzt ihn automatisch.") }} <a href="/verwaltung/assistent/datenschutz">{{ _("Datenschutzhinweis") }}</a></p>
+{% set offen = dienste|rejectattr("k.eingerichtet")|list %}
+{% if offen %}
+<div class="karte" id="weitere">
+  <h2>{{ _("Weitere Anmeldedienste") }}</h2>
+  {% for d in offen %}
+  <details class="klappe" id="{{ d.id }}"{% if d.k.client_id %} open{% endif %}><summary>{{ _("{name} einrichten", name=d.name) }}</summary>
+  {{ dienst_formular(d) }}
+  </details>
+  {% endfor %}
+</div>
+{% endif %}
+<p class="hilfe">{{ _("Jeder eingeschaltete Dienst gehört in den Datenschutzhinweis.") }} <a href="/verwaltung/assistent/datenschutz">{{ _("Datenschutzhinweis") }}</a></p>
 {% endblock %}

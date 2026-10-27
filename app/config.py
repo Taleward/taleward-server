@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     registration: str = "invite_only"  # invite_only | code | open | closed (0.4.23), änderbar in der Verwaltung
     forwarded_allow_ips: str = "127.0.0.1"
     # Angaben für GET /info (öffentlich sichtbar in der App)
-    server_name: str = "Session-Chronik"
+    server_name: str = "Taleward"
     server_operator: str = "Rollenspielverein"
     server_contact: str | None = None
     privacy_policy_url: str | None = None

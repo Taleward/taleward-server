@@ -291,3 +291,10 @@ code.ganz { user-select:all; } /* ein Tippen markiert die ganze Adresse zum Kopi
 .karte--achtung { border-left:4px solid var(--siegel); }
 .trenner { border:none; border-top:1px solid var(--line-strong); margin:var(--space-8) 0 var(--space-6); }
 .karte > .knopfzeile { margin-top:var(--space-4); }
+
+/* 0.4.130: Was zur Betriebsart nicht passt, steht zugeklappt. .klappteil fasst ganze Karten zusammen,
+   .klappe einzelne Teile eines Formulars. */
+.klappteil { margin:0 0 var(--space-6); }
+.klappteil > summary { font:700 18px/24px var(--font-serif); color:var(--ink); }
+.klappteil[open] > summary { margin-bottom:var(--space-4); }
+.formular > .klappe[open], .formular .klappe[open] { display:grid; gap:var(--space-4); }

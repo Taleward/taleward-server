@@ -36,18 +36,18 @@
     {% else %}{{ _("Update-Fehler ({zeit}):", zeit=zeit(status_zeit)) }} {{ server_status.meldung }}{% endif %}
   </div>
   {% endif %}
-  <p class="hilfe">{{ _("Von Hand auf dem Server:") }} <code>cd /opt/taleward &amp;&amp; sudo ./aktualisieren.sh --jetzt</code></p>
+  <details><summary>{{ _("Von Hand aktualisieren") }}</summary>
+  <p class="hilfe">{{ _("Von Hand auf dem Server:") }} <code>cd /opt/taleward &amp;&amp; sudo ./aktualisieren.sh --jetzt</code></p></details>
   {% elif server_neu %}
   <p>{{ _("Vorher eine Sicherung anlegen (Übersicht → Sicherung). Dann auf dem Server im Ordner von Taleward ausführen:") }}</p>
   <div class="geheim"><code>git pull &amp;&amp; uv sync</code></div>
   <p class="hilfe">{{ _("Danach den Server neu starten. Die Datenbank wird beim Start selbst auf den neuen Stand gebracht.") }}</p>
   {% endif %}
-  <p class="hilfe">{{ _("Eine neue Server-Fassung meldet der Server auch per Benachrichtigung (Einstellungen → Benachrichtigungen).") }}</p>
 </div>
 
 <div class="karte" id="verteilen">
   <h2>{{ _("App und Worker") }}</h2>
-  <p class="leise">{{ _("Der Server lädt neue Fassungen einmal am Tag von GitHub und bietet sie selbst an. Handys und Worker fragen nur diesen Server – nie GitHub. Die App nimmt immer die neueste Fassung, die einer ihrer Server anbietet.") }}</p>
+  <p class="leise">{{ _("Der Server holt neue Fassungen einmal am Tag und bietet sie selbst an. Handys und Worker fragen nur diesen Server.") }}</p>
   <form method="post" action="/verwaltung/updates/modus" class="formular">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label class="haken"><input type="radio" name="modus" value="automatisch" {% if modus == "automatisch" %}checked{% endif %}>
@@ -62,9 +62,9 @@
   <div class="tabelle-huelle"><table>
     <thead><tr><th>{{ _("Was") }}</th><th>{{ _("Neueste") }}</th><th>{{ _("Angeboten") }}</th><th></th></tr></thead>
     <tbody>
-    {% for z in zeilen %}
+    {% for z in zeilen if hat_worker or betrieb != "cloud" or not z.art.startswith("worker") %}
       <tr>
-        <td data-label="{{ _('Was') }}"><strong>{{ _(z.name) }}</strong><br><span class="leise">{{ z.repo }}</span></td>
+        <td data-label="{{ _('Was') }}"><strong>{{ _(z.name) }}</strong></td>
         <td data-label="{{ _('Neueste') }}">{% if z.neueste %}{{ z.neueste.version }}{% if z.neueste.groesse %} <span class="leise">· {{ groesse(z.neueste.groesse) }}</span>{% endif %}
           {% if z.neueste.notizen %}<details><summary>{{ _("Was ist neu?") }}</summary><p class="hilfe notizen">{{ z.neueste.notizen }}</p></details>{% endif %}
           {% else %}<span class="leise">{{ _("noch keine gefunden") }}</span>{% endif %}</td>

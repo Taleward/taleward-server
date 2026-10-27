@@ -35,6 +35,7 @@ from app.abrechnung import TOKENS_SCHAETZUNG
 from app.config import get_settings
 from app.db import get_db, server_id, utcnow
 from app.einstellungen import angaben, meta_lesen, meta_schreiben, speichern
+from app.aliasse import zeichen_bereinigen
 from app.links import betreiber_link
 from app.models import (
     CampaignDocument,
@@ -70,6 +71,7 @@ def _icon(name: str):
 
 templates.env.globals["icon"] = _icon
 templates.env.filters["datenschutz_link"] = links_modul.datenschutz_link
+templates.env.filters["rein"] = zeichen_bereinigen  # 0.4.130: Namen ohne Steuer- und Richtungszeichen
 BERLIN = ZoneInfo("Europe/Berlin")
 
 
@@ -236,6 +238,8 @@ def csrf_pruefen(request: Request, csrf: str = Form("")) -> None:
 
 def _seite(request: Request, name: str, user: User | None, db: Session, status_code: int = 200,
            **ctx) -> HTMLResponse:
+    from app.einrichtung import betriebsart
+
     sprache = sprache_von(request)
     _ = uebersetzer(sprache)
     ok = request.query_params.get("ok")
@@ -244,8 +248,20 @@ def _seite(request: Request, name: str, user: User | None, db: Session, status_c
         "user": user, "angaben": angaben(db), "csrf": getattr(request.state, "csrf", ""), "meldung": meldung,
         "aktiv": name.removesuffix(".html"), "_": _, "sprache": sprache, "sprachen": SPRACHEN,
         "zeit": _zeitformat(sprache), "groesse": _groesse, "leitsatz": None,
-        "einzelplatz": get_settings().taleward_einzelplatz, **ctx,
+        "einzelplatz": get_settings().taleward_einzelplatz,
+        # 0.4.130: Betriebsart für alle Seiten – bei „Nur Cloud“ klappen Worker-Teile zu
+        "betrieb": betriebsart(db) if user is not None else None, **ctx,
     }, status_code=status_code)
+
+
+def _offen_grenze_kuerzlich():
+    """Zeitpunkt, an dem die Obergrenze der offenen Registrierung zuletzt griff – nur innerhalb eines Tages."""
+    from datetime import timedelta
+
+    from app.konto import OFFEN_GRENZE_ERREICHT
+
+    zeit = OFFEN_GRENZE_ERREICHT["zeit"]
+    return zeit if zeit is not None and zeit > utcnow() - timedelta(days=1) else None
 
 
 def _zurueck(pfad: str, ok: str | None = None) -> RedirectResponse:
@@ -1386,6 +1402,7 @@ def einstellungen(request: Request, user: User = Depends(verwalter), db: Session
                   nb=nutzungsbedingungen.stand(db), nb_meldung=request.query_params.get("nb", ""),
                   registrierung=registrierung(db), limit_euro=(limit or 0) / 100,
                   registrierungscode=registrierungscode_gesetzt(db), sl_freigabe=slfreigabe.einstellung(db),
+                  offen_grenze=_offen_grenze_kuerzlich(),
                   einzelzahler=slfreigabe.einzelzahler(db),
                   aufbewahrung=aufbewahrung.lesen(db), hoechstens_tage=aufbewahrung.HOECHSTENS_TAGE,
                   zustimmungen=db.scalar(select(func.count()).select_from(Member)
