@@ -348,6 +348,10 @@ MESSAGES: dict[str, tuple[str, str]] = {
                                 "Processing is waiting: the organisation's credit is not enough right now. The "
                                 "administrators can see on the server's page how to continue. After that it starts by "
                                 "itself."),
+    "status.credit_locked": ("Die Verarbeitung wartet: Eine Zahlung für dieses Guthaben wird gerade geprüft. Die "
+                             "Verwaltung deines Servers meldet sich.",
+                             "Processing is waiting: a payment for this credit is being reviewed. The administrators "
+                             "of your server will get in touch."),
     # 0.4.25: Guthaben und Kampagnen-Einstellungen in der App
     "second_factor_required": ("Das Guthaben der Organisation lässt sich nur auf der Seite des Servers ändern, mit "
                                "zweitem Faktor.",

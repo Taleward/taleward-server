@@ -425,6 +425,8 @@ def warte_grund(db: Session, job: Job) -> str | None:
     g = zahler(db, kampagne_von_auftrag(db, job))
     if g is None:
         return "zahler_fehlt"
+    if g.gesperrt_at is not None:  # 0.4.133: nach einer Rückbuchung, bis der Betreiber entscheidet
+        return "gesperrt"
     geschaetzt = schaetzung(db, job)
     if job.kosten_freigegeben_at is None and geschaetzt > g.freigabe_ab_cent:
         return "freigabe"
@@ -449,6 +451,9 @@ def starten(db: Session, job: Job, weg: str) -> str | None:
     if g is None:
         db.rollback()
         return "zahler_fehlt"
+    if g.gesperrt_at is not None:
+        db.rollback()
+        return "gesperrt"
     weg_preis = "worker" if weg == "worker" else "cloud"
     m = menge(db, job)
     geschaetzt = betrag_fuer(db, job.type, weg_preis, m)
@@ -664,6 +669,7 @@ def hinweis(db: Session, job: Job | None, lang: str) -> str | None:
         return None
     topf = modus(db) == "topf" and bool(getattr(kampagne_von_auftrag(db, job), "organization_id", None))
     schluessel = {"zahler_fehlt": "status.credit_no_payer", "freigabe": "status.credit_approval",
+                  "gesperrt": "status.credit_locked",
                   "leer": "status.credit_pot_empty" if topf else "status.credit_empty",
                   "zu_knapp": "status.credit_pot_empty" if topf else "status.credit_low"}[grund]
     return errors.ApiError(0, schluessel, betrag=euro(schaetzung(db, job))).message(lang)
@@ -690,7 +696,8 @@ def ist_topf(g: Guthaben | None) -> bool:
 
 
 # 0.4.25: Wartegrund als Code für die App (CreditWait.reason)
-GRUND_API = {"freigabe": "approval", "leer": "empty", "zu_knapp": "too_low", "zahler_fehlt": "no_payer"}
+GRUND_API = {"freigabe": "approval", "leer": "empty", "zu_knapp": "too_low", "zahler_fehlt": "no_payer",
+             "gesperrt": "empty"}  # gesperrt: die App kennt keinen eigenen Code – wie „aufgebraucht“
 STAND_API = {"gut": "good", "knapp": "low", "leer": "empty", "minus": "negative"}
 
 

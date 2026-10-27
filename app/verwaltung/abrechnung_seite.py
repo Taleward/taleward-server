@@ -50,6 +50,23 @@ def _euro_feld(cent: int) -> str:
     return f"{cent // 100},{cent % 100:02d}"
 
 
+def _euro_kurz(cent: int) -> str:
+    return str(cent // 100) if cent % 100 == 0 else _euro_feld(cent)
+
+
+def _prozent_text(bp: int) -> str:
+    return f"{bp // 100},{bp % 100:02d}"
+
+
+def _prozent_lesen(text: str) -> int | None:
+    t = (text or "").strip().replace("%", "").replace(" ", "").replace(",", ".")
+    try:
+        wert = round(float(t) * 100)
+    except ValueError:
+        return None
+    return wert if 0 <= wert <= 2000 else None
+
+
 def _name(db: Session, g: Guthaben) -> str:
     if g.art == "organisation":
         org = db.get(Organization, g.organization_id) if g.organization_id else None
@@ -103,6 +120,18 @@ def _seite_abrechnung(request: Request, user: User, db: Session, status: int = 2
                    for a in abrechnung.KOSTENPFLICHTIG}
     daten = {"bestaetigen": None, "codes": None, "cloud_ohne_schaetzung": ", ".join(ohne), "automatisch": automatisch,
              **ctx}
+    from app import zahlung
+    from app.einstellungen import meta_lesen
+
+    geb = zahlung.gebuehren(db)
+    daten.update(
+        zahlwege=zahlung.bereit(db), zahl_basis=zahlung.basis(db),
+        betraege_text=", ".join(_euro_kurz(b) for b in zahlung.betraege(db)),
+        zahl_gesetzt={n: bool(meta_lesen(db, f"zahlung.{n}")) for n in ("stripe_schluessel", "stripe_webhook",
+                                                                       "paypal_geheim")},
+        paypal_id=meta_lesen(db, "zahlung.paypal_id") or "", paypal_webhook_id=meta_lesen(db, "zahlung.paypal_webhook_id") or "",
+        gebuehren_text={"stripe_prozent": _prozent_text(geb.stripe_bp), "stripe_fest": _euro_feld(geb.stripe_fest),
+                        "paypal_prozent": _prozent_text(geb.paypal_bp), "paypal_fest": _euro_feld(geb.paypal_fest)})
     antwort = _seite(request, "abrechnung.html", user, db, modus=abrechnung.modus(db), preisfelder=PREISFELDER,
                      werte=werte, euro_feld=_euro_feld, euro=abrechnung.euro, konten=konten, aktionen=aktionen,
                      gutschriften=gutschriften, protokoll=protokoll, faktor=_faktor(db, user), orgs=orgs,
@@ -254,3 +283,59 @@ def gutscheine(request: Request, anzahl: str = Form(""), betrag: str = Form(""),
     db.commit()
     return _seite_abrechnung(request, user, db, codes={"liste": codes, "betrag": abrechnung.euro(cent or 0),
                                                        "aktion": aktion.strip()})
+
+
+# ---------------------------------------------------------------- Aufladen (0.4.133)
+@router.post("/abrechnung/zahlung", dependencies=[Depends(csrf_pruefen)])
+def zahlung_einstellen(request: Request, betraege: str = Form(""), stripe_schluessel: str = Form(""),
+                       stripe_webhook: str = Form(""), stripe_prozent: str = Form(""), stripe_fest: str = Form(""),
+                       paypal_id: str = Form(""), paypal_geheim: str = Form(""), paypal_webhook_id: str = Form(""),
+                       paypal_prozent: str = Form(""), paypal_fest: str = Form(""), user: User = Depends(verwalter),
+                       db: Session = Depends(get_db)):
+    """Schlüssel und Gebühren der Zahlungsanbieter – nur mit zweitem Faktor; Geheimes nur schreibbar."""
+    from app import zahlung
+
+    sperre = _vorbedingungen(request, user, db)
+    if sperre is not None:
+        return sperre
+    _ = tr(request)
+    liste = [_euro_lesen(x) for x in betraege.split(",") if x.strip()]
+    if not liste or any(b is None or not zahlung.MINDEST_CENT <= b <= zahlung.HOECHST_CENT for b in liste) \
+            or len(liste) > 4:
+        return _seite_abrechnung(request, user, db, 400, fehler=_(
+            "Bitte ein bis vier Beträge zwischen 10 und 500 Euro eingeben, z. B. 10, 20, 50."))
+    geb = zahlung.Gebuehren(stripe_bp=_prozent_lesen(stripe_prozent), stripe_fest=_euro_lesen(stripe_fest),
+                            paypal_bp=_prozent_lesen(paypal_prozent), paypal_fest=_euro_lesen(paypal_fest))
+    if None in (geb.stripe_bp, geb.stripe_fest, geb.paypal_bp, geb.paypal_fest) or max(geb.stripe_fest,
+                                                                                      geb.paypal_fest) > 500:
+        return _seite_abrechnung(request, user, db, 400, fehler=_(
+            "Bitte die Gebühren als Zahl eingeben (Prozent bis 20, fester Betrag bis 5 Euro)."))
+    schluessel = stripe_schluessel.strip()
+    if schluessel and not zahlung.stripe_schluessel_erlaubt(schluessel, db):
+        text = _("Bitte den Test-Schlüssel von Stripe eintragen (beginnt mit sk_test_ oder rk_test_). Echtes Geld ist noch nicht freigegeben.")  # noqa: E501
+        return _seite_abrechnung(request, user, db, 400, fehler=text)
+    webhook = stripe_webhook.strip()
+    if webhook and not webhook.startswith("whsec_"):
+        return _seite_abrechnung(request, user, db, 400, fehler=_(
+            "Das Signatur-Geheimnis von Stripe beginnt mit whsec_."))
+    zahlung.einstellungen_schreiben(db, user.id, betraege=sorted(set(liste)), gebuehren=geb,
+                                    stripe_schluessel=schluessel, stripe_webhook=webhook,
+                                    paypal_id=paypal_id.strip(), paypal_geheim=paypal_geheim.strip(),
+                                    paypal_webhook_id=paypal_webhook_id.strip())
+    db.commit()
+    return _zurueck("/abrechnung#aufladen", "gespeichert")
+
+
+@router.post("/abrechnung/entsperren/{guthaben_id}", dependencies=[Depends(csrf_pruefen)])
+def entsperren(request: Request, guthaben_id: str, user: User = Depends(verwalter), db: Session = Depends(get_db)):
+    from app import zahlung
+
+    sperre = _vorbedingungen(request, user, db)
+    if sperre is not None:
+        return sperre
+    g = db.get(Guthaben, guthaben_id[:64])
+    if g is None:
+        raise errors.not_found()
+    zahlung.entsperren(db, g, user.id)
+    db.commit()
+    return _zurueck("/abrechnung", "gespeichert")

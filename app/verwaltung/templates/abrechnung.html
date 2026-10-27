@@ -62,13 +62,51 @@
 {% if modus == "aus" %}</details>{% endif %}
 
 {% if an %}
+<div class="karte" id="aufladen">
+  <h2>{{ _("Aufladen") }}</h2>
+  <p class="hilfe">{{ _("Spielleitungen laden ihr Guthaben auf der Guthaben-Seite auf und bezahlen bei Stripe bzw. PayPal. Gutgeschrieben wird erst, wenn der Anbieter die Zahlung bestätigt. Echtes Geld ist noch nicht freigegeben: Stripe nimmt nur Test-Schlüssel, PayPal läuft in der Sandbox.") }}</p>
+  <ul class="liste">
+    <li>{{ _("Stripe") }}: {% if "stripe" in zahlwege %}<span class="marke-status marke-status--gut">{{ _("bereit") }}</span>{% else %}<span class="marke-status">{{ _("nicht eingerichtet") }}</span>{% endif %}</li>
+    <li>{{ _("PayPal") }}: {% if "paypal" in zahlwege %}<span class="marke-status marke-status--gut">{{ _("bereit") }}</span>{% else %}<span class="marke-status">{{ _("nicht eingerichtet") }}</span>{% endif %}</li>
+  </ul>
+  {% if zahl_basis %}
+  <p>{{ _("Adressen für die Meldungen der Anbieter (beim Anbieter als Webhook eintragen):") }}</p>
+  <p class="kopierzeile"><span>Stripe</span> <code class="ganz">{{ zahl_basis }}/zahlung/stripe</code></p>
+  <p class="kopierzeile"><span>PayPal</span> <code class="ganz">{{ zahl_basis }}/zahlung/paypal</code></p>
+  {% else %}
+  <p class="meldung meldung--fehler">{{ _("Zuerst die öffentliche Adresse des Servers eintragen (Einstellungen → Einrichtung → Angaben für die App). Ohne sie gibt es kein Aufladen.") }}</p>
+  {% endif %}
+  <form class="formular" method="post" action="/verwaltung/abrechnung/zahlung">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>{{ _("Beträge zum Aufladen (Euro, durch Komma getrennt, 10 bis 500)") }} <input type="text" name="betraege" value="{{ betraege_text }}" required maxlength="40"></label>
+    <fieldset><legend>Stripe</legend>
+      <label>{{ _("Geheimer Schlüssel (sk_test_… oder rk_test_…)") }} <input type="password" name="stripe_schluessel" autocomplete="off" maxlength="300" placeholder="{{ _('eingetragen – leer lassen, um ihn zu behalten') if zahl_gesetzt.stripe_schluessel else '' }}"></label>
+      <label>{{ _("Signatur-Geheimnis der Meldungen (whsec_…)") }} <input type="password" name="stripe_webhook" autocomplete="off" maxlength="300" placeholder="{{ _('eingetragen – leer lassen, um es zu behalten') if zahl_gesetzt.stripe_webhook else '' }}"></label>
+      <label>{{ _("Gebühr in Prozent") }} <input type="text" name="stripe_prozent" value="{{ gebuehren_text.stripe_prozent }}" inputmode="decimal" required maxlength="6"></label>
+      <label>{{ _("Gebühr fest (Euro)") }} <input type="text" name="stripe_fest" value="{{ gebuehren_text.stripe_fest }}" inputmode="decimal" required maxlength="6"></label>
+    </fieldset>
+    <fieldset><legend>PayPal</legend>
+      <label>{{ _("Client-ID") }} <input type="text" name="paypal_id" value="{{ paypal_id }}" autocomplete="off" maxlength="300"></label>
+      <label>{{ _("Secret") }} <input type="password" name="paypal_geheim" autocomplete="off" maxlength="300" placeholder="{{ _('eingetragen – leer lassen, um es zu behalten') if zahl_gesetzt.paypal_geheim else '' }}"></label>
+      <label>{{ _("Webhook-ID") }} <input type="text" name="paypal_webhook_id" value="{{ paypal_webhook_id }}" autocomplete="off" maxlength="100"></label>
+      <label>{{ _("Gebühr in Prozent") }} <input type="text" name="paypal_prozent" value="{{ gebuehren_text.paypal_prozent }}" inputmode="decimal" required maxlength="6"></label>
+      <label>{{ _("Gebühr fest (Euro)") }} <input type="text" name="paypal_fest" value="{{ gebuehren_text.paypal_fest }}" inputmode="decimal" required maxlength="6"></label>
+    </fieldset>
+    <p class="hilfe">{{ _("Die Gebühr wird aufgeschlagen, damit genau der gewählte Betrag ankommt. Die SL sieht beides vor der Zahlung.") }}</p>
+    <div><button class="tw-btn tw-btn--secondary" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Speichern") }}</button></div>
+  </form>
+</div>
+
 <div class="karte">
   <h2>{{ _("Guthaben") }}</h2>
   <div class="tabelle-huelle"><table>
     <thead><tr><th>{{ _("Wer") }}</th><th>{{ _("Saldo") }}</th></tr></thead>
     <tbody>
     {% for k in konten %}
-      <tr><td data-label="{{ _('Wer') }}">{{ k.name }}{% if k.g.art == "organisation" %} <span class="leise">({{ _("Organisation") }})</span>{% endif %}</td><td data-label="{{ _('Saldo') }}">{{ euro(k.saldo) }}</td></tr>
+      <tr><td data-label="{{ _('Wer') }}">{{ k.name }}{% if k.g.art == "organisation" %} <span class="leise">({{ _("Organisation") }})</span>{% endif %}
+        {% if k.g.gesperrt_at %}<br><span class="marke-status marke-status--fehler">{{ _("gesperrt seit {zeit}", zeit=zeit(k.g.gesperrt_at)) }}</span>
+        <form method="post" action="/verwaltung/abrechnung/entsperren/{{ k.g.id }}"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Sperre aufheben") }}</button></form>{% endif %}</td><td data-label="{{ _('Saldo') }}">{{ euro(k.saldo) }}</td></tr>
     {% else %}
       <tr><td colspan="2" class="leise">{{ _("Noch kein Guthaben angelegt.") }}</td></tr>
     {% endfor %}

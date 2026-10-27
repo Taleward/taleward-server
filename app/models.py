@@ -768,6 +768,8 @@ class Guthaben(Base):
     freigabe_ab_cent: Mapped[int] = mapped_column(Integer, default=200)
     bogen_seiten: Mapped[int] = mapped_column(Integer, default=20)
     boegen_je_spieler: Mapped[int] = mapped_column(Integer, default=3)
+    # 0.4.133: nach einer Rückbuchung gesperrt, bis der Betreiber entscheidet (keine neuen Verarbeitungen, kein Aufladen)
+    gesperrt_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
@@ -857,3 +859,23 @@ class EinstellungsProtokoll(Base):
     von_member_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     vom_betreiber: Mapped[bool] = mapped_column(Boolean, default=False)
     angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class Bezahlvorgang(Base):
+    """0.4.133: Aufladen über einen Zahlungsanbieter (app/zahlung.py). Angelegt vor der Weiterleitung; gutgeschrieben
+    wird nur, was der Anbieter bestätigt und genau zum Vorgang passt."""
+
+    __tablename__ = "bezahlvorgaenge"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    guthaben_id: Mapped[str] = mapped_column(ForeignKey("guthaben.id"), index=True)
+    von: Mapped[str] = mapped_column(String(36), index=True)  # Konto, das aufgeladen hat
+    anbieter: Mapped[str] = mapped_column(String(16))  # stripe | paypal
+    netto_cent: Mapped[int] = mapped_column(Integer)  # wird gutgeschrieben
+    brutto_cent: Mapped[int] = mapped_column(Integer)  # wird bezahlt (mit Gebühr)
+    zustand: Mapped[str] = mapped_column(String(16), default="offen")  # offen|bezahlt|abgebrochen|fehlgeschlagen|abweichung
+    anbieter_ref: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)  # Sitzung bzw. Auftrag
+    zahlung_ref: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)  # Zahlung bzw. Abbuchung
+    erstattet_cent: Mapped[int] = mapped_column(Integer, default=0)
+    buchung_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    abgeschlossen: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)

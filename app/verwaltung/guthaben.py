@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import abrechnung, begrenzung, errors
+from app import abrechnung, begrenzung, errors, zahlung
 from app.config import get_settings
 from app.db import get_db, server_id, utcnow
 from app.models import AuthMethod, Campaign, Guthaben, Job, Member, User
@@ -43,6 +43,8 @@ MELDUNGEN = {
     "angeboten": "Die andere Spielleitung sieht das Angebot auf dieser Seite und kann es annehmen.",
     "uebernommen": "Du zahlst jetzt für diese Kampagne.",
 }
+# 0.4.133: Die Bestätigungsseite schickt das Formular an den Zahlungsanbieter weiter – nur an diese Adressen
+FORM_ZIELE = "https://checkout.stripe.com https://www.paypal.com https://www.sandbox.paypal.com"
 
 
 class _Abgemeldet(Exception):
@@ -252,7 +254,7 @@ def _ohne_fremde_titel(db: Session, user: User, g: Guthaben) -> list[dict]:
 
 
 def _hauptseite(request: Request, db: Session, user: User, meldung: str | None = None, fehler: str | None = None,
-                status: int = 200) -> HTMLResponse:
+                status: int = 200, gutschein_offen: bool = False) -> HTMLResponse:
     from app.models import Organization
 
     abrechnung.offene_abrechnen(db)
@@ -261,11 +263,13 @@ def _hauptseite(request: Request, db: Session, user: User, meldung: str | None =
         org = db.get(Organization, g.organization_id) if g.art == "organisation" else None
         toepfe.append({"g": g, "name": (org.name if org else "?") if g.art == "organisation" else None,
                        "saldo": abrechnung.saldo(db, g.id), "stand": abrechnung.stand(db, g),
-                       "buchungen": abrechnung.buchungen(db, g, 50), "wartend": _ohne_fremde_titel(db, user, g)})
+                       "buchungen": abrechnung.buchungen(db, g, 50), "wartend": _ohne_fremde_titel(db, user, g),
+                       "offen": zahlung.offene(db, g) if g.id else []})
     db.commit()  # neu angelegte Guthaben-Zeilen
     antwort = _seite(request, "guthaben.html", None, db, person=user, toepfe=toepfe,
                      kampagnen=_sl_kampagnen(db, user), euro=abrechnung.euro, topf=abrechnung.modus(db) == "topf",
-                     meldung=meldung, fehler=fehler)
+                     meldung=meldung, fehler=fehler, zahlwege_an=zahlung.bereit(db), betraege=zahlung.betraege(db),
+                     testmodus=not zahlung.live(db), gutschein_offen=gutschein_offen)
     antwort.status_code = status
     return antwort
 
@@ -277,8 +281,8 @@ def _eigenes(db: Session, user: User, guthaben_id: str) -> Guthaben:
     return g
 
 
-def _fehler(request: Request, db: Session, user: User, text: str) -> HTMLResponse:
-    return _hauptseite(request, db, user, fehler=text, status=400)
+def _fehler(request: Request, db: Session, user: User, text: str, gutschein: bool = False) -> HTMLResponse:
+    return _hauptseite(request, db, user, fehler=text, status=400, gutschein_offen=gutschein)
 
 
 @router.post("/gutschein", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
@@ -298,7 +302,7 @@ def gutschein(request: Request, code: str = Form(""), guthaben_id: str = Form(""
         db.rollback()
         text = tr(request)("Diesen Gutschein hast du aus derselben Aktion schon eingelöst.") if str(e) == "aktion" \
             else tr(request)("Der Code stimmt nicht, ist abgelaufen oder schon eingelöst.")
-        return _fehler(request, db, user, text)
+        return _fehler(request, db, user, text, gutschein=True)
     ZAEHLER.freigeben(versuch)
     db.commit()
     return _zurueck("gutschein")
@@ -329,6 +333,100 @@ def verarbeiten(job_id: str, user: User = Depends(_angemeldet), db: Session = De
     abrechnung.freigeben(db, job, user.id, g)
     db.commit()
     return _zurueck("verarbeiten")
+
+
+# ---------------------------------------------------------------- Aufladen (0.4.133)
+def _zahl_oder_none(text: str) -> int | None:
+    try:
+        return int((text or "").strip())
+    except ValueError:
+        return None
+
+
+@router.post("/aufladen", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
+def aufladen(request: Request, guthaben_id: str = Form(""), betrag: str = Form(""), anbieter: str = Form(""),
+             user: User = Depends(_angemeldet), db: Session = Depends(get_db)):
+    """Schritt 1: Betrag und Gebühr zeigen, bevor es zum Anbieter geht."""
+    g = _eigenes(db, user, guthaben_id)
+    netto = _zahl_oder_none(betrag)
+    if anbieter not in zahlung.bereit(db) or netto not in zahlung.betraege(db) or g.gesperrt_at is not None:
+        return _fehler(request, db, user, tr(request)("Bitte einen Betrag und eine Zahlweise wählen."))
+    antwort = _seite(request, "guthaben_aufladen.html", None, db, schritt="pruefen", guthaben_id=g.id, netto=netto,
+                     brutto=zahlung.brutto(db, anbieter, netto), anbieter=anbieter, euro=abrechnung.euro,
+                     testmodus=not zahlung.live(db))
+    from app.verwaltung.router import SICHERHEITS_KOPFZEILEN
+
+    antwort.headers["Content-Security-Policy"] = SICHERHEITS_KOPFZEILEN["Content-Security-Policy"].replace(
+        "form-action 'self'", f"form-action 'self' {FORM_ZIELE}")
+    return antwort
+
+
+@router.post("/aufladen/weiter", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
+def aufladen_weiter(request: Request, guthaben_id: str = Form(""), betrag: str = Form(""), anbieter: str = Form(""),
+                    user: User = Depends(_angemeldet), db: Session = Depends(get_db)):
+    """Schritt 2: Vorgang anlegen und zum Anbieter weiterleiten."""
+    from app.verwaltung.router import sprache_von
+
+    g = _eigenes(db, user, guthaben_id)
+    netto = _zahl_oder_none(betrag)
+    _ = tr(request)
+    try:
+        url = zahlung.starten(db, g, user.id, anbieter, netto if netto is not None else -1, sprache_von(request))
+    except ValueError as e:
+        db.rollback()
+        text = {"grenze": _("Für heute sind genug Aufladungen begonnen. Bitte morgen noch einmal."),
+                "gesperrt": _("Dieses Guthaben ist gerade gesperrt.")}.get(str(e),
+                                                                           _("Bitte einen Betrag und eine Zahlweise wählen."))
+        return _fehler(request, db, user, text)
+    except zahlung.ZahlungFehler:
+        text = _("Der Zahlungsanbieter ist gerade nicht erreichbar. Es wurde nichts abgebucht. Bitte später noch einmal.")
+        return _fehler(request, db, user, text)
+    return RedirectResponse(url, status_code=303)
+
+
+def _ende(request: Request, db: Session, titel: str, text: str) -> HTMLResponse:
+    return _seite(request, "guthaben_aufladen.html", None, db, schritt="ende", titel=titel, text=text)
+
+
+def _vorgang(db: Session, v: str):
+    from app.models import Bezahlvorgang
+
+    return db.get(Bezahlvorgang, (v or "")[:64]) if v else None
+
+
+@router.get("/aufladen/fertig", response_class=HTMLResponse, dependencies=[Depends(_an)])
+def aufladen_fertig(request: Request, v: str = "", db: Session = Depends(get_db)):
+    """Rücksprung nach der Zahlung. Ohne Anmeldung (das Cookie kommt beim Rücksprung nicht mit) – zeigt nur den Stand."""
+    _ = tr(request)
+    vorgang = _vorgang(db, v)
+    if vorgang is not None and vorgang.zustand == "bezahlt":
+        return _ende(request, db, _("Danke"), _("{betrag} sind gutgeschrieben.", betrag=abrechnung.euro(vorgang.netto_cent)))
+    text = _("Sobald der Zahlungsanbieter die Zahlung bestätigt, steht der Betrag in deinem Guthaben. Das dauert meist nur ein paar Sekunden, bei Lastschrift auch einige Tage.")  # noqa: E501
+    return _ende(request, db, _("Danke"), text)
+
+
+@router.get("/aufladen/paypal", dependencies=[Depends(_an)])
+def aufladen_paypal(request: Request, v: str = "", token: str = "", db: Session = Depends(get_db)):
+    """Rücksprung von PayPal: Der Server bucht ab und schreibt nur gut, was PayPal bestätigt."""
+    vorgang = _vorgang(db, v)
+    if vorgang is None or vorgang.anbieter != "paypal":
+        return RedirectResponse("/guthaben/aufladen/fertig", status_code=303)
+    try:
+        zahlung.paypal_zurueck(db, vorgang, token[:100])
+        db.commit()
+    except Exception:  # noqa: BLE001 – kommt die Abbuchung später per Meldung, ist nichts verloren
+        db.rollback()
+    return RedirectResponse(f"/guthaben/aufladen/fertig?v={vorgang.id}", status_code=303)
+
+
+@router.get("/aufladen/abbruch", response_class=HTMLResponse, dependencies=[Depends(_an)])
+def aufladen_abbruch(request: Request, v: str = "", db: Session = Depends(get_db)):
+    _ = tr(request)
+    vorgang = _vorgang(db, v)
+    if vorgang is not None and vorgang.zustand == "offen":
+        vorgang.zustand = "abgebrochen"
+        db.commit()
+    return _ende(request, db, _("Abgebrochen"), _("Die Zahlung wurde abgebrochen. Es wurde nichts abgebucht."))
 
 
 def _kampagne_als_sl(db: Session, user: User, campaign_id: str) -> Campaign:

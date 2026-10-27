@@ -185,6 +185,12 @@ TEXTE = {
     "speicher": ("Speicherplatz knapp",
                  "Im Datenordner sind nur noch {gb} GB frei. Alte Sicherungen löschen oder den Speicher erweitern."),
     "test": ("Test", "Diese Testnachricht zeigt: Benachrichtigungen kommen an."),
+    "zahlung_abweichung": ("Zahlung passt nicht zum Vorgang",
+                           "Eine Meldung eines Zahlungsanbieters passt nicht zu einem begonnenen Aufladen. Es wurde nichts "
+                           "gutgeschrieben. Einzelheiten in der Verwaltung → Abrechnung → Protokoll."),
+    "zahlung_streit": ("Rückbuchung einer Zahlung",
+                       "Eine Zahlung wurde zurückgebucht oder angefochten. Das Guthaben ist gesperrt, bis du in der "
+                       "Verwaltung → Abrechnung entscheidest."),
     "server_aktualisiert": ("Server aktualisiert auf {nach}",
                             "Der Taleward-Server wurde automatisch von {von} auf {nach} aktualisiert. Vorher wurde eine "
                             "Sicherung angelegt."),
@@ -239,6 +245,15 @@ EN = {
     "Speicherplatz knapp": "Storage running low",
     "Im Datenordner sind nur noch {gb} GB frei. Alte Sicherungen löschen oder den Speicher erweitern.":
         "Only {gb} GB left in the data folder. Delete old backups or add storage.",
+    "Zahlung passt nicht zum Vorgang": "Payment does not match",
+    "Eine Meldung eines Zahlungsanbieters passt nicht zu einem begonnenen Aufladen. Es wurde nichts "
+    "gutgeschrieben. Einzelheiten in der Verwaltung → Abrechnung → Protokoll.":
+        "A notification from a payment provider does not match a started top-up. Nothing was credited. Details in "
+        "Admin → Billing → Log.",
+    "Rückbuchung einer Zahlung": "Payment reversed",
+    "Eine Zahlung wurde zurückgebucht oder angefochten. Das Guthaben ist gesperrt, bis du in der "
+    "Verwaltung → Abrechnung entscheidest.":
+        "A payment was reversed or disputed. The credit is locked until you decide in Admin → Billing.",
     "Test": "Test",
     "Diese Testnachricht zeigt: Benachrichtigungen kommen an.": "This test message shows: notifications arrive.",
     "Transkription": "transcription", "Zusammenfassung": "summary", "Unterlage": "document",

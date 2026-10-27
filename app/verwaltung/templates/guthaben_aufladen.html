@@ -1,0 +1,36 @@
+{% extends "basis.html" %}
+{% block titel %}{{ _("Guthaben aufladen") }}{% endblock %}
+{% block inhalt %}
+<div class="seite-guthaben seite-guthaben--schmal">
+<header class="gkopf">
+  <picture><source srcset="/verwaltung/static/marke/taleward-lockup-inverse.svg" media="(prefers-color-scheme: dark)"><img src="/verwaltung/static/marke/taleward-lockup.svg" alt="Taleward" width="132" height="32"></picture>
+</header>
+{% if schritt == "pruefen" %}
+<section class="karte">
+  <h1>{{ _("Guthaben aufladen") }}</h1>
+  <dl class="summe">
+    <dt>{{ _("Gutgeschrieben werden") }}</dt><dd>{{ euro(netto) }}</dd>
+    <dt>{{ _("Gebühr des Zahlungsanbieters") }}</dt><dd>{{ euro(brutto - netto) }}</dd>
+    <dt class="summe__gesamt">{{ _("Du zahlst") }}</dt><dd class="summe__gesamt">{{ euro(brutto) }}</dd>
+  </dl>
+  <p>{% if anbieter == "stripe" %}{{ _("Du wechselst zur Bezahlseite von Stripe. Dort zahlst du mit Karte, Apple Pay oder Google Pay.") }}{% else %}{{ _("Du wechselst zu PayPal.") }}{% endif %}
+    {{ _("Deine Zahldaten sieht Taleward nicht. Danach kommst du hierher zurück.") }}</p>
+  {% if testmodus %}<p class="hinweis">{{ _("Testmodus: Es fließt kein echtes Geld.") }}</p>{% endif %}
+  <form method="post" action="/guthaben/aufladen/weiter" class="knopfzeile">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="guthaben_id" value="{{ guthaben_id }}">
+    <input type="hidden" name="betrag" value="{{ netto }}"><input type="hidden" name="anbieter" value="{{ anbieter }}">
+    <button class="tw-btn tw-btn--primary" type="submit">{% if anbieter == "stripe" %}{{ _("Weiter zu Stripe") }}{% else %}{{ _("Weiter zu PayPal") }}{% endif %}</button>
+    <a class="tw-btn tw-btn--quiet" href="/guthaben">{{ _("Zurück") }}</a>
+  </form>
+  <p class="hilfe">{{ _("Restguthaben erstattet der Betreiber auf Anfrage zurück auf dieselbe Zahlung. Gutscheine und Gutschriften werden nicht ausgezahlt.") }}</p>
+</section>
+{% else %}
+<section class="karte">
+  <h1>{{ titel }}</h1>
+  <p>{{ text }}</p>
+  <p><a class="tw-btn tw-btn--primary" href="/guthaben">{{ _("Zu deinem Guthaben") }}</a></p>
+</section>
+{% endif %}
+<p class="zentriert">{% include "_sprachen.html" %}</p>
+</div>
+{% endblock %}

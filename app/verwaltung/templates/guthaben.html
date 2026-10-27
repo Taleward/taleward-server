@@ -1,36 +1,51 @@
 {% extends "basis.html" %}
 {% block titel %}{{ _("Guthaben") }}{% endblock %}
 {% block inhalt %}
-{% set arten = {"zahlung": _("Zahlung"), "gutschrift": _("Gutschrift"), "gutschein": _("Gutschein"), "verbrauch": _("Verarbeitung"), "rueckbuchung": _("Rückbuchung"), "erstattung": _("Erstattung"), "korrektur": _("Korrektur")} %}
+{% set arten = {"zahlung": _("Aufladung"), "gutschrift": _("Gutschrift"), "gutschein": _("Gutschein"), "verbrauch": _("Verarbeitung"), "rueckbuchung": _("Rückbuchung"), "erstattung": _("Erstattung"), "korrektur": _("Korrektur")} %}
 {% set auftragsarten = {"transcribe": _("Transkription"), "summarize": _("Kapitel"), "revise": _("Korrektur per Hinweis"), "document": _("SL-Unterlage")} %}
-{% set gruende = {"zahler_fehlt": _("Für diese Kampagne zahlt gerade niemand."), "freigabe": _("Wartet auf deine Bestätigung."), "leer": _("Wartet auf Guthaben."), "zu_knapp": _("Das Guthaben reicht dafür voraussichtlich nicht.")} %}
-<div class="aktionen">
-  <h1>{{ _("Guthaben") }}</h1>
+{% set gruende = {"zahler_fehlt": _("Für diese Kampagne zahlt gerade niemand."), "freigabe": _("Wartet auf deine Bestätigung."), "leer": _("Wartet auf Guthaben."), "zu_knapp": _("Das Guthaben reicht dafür voraussichtlich nicht."), "gesperrt": _("Wartet, bis die Verwaltung die Zahlung geprüft hat.")} %}
+{% set zahlwege = {"stripe": _("Karte, Apple Pay oder Google Pay"), "paypal": _("PayPal")} %}
+<div class="seite-guthaben">
+<header class="gkopf">
+  <picture><source srcset="/verwaltung/static/marke/taleward-lockup-inverse.svg" media="(prefers-color-scheme: dark)"><img src="/verwaltung/static/marke/taleward-lockup.svg" alt="Taleward" width="132" height="32"></picture>
   <form method="post" action="/guthaben/abmelden"><input type="hidden" name="csrf" value="{{ csrf }}">
-    <button class="tw-btn tw-btn--quiet" type="submit">{{ person.display_name|rein }} · {{ _("abmelden") }}</button></form>
-</div>
+    <span class="leise">{{ person.display_name|rein }}</span> <button class="tw-btn tw-btn--quiet" type="submit">{{ _("abmelden") }}</button></form>
+</header>
+<h1 class="unsichtbar">{{ _("Guthaben") }}</h1>
 <p class="leise">{{ angaben.server_name }} · {{ angaben.server_operator }}</p>
+{% if testmodus and zahlwege_an %}<p class="hinweis">{{ _("Testmodus: Aufladen ist nur zum Ausprobieren eingerichtet. Es fließt kein echtes Geld.") }}</p>{% endif %}
 
 {% for t in toepfe %}
-<section class="karte" aria-labelledby="topf-{{ loop.index }}">
-  <h2 id="topf-{{ loop.index }}">{% if t.name %}{{ _("Guthaben der Organisation {name}", name=t.name) }}{% else %}{{ _("Dein Guthaben") }}{% endif %}</h2>
-  <div class="zahl {% if t.saldo < 0 %}zahl--warnung{% endif %}">
-    <div class="zahl__wert">{{ euro(t.saldo) }}</div>
-    <div class="zahl__text">
-      {% if t.stand == "minus" %}{{ _("Im Minus. Neue Verarbeitungen starten erst, wenn das Guthaben wieder über null ist.") }}
-      {% elif t.stand == "leer" %}{{ _("Leer. Neue Verarbeitungen warten, bis wieder Guthaben da ist.") }}
-      {% elif t.stand == "knapp" %}{{ _("Knapp. Für die nächste lange Runde reicht es vielleicht nicht.") }}
-      {% else %}{{ _("Reicht für die nächsten Verarbeitungen.") }}{% endif %}
-    </div>
-  </div>
-  <p class="hilfe">{{ _("Aufladen mit Bezahlung kommt später. Bis dahin: Gutschein einlösen oder beim Betreiber melden.") }}{% if angaben.server_contact %} {{ angaben.server_contact }}{% endif %}</p>
+<section class="karte guthaben" aria-labelledby="topf-{{ loop.index }}">
+  <h2 class="guthaben__wer" id="topf-{{ loop.index }}">{% if t.name %}{{ _("Guthaben der Organisation {name}", name=t.name) }}{% else %}{{ _("Dein Guthaben") }}{% endif %}</h2>
+  <p class="guthaben__stand {% if t.saldo < 0 %}guthaben__stand--minus{% endif %}">{{ euro(t.saldo) }}</p>
+  <p class="guthaben__satz">
+    {% if t.stand == "minus" %}{{ _("Im Minus. Neue Verarbeitungen starten erst, wenn das Guthaben wieder über null ist.") }}
+    {% elif t.stand == "leer" %}{{ _("Leer. Neue Verarbeitungen warten, bis wieder Guthaben da ist.") }}
+    {% elif t.stand == "knapp" %}{{ _("Knapp. Für die nächste lange Runde reicht es vielleicht nicht.") }}
+    {% else %}{{ _("Reicht für die nächsten Verarbeitungen.") }}{% endif %}
+  </p>
+  {% if t.g.gesperrt_at %}<p class="meldung meldung--fehler">{{ _("Eine Zahlung wurde zurückgebucht oder angefochten. Bis die Verwaltung das geprüft hat, starten keine neuen Verarbeitungen und Aufladen geht nicht.") }}{% if angaben.server_contact %} {{ angaben.server_contact }}{% endif %}</p>{% endif %}
+  {% if t.offen %}<p class="meldung" role="status">{{ _("Eine Zahlung ist begonnen und noch nicht bestätigt. Das Guthaben erscheint, sobald der Zahlungsanbieter sie bestätigt. Seite später neu laden.") }}</p>{% endif %}
 
-  <h3>{{ _("Gutschein einlösen") }}</h3>
-  <form class="formular formular--zeile" method="post" action="/guthaben/gutschein">
+  {% if zahlwege_an and not t.g.gesperrt_at %}
+  <form class="aufladen" method="post" action="/guthaben/aufladen">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="guthaben_id" value="{{ t.g.id }}">
-    <label>{{ _("Code") }} <input type="text" name="code" required maxlength="40" autocomplete="off" spellcheck="false"></label>
-    <button class="tw-btn tw-btn--secondary" type="submit">{{ _("Einlösen") }}</button>
+    <fieldset>
+      <legend>{{ _("Guthaben aufladen") }}</legend>
+      <div class="chips" role="radiogroup" aria-label="{{ _('Betrag') }}">
+        {% for b in betraege %}<label class="chip"><input type="radio" name="betrag" value="{{ b }}" {% if loop.first %}checked{% endif %} required> {{ euro(b) }}</label>{% endfor %}
+      </div>
+      <div class="karten-wahl karten-wahl--zwei">
+        {% for z in zahlwege_an %}<label class="wahl"><input type="radio" name="anbieter" value="{{ z }}" {% if loop.first %}checked{% endif %} required><strong>{{ zahlwege[z] }}</strong><span class="hilfe">{% if z == "stripe" %}{{ _("Über Stripe. Auch Lastschrift, je nach Land.") }}{% else %}{{ _("Mit deinem PayPal-Konto.") }}{% endif %}</span></label>{% endfor %}
+      </div>
+      <p class="hilfe">{{ _("Auf der nächsten Seite siehst du die Gebühr des Zahlungsanbieters, bevor du bezahlst.") }}</p>
+      <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Weiter") }}</button></div>
+    </fieldset>
   </form>
+  {% elif not zahlwege_an %}
+  <p class="hilfe">{{ _("Aufladen mit Bezahlung gibt es auf diesem Server noch nicht. Bis dahin: Gutschein einlösen oder beim Betreiber melden.") }}{% if angaben.server_contact %} {{ angaben.server_contact }}{% endif %}</p>
+  {% endif %}
 
   {% if t.wartend %}
   <h3>{{ _("Wartende Aufträge") }}</h3>
@@ -50,31 +65,45 @@
   </table></div>
   {% endif %}
 
-  <h3 id="einstellungen">{{ _("Einstellungen") }}</h3>
-  <form class="formular" method="post" action="/guthaben/einstellungen">
-    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="guthaben_id" value="{{ t.g.id }}">
-    <label>{{ _("Aufträge über diesem Betrag warten auf „Verarbeiten“ (Euro)") }}
-      <input type="text" name="freigabe_ab" value="{{ '%d,%02d' % (t.g.freigabe_ab_cent // 100, t.g.freigabe_ab_cent % 100) }}" inputmode="decimal" required maxlength="12"></label>
-    <label>{{ _("Charakterbögen von Spielern: höchstens Seiten je Bogen") }}
-      <input type="number" name="bogen_seiten" value="{{ t.g.bogen_seiten }}" min="1" max="2000" required></label>
-    <label>{{ _("Charakterbögen je Spieler und Kampagne") }}
-      <input type="number" name="boegen_je_spieler" value="{{ t.g.boegen_je_spieler }}" min="0" max="50" required>
-      <span class="hilfe">{{ _("Voreinstellung 3, höchstens 50. 0 = keine Abgabe.") }}</span></label>
-    <p class="hilfe">{{ _("Jede Änderung wird festgehalten.") }}</p>
-    <div><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
-  </form>
-
-  <h3>{{ _("Buchungen") }}</h3>
+  <h3>{{ _("Letzte Buchungen") }}</h3>
+  {% macro zeilen(liste) %}{% for b in liste %}
+      <tr><td data-label="{{ _('Datum') }}">{{ zeit(b.angelegt) }}</td><td data-label="{{ _('Art') }}">{{ arten.get(b.art, b.art) }}{% if b.grund %}<br><span class="leise">{{ b.grund }}</span>{% endif %}</td><td data-label="{{ _('Betrag') }}" class="betrag">{{ euro(b.betrag_cent) }}</td></tr>
+  {% endfor %}{% endmacro %}
   <div class="tabelle-huelle"><table>
     <thead><tr><th>{{ _("Datum") }}</th><th>{{ _("Art") }}</th><th>{{ _("Betrag") }}</th></tr></thead>
     <tbody>
-    {% for b in t.buchungen %}
-      <tr><td data-label="{{ _('Datum') }}">{{ zeit(b.angelegt) }}</td><td data-label="{{ _('Art') }}">{{ arten.get(b.art, b.art) }}{% if b.grund %}<br><span class="leise">{{ b.grund }}</span>{% endif %}</td><td data-label="{{ _('Betrag') }}">{{ euro(b.betrag_cent) }}</td></tr>
-    {% else %}
-      <tr><td colspan="3" class="leise">{{ _("Noch keine Buchungen.") }}</td></tr>
-    {% endfor %}
+    {{ zeilen(t.buchungen[:5]) }}
+    {% if not t.buchungen %}<tr><td colspan="3" class="leise">{{ _("Noch keine Buchungen.") }}</td></tr>{% endif %}
     </tbody>
   </table></div>
+  {% if t.buchungen|length > 5 %}
+  <details class="klappe"><summary>{{ _("Ältere Buchungen") }}</summary>
+    <div class="tabelle-huelle"><table><tbody>{{ zeilen(t.buchungen[5:]) }}</tbody></table></div>
+  </details>
+  {% endif %}
+
+  <details class="klappe" {% if gutschein_offen %}open{% endif %}><summary>{{ _("Gutschein einlösen") }}</summary>
+    <form class="formular formular--zeile" method="post" action="/guthaben/gutschein">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="guthaben_id" value="{{ t.g.id }}">
+      <label>{{ _("Code") }} <input type="text" name="code" required maxlength="40" autocomplete="off" spellcheck="false"></label>
+      <button class="tw-btn tw-btn--secondary" type="submit">{{ _("Einlösen") }}</button>
+    </form>
+  </details>
+
+  <details class="klappe" id="einstellungen"><summary>{{ _("Einstellungen") }}</summary>
+    <form class="formular" method="post" action="/guthaben/einstellungen">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="guthaben_id" value="{{ t.g.id }}">
+      <label>{{ _("Aufträge über diesem Betrag warten auf „Verarbeiten“ (Euro)") }}
+        <input type="text" name="freigabe_ab" value="{{ '%d,%02d' % (t.g.freigabe_ab_cent // 100, t.g.freigabe_ab_cent % 100) }}" inputmode="decimal" required maxlength="12"></label>
+      <label>{{ _("Charakterbögen von Spielern: höchstens Seiten je Bogen") }}
+        <input type="number" name="bogen_seiten" value="{{ t.g.bogen_seiten }}" min="1" max="2000" required></label>
+      <label>{{ _("Charakterbögen je Spieler und Kampagne") }}
+        <input type="number" name="boegen_je_spieler" value="{{ t.g.boegen_je_spieler }}" min="0" max="50" required>
+        <span class="hilfe">{{ _("Voreinstellung 3, höchstens 50. 0 = keine Abgabe.") }}</span></label>
+      <p class="hilfe">{{ _("Jede Änderung wird festgehalten.") }}</p>
+      <div><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
+    </form>
+  </details>
 </section>
 {% endfor %}
 
@@ -108,4 +137,5 @@
 </section>
 {% endif %}
 <p class="zentriert">{% include "_sprachen.html" %}</p>
+</div>
 {% endblock %}

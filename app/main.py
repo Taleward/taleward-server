@@ -235,6 +235,9 @@ def create_app() -> FastAPI:
     from app.routers import downloads, webapp_seiten
 
     app.include_router(downloads.router)
+    from app.routers import zahlung_meldungen
+
+    app.include_router(zahlung_meldungen.router)  # 0.4.133: Meldungen der Zahlungsanbieter
     app.include_router(webapp_seiten.router)
     from app.verwaltung.router import einbinden
 
