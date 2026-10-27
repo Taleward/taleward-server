@@ -1,0 +1,1693 @@
+From abffe5998c205073de57651754305dd46e9ffc85 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 11:49:43 +0100
+Subject: [PATCH] Server 0.4.130
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Verwaltung: zeigt zuerst, was zur Betriebsart passt; Seltenes und
+Nicht-Zutreffendes zugeklappt; kürzere Hilfetexte. Standardname Taleward.
+Kleinere Verbesserungen bei neuen Konten.
+---
+ NEU.md                                        |  10 +-
+ app/cli.py                                    |   7 +-
+ app/config.py                                 |   2 +-
+ app/einstellungen.py                          |   5 +-
+ app/konto.py                                  |  31 ++-
+ app/mail.py                                   |   5 +
+ app/main.py                                   |   2 +-
+ app/slfreigabe.py                             |   2 +-
+ app/verwaltung/assistent.py                   |   4 +-
+ app/verwaltung/i18n.py                        | 124 ++++++------
+ app/verwaltung/router.py                      |  19 +-
+ app/verwaltung/static/eingebaut.js            |  14 +-
+ app/verwaltung/static/verwaltung.css          |   7 +
+ app/verwaltung/templates/abrechnung.html      |  19 +-
+ app/verwaltung/templates/anmeldung.html       |  27 ++-
+ app/verwaltung/templates/einstellungen.html   |  50 +++--
+ app/verwaltung/templates/konten.html          |   6 +-
+ app/verwaltung/templates/sl-freigaben.html    |  14 +-
+ app/verwaltung/templates/transkription.html   |  81 ++++----
+ app/verwaltung/templates/uebersicht.html      |  12 +-
+ app/verwaltung/templates/updates.html         |  10 +-
+ app/verwaltung/templates/zusammenfassung.html |  90 +++++----
+ app/verwaltung/updates.py                     |   6 +-
+ pyproject.toml                                |   2 +-
+ tests/test_aktualisierung.py                  |   2 +-
+ tests/test_assistent.py                       |   2 +-
+ tests/test_modellablage.py                    |   2 +-
+ tests/test_server_04115.py                    |   2 +-
+ tests/test_server_04130.py                    | 191 ++++++++++++++++++
+ tests/test_verwaltung2.py                     |   2 +-
+ tests/test_worker_app.py                      |   2 +-
+ uv.lock                                       |   2 +-
+ 32 files changed, 540 insertions(+), 214 deletions(-)
+ create mode 100644 tests/test_server_04130.py
+
+diff --git a/NEU.md b/NEU.md
+index f56918a..5373853 100644
+--- a/NEU.md
++++ b/NEU.md
+@@ -1,9 +1,9 @@
+-Fassung 0.4.129
++Fassung 0.4.130
+ 
+ ## Was ist neu
+ 
+-- Stimmen: Der Server schlägt jetzt auch Gäste vor, wenn sie sich in der Vorstellungsrunde nennen.
+-- Mit der Abrechnung „Einzelzahler“ wartet ohne Guthaben höchstens eine Aufnahme je Konto. Die App behält eine weitere Aufnahme auf dem Gerät.
+-- Die Benachrichtigung „Aufträge warten, kein Worker erreichbar“ zählt jetzt auch Kapitel, die auf einen Worker mit lokalem Modell warten, weil die Kampagne die Cloud nicht freigegeben hat.
+-- Probelauf in der Verwaltung: Kapitelstil, Modell und eine günstigere Reihenfolge der Anfragen lassen sich für einen Vergleich wählen, ohne die Einstellung zu ändern.
++- Verwaltung aufgeräumt: Jede Seite zeigt zuerst, was zur Betriebsart passt, mit kürzeren Hilfetexten. Bei „Nur Cloud“ stehen Worker, lokales Modell und Worker-Preise zugeklappt darunter.
++- Seltene Einstellungen (App-Fassungen, neue Fassung der Nutzungsbedingungen, Prüfung der Kapitel, nicht eingerichtete Anmeldedienste, Preise bei ausgeschalteter Abrechnung) sind zugeklappt.
++- Die Übersicht sagt bei „Nur Cloud“, wenn die Cloud-Transkription noch nicht eingerichtet ist, statt einen Worker zu verlangen.
++- Server ohne eigenen Namen heißen jetzt „Taleward“.
+ - Kleinere Verbesserungen.
+diff --git a/app/cli.py b/app/cli.py
+index d91f5f3..ce2a40e 100644
+--- a/app/cli.py
++++ b/app/cli.py
+@@ -13,5 +13,5 @@ from app.services import build_attendees, default_organization, ensure_org_membe
+ from app import schemas
+ 
+-app = typer.Typer(help="Verwaltung des Session-Chronik-Servers", no_args_is_help=True)
++app = typer.Typer(help="Verwaltung des Taleward-Servers", no_args_is_help=True)
+ 
+ 
+@@ -26,5 +26,8 @@ def _neues_konto(db, username: str, display_name: str, password: str, admin: boo
+     zugestimmt (0.4.22): Zustimmung zu den Nutzungsbedingungen gleich eintragen – nur für das eigene Konto des
+     Betreibers (Einrichtung, Einzelplatz, Demo); für andere Personen stimmt niemand stellvertretend zu."""
+-    u = User(username=username, display_name=display_name, gm_permission="granted" if admin else "none")
++    from app.aliasse import zeichen_bereinigen
++
++    u = User(username=username, display_name=zeichen_bereinigen(display_name)[:128] or username,
++             gm_permission="granted" if admin else "none")
+     if zugestimmt:
+         from app import nutzungsbedingungen
+diff --git a/app/config.py b/app/config.py
+index 1d7fbba..3ac4f0a 100644
+--- a/app/config.py
++++ b/app/config.py
+@@ -17,5 +17,5 @@ class Settings(BaseSettings):
+     forwarded_allow_ips: str = "127.0.0.1"
+     # Angaben für GET /info (öffentlich sichtbar in der App)
+-    server_name: str = "Session-Chronik"
++    server_name: str = "Taleward"
+     server_operator: str = "Rollenspielverein"
+     server_contact: str | None = None
+diff --git a/app/einstellungen.py b/app/einstellungen.py
+index a8d726a..97b971f 100644
+--- a/app/einstellungen.py
++++ b/app/einstellungen.py
+@@ -11,4 +11,5 @@ from app.config import get_settings
+ from app.models import ServerMeta
+ 
++ALTER_NAME = "Session-Chronik"
+ FELDER = ("server_name", "server_operator", "server_contact", "privacy_policy_url", "min_age",
+           "app_min_version", "app_latest_version", "app_download_url", "app_release_notes", "public_url")
+@@ -67,5 +68,7 @@ def angaben(db: Session) -> Angaben:
+             werte[f] = row.value if row.value != "" else None
+     werte["min_age"] = int(werte["min_age"] or 16)
+-    werte["server_name"] = werte["server_name"] or s.server_name
++    # 0.4.130: Der frühere Standardname gilt als „nicht eingetragen“ (er stand oft nur durch Speichern drin)
++    if werte["server_name"] in (None, "", ALTER_NAME):
++        werte["server_name"] = s.server_name if s.server_name != ALTER_NAME else "Taleward"
+     werte["server_operator"] = werte["server_operator"] or s.server_operator
+     if s.taleward_einzelplatz:  # immer die aktuelle Heimnetz-Adresse des PCs (Einladungen, QR-Code, publicUrl)
+diff --git a/app/konto.py b/app/konto.py
+index 660c816..2e388ec 100644
+--- a/app/konto.py
++++ b/app/konto.py
+@@ -37,4 +37,7 @@ LEICHT = {"passwort", "password", "12345678", "123456789", "1234567890", "qwertz
+ # Begrenzung: höchstens so viele Registrierungsversuche je Adresse im Zeitfenster
+ MAX_VERSUCHE, FENSTER = 10, 15 * 60
++# 0.4.130: Bei offener Registrierung serverweit höchstens so viele neue Konten (zusätzlich zur Grenze je Adresse)
++OFFEN_GRENZEN = (("registrierung-offen:stunde", 30, 3600.0), ("registrierung-offen:tag", 200, 86400.0))
++OFFEN_GRENZE_ERREICHT: dict[str, object] = {"zeit": None}  # für den Hinweis in der Verwaltung (bis zum Neustart)
+ 
+ 
+@@ -97,7 +100,8 @@ def passwort_zu_schwach(passwort: str, *namen: str) -> bool:
+ 
+ 
+-def _zugang_pruefen(db: Session, adresse: str, invite_code: str | None, registration_code: str | None) -> None:
++def _zugang_pruefen(db: Session, adresse: str, invite_code: str | None, registration_code: str | None) -> bool:
+     """0.4.23: Wer darf ein Konto anlegen? Eine Einladung wird in jeder Art außer closed geprüft; der
+-    Registrierungscode gilt nur bei code. Falsche Codes zählen wie beim Beitritt (0.4.83: Adresse und serverweit)."""
++    Registrierungscode gilt nur bei code. Falsche Codes zählen wie beim Beitritt (0.4.83: Adresse und serverweit).
++    True, wenn das Konto ohne Einladung über die offene Registrierung entsteht."""
+     art = registrierung(db)
+     if art == "closed":
+@@ -105,5 +109,5 @@ def _zugang_pruefen(db: Session, adresse: str, invite_code: str | None, registra
+     einladung, code = (invite_code or "").strip(), (registration_code or "").strip()
+     if not einladung and art == "open":
+-        return
++        return True
+     if not einladung and art == "code" and not code:
+         raise errors.bad_request("registration_code_required")
+@@ -121,4 +125,17 @@ def _zugang_pruefen(db: Session, adresse: str, invite_code: str | None, registra
+         raise errors.bad_request("registration_code_invalid")
+     ZAEHLER.freigeben(versuch)
++    return False
++
++
++def _offen_zaehlen() -> None:
++    """Serverweite Obergrenze für Konten aus der offenen Registrierung; voll → 429 und Hinweis in der Verwaltung."""
++    import logging
++
++    from app.begrenzung import ZAEHLER
++
++    if ZAEHLER.reservieren(list(OFFEN_GRENZEN)) is None:
++        OFFEN_GRENZE_ERREICHT["zeit"] = utcnow()
++        logging.getLogger(__name__).warning("Obergrenze für neue Konten (offene Registrierung) erreicht")
++        raise errors.ApiError(429, "too_many_requests")
+ 
+ 
+@@ -132,5 +149,5 @@ def registrieren(db: Session, adresse: str, invite_code: str | None, username: s
+     0.4.23: Zugang nach der Registrierungsart (_zugang_pruefen). Ein neues Konto hat keine SL-Freigabe (none)."""
+     _begrenzen(adresse)
+-    _zugang_pruefen(db, adresse, invite_code, registration_code)
++    offen = _zugang_pruefen(db, adresse, invite_code, registration_code)
+     if accept_privacy is not True or age_confirmed is not True:
+         raise errors.bad_request("consent_required")
+@@ -144,5 +161,7 @@ def registrieren(db: Session, adresse: str, invite_code: str | None, username: s
+     if not BENUTZERNAME.fullmatch(name):
+         raise errors.bad_request("username_invalid")
+-    anzeige = (display_name or "").strip()
++    from app.aliasse import zeichen_bereinigen
++
++    anzeige = zeichen_bereinigen(display_name or "")  # 0.4.130: ohne Steuer- und Richtungszeichen
+     if not anzeige:
+         raise errors.bad_request("validation_error", "validation_error.empty", field="displayName")
+@@ -153,4 +172,6 @@ def registrieren(db: Session, adresse: str, invite_code: str | None, username: s
+     if db.scalar(select(User).where(User.username == name)) is not None:
+         raise errors.conflict("username_taken")
++    if offen:
++        _offen_zaehlen()
+     jetzt = utcnow()
+     u = User(username=name, display_name=anzeige, privacy_accepted_at=jetzt, age_confirmed_at=jetzt,
+diff --git a/app/mail.py b/app/mail.py
+index 43e1ec4..cb9bc04 100644
+--- a/app/mail.py
++++ b/app/mail.py
+@@ -117,5 +117,10 @@ def text(db: Session, art: str, sprache: str, **werte) -> tuple[str, str]:
+ 
+     a = angaben(db)
++    from app.aliasse import zeichen_bereinigen
++
+     werte = {"server": a.server_name, "betreiber": a.server_operator, **werte}
++    # 0.4.130: Namen ohne Steuer- und Richtungszeichen (sie stehen auch im Betreff)
++    werte = {k: zeichen_bereinigen(v) if k in ("server", "betreiber", "name") and isinstance(v, str) else v
++             for k, v in werte.items()}
+     betreff, inhalt = TEXTE[art]["en" if sprache == "en" else "de"]
+     return betreff.format(**werte), inhalt.format(**werte)
+diff --git a/app/main.py b/app/main.py
+index 44dfca2..da22f87 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -176,5 +176,5 @@ def create_app() -> FastAPI:
+     settings = get_settings()
+     app = FastAPI(
+-        title="Session-Chronik Server",
++        title="Taleward Server",
+         version="0.1.0",
+         lifespan=lifespan,
+diff --git a/app/slfreigabe.py b/app/slfreigabe.py
+index 80b5dcf..5195a32 100644
+--- a/app/slfreigabe.py
++++ b/app/slfreigabe.py
+@@ -98,5 +98,5 @@ def mail_an_verwaltung(db: Session, user: User, basis: str) -> bool:
+             mail.senden(db, an, betreff, text)
+             ok = True
+-        except mail.MailFehler:
++        except (mail.MailFehler, ValueError):  # ValueError: Kopfzeile ungültig – wie ein Versandfehler
+             pass
+     if not ok:
+diff --git a/app/verwaltung/assistent.py b/app/verwaltung/assistent.py
+index aff60d9..09a33ae 100644
+--- a/app/verwaltung/assistent.py
++++ b/app/verwaltung/assistent.py
+@@ -157,8 +157,8 @@ def verein(request: Request, user: User = Depends(verwalter), db: Session = Depe
+ 
+     s, a = get_settings(), angaben(db)
+-    # Standardwerte aus der Installation nicht vorschlagen – sonst heißt jeder Server „Session-Chronik“
++    # Standardwerte aus der Installation nicht vorschlagen – sonst heißt jeder Server gleich
+     return _schritt(request, user, db, "verein",
+                     verein_wert="" if a.server_operator == s.server_operator else a.server_operator,
+-                    name_wert="" if a.server_name == s.server_name else a.server_name, betreiber=betreiber.lesen(db))
++                    name_wert="" if a.server_name in (s.server_name, "Taleward") else a.server_name, betreiber=betreiber.lesen(db))
+ 
+ 
+diff --git a/app/verwaltung/i18n.py b/app/verwaltung/i18n.py
+index 0607e62..4a74ad5 100644
+--- a/app/verwaltung/i18n.py
++++ b/app/verwaltung/i18n.py
+@@ -27,14 +27,11 @@ EN: dict[str, str] = {
+     "Messwerte": "Measurements",
+     "Probelauf": "Trial run",
+-    "Kapitel und Vorschläge für eine Runde mit Abschrift neu schreiben lassen, ohne die Runde zu verändern – zum Vergleichen von Modellen und Fassungen. Rechnet mit der Einstellung oben (Cloud-API oder Testmodus) direkt auf dem Server, auch ohne Worker. Kosten zählen zum Monatslimit, nicht zur Kampagne.": "Have chapter and suggestions written again for a session that has a transcript, without changing the session – to compare models and versions. Runs with the setting above (cloud API or test mode) directly on the server, no worker needed. Costs count towards the monthly limit, not the campaign.",
+     "Runde": "Session",
+     "{n} Zeilen": "{n} lines",
+     "Abschrift aus Datei (optional)": "Transcript from file (optional)",
+-    "Ersetzt die Abschrift der Runde, Mitglieder und Bibel bleiben. Zeilen wie „[1:02:03] Name: Text“ – zum Beispiel die transkript.txt eines Modellvergleichs oder eine selbst geschriebene Abschrift.": "Replaces the session's transcript; members and bible stay. Lines like “[1:02:03] Name: text” – for example the transkript.txt of a model comparison or a transcript you wrote yourself.",
+     "Probelauf starten": "Start trial run",
+     "Noch keine Runde mit Abschrift in deinen Kampagnen.": "No session with a transcript in your campaigns yet.",
+     "Alle Dateien als ZIP": "All files as ZIP",
+     "Für diese Kampagne ist die Cloud-Zusammenfassung nicht freigegeben. Das entscheidet die Spielleitung in der App auf der Übersicht der Kampagne unter „Kampagne verwalten“ → „Cloud-Dienste“.": "Cloud summaries are not allowed for this campaign. The game master decides this in the app on the campaign overview under “Manage campaign” → “Cloud services”.",
+-    'Zur Wahl stehen nur Runden aus Kampagnen, in denen du selbst Spielleitung bist. Mit der Cloud-API gehen Abschrift und Bibel der Kampagne an den Anbieter – nur, wenn die Kampagne die Cloud-Zusammenfassung erlaubt. Deine Probeläufe sieht nur dein Konto.': "Only sessions from campaigns in which you are game master yourself are offered. With the cloud API, the campaign's transcript and bible go to the provider – only if the campaign allows cloud summaries. Only your account sees your test runs.",
+     "Gestartet": "Started",
+     "{cent} Cent": "{cent} cents",
+@@ -103,5 +100,4 @@ EN: dict[str, str] = {
+     "Modell für die Vorschläge": "Model for the proposals",
+     "wie für das Kapitel": "same as for the chapter",
+-    "Zur Auswahl stehen die bekannten Modelle des Anbieters und – sobald ein Schlüssel hinterlegt ist – alle, die er für diesen Schlüssel freigibt. Beim Wechsel des Anbieters werden die empfohlenen eingetragen. Bei Mistral empfohlen: Kapitel mit mistral-medium-latest, Vorschläge mit mistral-large-latest (Messung an einer langen Runde).": "You can choose from the provider's known models and – once a key is stored – all models it allows for this key. Switching the provider selects the recommended ones. Recommended for Mistral: chapter with mistral-medium-latest, proposals with mistral-large-latest (measured on a long session).",
+     "Diese Modelle stehen oben jetzt zur Auswahl; danach speichern und erneut prüfen.": "These models can now be chosen above; then save and check again.",
+     "Bitte ein Modell aus der Liste wählen.": "Please choose a model from the list.",
+@@ -119,6 +115,4 @@ EN: dict[str, str] = {
+     "Weg zum Kapitel": "How the chapter is written",
+     "Modell für Notizen und Auswahl": "Model for notes and selection",
+-    "Nur zum Vergleichen: Das Zuhören (Notizen, Stand, Auswahl der Pflichtereignisse) ist der teuerste Schritt. Ein anderes Modell hier spart Kosten, muss aber in Probeläufen zeigen, dass die Kapitel gleich gut bleiben.":
+-        "For comparison only: listening (notes, state, selection of must-have events) is the most expensive step. A different model here saves cost, but trial runs must show that chapters stay as good.",
+     "Unklare Stellen ({n})": "Unclear passages ({n})",
+     "Hier war die Aufnahme nicht eindeutig; das Kapitel bleibt an dieser Stelle vage. Ein Satz im Korrekturfeld klärt es.": "The recording was ambiguous here; the chapter stays vague at this point. One sentence in the correction field settles it.",
+@@ -135,15 +129,9 @@ EN: dict[str, str] = {
+     "Aus den geprüften Ereignissen und den unklaren Stellen (empfohlen)": "From the checked events and the unclear passages (recommended)",
+     "Jeden Absatz gegen die Notizen gegenprüfen (früherer Weg)": "Cross-check every paragraph against the notes (previous approach)",
+-    "Die empfohlene Ansicht markiert nur, was der Server nachgerechnet hat (fehlende oder widersprüchliche Ereignisse) oder was an der Aufnahme nicht eindeutig war – und spart etwa ein Fünftel der Kosten je Kapitel. Der frühere Weg lässt das Sprachmodell jeden Absatz gegen seine eigenen Notizen beurteilen. Gilt für den Weg „Erst Notizen“.":
+-        "The recommended view only marks what the server has verified (missing or contradicting events) or what was ambiguous in the recording – and saves about a fifth of the cost per chapter. The previous approach lets the language model judge every paragraph against its own notes. Applies to the notes-first approach.",
+     "stimmt": "confirmed",
+     "berichtigt": "corrected",
+     "Entscheidende Ereignisse vor dem Schreiben an der Abschrift prüfen": "Check decisive events against the transcript before writing",
+-    "Gilt für den Weg „Erst Notizen“: Die wichtigsten Ereignisse werden noch einmal gegen den Wortlaut der Abschrift gehalten, bevor das Kapitel entsteht. Was dabei nicht eindeutig ist, bleibt im Kapitel vage und wird der Spielleitung gezeigt. Kostet etwa 3 Cent je Kapitel.":
+-        "Applies to the notes-first approach: the most important events are checked once more against the wording of the transcript before the chapter is written. Whatever remains ambiguous stays vague in the chapter and is shown to the game master. Costs about 3 cents per chapter.",
+     "Erst Notizen je Abschnitt, dann das Kapitel (empfohlen)": "Notes per section first, then the chapter (recommended)",
+     "Ganze Abschrift auf einmal (früherer Weg)": "Whole transcript at once (previous approach)",
+-    "Der empfohlene Weg liest die Runde Abschnitt für Abschnitt, führt mit, wer wo ist und was sich geändert hat, und schreibt erst dann das Kapitel. In Testrunden fehlte dabei deutlich weniger und es gab weniger falsche Angaben. Er dauert etwas länger und kostet über die Cloud etwa 30 Cent je Kapitel. Gilt für die Cloud-API; ein lokales Modell arbeitet wie bisher.":
+-        "The recommended approach reads the session section by section, keeps track of who is where and what has changed, and only then writes the chapter. In test sessions much less was missing and there were fewer wrong statements. It takes a little longer and costs about 30 cents per chapter via the cloud. Applies to the cloud API; a local model works as before.",
+     "Erst Notizen, dann Kapitel": "Notes first, then chapter",
+     "Ganze Abschrift": "Whole transcript",
+@@ -174,5 +162,4 @@ EN: dict[str, str] = {
+     "Web-App": "Web app",
+     "Auch die Web-App des Projekts Taleward ({adresse}) darf diesen Server nutzen": "The Taleward project’s web app ({adresse}) may use this server too",
+-    "Die eigene Web-App dieses Servers (unter /app/) geht immer. Die Web-App des Projekts ist ein Angebot von Taleward, nicht von diesem Server; sie sieht keine Inhalte – der Browser spricht direkt mit diesem Server. Ausschalten, wenn Mitglieder nur die eigene nutzen sollen. Nur mit HTTPS.": "This server’s own web app (under /app/) always works. The project’s web app is offered by Taleward, not by this server; it never sees any content – the browser talks to this server directly. Turn it off if members should only use this server’s own. HTTPS only.",
+     "Updates": "Updates",
+     "Dieser Server": "This server",
+@@ -185,9 +172,7 @@ EN: dict[str, str] = {
+     "aktuell": "up to date",
+     "Hier läuft die Fassung {jetzt}.": "This server runs version {jetzt}.",
+-    "Eine neue Server-Fassung meldet der Server auch per Benachrichtigung (Einstellungen → Benachrichtigungen).": "The server also announces a new server version via notification (Settings → Notifications).",
+     "Taleward auf diesem PC aktualisiert das Taleward-Programm selbst – Server und Worker gemeinsam, mit Rückweg auf die alte Fassung. Hier ist dafür nichts zu tun.":
+         "On this PC, the Taleward program updates Taleward itself – server and worker together, with a way back to the previous version. Nothing to do here.",
+     "App und Worker": "App and worker",
+-    "Der Server lädt neue Fassungen einmal am Tag von GitHub und bietet sie selbst an. Handys und Worker fragen nur diesen Server – nie GitHub. Die App nimmt immer die neueste Fassung, die einer ihrer Server anbietet.": "Once a day the server downloads new versions from GitHub and offers them itself. Phones and workers only ask this server – never GitHub. The app always takes the newest version offered by any of its servers.",
+     "Automatisch freigeben": "Release automatically",
+     "neue Fassungen werden sofort angeboten (empfohlen).": "new versions are offered right away (recommended).",
+@@ -216,5 +201,4 @@ EN: dict[str, str] = {
+     "Aufnahmen": "Recordings",
+     "in der App pausiert": "paused in the app",
+-    "Wie lange eine Aufnahme nach der Umwandlung in Text auf dem Server bleibt. Solange sie da ist, lässt sich die Zusammenfassung gegen sie prüfen und die Transkription wiederholen. Die App nennt die Frist im Einwilligungstext.": "How long a recording stays on the server after it has been turned into text. While it is there, the summary can be checked against it and the transcription repeated. The app states the period in the consent text.",
+     "Aufnahmen löschen": "Delete recordings",
+     "Voreinstellung 3, höchstens 50. 0 = keine Abgabe.": "Default 3, at most 50. 0 = no submissions.",
+@@ -222,7 +206,5 @@ EN: dict[str, str] = {
+     "Sofort nach der Umwandlung in Text": "Right after transcription",
+     "Höchstens (Tage)": "At most (days)",
+-    "Gilt nur für „Wenn die Spielleitung das Kapitel freigibt“. Höchstens {n} Tage.": "Only applies to “When the GM releases the chapter”. At most {n} days.",
+     "Mir ist klar: Sollen Aufnahmen länger bleiben als bisher, müssen alle Mitglieder in der App neu zustimmen (zurzeit {n} Zustimmungen).": "I understand: if recordings are kept longer than before, all members have to consent again in the app (currently {n} consents).",
+-    "Nur nötig, wenn die Aufbewahrung verlängert wird. Kürzer stellen geht jederzeit ohne neue Zustimmung. Danach den Datenschutzhinweis anpassen.": "Only needed when retention is extended. Shortening it is possible at any time without new consent. Afterwards, update the privacy notice.",
+     # Rahmen und Navigation
+     "Verwaltung": "Administration",
+@@ -231,5 +213,4 @@ EN: dict[str, str] = {
+     "eigener Ordner": "own folder",
+     # Einrichtungsassistent, Sicherung, Kosten
+-    "0 = sofort (Betriebsart „Nur Cloud“).": "0 = immediately (“Cloud only” mode).",
+     "API-Schlüssel von Mistral (nur für die Cloud-API)": "Mistral API key (only for the cloud API)",
+     "Alles erledigt – viel Spaß beim Spielen!": "All done – have fun playing!",
+@@ -316,5 +297,4 @@ EN: dict[str, str] = {
+     "Dieser Server ist noch nicht eingerichtet. Du brauchst den Einrichtungscode – er steht in der Ausgabe beim ersten Start des Servers.": "This server has not been set up yet. You need the setup code – it is shown in the output when the server starts for the first time.",
+     "Ein lokaler Server mit NVIDIA-Grafikkarte (mind. 8 GB) im Verein oder bei einem Mitglied verarbeitet alles. Nichts verlässt euren Verein.": "A local server with an NVIDIA graphics card (at least 8 GB) at the club or at a member's home processes everything. Nothing leaves your club.",
+-    "Eine Sicherung enthält Datenbank, Bilder und SL-Unterlagen – also alle Inhalte, Konten und Einstellungen. Sicher aufbewahren. Wiederherstellen: Server beenden, dann „chronik wiederherstellen <Datei>“.": "A backup contains the database, images and GM documents – all content, accounts and settings. Keep it safe. To restore: stop the server, then run “chronik wiederherstellen <file>”.",
+     "Einrichtung": "Setup",
+     "Einrichtung fortsetzen": "Continue setup",
+@@ -327,5 +307,4 @@ EN: dict[str, str] = {
+     "Etwa 80 Cent pro Runde von 4 Stunden. Einrichtung: 5 Minuten.": "About 80 cents per 4-hour session. Setup: 5 minutes.",
+     "Euer Verein": "Your club",
+-    "Gilt für Cloud-Transkription und Cloud-Sprachmodell zusammen. Ist es erreicht, warten Aufträge bis zum nächsten Monat. 0 = ohne Limit.": "Applies to cloud transcription and cloud language model together. Once reached, jobs wait until next month. 0 = no limit.",
+     "Gute Kapitel, je nach Modell etwa 20 bis 70 Cent pro Runde von 4 Stunden.": "Good chapters, about 20 to 70 cents per 4-hour session depending on the model.",
+     "Hugging Face lehnt diesen Zugangsschlüssel ab.": "Hugging Face rejects this access token.",
+@@ -410,9 +389,7 @@ EN: dict[str, str] = {
+     "Mit Einladungscode – wer einen Einladungslink hat, legt sein Konto selbst an": "With invite code – anyone with an invite link creates their own account",
+     "Geschlossen – Konten legt nur die Verwaltung an": "Closed – only administrators create accounts",
+-    "Bei der Registrierung bestätigt jede Person den Datenschutzhinweis und das Mindestalter; beides wird mit Zeitpunkt gespeichert.": "When registering, everyone accepts the privacy notice and confirms the minimum age; both are stored with a timestamp.",
+     # Zusammenfassung
+     "Cloud-API": "Cloud API",
+     "Cloud-API (externer Anbieter)": "Cloud API (external provider)",
+-    "Cloud-API: Die Abschrift geht an den Anbieter. Dafür braucht es einen Vertrag zur Auftragsverarbeitung und einen Absatz im Datenschutzhinweis. Lokales Modell: Die Daten bleiben in eurer eigenen Infrastruktur, kleinere Modelle liefern aber schwächere Kapitel.": "Cloud API: the transcript is sent to the provider. This requires a data processing agreement and a paragraph in the privacy notice. Local model: the data stays within your own infrastructure, but smaller models produce weaker chapters.",
+     "Adresse (nur bei „Anderer“)": "Address (only for “Other”)",
+     "Anderer (OpenAI-kompatible Schnittstelle)": "Other (OpenAI-compatible interface)",
+@@ -424,7 +401,5 @@ EN: dict[str, str] = {
+     "Einstellungen zur Zusammenfassung gespeichert.": "Summary settings saved.",
+     "Empfohlen: mistral-large-latest (gute Kapitel, etwa 20 Cent pro Runde von 4 Stunden).": "Recommended: mistral-large-latest (good chapters, about 20 cents per 4-hour session).",
+-    "Empfohlen: auto – jeder Worker wählt nach seiner Grafikkarte (unter 12 GB gemma4:e4b, ab 12 GB gemma4:12b) und lädt das Modell beim ersten Auftrag selbst herunter.": "Recommended: auto – each worker picks by its graphics card (below 12 GB gemma4:e4b, from 12 GB gemma4:12b) and downloads the model itself on the first job.",
+     "Höchste Kontextgröße (Tokens)": "Maximum context size (tokens)",
+-    "Nur für ein fest eingetragenes Modell. Der Kontext richtet sich nach der Länge der Runde, höchstens dieser Wert.": "Only for a fixed model. The context follows the length of the session, at most this value.",
+     "nach Grafikkarte": "by graphics card",
+     "Für die API bitte einen API-Schlüssel eintragen.": "Please enter an API key to use the API.",
+@@ -445,5 +420,4 @@ EN: dict[str, str] = {
+     "Stand": "Status",
+     "Unbekannte Auswahl.": "Unknown selection.",
+-    "Wer aus der Abschrift Kapitel und Bibel-Vorschläge schreibt. Die Spielleitung prüft beides vor dem Veröffentlichen.": "Who writes the chapter and bible proposals from the transcript. The game master reviews both before publishing.",
+     "Wer fasst zusammen?": "Who summarizes?",
+     "Zurzeit ist kein Worker mit Sprachmodell verbunden – Runden warten.": "No worker with a language model is connected right now – sessions are waiting.",
+@@ -533,6 +507,4 @@ EN: dict[str, str] = {
+     "Verwalter": "Administrator",
+     "Anlegen": "Create",
+-    "Das Startpasswort gibst du der Person persönlich weiter. Mitglieder einer Kampagne kommen über Einladungen der Spielleitung in der App dazu.":
+-        "Hand the initial password to the person yourself. Campaign members join through invitations from the GM in the app.",
+     "Konto": "Account",
+     "Rolle": "Role",
+@@ -551,12 +523,7 @@ EN: dict[str, str] = {
+     "geladen": "loaded",
+     "wird geladen": "loading",
+-    "Dazu kommen die Texte der Kampagne (Bibel, Notizen, Unterlagen, Charaktere) und was in früheren Kapiteln sicher erkannt wurde.":
+-        "Plus the campaign's own texts (bible, notes, documents, characters) and what was recognised reliably in earlier chapters.",
+-    "Ein zweiter Durchgang des Sprachmodells prüft jeden Absatz gegen die Abschrift, bessert Unbelegtes einmal nach und zeigt der Spielleitung vor der Freigabe, worauf sich jeder Absatz stützt. Kostet etwa ein Drittel mehr Rechenzeit.": "A second pass of the language model checks every paragraph against the transcript, revises unsupported parts once and shows the game master what each paragraph is based on before sharing. Takes about a third more computing time.",
+     "Löscht Konto, Anmeldungen, Charakterbilder, Hintergrund und Stimmprofil endgültig. Kommentare bleiben als „gelöschtes Konto“ stehen, Kapitel bleiben unverändert. Ist die Person irgendwo die einzige Spielleitung, geht es erst, wenn dort jemand anderes Spielleitung ist.": "Permanently deletes the account, sign-ins, character portraits, backstory and voice profile. Comments remain as “deleted account”; chapters stay unchanged. If the person is the only game master somewhere, this only works once someone else is game master there.",
+     "Benutzername zur Bestätigung": "Username to confirm",
+     "Endgültig löschen": "Delete permanently",
+-    "Bittet dich jemand um die Löschung, erledigst du das hier unter „Konto löschen“ – vorher ggf. den Export in der App.":
+-        "If someone asks you to delete their account, do it here under “Delete account” – after they export their data in the app, if they want it.",
+     "Konto gelöscht. Kommentare der Person bleiben als „gelöschtes Konto“ stehen.": "Account deleted. The person’s comments remain as “deleted account”.",
+     "Das eigene Konto löschst du in der App – dort mit Passwort.": "Delete your own account in the app – with your password there.",
+@@ -565,9 +532,6 @@ EN: dict[str, str] = {
+         "{name} is the only game master of {titel}. First make someone else game master in the app, or delete the campaign there.",
+     "Zum Verwalter machen": "Make administrator",
+-    "Seine Daten exportieren und das eigene Konto löschen kann jede Person selbst in der App.": "Everyone can export their data and delete their own account in the app.",
+     "Das eigene Verwalter-Recht lässt sich nicht selbst entziehen.": "You cannot remove your own administrator rights.",
+     # Transkription
+-    "Wer die Aufnahmen in Text verwandelt: eigene Worker und – als Ausweichlösung – ein externer Anbieter.":
+-        "Who turns the recordings into text: your own workers and – as a fallback – an external provider.",
+     "Zugangsschlüssel für „{name}“": "Access key for “{name}”",
+     "Jetzt kopieren – er wird nur dieses eine Mal angezeigt.": "Copy it now – it is only shown this once.",
+@@ -623,10 +587,8 @@ EN: dict[str, str] = {
+     "Bitte einen Namen angeben, z. B. „pc-von-lilio“.": "Please enter a name, e.g. “lilios-pc”.",
+     "Einen aktiven Worker „{name}“ gibt es schon.": "An active worker “{name}” already exists.",
+-    "Externe Transkription (Ausweichlösung)": "External transcription (fallback)",
+     "freigegeben": "enabled",
+     "nicht aktiv": "not active",
+     "Es fehlt der API-Schlüssel.": "The API key is missing.",
+     "Aufnahmen werden nur von eigenen Workern transkribiert.": "Recordings are only transcribed by your own workers.",
+-    "Greift nur, wenn eine Runde länger als die Wartezeit wartet, in dieser Zeit kein Worker erreichbar war und die SL es für die Kampagne erlaubt hat ({n} Kampagne(n) erlauben es). Kosten etwa {cent} Cent pro Stunde Aufnahme.": "Only applies when a session waits longer than the waiting time, no worker was reachable during that time and the GM has allowed it for the campaign ({n} campaign(s) allow it). Costs about {cent} cents per hour of recording.",
+     "Anbieter": "Provider",
+     "Aus": "Off",
+@@ -634,6 +596,4 @@ EN: dict[str, str] = {
+     "hinterlegt, endet auf …{ende}": "stored, ends in …{ende}",
+     "von console.mistral.ai": "from console.mistral.ai",
+-    "Leer lassen, um den hinterlegten Schlüssel zu behalten. Er steht in der Datenbank (auch in Sicherungen) und wird nie wieder angezeigt.":
+-        "Leave empty to keep the stored key. It is kept in the database (including backups) and is never shown again.",
+     "Hinterlegten Schlüssel löschen": "Delete stored key",
+     "Wartezeit in Stunden": "Waiting time in hours",
+@@ -668,6 +628,4 @@ EN: dict[str, str] = {
+     # Einstellungen
+     "Angaben für die App": "Details shown in the app",
+-    "Die App zeigt sie beim Hinzufügen des Servers (Betreiber, Kontakt, Datenschutzhinweis).":
+-        "The app shows them when adding the server (operator, contact, privacy notice).",
+     "Name des Servers": "Server name",
+     "Betreiber": "Operator",
+@@ -758,5 +716,4 @@ EN: dict[str, str] = {
+     "Cloud, nur Schätzung: Transkription je Stunde Aufnahme (Euro, 0 = automatisch)": "Cloud, estimate only: transcription per hour of recording (euros, 0 = automatic)",
+     "Automatisch geschätzt (bei 0): Transkription {t} je Stunde, Kapitel {k} je Stunde, Korrektur {r}, SL-Unterlage {u} je Seite. Grundlage sind die bisherigen Cloud-Läufe, solange es keine gibt die Preise des Anbieters.": "Automatic estimate (at 0): transcription {t} per hour, chapter {k} per hour, correction {r}, GM document {u} per page. Based on previous cloud runs; until there are any, on the provider's prices.",
+-    "Cloud-Kosten werden so abgerechnet, wie sie anfallen, plus Aufschlag. Die Cloud-Werte hier dienen nur der Schätzung vor dem Start. Worker-Arbeit kostet, was du hier festlegst, gemessen an der Länge der Aufnahme bzw. den Seiten.": "Cloud costs are billed as they occur, plus the surcharge. The cloud values here are only used for the estimate before starting. Worker jobs cost what you set here, measured by the length of the recording or the pages.",
+     "Code": "Code",
+     "Das Datum ist ungültig.": "The date is not valid.",
+@@ -775,5 +732,4 @@ EN: dict[str, str] = {
+     "Du zahlst jetzt für diese Kampagne.": "You now pay for this campaign.",
+     "Eingelöst": "Redeemed",
+-    "Eingeschaltet sehen Spielleitungen ihr Guthaben unter /guthaben auf diesem Server. Die monatliche Kostengrenze unter Einstellungen bleibt als Notbremse.": "When switched on, GMs see their credit at /guthaben on this server. The monthly cost limit under Settings stays as an emergency brake.",
+     "Einlösen": "Redeem",
+     "Erstattung": "Refund",
+@@ -835,5 +791,4 @@ EN: dict[str, str] = {
+     "Wartet, bis es an der Reihe ist.": "Waiting for its turn.",
+     "Wer": "Who",
+-    "Wer verarbeiten lässt, zahlt aus einem Guthaben. Spieler zahlen nie. Aufladen mit Bezahlung kommt in einer späteren Fassung; bis dahin gibt es Gutschriften und Gutscheine.": "Whoever has sessions processed pays from a credit. Players never pay. Topping up with a payment comes in a later version; until then there are credits and vouchers.",
+     "Wer zahlt für deine Kampagnen": "Who pays for your campaigns",
+     "Worker: Kapitel je Stunde Aufnahme (Euro)": "Worker: chapter per hour of recording (euros)",
+@@ -878,5 +833,4 @@ EN: dict[str, str] = {
+     'Gespeichert, aber nicht zugestellt: {grund}': 'Saved, but not delivered: {grund}',
+     'Benachrichtigungen': 'Notifications',
+-    'Der Server meldet sich, wenn Aufträge lange auf einen Worker warten, Aufträge fehlschlagen, das Kostenlimit zu 80 % erreicht ist, eine Sicherung fehlschlägt oder der Speicher knapp wird. Inhalte aus Kampagnen stehen nie in den Meldungen.': 'The server lets you know when jobs wait a long time for a worker, jobs fail, 80% of the cost limit is reached, a backup fails or storage runs low. Campaign content never appears in these messages.',
+     'Per ntfy (Handy-App, ohne Konto)': 'Via ntfy (phone app, no account)',
+     'App „ntfy“ installieren, ein schwer zu erratendes Thema abonnieren (z. B. mein-verein-taleward-7k2q) und hier dieselbe Adresse eintragen.': 'Install the “ntfy” app, subscribe to a hard-to-guess topic (e.g. my-club-taleward-7k2q) and enter the same address here.',
+@@ -902,5 +856,4 @@ EN: dict[str, str] = {
+     'Passwort-Link erstellen': 'Create password link',
+     'Passwort selbst setzen': 'Set password yourself',
+-    'Passwort vergessen? „Passwort-Link erstellen“ – die Person wählt ihr neues Passwort dann selbst.': 'Forgotten password? “Create password link” – the person then chooses their new password themselves.',
+     'Passwort gespeichert': 'Password saved',
+     'Melde dich jetzt in der App mit deinem Benutzernamen „{name}“ und dem neuen Passwort an. Auf anderen Geräten bist du abgemeldet.': 'Now sign in to the app with your username “{name}” and the new password. You have been signed out on other devices.',
+@@ -951,5 +904,4 @@ EN: dict[str, str] = {
+     'Jetzt auf den Server laden': 'Download to the server now',
+     'Zugang zu Hugging Face': 'Access to Hugging Face',
+-    'Bleibt auf dem Server. Damit lädt er das Sprechermodell und neue Fassungen nach Updates.': 'Stays on the server. It uses it to download the speaker model and new versions after updates.',
+     'Das Modell: pyannote speaker-diarization-community-1 von pyannoteAI, Lizenz CC-BY-4.0, unverändert weitergegeben.': 'The model: pyannote speaker-diarization-community-1 by pyannoteAI, licence CC-BY-4.0, passed on unchanged.',
+     'Das ist eine Vorlage, keine Rechtsberatung. Bitte lesen, Stellen in [eckigen Klammern] ausfüllen und im Zweifel von jemandem mit rechtlichem Blick prüfen lassen. Mit eurem Hosting-Anbieter und mit jedem genutzten Cloud-Dienst braucht ihr je einen Vertrag zur Auftragsverarbeitung, meist als Teil der Nutzungsbedingungen – mehr unter Einstellungen → Auftragsverarbeitung und Übergabe.': 'This is a template, not legal advice. Please read it, fill in the parts in [square brackets] and, if in doubt, have someone with legal knowledge check it. You need a data processing agreement with your hosting provider and with every cloud service you use, usually as part of the terms of service – more under Settings → Data processing and handover.',
+@@ -959,5 +911,4 @@ EN: dict[str, str] = {
+     'Anleitung': 'Instructions',
+     'Anmeldung': 'Sign-in',
+-    'Benutzername und Passwort gehen immer. Zusätzlich könnt ihr hier Anmeldedienste einrichten – die App zeigt dann „Mit Google anmelden“ usw. Jeder Dienst ist für die Mitglieder freiwillig.': 'Username and password always work. In addition, you can set up sign-in services here – the app then shows “Sign in with Google” etc. Every service is optional for members.',
+     'Bestätigen': 'Confirm',
+     'Client-ID': 'Client ID',
+@@ -965,8 +916,6 @@ EN: dict[str, str] = {
+     'Das sieht nicht nach einer E-Mail-Adresse aus.': "This doesn't look like an e-mail address.",
+     'Der Link ist abgelaufen, schon benutzt oder unbekannt. Trag die Adresse in der App noch einmal ein.': 'The link has expired, was already used or is unknown. Enter the address in the app again.',
+-    'Derselbe Mailserver verschickt Benachrichtigungen an dich und – für Mitglieder, die freiwillig eine Adresse hinterlegen – Links für „Passwort vergessen“.': 'The same mail server sends notifications to you and – for members who choose to add an address – “forgot password” links.',
+     'Die Adresse {adresse} gehört jetzt zu deinem Konto „{konto}“. Damit kannst du dein Passwort bei Bedarf selbst zurücksetzen.': 'The address {adresse} now belongs to your account “{konto}”. You can use it to reset your password yourself if needed.',
+     'Die Anmeldedienste verlangen eine eigene Domain mit HTTPS. Die Adresse stellst du unter Einstellungen ein.': 'The sign-in services require your own domain with HTTPS. You set the address under Settings.',
+-    'Die E-Mail-Adresse ist für Mitglieder freiwillig und dient nur dazu, das Passwort selbst zurückzusetzen.': 'The e-mail address is optional for members and is only used to reset the password themselves.',
+     'Diesen Dienst ausschalten und Schlüssel löschen': 'Turn off this service and delete the keys',
+     'E-Mail bestätigen': 'Confirm e-mail',
+@@ -978,5 +927,4 @@ EN: dict[str, str] = {
+     'Leer = keine Benachrichtigungen per E-Mail.': 'Empty = no notifications by e-mail.',
+     'Mailserver unter Einstellungen eintragen': 'Enter a mail server under Settings',
+-    'Nicht vergessen: Jeder eingeschaltete Dienst gehört in den Datenschutzhinweis. Die Vorlage im Assistenten ergänzt ihn automatisch.': "Don't forget: every service you turn on belongs in the privacy notice. The template in the wizard adds it automatically.",
+     'Privater Schlüssel (.p8)': 'Private key (.p8)',
+     'Rückleitungsadresse': 'Redirect address',
+@@ -1100,5 +1048,4 @@ EN: dict[str, str] = {
+     "Datenschutzhinweis veröffentlichen": "Publish privacy notice",
+     "Der Knopf gilt zwei Minuten. Danach beginne die Anmeldung in der App einfach neu.": "The button is valid for two minutes. After that, simply start signing in again in the app.",
+-    "Die App zeigt sie beim Hinzufügen des Servers (Betreiber, Kontakt, Datenschutzhinweis). Daraus füllen sich auch die Vorlagen für Datenschutzhinweis und Impressum.": "The app shows these when the server is added (operator, contact, privacy notice). The templates for the privacy notice and legal notice are filled from them too.",
+     "Die Update-Quelle war bei der letzten Suche nicht erreichbar. Der Server versucht es später von selbst wieder – du musst nichts tun.": "The update source could not be reached during the last check. The server will try again later by itself – you don't need to do anything.",
+     "Die neue Fassung {nach} ist erschienen und wird noch geprüft. Du musst nichts tun – der Server übernimmt sie nach der Freigabe. Bis dahin bleibt es bei {von} ({zeit}).": "The new version {nach} has been released and is still being checked. You don't need to do anything – the server takes it over once it is approved. Until then it stays on {von} ({zeit}).",
+@@ -1115,5 +1062,4 @@ EN: dict[str, str] = {
+     "Impressum veröffentlichen": "Publish legal notice",
+     "Impressum:": "Legal notice:",
+-    "Jede Sicherung wird zusätzlich dorthin kopiert, z. B. auf ein eingebundenes Netzlaufwerk. So überlebt sie auch einen Ausfall dieses Servers.": "Every backup is also copied there, e.g. to a mounted network drive. That way it survives a failure of this server.",
+     "Mindestens 8 Zeichen.": "At least 8 characters.",
+     "Name (Betreiber)": "Name (operator)",
+@@ -1137,5 +1083,4 @@ EN: dict[str, str] = {
+     "z. B. Vereinsregister, Amtsgericht, Nummer": "e.g. register of associations, court, number",
+     "z. B. Vorstand: Name, Name": "e.g. board: name, name",
+-    "So bekommst du den Zugangsschlüssel – einmalig und kostenlos:": "How to get the access key – once and free of charge:",
+     "Auf huggingface.co ein Konto anlegen.": "Create an account on huggingface.co.",
+     "Angemeldet die Seite des Sprechermodells öffnen und den Bedingungen zustimmen.": "While signed in, open the speaker model's page and accept the conditions.",
+@@ -1146,5 +1091,4 @@ EN: dict[str, str] = {
+     "Fassung": "version",
+     "Geltende Fassung: {n}.": "Current version: {n}.",
+-    "Hast du die Bedingungen so geändert, dass alle erneut zustimmen müssen, zähle die Fassung hoch. Bis zur Zustimmung können Mitglieder in der App nur lesen, Zustimmungen widerrufen, ihre Daten herunterladen und ihr Konto löschen. Tippfehler oder Umformulierungen brauchen keine neue Fassung.": "If you changed the terms in a way that everyone has to accept again, raise the version. Until they accept, members can only read in the app, withdraw consents, download their data and delete their account. Typos or rewording do not need a new version.",
+     "Neue Fassung {n}. Alle Mitglieder sehen beim nächsten Öffnen der App die Bedingungen und stimmen erneut zu.": "New version {n}. All members will see the terms the next time they open the app and accept them again.",
+     "Neue Fassung – alle müssen erneut zustimmen": "New version – everyone must accept again",
+@@ -1192,5 +1136,4 @@ EN: dict[str, str] = {
+     "Bericht eines Biografen (zum Vergleich)": "Report of a biographer (for comparison)",
+     "Biograf": "Biographer",
+-    "Der Biografen-Stil fasst zusammen und gewichtet, statt Szene für Szene nachzuerzählen – ohne Deutungen, die am Tisch nicht gesagt wurden. Er wird erst eingesetzt, wenn er an den Goldrunden mindestens so gut abschneidet.": "The biographer style summarises and weighs events instead of retelling scene by scene – without interpretations nobody said at the table. It is only used once it does at least as well on the gold sessions.",
+     "Dieses Modell kennt der Anbieter nicht – bitte eines aus der Liste wählen.": "The provider does not know this model – please choose one from the list.",
+     "Gilt für Kapitel und Notizen; die Vorschläge bleiben beim eingestellten Modell.": "Applies to chapter and notes; suggestions stay with the configured model.",
+@@ -1198,5 +1141,4 @@ EN: dict[str, str] = {
+     "Grundlage vorn (zum Vergleich)": "Source first (for comparison)",
+     "Modell nur für diesen Lauf": "Model for this run only",
+-    "Schickt Abschrift bzw. Notizen in jedem Aufruf zuerst und die Aufgabe dahinter. Der Anbieter rechnet den gleichen Anfang dann günstiger ab. Die Ergebnisdatei zeigt, wie viele Token aus dem Zwischenspeicher kamen.": "Sends the transcript or notes first in every call and the task after it. The provider then charges the identical beginning at a lower price. The result file shows how many tokens came from the cache.",
+     "Stil": "Style",
+     "Stil des Kapitels": "Chapter style",
+@@ -1218,5 +1160,4 @@ EN: dict[str, str] = {
+     "Die Person kann wieder eine SL-Freigabe anfragen.": "The person can request game master approval again.",
+     "Doch freigeben": "Approve after all",
+-    "Eigene Kampagnen legt nur an, wen du freigegeben hast. Wer eingeladen wird, spielt immer mit. Bestehende Kampagnen bleiben, auch wenn du eine Freigabe zurücknimmst.": "Only people you have approved can create their own campaigns. Anyone who is invited can always play. Existing campaigns stay even if you withdraw an approval.",
+     "Ein Konto ohne Anfrage gibst du unter „Konten“ frei.": "To approve an account without a request, go to “Accounts”.",
+     "Einladungen der Spielleitung funktionieren in jeder Einstellung außer „Geschlossen“.": "Invitations from game masters work with every setting except “Closed”.",
+@@ -1237,10 +1178,8 @@ EN: dict[str, str] = {
+     "Mail erneut senden": "Send e-mail again",
+     "Mit Registrierungscode – wer den Code von dir hat, legt ein Konto an (ohne Kampagne)": "With registration code – anyone who has the code from you creates an account (without a campaign)",
+-    "Mit SL-Freigabe legt nur eigene Kampagnen an, wen du freigegeben hast. Anfragen kommen per Mail und stehen unter „SL-Freigaben“. Wer eingeladen wird, spielt immer mit.": "With game master approval, only people you have approved can create their own campaigns. Requests arrive by e-mail and are listed under “Game master approvals”. Anyone who is invited can always play.",
+     "Neue Anfrage erlauben": "Allow a new request",
+     "Nichts geändert – der Stand hatte sich schon geändert.": "Nothing changed – the status had already changed.",
+     "Noch nichts entschieden.": "Nothing decided yet.",
+     "Nur bei offener Registrierung": "Only with open registration",
+-    "Nur für „Mit Registrierungscode“. Gib ihn persönlich weiter. Der Server merkt sich nur eine Prüfsumme und kann ihn dir nicht wieder anzeigen – notier ihn dir.": "Only for “With registration code”. Pass it on in person. The server only keeps a checksum and cannot show it to you again – write it down.",
+     "Offen – jede Person kann ein Konto anlegen": "Open – anyone can create an account",
+     "Offene Anfragen": "Open requests",
+@@ -1259,4 +1198,67 @@ EN: dict[str, str] = {
+     "{name} ablehnen": "Decline {name}",
+     "{name} freigeben": "Approve {name}",
++    # 0.4.130: kürzere Hilfetexte, Zuklappen nach Betriebsart
++    "1 Kampagne erlaubt es": "1 campaign allows it",
++    "{n} Kampagnen erlauben es": "{n} campaigns allow it",
++    "Andere Anbieter im Vergleich": "Compare other providers",
++    "App im Browser und App-Fassungen (selten nötig)": "App in the browser and app versions (rarely needed)",
++    "Bei Mistral empfohlen: Kapitel mit mistral-medium-latest, Vorschläge mit mistral-large-latest.": "Recommended for Mistral: chapter with mistral-medium-latest, proposals with mistral-large-latest.",
++    "Benutzername und Passwort gehen immer. Anmeldedienste wie Google sind für Mitglieder freiwillig.": "Username and password always work. Sign-in services like Google are optional for members.",
++    "Cloud als Ausweichlösung": "Cloud as fallback",
++    "Cloud-Kosten werden abgerechnet, wie sie anfallen, plus Aufschlag; die Cloud-Werte hier sind nur die Schätzung vor dem Start. Worker-Arbeit kostet, was du festlegst.": "Cloud costs are charged as they occur, plus markup; the cloud values here are only the estimate before the start. Worker jobs cost what you set.",
++    "Dann legt nur eigene Kampagnen an, wen du unter „SL-Freigaben“ freigegeben hast. Eingeladene spielen immer mit.": "Then only people you approved under “Game master approvals” can create their own campaigns. Invited people can always play.",
++    "Daten exportieren und das eigene Konto löschen kann jede Person selbst in der App.": "Everyone can export their data and delete their own account in the app.",
++    "Der Anbieter rechnet den gleichen Anfang jedes Aufrufs günstiger ab.": "The provider charges less for the same beginning of each request.",
++    "Der Biograf fasst zusammen und gewichtet, statt Szene für Szene nachzuerzählen.": "The biographer summarises and weighs instead of retelling scene by scene.",
++    "Der Server holt neue Fassungen einmal am Tag und bietet sie selbst an. Handys und Worker fragen nur diesen Server.": "The server fetches new versions once a day and offers them itself. Phones and workers only ask this server.",
++    "Der Server meldet Probleme wie fehlgeschlagene Aufträge, ein fast erreichtes Kostenlimit oder knappen Speicher – nie mit Inhalten aus Kampagnen.": "The server reports problems such as failed jobs, a nearly reached cost limit or low storage – never with campaign content.",
++    "Der empfohlene Weg vergisst weniger und erfindet weniger, kostet über die Cloud aber etwa 30 Cent je Kapitel. Nur für die Cloud-API.": "The recommended way misses less and invents less, but costs about 30 cents per chapter via the cloud. Cloud API only.",
++    "Die Abschrift geht an den Anbieter: Vertrag zur Auftragsverarbeitung und Absatz im Datenschutzhinweis nicht vergessen.": "The transcript goes to the provider: remember the data processing agreement and a paragraph in the privacy notice.",
++    "Die Aufnahmen schreibt der Cloud-Anbieter ab.": "The cloud provider transcribes the recordings.",
++    "Die Cloud-Transkription ist nicht eingerichtet – neue Runden bleiben liegen.": "Cloud transcription is not set up – new sessions stay in the queue.",
++    "Die eigene Web-App dieses Servers geht immer. Die des Projekts sieht keine Inhalte – der Browser spricht direkt mit diesem Server. Nur mit HTTPS.": "This server's own web app always works. The project's web app sees no content – the browser talks directly to this server. HTTPS only.",
++    "Die empfohlene Ansicht markiert nur Nachgerechnetes und Unklares und spart etwa ein Fünftel der Kosten.": "The recommended view only marks what was checked and what is unclear, and saves about a fifth of the cost.",
++    "Echte Transkription einschalten": "Turn on real transcription",
++    "Eigene Kampagnen legt nur an, wen du freigegeben hast. Wer eingeladen wird, spielt immer mit.": "Only people you approved can create their own campaigns. Invited people can always play.",
++    "Eigene Worker (für die Betriebsart „Lokaler Server“)": "Own workers (for the “Local server” mode)",
++    "Eingeschaltet sehen Spielleitungen ihr Guthaben auf der Guthaben-Seite dieses Servers. Das Kostenlimit unter Einstellungen bleibt als Notbremse.": "When on, game masters see their credit on this server's credit page. The cost limit under Settings stays as an emergency brake.",
++    "Empfohlen: auto – jeder Worker wählt nach seiner Grafikkarte und lädt das Modell beim ersten Auftrag selbst.": "Recommended: auto – each worker picks by its graphics card and downloads the model on its first job.",
++    "Enthält alle Inhalte, Konten und Einstellungen – sicher aufbewahren.": "Contains all content, accounts and settings – keep it safe.",
++    "Ersetzt nur die Abschrift. Zeilen wie „[1:02:03] Name: Text“.": "Replaces only the transcript. Lines like “[1:02:03] Name: Text”.",
++    "Erweitert: Weg zum Kapitel, Prüfung, Kosten": "Advanced: path to the chapter, checks, costs",
++    "Eure Worker schreiben die Aufnahmen ab, auf Wunsch mit der Cloud als Ausweichlösung.": "Your workers transcribe the recordings, optionally with the cloud as fallback.",
++    "Frist (nur für „Wenn die Spielleitung das Kapitel freigibt“)": "Period (only for “When the GM releases the chapter”)",
++    "Für alle Cloud-Dienste zusammen. Ist es erreicht, warten Aufträge bis zum nächsten Monat. 0 = ohne Limit.": "For all cloud services together. Once reached, jobs wait until next month. 0 = no limit.",
++    "Gib ihn persönlich weiter. Der Server zeigt ihn nie wieder an – notier ihn dir.": "Hand it over in person. The server never shows it again – write it down.",
++    "Gilt für Kampagnen, in denen die SL die Cloud erlaubt ({kampagnen}). Etwa {cent} Cent pro Stunde Aufnahme.": "Applies to campaigns where the GM allows the cloud ({kampagnen}). About {cent} cents per hour of recording.",
++    "Höchstens {n} Tage.": "At most {n} days.",
++    "Jeder eingeschaltete Dienst gehört in den Datenschutzhinweis.": "Every service you turn on belongs in the privacy notice.",
++    "Leer lassen, um den hinterlegten Schlüssel zu behalten.": "Leave empty to keep the stored key.",
++    "Meist nicht nötig: Mitglieder kommen über Einladungen der Spielleitung dazu. Das Startpasswort gibst du persönlich weiter.": "Usually not needed: members join through invitations from the game master. Hand over the start password in person.",
++    "Mistral: Standort, Training, Schlüssel": "Mistral: location, training, key",
++    "Nur für ein fest eingetragenes Modell.": "Only for a fixed model.",
++    "Nur für Änderungen, denen alle erneut zustimmen müssen – bis dahin können Mitglieder in der App nur lesen. Tippfehler brauchen keine neue Fassung.": "Only for changes everyone must agree to again – until then members can only read in the app. Typos need no new version.",
++    "Nur nötig, wenn Aufnahmen länger bleiben sollen. Danach den Datenschutzhinweis anpassen.": "Only needed if recordings should be kept longer. Then update the privacy notice.",
++    "Nur zum Vergleichen. Erst nach Probeläufen ändern.": "For comparisons only. Change only after trial runs.",
++    "Preise für eigene Worker": "Prices for own workers",
++    "Prüft jeden Absatz gegen die Abschrift und zeigt der Spielleitung die Belege. Etwa ein Drittel mehr Rechenzeit.": "Checks every paragraph against the transcript and shows the game master the evidence. About a third more computing time.",
++    "Registrierungscode (nur für „Mit Registrierungscode“)": "Registration code (only for “With registration code”)",
++    "Schreibt Kapitel und Vorschläge einer Runde neu, ohne die Runde zu verändern. Nur Runden aus deinen eigenen Kampagnen, die Cloud nur mit Freigabe der Kampagne. Kosten zählen zum Monatslimit.": "Rewrites the chapter and proposals of a session without changing the session. Only sessions from your own campaigns, the cloud only if the campaign allows it. Costs count toward the monthly limit.",
++    "So bekommst du den Zugangsschlüssel – einmalig und kostenlos": "How to get the access token – once and free of charge",
++    "Springt ein, wenn eine Runde länger als die Wartezeit auf einen Worker wartet und die SL die Cloud erlaubt ({kampagnen}). Etwa {cent} Cent pro Stunde Aufnahme.": "Steps in when a session waits for a worker longer than the waiting time and the GM allows the cloud ({kampagnen}). About {cent} cents per hour of recording.",
++    "Transkription über die Cloud": "Transcription via the cloud",
++    "Unklares bleibt im Kapitel vage und wird der Spielleitung gezeigt. Etwa 3 Cent je Kapitel.": "Anything unclear stays vague in the chapter and is shown to the game master. About 3 cents per chapter.",
++    "Verschickt Benachrichtigungen an dich und Links für „Passwort vergessen“.": "Sends notifications to you and links for “Forgot password”.",
++    "Von Hand aktualisieren": "Update by hand",
++    "Weitere Anmeldedienste": "More sign-in services",
++    "Wer aus der Abschrift Kapitel und Bibel-Vorschläge schreibt.": "Who writes the chapter and bible proposals from the transcript.",
++    "Wer verarbeiten lässt, zahlt aus einem Guthaben – Spieler zahlen nie. Bis zum Aufladen mit Bezahlung gibt es Gutschriften und Gutscheine.": "Whoever has sessions processed pays from a credit – players never pay. Until paid top-ups arrive, there are credits and vouchers.",
++    "Wie lange eine Aufnahme nach der Umwandlung in Text bleibt. Die App nennt die Frist im Einwilligungstext.": "How long a recording stays after it has been turned into text. The app names the deadline in the consent text.",
++    "Wiederherstellen: Server beenden, dann „chronik wiederherstellen <Datei>“.": "Restore: stop the server, then run “chronik wiederherstellen <file>”.",
++    "Zeigt die App beim Hinzufügen des Servers. Daraus entstehen auch Datenschutzhinweis und Impressum.": "Shown by the app when adding the server. The privacy notice and legal notice are built from it as well.",
++    "Zum Beispiel ein Netzlaufwerk – dann übersteht die Sicherung auch einen Ausfall dieses Servers.": "For example a network drive – then the backup survives a failure of this server.",
++    "Zum Vergleichen: Abschrift, Weg, Stil, Modell": "For comparison: transcript, path, style, model",
++    "{name} einrichten": "Set up {name}",
++    "Am {zeit} kamen mehr neue Konten über die offene Registrierung, als der Server zulässt (30 je Stunde, 200 je Tag). Weitere mussten warten.": "On {zeit}, more new accounts arrived through open registration than the server allows (30 per hour, 200 per day). Further ones had to wait.",
+ }
+ 
+diff --git a/app/verwaltung/router.py b/app/verwaltung/router.py
+index aa9621b..b05491c 100644
+--- a/app/verwaltung/router.py
++++ b/app/verwaltung/router.py
+@@ -36,4 +36,5 @@ from app.config import get_settings
+ from app.db import get_db, server_id, utcnow
+ from app.einstellungen import angaben, meta_lesen, meta_schreiben, speichern
++from app.aliasse import zeichen_bereinigen
+ from app.links import betreiber_link
+ from app.models import (
+@@ -71,4 +72,5 @@ def _icon(name: str):
+ templates.env.globals["icon"] = _icon
+ templates.env.filters["datenschutz_link"] = links_modul.datenschutz_link
++templates.env.filters["rein"] = zeichen_bereinigen  # 0.4.130: Namen ohne Steuer- und Richtungszeichen
+ BERLIN = ZoneInfo("Europe/Berlin")
+ 
+@@ -237,4 +239,6 @@ def csrf_pruefen(request: Request, csrf: str = Form("")) -> None:
+ def _seite(request: Request, name: str, user: User | None, db: Session, status_code: int = 200,
+            **ctx) -> HTMLResponse:
++    from app.einrichtung import betriebsart
++
+     sprache = sprache_von(request)
+     _ = uebersetzer(sprache)
+@@ -245,8 +249,20 @@ def _seite(request: Request, name: str, user: User | None, db: Session, status_c
+         "aktiv": name.removesuffix(".html"), "_": _, "sprache": sprache, "sprachen": SPRACHEN,
+         "zeit": _zeitformat(sprache), "groesse": _groesse, "leitsatz": None,
+-        "einzelplatz": get_settings().taleward_einzelplatz, **ctx,
++        "einzelplatz": get_settings().taleward_einzelplatz,
++        # 0.4.130: Betriebsart für alle Seiten – bei „Nur Cloud“ klappen Worker-Teile zu
++        "betrieb": betriebsart(db) if user is not None else None, **ctx,
+     }, status_code=status_code)
+ 
+ 
++def _offen_grenze_kuerzlich():
++    """Zeitpunkt, an dem die Obergrenze der offenen Registrierung zuletzt griff – nur innerhalb eines Tages."""
++    from datetime import timedelta
++
++    from app.konto import OFFEN_GRENZE_ERREICHT
++
++    zeit = OFFEN_GRENZE_ERREICHT["zeit"]
++    return zeit if zeit is not None and zeit > utcnow() - timedelta(days=1) else None
++
++
+ def _zurueck(pfad: str, ok: str | None = None) -> RedirectResponse:
+     pfad, _, anker = pfad.partition("#")
+@@ -1387,4 +1403,5 @@ def einstellungen(request: Request, user: User = Depends(verwalter), db: Session
+                   registrierung=registrierung(db), limit_euro=(limit or 0) / 100,
+                   registrierungscode=registrierungscode_gesetzt(db), sl_freigabe=slfreigabe.einstellung(db),
++                  offen_grenze=_offen_grenze_kuerzlich(),
+                   einzelzahler=slfreigabe.einzelzahler(db),
+                   aufbewahrung=aufbewahrung.lesen(db), hoechstens_tage=aufbewahrung.HOECHSTENS_TAGE,
+diff --git a/app/verwaltung/static/eingebaut.js b/app/verwaltung/static/eingebaut.js
+index a937a55..bb6a8ce 100644
+--- a/app/verwaltung/static/eingebaut.js
++++ b/app/verwaltung/static/eingebaut.js
+@@ -19,5 +19,6 @@
+ 
+ // Verwaltung → Zusammenfassung: Anbieter-Auswahl zeigt den passenden Hinweis, trägt Adresse und empfohlenes Modell
+-// ein und blendet die Bestätigung nur ein, wenn sie nötig ist. Ohne JavaScript bleiben alle Hinweise aufklappbar.
++// ein und blendet Adressfeld und Bestätigung nur ein, wenn sie nötig sind. Ohne JavaScript bleiben alle Hinweise
++// aufklappbar (der gewählte Anbieter oben, die übrigen unter „Andere Anbieter im Vergleich“).
+ (function () {
+   var wahl = document.getElementById("anbieter-wahl");
+@@ -40,9 +41,18 @@
+   var bestaetigung = document.getElementById("anbieter-bestaetigung");
+   var infos = document.querySelectorAll(".anbieter-info");
++  var gruppe = document.querySelector(".anbieter-gruppe");
++  var urlFeld = document.getElementById("anbieter-url-feld");
+   var vorher = wahl.value;
+   function zeigen(gewechselt) {
+     var o = wahl.options[wahl.selectedIndex];
+-    for (var i = 0; i < infos.length; i++) { infos[i].open = infos[i].dataset.anbieter === wahl.value; }
++    if (gewechselt) {  // den Hinweis zum neuen Anbieter aufklappen, die übrigen zu
++      for (var i = 0; i < infos.length; i++) {
++        var passt = infos[i].dataset.anbieter === wahl.value;
++        infos[i].open = passt;
++        if (passt && gruppe && gruppe.contains(infos[i])) gruppe.open = true;
++      }
++    }
+     if (url) { url.disabled = wahl.value !== "andere"; if (gewechselt && wahl.value !== "andere") url.value = ""; }
++    if (urlFeld) urlFeld.hidden = wahl.value !== "andere";
+     if (gewechselt) {
+       var liste = [];
+diff --git a/app/verwaltung/static/verwaltung.css b/app/verwaltung/static/verwaltung.css
+index a22f541..893ba79 100644
+--- a/app/verwaltung/static/verwaltung.css
++++ b/app/verwaltung/static/verwaltung.css
+@@ -292,2 +292,9 @@ code.ganz { user-select:all; } /* ein Tippen markiert die ganze Adresse zum Kopi
+ .trenner { border:none; border-top:1px solid var(--line-strong); margin:var(--space-8) 0 var(--space-6); }
+ .karte > .knopfzeile { margin-top:var(--space-4); }
++
++/* 0.4.130: Was zur Betriebsart nicht passt, steht zugeklappt. .klappteil fasst ganze Karten zusammen,
++   .klappe einzelne Teile eines Formulars. */
++.klappteil { margin:0 0 var(--space-6); }
++.klappteil > summary { font:700 18px/24px var(--font-serif); color:var(--ink); }
++.klappteil[open] > summary { margin-bottom:var(--space-4); }
++.formular > .klappe[open], .formular .klappe[open] { display:grid; gap:var(--space-4); }
+diff --git a/app/verwaltung/templates/abrechnung.html b/app/verwaltung/templates/abrechnung.html
+index f3264c2..ce076f7 100644
+--- a/app/verwaltung/templates/abrechnung.html
++++ b/app/verwaltung/templates/abrechnung.html
+@@ -4,5 +4,5 @@
+ {% set arten = {"zahlung": _("Zahlung"), "gutschrift": _("Gutschrift"), "gutschein": _("Gutschein"), "verbrauch": _("Verarbeitung"), "rueckbuchung": _("Rückbuchung"), "erstattung": _("Erstattung"), "korrektur": _("Korrektur")} %}
+ <h1>{{ _("Abrechnung") }}</h1>
+-<p class="leise">{{ _("Wer verarbeiten lässt, zahlt aus einem Guthaben. Spieler zahlen nie. Aufladen mit Bezahlung kommt in einer späteren Fassung; bis dahin gibt es Gutschriften und Gutscheine.") }}</p>
++<p class="leise">{{ _("Wer verarbeiten lässt, zahlt aus einem Guthaben – Spieler zahlen nie. Bis zum Aufladen mit Bezahlung gibt es Gutschriften und Gutscheine.") }}</p>
+ {% if not faktor %}<div class="hinweis">{{ _("Ohne zweiten Faktor kannst du hier nur nachsehen und die Abrechnung ausschalten. Einschalten, Preise, Gutschriften und Gutscheine brauchen ihn.") }} <a href="/verwaltung/anmeldung#zweiter-faktor">{{ _("Zweiten Faktor einrichten") }}</a></div>{% endif %}
+ 
+@@ -36,5 +36,5 @@
+     <label class="haken"><input type="radio" name="modus" value="{{ wert }}" {% if modus == wert %}checked{% endif %}> {{ text }}</label>
+     {% endfor %}
+-    <p class="hilfe">{{ _("Eingeschaltet sehen Spielleitungen ihr Guthaben unter /guthaben auf diesem Server. Die monatliche Kostengrenze unter Einstellungen bleibt als Notbremse.") }}</p>
++    <p class="hilfe">{{ _("Eingeschaltet sehen Spielleitungen ihr Guthaben auf der Guthaben-Seite dieses Servers. Das Kostenlimit unter Einstellungen bleibt als Notbremse.") }}</p>
+     {% if cloud_ohne_schaetzung %}<p class="meldung meldung--fehler">{{ _("Für die Cloud fehlen noch Schätzwerte: {arten}. Ohne sie schätzt der Server solche Aufträge mit 0 € – Freigabe-Betrag und Deckel greifen dann nicht. Trag die Werte unter „Preise und Grenzen“ ein, bevor du einschaltest.", arten=cloud_ohne_schaetzung) }}</p>{% endif %}
+     <div><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
+@@ -42,16 +42,23 @@
+ </div>
+ 
++{% if modus == "aus" %}<details class="klappteil" id="preise"{% if cloud_ohne_schaetzung %} open{% endif %}><summary>{{ _("Preise und Grenzen") }}</summary>{% endif %}
+ <div class="karte">
+   <h2>{{ _("Preise und Grenzen") }}</h2>
+-  <p class="hilfe">{{ _("Cloud-Kosten werden so abgerechnet, wie sie anfallen, plus Aufschlag. Die Cloud-Werte hier dienen nur der Schätzung vor dem Start. Worker-Arbeit kostet, was du hier festlegst, gemessen an der Länge der Aufnahme bzw. den Seiten.") }}</p>
++  <p class="hilfe">{{ _("Cloud-Kosten werden abgerechnet, wie sie anfallen, plus Aufschlag; die Cloud-Werte hier sind nur die Schätzung vor dem Start. Worker-Arbeit kostet, was du festlegst.") }}</p>
+   <form class="formular" method="post" action="/verwaltung/abrechnung/preise">
+     <input type="hidden" name="csrf" value="{{ csrf }}">
+-    {% for name, text, ist_euro in preisfelder %}
+-    <label>{{ _(text) }} <input type="text" name="{{ name }}" value="{{ euro_feld(werte[name]) if ist_euro else werte[name] }}" inputmode="decimal" required maxlength="12"></label>
++    {% macro preisfeld(name, text, ist_euro) %}<label>{{ _(text) }} <input type="text" name="{{ name }}" value="{{ euro_feld(werte[name]) if ist_euro else werte[name] }}" inputmode="decimal" required maxlength="12"></label>{% endmacro %}
++    {% set worker_zu = betrieb == "cloud" %}
++    {% for name, text, ist_euro in preisfelder if not (worker_zu and name.startswith("worker_")) %}
++    {{ preisfeld(name, text, ist_euro) }}
+     {% endfor %}
++    {% if worker_zu %}<details class="klappe"><summary>{{ _("Preise für eigene Worker") }}</summary>
++    {% for name, text, ist_euro in preisfelder if name.startswith("worker_") %}{{ preisfeld(name, text, ist_euro) }}
++    {% endfor %}</details>{% endif %}
+     <p class="hilfe">{{ _("Automatisch geschätzt (bei 0): Transkription {t} je Stunde, Kapitel {k} je Stunde, Korrektur {r}, SL-Unterlage {u} je Seite. Grundlage sind die bisherigen Cloud-Läufe; solange es keine gibt, die Preise des Anbieters.", t=automatisch.transcribe, k=automatisch.summarize, r=automatisch.revise, u=automatisch.document) }}</p>
+     <div><button class="tw-btn tw-btn--secondary" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Speichern") }}</button></div>
+   </form>
+ </div>
++{% if modus == "aus" %}</details>{% endif %}
+ 
+ {% if an %}
+@@ -123,4 +130,5 @@
+ {% endif %}
+ 
++{% if protokoll or modus != "aus" %}
+ <div class="karte">
+   <h2>{{ _("Protokoll") }}</h2>
+@@ -133,3 +141,4 @@
+   </ul>
+ </div>
++{% endif %}
+ {% endblock %}
+diff --git a/app/verwaltung/templates/anmeldung.html b/app/verwaltung/templates/anmeldung.html
+index 924e70c..76882b3 100644
+--- a/app/verwaltung/templates/anmeldung.html
++++ b/app/verwaltung/templates/anmeldung.html
+@@ -6,15 +6,12 @@
+ <div class="karte">
+   <h2>{{ _("So melden sich Mitglieder an") }}</h2>
+-  <p>{{ _("Benutzername und Passwort gehen immer. Zusätzlich könnt ihr hier Anmeldedienste einrichten – die App zeigt dann „Mit Google anmelden“ usw. Jeder Dienst ist für die Mitglieder freiwillig.") }}</p>
++  <p>{{ _("Benutzername und Passwort gehen immer. Anmeldedienste wie Google sind für Mitglieder freiwillig.") }}</p>
+   <p><span class="marke-status{% if mail_bereit %} marke-status--gut{% endif %}">{{ _("„Passwort vergessen“ per E-Mail") }}: {{ _("eingerichtet") if mail_bereit else _("aus") }}</span>
+     {% if not mail_bereit %}<a href="/verwaltung/einstellungen#benachrichtigungen">{{ _("Mailserver unter Einstellungen eintragen") }}</a>{% endif %}</p>
+-  <p class="hilfe">{{ _("Die E-Mail-Adresse ist für Mitglieder freiwillig und dient nur dazu, das Passwort selbst zurückzusetzen.") }}</p>
+   <p class="umbruch">{{ _("Öffentliche Adresse des Servers") }}: <code class="ganz">{{ basis }}</code>{% if not https %} <span class="marke-status marke-status--fehler">{{ _("ohne HTTPS") }}</span>{% endif %}</p>
+   {% if not https %}<p class="hilfe">{{ _("Die Anmeldedienste verlangen eine eigene Domain mit HTTPS. Die Adresse stellst du unter Einstellungen ein.") }}</p>{% endif %}
+ </div>
+-{% for d in dienste %}
+-<div class="karte" id="{{ d.id }}">
+-  <h2>{{ d.name }} {% if d.k.eingerichtet %}<span class="marke-status marke-status--gut">{{ _("eingerichtet") }}</span>{% else %}<span class="marke-status">{{ _("aus") }}</span>{% endif %}</h2>
+-  <details {% if not d.k.eingerichtet %}{% endif %}><summary>{{ _("Anleitung") }}</summary>
++{% macro dienst_formular(d) %}
++  <details><summary>{{ _("Anleitung") }}</summary>
+     <ol class="hilfe">{% for s in d.schritte %}<li>{{ _(s) }}</li>{% endfor %}</ol>
+     <p class="hilfe"><a href="{{ d.link }}" rel="noopener noreferrer" target="_blank">{{ _("Zur Seite des Anbieters") }}</a></p>
+@@ -34,6 +31,22 @@
+     <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Speichern") }}</button></div>
+   </form>
++{% endmacro %}
++{% for d in dienste if d.k.eingerichtet %}
++<div class="karte" id="{{ d.id }}">
++  <h2>{{ d.name }} <span class="marke-status marke-status--gut">{{ _("eingerichtet") }}</span></h2>
++  {{ dienst_formular(d) }}
+ </div>
+ {% endfor %}
+-<p class="hilfe">{{ _("Nicht vergessen: Jeder eingeschaltete Dienst gehört in den Datenschutzhinweis. Die Vorlage im Assistenten ergänzt ihn automatisch.") }} <a href="/verwaltung/assistent/datenschutz">{{ _("Datenschutzhinweis") }}</a></p>
++{% set offen = dienste|rejectattr("k.eingerichtet")|list %}
++{% if offen %}
++<div class="karte" id="weitere">
++  <h2>{{ _("Weitere Anmeldedienste") }}</h2>
++  {% for d in offen %}
++  <details class="klappe" id="{{ d.id }}"{% if d.k.client_id %} open{% endif %}><summary>{{ _("{name} einrichten", name=d.name) }}</summary>
++  {{ dienst_formular(d) }}
++  </details>
++  {% endfor %}
++</div>
++{% endif %}
++<p class="hilfe">{{ _("Jeder eingeschaltete Dienst gehört in den Datenschutzhinweis.") }} <a href="/verwaltung/assistent/datenschutz">{{ _("Datenschutzhinweis") }}</a></p>
+ {% endblock %}
+diff --git a/app/verwaltung/templates/einstellungen.html b/app/verwaltung/templates/einstellungen.html
+index 7e12337..cc3af89 100644
+--- a/app/verwaltung/templates/einstellungen.html
++++ b/app/verwaltung/templates/einstellungen.html
+@@ -9,5 +9,5 @@
+ <div class="karte" id="betreiber">
+   <h2>{{ _("Angaben für die App") }}</h2>
+-  <p class="leise">{{ _("Die App zeigt sie beim Hinzufügen des Servers (Betreiber, Kontakt, Datenschutzhinweis). Daraus füllen sich auch die Vorlagen für Datenschutzhinweis und Impressum.") }}</p>
++  <p class="leise">{{ _("Zeigt die App beim Hinzufügen des Servers. Daraus entstehen auch Datenschutzhinweis und Impressum.") }}</p>
+   <div class="formular">
+     <label>{{ _("Name des Servers") }} <input type="text" name="server_name" value="{{ angaben.server_name }}" required maxlength="100"></label>
+@@ -40,4 +40,5 @@
+ <div class="karte" id="konten">
+   <h2>{{ _("Neue Konten") }}</h2>
++  {% if offen_grenze %}<div class="hinweis">{{ _("Am {zeit} kamen mehr neue Konten über die offene Registrierung, als der Server zulässt (30 je Stunde, 200 je Tag). Weitere mussten warten.", zeit=zeit(offen_grenze)) }}</div>{% endif %}
+   <div class="formular">
+     <label>{{ _("Registrierung") }}
+@@ -48,7 +49,9 @@
+         <option value="closed" {% if registrierung == "closed" %}selected{% endif %}>{{ _("Geschlossen – Konten legt nur die Verwaltung an") }}</option>
+       </select>
+-      <span class="hilfe">{{ _("Einladungen der Spielleitung funktionieren in jeder Einstellung außer „Geschlossen“.") }} {{ _("Bei der Registrierung bestätigt jede Person den Datenschutzhinweis und das Mindestalter; beides wird mit Zeitpunkt gespeichert.") }}</span></label>
++      <span class="hilfe">{{ _("Einladungen der Spielleitung funktionieren in jeder Einstellung außer „Geschlossen“.") }}</span></label>
++    {% if registrierung != "code" %}<details class="klappe"><summary>{{ _("Registrierungscode (nur für „Mit Registrierungscode“)") }}</summary>{% endif %}
+     <label>{{ _("Registrierungscode") }} <input type="text" name="registrierungscode" autocomplete="off" maxlength="80" placeholder="{{ _('eingetragen – zum Ändern neu eingeben') if registrierungscode else _('noch keiner') }}">
+-      <span class="hilfe">{{ _("Nur für „Mit Registrierungscode“. Gib ihn persönlich weiter. Der Server merkt sich nur eine Prüfsumme und kann ihn dir nicht wieder anzeigen – notier ihn dir.") }}</span></label>
++      <span class="hilfe">{{ _("Gib ihn persönlich weiter. Der Server zeigt ihn nie wieder an – notier ihn dir.") }}</span></label>
++    {% if registrierung != "code" %}</details>{% endif %}
+     <label>{{ _("SL-Freigabe verlangen") }}
+       <select name="sl_freigabe" {% if einzelzahler %}aria-describedby="sl-freigabe-hilfe"{% endif %}>
+@@ -56,5 +59,5 @@
+         <option value="immer" {% if sl_freigabe == "immer" %}selected{% endif %}>{{ _("Immer") }}</option>
+       </select>
+-      <span class="hilfe" id="sl-freigabe-hilfe">{% if einzelzahler %}{{ _("Entfällt, weil jede Spielleitung ihr Guthaben selbst bezahlt (Abrechnung: Einzelzahler).") }}{% else %}{{ _("Mit SL-Freigabe legt nur eigene Kampagnen an, wen du freigegeben hast. Anfragen kommen per Mail und stehen unter „SL-Freigaben“. Wer eingeladen wird, spielt immer mit.") }}{% endif %}</span></label>
++      <span class="hilfe" id="sl-freigabe-hilfe">{% if einzelzahler %}{{ _("Entfällt, weil jede Spielleitung ihr Guthaben selbst bezahlt (Abrechnung: Einzelzahler).") }}{% else %}{{ _("Dann legt nur eigene Kampagnen an, wen du unter „SL-Freigaben“ freigegeben hast. Eingeladene spielen immer mit.") }}{% endif %}</span></label>
+   </div>
+   <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
+@@ -65,5 +68,5 @@
+ <div class="karte" id="aufnahmen">
+   <h2>{{ _("Aufnahmen") }}</h2>
+-  <p class="leise">{{ _("Wie lange eine Aufnahme nach der Umwandlung in Text auf dem Server bleibt. Solange sie da ist, lässt sich die Zusammenfassung gegen sie prüfen und die Transkription wiederholen. Die App nennt die Frist im Einwilligungstext.") }}</p>
++  <p class="leise">{{ _("Wie lange eine Aufnahme nach der Umwandlung in Text bleibt. Die App nennt die Frist im Einwilligungstext.") }}</p>
+   <div class="formular">
+     <label>{{ _("Aufnahmen löschen") }}
+@@ -72,9 +75,11 @@
+         <option value="immediate" {% if not aufbewahrung.bis_freigabe %}selected{% endif %}>{{ _("Sofort nach der Umwandlung in Text") }}</option>
+       </select></label>
++    {% if not aufbewahrung.bis_freigabe %}<details class="klappe"><summary>{{ _("Frist (nur für „Wenn die Spielleitung das Kapitel freigibt“)") }}</summary>{% endif %}
+     <label>{{ _("Höchstens (Tage)") }} <input type="number" name="audio_tage" value="{{ aufbewahrung.tage }}" min="1" max="{{ hoechstens_tage }}">
+-      <span class="hilfe">{{ _("Gilt nur für „Wenn die Spielleitung das Kapitel freigibt“. Höchstens {n} Tage.", n=hoechstens_tage) }}</span></label>
++      <span class="hilfe">{{ _("Höchstens {n} Tage.", n=hoechstens_tage) }}</span></label>
++    {% if not aufbewahrung.bis_freigabe %}</details>{% endif %}
+     <label class="haken"><input type="checkbox" name="audio_bestaetigt" value="ja">
+       <span>{{ _("Mir ist klar: Sollen Aufnahmen länger bleiben als bisher, müssen alle Mitglieder in der App neu zustimmen (zurzeit {n} Zustimmungen).", n=zustimmungen) }}</span></label>
+-    <span class="hilfe">{{ _("Nur nötig, wenn die Aufbewahrung verlängert wird. Kürzer stellen geht jederzeit ohne neue Zustimmung. Danach den Datenschutzhinweis anpassen.") }} <a href="/verwaltung/assistent/datenschutz">{{ _("Datenschutzhinweis") }}</a></span>
++    <span class="hilfe">{{ _("Nur nötig, wenn Aufnahmen länger bleiben sollen. Danach den Datenschutzhinweis anpassen.") }} <a href="/verwaltung/assistent/datenschutz">{{ _("Datenschutzhinweis") }}</a></span>
+   </div>
+   <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
+@@ -87,13 +92,14 @@
+   <div class="formular">
+     <label>{{ _("Monatliches Kostenlimit (Euro)") }} <input type="number" name="limit_euro" value="{{ '%g'|format(limit_euro) }}" min="0" max="10000" step="1">
+-      <span class="hilfe">{{ _("Gilt für Cloud-Transkription und Cloud-Sprachmodell zusammen. Ist es erreicht, warten Aufträge bis zum nächsten Monat. 0 = ohne Limit.") }}</span></label>
++      <span class="hilfe">{{ _("Für alle Cloud-Dienste zusammen. Ist es erreicht, warten Aufträge bis zum nächsten Monat. 0 = ohne Limit.") }}</span></label>
+   </div>
+   <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
+ </div>
+ </form>
++{% set app_offen = angaben.app_min_version or angaben.app_latest_version or angaben.app_download_url or web_herkuenfte %}
++<details class="klappteil" id="app"{% if app_offen %} open{% endif %}><summary>{{ _("App im Browser und App-Fassungen (selten nötig)") }}</summary>
+ <form method="post" action="/verwaltung/einstellungen">
+ <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="bereich" value="app">
+-<div class="karte" id="app">
+-  <h2>{{ _("App im Browser und App-Fassungen") }}</h2>
++<div class="karte">
+   <div class="formular">
+     <details{% if angaben.app_min_version or angaben.app_latest_version or angaben.app_download_url %} open{% endif %}>
+@@ -113,5 +119,5 @@
+     <label class="haken"><input type="checkbox" name="web_zentral" value="an" {% if web_zentral %}checked{% endif %}>
+       <span>{{ _("Auch die Web-App des Projekts Taleward ({adresse}) darf diesen Server nutzen", adresse=zentrale_webapp) }}</span></label>
+-    <span class="hilfe">{{ _("Die eigene Web-App dieses Servers (unter /app/) geht immer. Die Web-App des Projekts ist ein Angebot von Taleward, nicht von diesem Server; sie sieht keine Inhalte – der Browser spricht direkt mit diesem Server. Ausschalten, wenn Mitglieder nur die eigene nutzen sollen. Nur mit HTTPS.") }}</span>
++    <span class="hilfe">{{ _("Die eigene Web-App dieses Servers geht immer. Die des Projekts sieht keine Inhalte – der Browser spricht direkt mit diesem Server. Nur mit HTTPS.") }}</span>
+     {% endif %}
+     <label>{{ _("Weitere Adressen für die Web-App") }} <textarea name="web_herkuenfte" rows="2" maxlength="2000" placeholder="https://…">{{ web_herkuenfte }}</textarea>
+@@ -121,4 +127,5 @@
+ </div>
+ </form>
++</details>
+ 
+ <form method="post" action="/verwaltung/benachrichtigungen">
+@@ -126,6 +133,7 @@
+ <div class="karte" id="benachrichtigungen">
+   <h2>{{ _("Benachrichtigungen") }}</h2>
+-  <p class="leise">{{ _("Der Server meldet sich, wenn Aufträge lange auf einen Worker warten, Aufträge fehlschlagen, das Kostenlimit zu 80 % erreicht ist, eine Sicherung fehlschlägt oder der Speicher knapp wird. Inhalte aus Kampagnen stehen nie in den Meldungen.") }}</p>
+-  <h3>{{ _("Per ntfy (Handy-App, ohne Konto)") }}</h3>
++  <p class="leise">{{ _("Der Server meldet Probleme wie fehlgeschlagene Aufträge, ein fast erreichtes Kostenlimit oder knappen Speicher – nie mit Inhalten aus Kampagnen.") }}</p>
++  {% macro zustand(an) %}<span class="marke-status{% if an %} marke-status--gut{% endif %}">{{ _("eingerichtet") if an else _("aus") }}</span>{% endmacro %}
++  <details class="klappe"{% if melden.ntfy_url %} open{% endif %}><summary>{{ _("Per ntfy (Handy-App, ohne Konto)") }}&nbsp;{{ zustand(melden.ntfy_url) }}</summary>
+   <p class="hilfe">{{ _("App „ntfy“ installieren, ein schwer zu erratendes Thema abonnieren (z. B. mein-verein-taleward-7k2q) und hier dieselbe Adresse eintragen.") }}</p>
+   <div class="formular">
+@@ -133,6 +141,7 @@
+     <label>{{ _("Zugangstoken (nur bei eigenem ntfy-Server mit Anmeldung)") }} <input type="password" name="ntfy_token" autocomplete="new-password" data-lpignore="true" data-1p-ignore data-bwignore placeholder="{{ _('gespeichert – leer lassen, um ihn zu behalten') if melden.ntfy_token else '' }}"></label>
+   </div>
+-  <h3>{{ _("E-Mail-Versand") }}</h3>
+-  <p class="hilfe">{{ _("Derselbe Mailserver verschickt Benachrichtigungen an dich und – für Mitglieder, die freiwillig eine Adresse hinterlegen – Links für „Passwort vergessen“.") }}</p>
++  </details>
++  <details class="klappe"{% if melden.smtp_host %} open{% endif %}><summary>{{ _("E-Mail-Versand") }}&nbsp;{{ zustand(melden.smtp_host) }}</summary>
++  <p class="hilfe">{{ _("Verschickt Benachrichtigungen an dich und Links für „Passwort vergessen“.") }}</p>
+   <div class="formular">
+     <label>{{ _("Mailserver (SMTP)") }} <input type="text" name="smtp_host" value="{{ melden.smtp_host }}" maxlength="200" placeholder="smtp.example.org"></label>
+@@ -150,4 +159,5 @@
+       <span class="hilfe">{{ _("Leer = keine Benachrichtigungen per E-Mail.") }}</span></label>
+   </div>
++  </details>
+   <h3>{{ _("Allgemein") }}</h3>
+   <div class="formular">
+@@ -157,5 +167,6 @@
+         <option value="en" {% if melden.sprache == "en" %}selected{% endif %}>English</option>
+       </select></label>
+-    <label>{{ _("Melden, wenn Aufträge so viele Stunden ohne Worker warten") }} <input type="number" name="stunden" value="{{ melden.stunden }}" min="1" max="168"></label>
++    {% if betrieb == "cloud" %}<input type="hidden" name="stunden" value="{{ melden.stunden }}">
++    {% else %}<label>{{ _("Melden, wenn Aufträge so viele Stunden ohne Worker warten") }} <input type="number" name="stunden" value="{{ melden.stunden }}" min="1" max="168"></label>{% endif %}
+     {% if melden.ntfy_token or melden.smtp_pass %}<label class="haken"><input type="checkbox" name="zugang_loeschen" value="1"> {{ _("Gespeicherten Token und Passwort löschen") }}</label>{% endif %}
+   </div>
+@@ -168,9 +179,9 @@
+ <p class="hilfe"><a href="/verwaltung/uebergabe">{{ _("Auftragsverarbeitung und Übergabe der Verwaltung") }} →</a></p>
+ <hr class="trenner">
+-<div class="karte karte--achtung" id="nutzungsbedingungen">
+-  <h2>{{ _("Nutzungsbedingungen: neue Fassung") }}</h2>
++<details class="klappteil" id="nutzungsbedingungen"{% if nb_meldung %} open{% endif %}><summary>{{ _("Nutzungsbedingungen: neue Fassung") }}</summary>
++<div class="karte karte--achtung">
+   {% if nb_meldung == "neu" %}<div class="meldung" role="status">{{ _("Neue Fassung {n}. Alle Mitglieder sehen beim nächsten Öffnen der App die Bedingungen und stimmen erneut zu.", n=nb.version) }}</div>
+   {% elif nb_meldung == "falsch" %}<div class="meldung meldung--fehler" role="alert">{{ _("Der eingegebene Name stimmt nicht mit dem Namen des Servers überein. Nichts geändert.") }}</div>{% endif %}
+-  <p>{{ _("Geltende Fassung: {n}.", n=nb.version) }} {{ _("Hast du die Bedingungen so geändert, dass alle erneut zustimmen müssen, zähle die Fassung hoch. Bis zur Zustimmung können Mitglieder in der App nur lesen, Zustimmungen widerrufen, ihre Daten herunterladen und ihr Konto löschen. Tippfehler oder Umformulierungen brauchen keine neue Fassung.") }}</p>
++  <p>{{ _("Geltende Fassung: {n}.", n=nb.version) }} {{ _("Nur für Änderungen, denen alle erneut zustimmen müssen – bis dahin können Mitglieder in der App nur lesen. Tippfehler brauchen keine neue Fassung.") }}</p>
+   <form class="formular" method="post" action="/verwaltung/nutzungsbedingungen/neue-fassung">
+     <input type="hidden" name="csrf" value="{{ csrf }}">
+@@ -179,4 +190,5 @@
+   </form>
+ </div>
++</details>
+ 
+ </div>
+diff --git a/app/verwaltung/templates/konten.html b/app/verwaltung/templates/konten.html
+index d1e123e..f2b0ca0 100644
+--- a/app/verwaltung/templates/konten.html
++++ b/app/verwaltung/templates/konten.html
+@@ -21,5 +21,5 @@
+     <button class="tw-btn tw-btn--primary" type="submit">{{ _("Anlegen") }}</button>
+   </form>
+-  <p class="hilfe">{{ _("Das Startpasswort gibst du der Person persönlich weiter. Mitglieder einer Kampagne kommen über Einladungen der Spielleitung in der App dazu.") }} {{ _("Passwort vergessen? „Passwort-Link erstellen“ – die Person wählt ihr neues Passwort dann selbst.") }}</p>
++  <p class="hilfe">{{ _("Meist nicht nötig: Mitglieder kommen über Einladungen der Spielleitung dazu. Das Startpasswort gibst du persönlich weiter.") }}</p>
+ </div>
+ <div class="karte tabelle-huelle">
+@@ -29,5 +29,5 @@
+     {% for k in konten %}
+       <tr>
+-        <td data-label="{{ _('Konto') }}"><strong>{{ k.u.display_name }}</strong><br><span class="leise">{{ k.u.username }} · {{ _("seit {zeit}", zeit=zeit(k.u.created_at)) }}</span>
++        <td data-label="{{ _('Konto') }}"><strong>{{ k.u.display_name|rein }}</strong><br><span class="leise">{{ k.u.username }} · {{ _("seit {zeit}", zeit=zeit(k.u.created_at)) }}</span>
+           <br><span class="leise">{{ _("Anmeldung") }}: {% for m in k.u.auth_methods %}{{ _("Passwort") if m.kind == "password" else m.kind.split(":")[-1]|capitalize }}{% if not loop.last %}, {% endif %}{% endfor %}{% if k.faktor %} · {{ _("zweiter Faktor") }}{% endif %}{% if k.u.email %} · {{ _("E-Mail bestätigt") }}{% endif %}</span></td>
+         <td data-label="{{ _('Rolle') }}">{% if k.verwalter %}<span class="marke-status marke-status--gut">{{ _("Verwalter") }}</span>{% else %}<span class="leise">{{ _("Mitglied") }}</span>{% endif %}
+@@ -66,4 +66,4 @@
+   </table>
+ </div>
+-<p class="hilfe">{{ _("Seine Daten exportieren und das eigene Konto löschen kann jede Person selbst in der App.") }} {{ _("Bittet dich jemand um die Löschung, erledigst du das hier unter „Konto löschen“ – vorher ggf. den Export in der App.") }}</p>
++<p class="hilfe">{{ _("Daten exportieren und das eigene Konto löschen kann jede Person selbst in der App.") }}</p>
+ {% endblock %}
+diff --git a/app/verwaltung/templates/sl-freigaben.html b/app/verwaltung/templates/sl-freigaben.html
+index a3555af..9a26820 100644
+--- a/app/verwaltung/templates/sl-freigaben.html
++++ b/app/verwaltung/templates/sl-freigaben.html
+@@ -6,5 +6,5 @@
+ <p class="hinweis">{% if einzelzahler %}{{ _("Auf diesem Server braucht niemand eine SL-Freigabe: Jede Spielleitung bezahlt ihr Guthaben selbst (Abrechnung: Einzelzahler).") }}{% else %}{{ _("Auf diesem Server braucht gerade niemand eine SL-Freigabe. Einschalten kannst du sie unter Einstellungen → Neue Konten.") }}{% endif %}</p>
+ {% else %}
+-<p class="leise">{{ _("Eigene Kampagnen legt nur an, wen du freigegeben hast. Wer eingeladen wird, spielt immer mit. Bestehende Kampagnen bleiben, auch wenn du eine Freigabe zurücknimmst.") }}</p>
++<p class="leise">{{ _("Eigene Kampagnen legt nur an, wen du freigegeben hast. Wer eingeladen wird, spielt immer mit.") }}</p>
+ {% endif %}
+ <div class="karte" id="offen">
+@@ -16,12 +16,12 @@
+     {% for u in offene %}
+       <tr id="k-{{ u.id }}">
+-        <td data-label="{{ _('Konto') }}"><strong>{{ u.display_name }}</strong><br><span class="leise">{{ u.username }}</span>
++        <td data-label="{{ _('Konto') }}"><strong>{{ u.display_name|rein }}</strong><br><span class="leise">{{ u.username }}</span>
+           {% if u.gm_mail_fehler %}<br><span class="marke-status marke-status--fehler">{{ _("Mail an die Verwaltung nicht verschickt") }}</span>{% endif %}</td>
+         <td class="leise" data-label="{{ _('Angefragt') }}">{{ zeit(u.gm_requested_at) }}</td>
+         <td>
+           <form method="post" action="/verwaltung/sl-freigaben/{{ u.id }}/freigeben"><input type="hidden" name="csrf" value="{{ csrf }}">
+-            <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit" aria-label="{{ _('{name} freigeben', name=u.display_name) }}">{{ _("Freigeben") }}</button></form>
++            <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit" aria-label="{{ _('{name} freigeben', name=u.display_name|rein) }}">{{ _("Freigeben") }}</button></form>
+           <form method="post" action="/verwaltung/sl-freigaben/{{ u.id }}/ablehnen"><input type="hidden" name="csrf" value="{{ csrf }}">
+-            <button class="tw-btn tw-btn--quiet tw-btn--klein" type="submit" aria-label="{{ _('{name} ablehnen', name=u.display_name) }}">{{ _("Ablehnen") }}</button></form>
++            <button class="tw-btn tw-btn--quiet tw-btn--klein" type="submit" aria-label="{{ _('{name} ablehnen', name=u.display_name|rein) }}">{{ _("Ablehnen") }}</button></form>
+           {% if u.gm_mail_fehler %}
+           <form method="post" action="/verwaltung/sl-freigaben/{{ u.id }}/mail"><input type="hidden" name="csrf" value="{{ csrf }}">
+@@ -46,5 +46,5 @@
+     {% for u in entschiedene %}
+       <tr id="k-{{ u.id }}">
+-        <td data-label="{{ _('Konto') }}"><strong>{{ u.display_name }}</strong><br><span class="leise">{{ u.username }}</span></td>
++        <td data-label="{{ _('Konto') }}"><strong>{{ u.display_name|rein }}</strong><br><span class="leise">{{ u.username }}</span></td>
+         <td data-label="{{ _('Stand') }}">{% if u.gm_permission == "granted" %}<span class="marke-status marke-status--gut">{{ _("Freigegeben") }}</span>{% else %}<span class="marke-status marke-status--fehler">{{ _("Abgelehnt") }}</span>{% endif %}
+           {% if u.gm_decided_at %}<br><span class="leise">{{ zeit(u.gm_decided_at) }}</span>{% elif u.id in verwalter_ids %}<br><span class="leise">{{ _("Verwaltungskonto") }}</span>{% else %}<br><span class="leise">{{ _("schon vor dem Update Spielleitung") }}</span>{% endif %}</td>
+@@ -53,9 +53,9 @@
+             {% if u.id not in verwalter_ids %}
+             <form method="post" action="/verwaltung/sl-freigaben/{{ u.id }}/entziehen"><input type="hidden" name="csrf" value="{{ csrf }}">
+-              <button class="tw-btn tw-btn--quiet tw-btn--klein" type="submit" aria-label="{{ _('Freigabe für {name} zurücknehmen', name=u.display_name) }}">{{ _("Freigabe zurücknehmen") }}</button></form>
++              <button class="tw-btn tw-btn--quiet tw-btn--klein" type="submit" aria-label="{{ _('Freigabe für {name} zurücknehmen', name=u.display_name|rein) }}">{{ _("Freigabe zurücknehmen") }}</button></form>
+             {% endif %}
+           {% else %}
+             <form method="post" action="/verwaltung/sl-freigaben/{{ u.id }}/freigeben"><input type="hidden" name="csrf" value="{{ csrf }}">
+-              <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit" aria-label="{{ _('{name} freigeben', name=u.display_name) }}">{{ _("Doch freigeben") }}</button></form>
++              <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit" aria-label="{{ _('{name} freigeben', name=u.display_name|rein) }}">{{ _("Doch freigeben") }}</button></form>
+             <form method="post" action="/verwaltung/sl-freigaben/{{ u.id }}/erlauben"><input type="hidden" name="csrf" value="{{ csrf }}">
+               <button class="tw-btn tw-btn--quiet tw-btn--klein" type="submit">{{ _("Neue Anfrage erlauben") }}</button></form>
+diff --git a/app/verwaltung/templates/transkription.html b/app/verwaltung/templates/transkription.html
+index a20e043..74f6a54 100644
+--- a/app/verwaltung/templates/transkription.html
++++ b/app/verwaltung/templates/transkription.html
+@@ -3,5 +3,43 @@
+ {% block inhalt %}
+ <h1>{{ _("Transkription") }}</h1>
+-<p class="leise">{{ _("Wer die Aufnahmen in Text verwandelt: eigene Worker und – als Ausweichlösung – ein externer Anbieter.") }}</p>
++{% set nur_cloud = betrieb == "cloud" %}
++<p class="leise">{{ _("Die Aufnahmen schreibt der Cloud-Anbieter ab.") if nur_cloud else _("Eure Worker schreiben die Aufnahmen ab, auf Wunsch mit der Cloud als Ausweichlösung.") }}</p>
++{% macro extern_karte() %}
++<div class="karte" id="extern">
++  <h2>{{ _("Transkription über die Cloud") if nur_cloud else _("Cloud als Ausweichlösung") }}</h2>
++  {% if ext.anbieter %}
++  <p><span class="marke-status marke-status--gut">{{ _("freigegeben") }}</span> {{ ext.anbieter_name }}</p>
++  {% elif ext.gewaehlt %}
++  <p><span class="marke-status marke-status--fehler">{{ _("nicht aktiv") }}</span> {{ _("Es fehlt der API-Schlüssel.") }}</p>
++  {% else %}
++  <p><span class="marke-status">{{ _("aus") }}</span> {{ _("Aufnahmen werden nur von eigenen Workern transkribiert.") }}</p>
++  {% endif %}
++  {% set kampagnen = _("1 Kampagne erlaubt es") if ext.kampagnen == 1 else _("{n} Kampagnen erlauben es", n=ext.kampagnen) %}
++  <p class="hilfe">{% if nur_cloud %}{{ _("Gilt für Kampagnen, in denen die SL die Cloud erlaubt ({kampagnen}). Etwa {cent} Cent pro Stunde Aufnahme.", kampagnen=kampagnen, cent="%.0f"|format(ext.cent * 60)) }}
++    {%- else %}{{ _("Springt ein, wenn eine Runde länger als die Wartezeit auf einen Worker wartet und die SL die Cloud erlaubt ({kampagnen}). Etwa {cent} Cent pro Stunde Aufnahme.", kampagnen=kampagnen, cent="%.0f"|format(ext.cent * 60)) }}{% endif %}</p>
++  <form class="formular" method="post" action="/verwaltung/transkription/extern">
++    <input type="hidden" name="csrf" value="{{ csrf }}">
++    <label>{{ _("Anbieter") }}
++      <select name="anbieter">
++        <option value="" {% if not ext.gewaehlt %}selected{% endif %}>{{ _("Aus") }}</option>
++        <option value="mistral" {% if ext.gewaehlt == "mistral" %}selected{% endif %}>Mistral (Voxtral)</option>
++      </select></label>
++    <details class="anbieter-info"><summary>{{ _("Mistral: Standort, Training, Schlüssel") }}</summary>
++      <p class="hilfe">{{ _("Mistral verarbeitet in der EU. Im kostenlosen Tarif darf Mistral Aufnahmen und Abschriften zum Training nutzen, im bezahlten Tarif lässt sich das abschalten: admin.mistral.ai → Privacy → „Anonymous improvement data“ aus. Schlüssel: console.mistral.ai → „API Keys“ → „Create new key“. Angaben des Anbieters, Stand {datum}, ohne Gewähr.", datum=ext.stand) }}</p>
++      <p class="hilfe">{{ _("Das Audio geht dann an den Anbieter. Dafür braucht es einen Vertrag zur Auftragsverarbeitung und einen Absatz im Datenschutzhinweis.") }}</p>
++    </details>
++    <label>{{ _("API-Schlüssel") }}
++      <input type="password" name="api_key" autocomplete="new-password" data-lpignore="true" data-1p-ignore data-bwignore placeholder="{{ _('hinterlegt, endet auf …{ende}', ende=ext.key_ende) if ext.key_ende else _('von console.mistral.ai') }}">
++      <span class="hilfe">{{ _("Leer lassen, um den hinterlegten Schlüssel zu behalten.") }}</span></label>
++    {% if ext.key_ende %}<label class="haken"><input type="checkbox" name="key_loeschen" value="1"> {{ _("Hinterlegten Schlüssel löschen") }}</label>{% endif %}
++    {% if nur_cloud %}<input type="hidden" name="stunden" value="{{ "%g"|format(ext.stunden) }}">
++    {% else %}<label>{{ _("Wartezeit in Stunden") }} <input type="number" name="stunden" value="{{ "%g"|format(ext.stunden) }}" min="0" max="720" step="0.5"></label>{% endif %}
++    <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Speichern") }}</button></div>
++  </form>
++</div>
++{% endmacro %}
++{% if nur_cloud %}{{ extern_karte() }}
++<details class="klappteil" id="worker-teil"{% if neuer_token or koppel %} open{% endif %}><summary>{{ _("Eigene Worker (für die Betriebsart „Lokaler Server“)") }}</summary>
++{% endif %}
+ {% if neuer_token %}
+ <div class="karte">
+@@ -117,5 +155,5 @@
+       <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Starten") }}</button></div>
+     </form>
+-    {% if not ki %}<p class="hilfe">{{ _("Für die echte Transkription: „uv sync --extra ki“ und den Zugang zum Sprechermodell (Transkription → Sprechermodell, docs/ENTWICKLUNG.md), dann den Server neu starten.") }}</p>{% endif %}
++    {% if not ki %}<details><summary>{{ _("Echte Transkription einschalten") }}</summary><p class="hilfe">{{ _("Für die echte Transkription: „uv sync --extra ki“ und den Zugang zum Sprechermodell (Transkription → Sprechermodell, docs/ENTWICKLUNG.md), dann den Server neu starten.") }}</p></details>{% endif %}
+   {% endif %}
+   {% if log %}
+@@ -142,5 +180,5 @@
+       <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Starten") }}</button></div>
+     </form>
+-    {% if not ki %}<p class="hilfe">{{ _("Für die echte Transkription: „uv sync --extra ki“ und den Zugang zum Sprechermodell (Transkription → Sprechermodell, docs/ENTWICKLUNG.md), dann den Server neu starten.") }}</p>{% endif %}
++    {% if not ki %}<details><summary>{{ _("Echte Transkription einschalten") }}</summary><p class="hilfe">{{ _("Für die echte Transkription: „uv sync --extra ki“ und den Zugang zum Sprechermodell (Transkription → Sprechermodell, docs/ENTWICKLUNG.md), dann den Server neu starten.") }}</p></details>{% endif %}
+   {% endif %}
+   {% if log %}
+@@ -222,6 +260,6 @@
+     <button class="tw-btn tw-btn--secondary" type="submit">{{ _("Zugangsschlüssel erzeugen") }}</button>
+   </form>
+-  </details>
+   <p class="hilfe">{{ _("Der Worker verbindet sich von sich aus mit diesem Server – auf seiner Seite muss kein Port geöffnet werden. Über das Internet nur per HTTPS.") }}</p>
++  </details>
+ </div>
+ 
+@@ -247,5 +285,5 @@
+   <h3>{{ _("Zugang zu Hugging Face") }}</h3>
+   {% if not hf_ende and not modell.stand %}
+-  <p>{{ _("So bekommst du den Zugangsschlüssel – einmalig und kostenlos:") }}</p>
++  <details><summary>{{ _("So bekommst du den Zugangsschlüssel – einmalig und kostenlos") }}</summary>
+   <ol class="schritte">
+     <li>{{ _("Auf huggingface.co ein Konto anlegen.") }} <a href="https://huggingface.co/join" rel="noopener noreferrer" target="_blank">huggingface.co/join</a></li>
+@@ -253,10 +291,10 @@
+     <li>{{ _("Unter „Settings“ → „Access Tokens“ einen Schlüssel mit dem Recht „Read“ anlegen, kopieren und hier einfügen.") }} <a href="https://huggingface.co/settings/tokens" rel="noopener noreferrer" target="_blank">huggingface.co/settings/tokens</a></li>
+   </ol>
++  </details>
+   {% endif %}
+   <p>{% if hf_ende %}<span class="marke-status marke-status--gut">{{ _("hinterlegt") }}</span> {{ _("endet auf …{ende}", ende=hf_ende) }}{% else %}<span class="marke-status">{{ _("nicht hinterlegt") }}</span>{% endif %}</p>
+   <form class="formular" method="post" action="/verwaltung/transkription/hf">
+     <input type="hidden" name="csrf" value="{{ csrf }}">
+-    <label>{{ _("Zugangsschlüssel") }} <input type="password" name="hf_token" autocomplete="new-password" data-lpignore="true" data-1p-ignore data-bwignore placeholder="hf_…">
+-      <span class="hilfe">{{ _("Bleibt auf dem Server. Damit lädt er das Sprechermodell und neue Fassungen nach Updates.") }}</span></label>
++    <label>{{ _("Zugangsschlüssel") }} <input type="password" name="hf_token" autocomplete="new-password" data-lpignore="true" data-1p-ignore data-bwignore placeholder="hf_…"></label>
+     <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Prüfen und speichern") }}</button></div>
+   </form>
+@@ -265,31 +303,4 @@
+ </div>
+ 
+-<div class="karte" id="extern">
+-  <h2>{{ _("Externe Transkription (Ausweichlösung)") }}</h2>
+-  {% if ext.anbieter %}
+-  <p><span class="marke-status marke-status--warten">{{ _("freigegeben") }}</span> {{ ext.anbieter_name }}</p>
+-  {% elif ext.gewaehlt %}
+-  <p><span class="marke-status marke-status--fehler">{{ _("nicht aktiv") }}</span> {{ _("Es fehlt der API-Schlüssel.") }}</p>
+-  {% else %}
+-  <p><span class="marke-status">{{ _("aus") }}</span> {{ _("Aufnahmen werden nur von eigenen Workern transkribiert.") }}</p>
+-  {% endif %}
+-  <p>{{ _("Greift nur, wenn eine Runde länger als die Wartezeit wartet, in dieser Zeit kein Worker erreichbar war und die SL es für die Kampagne erlaubt hat ({n} Kampagne(n) erlauben es). Kosten etwa {cent} Cent pro Stunde Aufnahme.", n=ext.kampagnen, cent="%.0f"|format(ext.cent * 60)) }}</p>
+-  <form class="formular" method="post" action="/verwaltung/transkription/extern">
+-    <input type="hidden" name="csrf" value="{{ csrf }}">
+-    <label>{{ _("Anbieter") }}
+-      <select name="anbieter">
+-        <option value="" {% if not ext.gewaehlt %}selected{% endif %}>{{ _("Aus") }}</option>
+-        <option value="mistral" {% if ext.gewaehlt == "mistral" %}selected{% endif %}>Mistral (Voxtral)</option>
+-      </select></label>
+-    <label>{{ _("API-Schlüssel") }}
+-      <input type="password" name="api_key" autocomplete="new-password" data-lpignore="true" data-1p-ignore data-bwignore placeholder="{{ _('hinterlegt, endet auf …{ende}', ende=ext.key_ende) if ext.key_ende else _('von console.mistral.ai') }}">
+-      <span class="hilfe">{{ _("Leer lassen, um den hinterlegten Schlüssel zu behalten. Er steht in der Datenbank (auch in Sicherungen) und wird nie wieder angezeigt.") }}</span></label>
+-    {% if ext.key_ende %}<label class="haken"><input type="checkbox" name="key_loeschen" value="1"> {{ _("Hinterlegten Schlüssel löschen") }}</label>{% endif %}
+-    <label>{{ _("Wartezeit in Stunden") }} <input type="number" name="stunden" value="{{ "%g"|format(ext.stunden) }}" min="0" max="720" step="0.5">
+-      <span class="hilfe">{{ _("0 = sofort (Betriebsart „Nur Cloud“).") }}</span></label>
+-    <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Speichern") }}</button></div>
+-  </form>
+-  <p class="hilfe">{{ _("Das Audio geht dann an den Anbieter. Dafür braucht es einen Vertrag zur Auftragsverarbeitung und einen Absatz im Datenschutzhinweis.") }}</p>
+-  <p class="hilfe">{{ _("Mistral verarbeitet in der EU. Im kostenlosen Tarif darf Mistral Aufnahmen und Abschriften zum Training nutzen, im bezahlten Tarif lässt sich das abschalten: admin.mistral.ai → Privacy → „Anonymous improvement data“ aus. Schlüssel: console.mistral.ai → „API Keys“ → „Create new key“. Angaben des Anbieters, Stand {datum}, ohne Gewähr.", datum=ext.stand) }}</p>
+-</div>
++{% if nur_cloud %}</details>{% else %}{{ extern_karte() }}{% endif %}
+ {% endblock %}
+diff --git a/app/verwaltung/templates/uebersicht.html b/app/verwaltung/templates/uebersicht.html
+index 3e6ebf1..6536fbc 100644
+--- a/app/verwaltung/templates/uebersicht.html
++++ b/app/verwaltung/templates/uebersicht.html
+@@ -4,5 +4,6 @@
+ <h1>{{ _("Übersicht") }}</h1>
+ {% set kein_worker = not zahlen.knechte_online and (zahlen.wartend or braucht_worker) %}
+-{% if kein_worker %}<p class="lage lage--achtung"><span>{{ _("Kein Worker bereit – neue Runden bleiben liegen, bis einer läuft.") }}</span> <a href="/verwaltung/transkription">{{ _("Worker einrichten") }}</a></p>
++{% if kein_worker and braucht_worker and betrieb == "cloud" %}<p class="lage lage--achtung"><span>{{ _("Die Cloud-Transkription ist nicht eingerichtet – neue Runden bleiben liegen.") }}</span> <a href="/verwaltung/transkription">{{ _("Einrichten") }}</a></p>
++{% elif kein_worker %}<p class="lage lage--achtung"><span>{{ _("Kein Worker bereit – neue Runden bleiben liegen, bis einer läuft.") }}</span> <a href="/verwaltung/transkription">{{ _("Worker einrichten") }}</a></p>
+ {% elif zahlen.fehlgeschlagen %}<p class="lage lage--achtung"><span>{{ _("Eine Runde ist fehlgeschlagen.") if zahlen.fehlgeschlagen == 1 else _("{n} Runden sind fehlgeschlagen.", n=zahlen.fehlgeschlagen) }}</span> <a href="/verwaltung/warteschlange">{{ _("Warteschlange ansehen") }}</a></p>
+ {% elif zahlen.bei_sl %}<p class="lage"><span>{{ _("Alles läuft. Eine Runde wartet auf die Spielleitung.") if zahlen.bei_sl == 1 else _("Alles läuft. {n} Runden warten auf die Spielleitung.", n=zahlen.bei_sl) }}</span></p>
+@@ -21,5 +22,5 @@
+ {% endif %}
+ <dl class="kennzahlen">
+-  <div class="{{ 'achtung' if kein_worker }}"><dt>{{ _("Worker bereit") }}</dt><dd>{{ zahlen.knechte_online }}<span class="leise"> / {{ zahlen.knechte }}</span></dd></div>
++  {% if betrieb != "cloud" or zahlen.knechte %}<div class="{{ 'achtung' if kein_worker }}"><dt>{{ _("Worker bereit") }}</dt><dd>{{ zahlen.knechte_online }}<span class="leise"> / {{ zahlen.knechte }}</span></dd></div>{% endif %}
+   <div><dt>{{ _("in der Warteschlange") }}</dt><dd>{{ zahlen.wartend }}</dd></div>
+   <div><dt>{{ _("in Verarbeitung") }}</dt><dd>{{ zahlen.in_arbeit }}</dd></div>
+@@ -40,5 +41,5 @@
+     · <a href="/verwaltung/transkription">{{ _("Einstellungen") }}</a></p>
+ </div>
+-{% else %}
++{% elif betrieb != "cloud" or knecht.laeuft %}
+ <div class="karte">
+   <h2>{{ _("Lokaler Worker") }}</h2>
+@@ -85,9 +86,10 @@
+     <label>{{ _("Aufbewahren (Tage)") }} <input type="number" name="tage" value="{{ sicherung_einst.tage }}" min="1" max="365"></label>
+     <label>{{ _("Zusätzlicher Ordner (optional)") }} <input type="text" name="ordner" value="{{ sicherung_einst.ordner or '' }}" placeholder="/mnt/sicherung">
+-      <span class="hilfe">{{ _("Jede Sicherung wird zusätzlich dorthin kopiert, z. B. auf ein eingebundenes Netzlaufwerk. So überlebt sie auch einen Ausfall dieses Servers.") }}</span></label>
++      <span class="hilfe">{{ _("Zum Beispiel ein Netzlaufwerk – dann übersteht die Sicherung auch einen Ausfall dieses Servers.") }}</span></label>
+     <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Speichern") }}</button></div>
+   </form>
++  <p class="hilfe">{{ _("Wiederherstellen: Server beenden, dann „chronik wiederherstellen <Datei>“.") }}</p>
+   </details>
+-  <p class="hilfe">{{ _("Eine Sicherung enthält Datenbank, Bilder und SL-Unterlagen – also alle Inhalte, Konten und Einstellungen. Sicher aufbewahren. Wiederherstellen: Server beenden, dann „chronik wiederherstellen <Datei>“.") }}</p>
++  <p class="hilfe">{{ _("Enthält alle Inhalte, Konten und Einstellungen – sicher aufbewahren.") }}</p>
+   {% endif %}
+ </div>
+diff --git a/app/verwaltung/templates/updates.html b/app/verwaltung/templates/updates.html
+index d4bba91..081d74a 100644
+--- a/app/verwaltung/templates/updates.html
++++ b/app/verwaltung/templates/updates.html
+@@ -37,5 +37,6 @@
+   </div>
+   {% endif %}
+-  <p class="hilfe">{{ _("Von Hand auf dem Server:") }} <code>cd /opt/taleward &amp;&amp; sudo ./aktualisieren.sh --jetzt</code></p>
++  <details><summary>{{ _("Von Hand aktualisieren") }}</summary>
++  <p class="hilfe">{{ _("Von Hand auf dem Server:") }} <code>cd /opt/taleward &amp;&amp; sudo ./aktualisieren.sh --jetzt</code></p></details>
+   {% elif server_neu %}
+   <p>{{ _("Vorher eine Sicherung anlegen (Übersicht → Sicherung). Dann auf dem Server im Ordner von Taleward ausführen:") }}</p>
+@@ -43,10 +44,9 @@
+   <p class="hilfe">{{ _("Danach den Server neu starten. Die Datenbank wird beim Start selbst auf den neuen Stand gebracht.") }}</p>
+   {% endif %}
+-  <p class="hilfe">{{ _("Eine neue Server-Fassung meldet der Server auch per Benachrichtigung (Einstellungen → Benachrichtigungen).") }}</p>
+ </div>
+ 
+ <div class="karte" id="verteilen">
+   <h2>{{ _("App und Worker") }}</h2>
+-  <p class="leise">{{ _("Der Server lädt neue Fassungen einmal am Tag von GitHub und bietet sie selbst an. Handys und Worker fragen nur diesen Server – nie GitHub. Die App nimmt immer die neueste Fassung, die einer ihrer Server anbietet.") }}</p>
++  <p class="leise">{{ _("Der Server holt neue Fassungen einmal am Tag und bietet sie selbst an. Handys und Worker fragen nur diesen Server.") }}</p>
+   <form method="post" action="/verwaltung/updates/modus" class="formular">
+     <input type="hidden" name="csrf" value="{{ csrf }}">
+@@ -63,7 +63,7 @@
+     <thead><tr><th>{{ _("Was") }}</th><th>{{ _("Neueste") }}</th><th>{{ _("Angeboten") }}</th><th></th></tr></thead>
+     <tbody>
+-    {% for z in zeilen %}
++    {% for z in zeilen if hat_worker or betrieb != "cloud" or not z.art.startswith("worker") %}
+       <tr>
+-        <td data-label="{{ _('Was') }}"><strong>{{ _(z.name) }}</strong><br><span class="leise">{{ z.repo }}</span></td>
++        <td data-label="{{ _('Was') }}"><strong>{{ _(z.name) }}</strong></td>
+         <td data-label="{{ _('Neueste') }}">{% if z.neueste %}{{ z.neueste.version }}{% if z.neueste.groesse %} <span class="leise">· {{ groesse(z.neueste.groesse) }}</span>{% endif %}
+           {% if z.neueste.notizen %}<details><summary>{{ _("Was ist neu?") }}</summary><p class="hilfe notizen">{{ z.neueste.notizen }}</p></details>{% endif %}
+diff --git a/app/verwaltung/templates/zusammenfassung.html b/app/verwaltung/templates/zusammenfassung.html
+index a3eeb04..5de819b 100644
+--- a/app/verwaltung/templates/zusammenfassung.html
++++ b/app/verwaltung/templates/zusammenfassung.html
+@@ -3,5 +3,5 @@
+ {% block inhalt %}
+ <h1>{{ _("Zusammenfassung") }}</h1>
+-<p class="leise">{{ _("Wer aus der Abschrift Kapitel und Bibel-Vorschläge schreibt. Die Spielleitung prüft beides vor dem Veröffentlichen.") }}</p>
++<p class="leise">{{ _("Wer aus der Abschrift Kapitel und Bibel-Vorschläge schreibt.") }}</p>
+ {% set k = llm.k %}
+ <div class="karte">
+@@ -34,4 +34,5 @@
+       </select></label>
+ 
++    {% if k.art == "lokal" %}<details class="klappe"><summary>{{ _("Cloud-API") }}</summary>{% endif %}
+     <fieldset>
+       <legend>{{ _("Cloud-API") }}</legend>
+@@ -41,6 +42,6 @@
+           {% endfor %}<option value="andere" data-url="" data-modell="" data-eu="0" {% if llm.gewaehlt == "andere" %}selected{% endif %}>{{ _("Anderer (OpenAI-kompatible Schnittstelle)") }}</option>
+         </select></label>
+-      {% for a in llm.anbieter %}
+-      <details class="anbieter-info" data-anbieter="{{ a.id }}"{% if llm.gewaehlt == a.id %} open{% endif %}>
++      {% macro anbieter_info(a) %}
++      <details class="anbieter-info" data-anbieter="{{ a.id }}">
+         <summary>{{ a.name }}: {{ _("Standort, Training, Schlüssel") }}</summary>
+         <p class="hilfe"><strong>{{ _("Verarbeitung:") }}</strong> {{ _(a.sitz) }}{% if not a.eu %} – {{ _("außerhalb der EU") }}{% endif %}</p>
+@@ -50,10 +51,18 @@
+         <p class="hilfe">{{ _("Angaben des Anbieters, Stand {datum}, ohne Gewähr – bitte selbst prüfen.", datum=llm.stand) }}{% if a.hilfe %} <a href="{{ a.hilfe }}" rel="noopener noreferrer" target="_blank">{{ _("Dokumentation des Anbieters") }}</a>{% endif %}</p>
+       </details>
+-      {% endfor %}
+-      <details class="anbieter-info" data-anbieter="andere"{% if llm.gewaehlt == "andere" %} open{% endif %}>
++      {% endmacro %}
++      {% macro andere_info() %}
++      <details class="anbieter-info" data-anbieter="andere">
+         <summary>{{ _("Anderer Anbieter: was zu beachten ist") }}</summary>
+         <p class="hilfe">{{ _("Jeder Anbieter mit OpenAI-kompatibler Schnittstelle (Adresse endet meist auf /v1). Wo er verarbeitet und ob er mit euren Daten trainiert, müsst ihr selbst nachlesen. Sammeldienste, die Anfragen an wechselnde Rechenzentren verteilen, lassen sich dabei nicht einschätzen.") }}</p>
+       </details>
+-      <label>{{ _("Adresse (nur bei „Anderer“)") }}
++      {% endmacro %}
++      {% for a in llm.anbieter %}{% if llm.gewaehlt == a.id %}{{ anbieter_info(a) }}{% endif %}{% endfor %}
++      {% if llm.gewaehlt == "andere" %}{{ andere_info() }}{% endif %}
++      <details class="anbieter-gruppe"><summary>{{ _("Andere Anbieter im Vergleich") }}</summary>
++        {% for a in llm.anbieter %}{% if llm.gewaehlt != a.id %}{{ anbieter_info(a) }}{% endif %}{% endfor %}
++        {% if llm.gewaehlt != "andere" %}{{ andere_info() }}{% endif %}
++      </details>
++      <label id="anbieter-url-feld"{% if llm.gewaehlt != "andere" %} hidden{% endif %}>{{ _("Adresse (nur bei „Anderer“)") }}
+         <input type="url" name="api_url" id="anbieter-url" value="{{ k.api_url if llm.gewaehlt == "andere" else '' }}" placeholder="https://…/v1" maxlength="300"></label>
+       <label id="modell-wahl-feld"{% if llm.gewaehlt == "andere" and not llm.modelle %} hidden{% endif %}>{{ _("Modell für das Kapitel") }}
+@@ -68,49 +77,55 @@
+           {% for m in llm.modelle %}<option value="{{ m }}" {% if m == k.api_modell_vorschlaege %}selected{% endif %}>{{ m }}</option>{% endfor %}
+         </select>
+-        <span class="hilfe">{{ _("Zur Auswahl stehen die bekannten Modelle des Anbieters und – sobald ein Schlüssel hinterlegt ist – alle, die er für diesen Schlüssel freigibt. Beim Wechsel des Anbieters werden die empfohlenen eingetragen. Bei Mistral empfohlen: Kapitel mit mistral-medium-latest, Vorschläge mit mistral-large-latest (Messung an einer langen Runde).") }}</span></label>
+-      <label>{{ _("Modell für Notizen und Auswahl") }}
+-        <select name="api_modell_notizen" id="anbieter-modell-notizen">
+-          <option value="" {% if not k.api_modell_notizen %}selected{% endif %}>{{ _("wie für das Kapitel") }}</option>
+-          {% for m in llm.modelle %}<option value="{{ m }}" {% if m == k.api_modell_notizen %}selected{% endif %}>{{ m }}</option>{% endfor %}
+-        </select>
+-        <span class="hilfe">{{ _("Nur zum Vergleichen: Das Zuhören (Notizen, Stand, Auswahl der Pflichtereignisse) ist der teuerste Schritt. Ein anderes Modell hier spart Kosten, muss aber in Probeläufen zeigen, dass die Kapitel gleich gut bleiben.") }}</span></label>
++        <span class="hilfe">{{ _("Bei Mistral empfohlen: Kapitel mit mistral-medium-latest, Vorschläge mit mistral-large-latest.") }}</span></label>
+       <label>{{ _("API-Schlüssel") }}
+         <input type="password" name="api_key" autocomplete="new-password" data-lpignore="true" data-1p-ignore data-bwignore placeholder="{{ _('hinterlegt, endet auf …{ende}', ende=llm.key_ende) if llm.key_ende and not llm.key_von_extern else _('Schlüssel des Anbieters') }}">
+-        <span class="hilfe">{% if llm.key_von_extern %}{{ _("Leer lassen: Es gilt der Mistral-Schlüssel der externen Transkription.") }} {% elif llm.mistral and llm.extern_key %}{{ _("Ohne eigenen Schlüssel gilt der Mistral-Schlüssel der externen Transkription.") }} {% endif %}{{ _("Leer lassen, um den hinterlegten Schlüssel zu behalten. Er steht in der Datenbank (auch in Sicherungen) und wird nie wieder angezeigt.") }}</span></label>
++        <span class="hilfe">{% if llm.key_von_extern %}{{ _("Leer lassen: Es gilt der Mistral-Schlüssel der externen Transkription.") }}{% elif llm.mistral and llm.extern_key %}{{ _("Ohne eigenen Schlüssel gilt der Mistral-Schlüssel der externen Transkription.") }}{% else %}{{ _("Leer lassen, um den hinterlegten Schlüssel zu behalten.") }}{% endif %}</span></label>
+       {% if k.eigener_key %}<label class="haken"><input type="checkbox" name="key_loeschen" value="1"> {{ _("Hinterlegten Schlüssel löschen") }}</label>{% endif %}
++      {% macro preis_feld() %}
+       <label>{{ _("Preis je 1 Mio. Tokens in Cent (ein / aus)") }}
+         <span class="zeile"><input type="text" name="cent_ein" value="{{ '%g'|format(k.cent_ein) if k.cent_ein is not none else '' }}" inputmode="decimal" size="6" placeholder="{{ '%g'|format(llm.preis[0]) if llm.preis else '' }}">
+         <input type="text" name="cent_aus" value="{{ '%g'|format(k.cent_aus) if k.cent_aus is not none else '' }}" inputmode="decimal" size="6" placeholder="{{ '%g'|format(llm.preis[1]) if llm.preis else '' }}"></span>
+         <span class="hilfe">{{ _("Nur für die Verbrauchsanzeige. Leer = bekannte Preise der Modelle von Mistral und Anthropic; bei anderen Anbietern bitte von deren Preisseite übernehmen.") }}</span></label>
+-      <fieldset><legend>{{ _("Weg zum Kapitel") }}</legend>
+-        <label class="haken"><input type="radio" name="weg" value="notizen"{% if k.weg == "notizen" %} checked{% endif %}> {{ _("Erst Notizen je Abschnitt, dann das Kapitel (empfohlen)") }}</label>
+-        <label class="haken"><input type="radio" name="weg" value="abschrift"{% if k.weg == "abschrift" %} checked{% endif %}> {{ _("Ganze Abschrift auf einmal (früherer Weg)") }}</label>
+-        <span class="hilfe">{{ _("Der empfohlene Weg liest die Runde Abschnitt für Abschnitt, führt mit, wer wo ist und was sich geändert hat, und schreibt erst dann das Kapitel. In Testrunden fehlte dabei deutlich weniger und es gab weniger falsche Angaben. Er dauert etwas länger und kostet über die Cloud etwa 30 Cent je Kapitel. Gilt für die Cloud-API; ein lokales Modell arbeitet wie bisher.") }}</span></fieldset>
++      {% endmacro %}
++      {% if llm.gewaehlt == "andere" %}{{ preis_feld() }}{% endif %}
+       <label class="haken" id="anbieter-bestaetigung"><input type="checkbox" name="ausserhalb_eu" value="1"> {{ _("Ich weiß, dass dieser Anbieter außerhalb der EU verarbeitet oder hier nicht beschrieben ist, und schließe den Vertrag zur Auftragsverarbeitung selbst ab.") }}</label>
+     </fieldset>
++    {% if k.art == "lokal" %}</details>{% endif %}
+ 
++    {% if k.art != "lokal" %}<details class="klappe"><summary>{{ _("Lokales Modell") }}</summary>{% endif %}
+     <fieldset>
+       <legend>{{ _("Lokales Modell") }}</legend>
+       <label>{{ _("Modell in Ollama") }} <input type="text" name="lokal_modell" value="{{ k.lokal_modell }}" maxlength="100" required>
+-        <span class="hilfe">{{ _("Empfohlen: auto – jeder Worker wählt nach seiner Grafikkarte (unter 12 GB gemma4:e4b, ab 12 GB gemma4:12b) und lädt das Modell beim ersten Auftrag selbst herunter.") }}</span></label>
++        <span class="hilfe">{{ _("Empfohlen: auto – jeder Worker wählt nach seiner Grafikkarte und lädt das Modell beim ersten Auftrag selbst.") }}</span></label>
+       <label>{{ _("Höchste Kontextgröße (Tokens)") }} <input type="number" name="lokal_kontext" value="{{ k.lokal_kontext }}" min="4096" max="262144" step="1024">
+-        <span class="hilfe">{{ _("Nur für ein fest eingetragenes Modell. Der Kontext richtet sich nach der Länge der Runde, höchstens dieser Wert.") }}</span></label>
++        <span class="hilfe">{{ _("Nur für ein fest eingetragenes Modell.") }}</span></label>
+     </fieldset>
++    {% if k.art != "lokal" %}</details>{% endif %}
+ 
+-    <fieldset>
+-      <legend>{{ _("Prüfung") }}</legend>
++    <details class="klappe"><summary>{{ _("Erweitert: Weg zum Kapitel, Prüfung, Kosten") }}</summary>
++      <fieldset><legend>{{ _("Weg zum Kapitel") }}</legend>
++        <label class="haken"><input type="radio" name="weg" value="notizen"{% if k.weg == "notizen" %} checked{% endif %}> {{ _("Erst Notizen je Abschnitt, dann das Kapitel (empfohlen)") }}</label>
++        <label class="haken"><input type="radio" name="weg" value="abschrift"{% if k.weg == "abschrift" %} checked{% endif %}> {{ _("Ganze Abschrift auf einmal (früherer Weg)") }}</label>
++        <span class="hilfe">{{ _("Der empfohlene Weg vergisst weniger und erfindet weniger, kostet über die Cloud aber etwa 30 Cent je Kapitel. Nur für die Cloud-API.") }}</span></fieldset>
+       <input type="hidden" name="gegenpruefen_feld" value="1">
+-      <label class="haken"><input type="checkbox" name="gegenpruefen" value="1"{% if llm.gegenpruefen %} checked{% endif %}> {{ _("Kapitel gegenprüfen") }}</label>
+-      <p class="hilfe">{{ _("Ein zweiter Durchgang des Sprachmodells prüft jeden Absatz gegen die Abschrift, bessert Unbelegtes einmal nach und zeigt der Spielleitung vor der Freigabe, worauf sich jeder Absatz stützt. Kostet etwa ein Drittel mehr Rechenzeit.") }}</p>
+-      <label class="haken"><input type="checkbox" name="zweiter_blick" value="1"{% if llm.zweiter_blick %} checked{% endif %}> {{ _("Entscheidende Ereignisse vor dem Schreiben an der Abschrift prüfen") }}</label>
+-      <p class="hilfe">{{ _("Gilt für den Weg „Erst Notizen“: Die wichtigsten Ereignisse werden noch einmal gegen den Wortlaut der Abschrift gehalten, bevor das Kapitel entsteht. Was dabei nicht eindeutig ist, bleibt im Kapitel vage und wird der Spielleitung gezeigt. Kostet etwa 3 Cent je Kapitel.") }}</p>
++      <fieldset><legend>{{ _("Prüfung") }}</legend>
++        <label class="haken"><input type="checkbox" name="gegenpruefen" value="1"{% if llm.gegenpruefen %} checked{% endif %}> {{ _("Kapitel gegenprüfen") }}</label>
++        <span class="hilfe">{{ _("Prüft jeden Absatz gegen die Abschrift und zeigt der Spielleitung die Belege. Etwa ein Drittel mehr Rechenzeit.") }}</span>
++        <label class="haken"><input type="checkbox" name="zweiter_blick" value="1"{% if llm.zweiter_blick %} checked{% endif %}> {{ _("Entscheidende Ereignisse vor dem Schreiben an der Abschrift prüfen") }}</label>
++        <span class="hilfe">{{ _("Unklares bleibt im Kapitel vage und wird der Spielleitung gezeigt. Etwa 3 Cent je Kapitel.") }}</span></fieldset>
+       <fieldset><legend>{{ _("Prüfansicht für die Spielleitung") }}</legend>
+         <label class="haken"><input type="radio" name="pruefansicht" value="pflicht"{% if llm.pruefansicht == "pflicht" %} checked{% endif %}> {{ _("Aus den geprüften Ereignissen und den unklaren Stellen (empfohlen)") }}</label>
+         <label class="haken"><input type="radio" name="pruefansicht" value="gegenpruefung"{% if llm.pruefansicht == "gegenpruefung" %} checked{% endif %}> {{ _("Jeden Absatz gegen die Notizen gegenprüfen (früherer Weg)") }}</label>
+-        <span class="hilfe">{{ _("Die empfohlene Ansicht markiert nur, was der Server nachgerechnet hat (fehlende oder widersprüchliche Ereignisse) oder was an der Aufnahme nicht eindeutig war – und spart etwa ein Fünftel der Kosten je Kapitel. Der frühere Weg lässt das Sprachmodell jeden Absatz gegen seine eigenen Notizen beurteilen. Gilt für den Weg „Erst Notizen“.") }}</span></fieldset>
++        <span class="hilfe">{{ _("Die empfohlene Ansicht markiert nur Nachgerechnetes und Unklares und spart etwa ein Fünftel der Kosten.") }}</span></fieldset>
++      <label>{{ _("Modell für Notizen und Auswahl") }}
++        <select name="api_modell_notizen" id="anbieter-modell-notizen">
++          <option value="" {% if not k.api_modell_notizen %}selected{% endif %}>{{ _("wie für das Kapitel") }}</option>
++          {% for m in llm.modelle %}<option value="{{ m }}" {% if m == k.api_modell_notizen %}selected{% endif %}>{{ m }}</option>{% endfor %}
++        </select>
++        <span class="hilfe">{{ _("Nur zum Vergleichen. Erst nach Probeläufen ändern.") }}</span></label>
++      {% if llm.gewaehlt != "andere" %}{{ preis_feld() }}{% endif %}
+       <p class="hilfe">{{ _("Wortlisten für unsicher erkannte Namen:") }}
+-        {% for sp, da in llm.wortlisten.items() %}{{ _("Deutsch") if sp == "de" else _("Englisch") }} {{ _("geladen") if da else _("wird geladen") }}{% if not loop.last %}, {% endif %}{% endfor %}.
+-        {{ _("Dazu kommen die Texte der Kampagne (Bibel, Notizen, Unterlagen, Charaktere) und was in früheren Kapiteln sicher erkannt wurde.") }}</p>
+-    </fieldset>
++        {% for sp, da in llm.wortlisten.items() %}{{ _("Deutsch") if sp == "de" else _("Englisch") }} {{ _("geladen") if da else _("wird geladen") }}{% if not loop.last %}, {% endif %}{% endfor %}.</p>
++    </details>
+     <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Speichern") }}</button></div>
+   </form>
+@@ -130,11 +145,10 @@
+   {% endif %}
+   {% endif %}
+-  <p class="hilfe">{{ _("Cloud-API: Die Abschrift geht an den Anbieter. Dafür braucht es einen Vertrag zur Auftragsverarbeitung und einen Absatz im Datenschutzhinweis. Lokales Modell: Die Daten bleiben in eurer eigenen Infrastruktur, kleinere Modelle liefern aber schwächere Kapitel.") }}</p>
++  {% if k.art == "api" %}<p class="hilfe">{{ _("Die Abschrift geht an den Anbieter: Vertrag zur Auftragsverarbeitung und Absatz im Datenschutzhinweis nicht vergessen.") }}</p>{% endif %}
+ </div>
+ 
+ <div class="karte">
+   <h2>{{ _("Probelauf") }}</h2>
+-  <p class="hilfe">{{ _("Kapitel und Vorschläge für eine Runde mit Abschrift neu schreiben lassen, ohne die Runde zu verändern – zum Vergleichen von Modellen und Fassungen. Rechnet mit der Einstellung oben (Cloud-API oder Testmodus) direkt auf dem Server, auch ohne Worker. Kosten zählen zum Monatslimit, nicht zur Kampagne.") }}</p>
+-  <p class="hilfe">{{ _("Zur Wahl stehen nur Runden aus Kampagnen, in denen du selbst Spielleitung bist. Mit der Cloud-API gehen Abschrift und Bibel der Kampagne an den Anbieter – nur, wenn die Kampagne die Cloud-Zusammenfassung erlaubt. Deine Probeläufe sieht nur dein Konto.") }}</p>
++  <p class="hilfe">{{ _("Schreibt Kapitel und Vorschläge einer Runde neu, ohne die Runde zu verändern. Nur Runden aus deinen eigenen Kampagnen, die Cloud nur mit Freigabe der Kampagne. Kosten zählen zum Monatslimit.") }}</p>
+   {% if runden %}
+   <form class="formular" method="post" action="/verwaltung/probelauf" enctype="multipart/form-data">
+@@ -144,6 +158,7 @@
+         {% for r in runden %}<option value="{{ r.id }}">{{ r.kampagne }} · {{ _("Kapitel {n}", n=r.kapitel) }}{% if r.titel %} · {{ r.titel }}{% endif %} · {{ _("{n} Zeilen", n=r.zeilen) }}</option>{% endfor %}
+       </select></label>
++    <details class="klappe"><summary>{{ _("Zum Vergleichen: Abschrift, Weg, Stil, Modell") }}</summary>
+     <label>{{ _("Abschrift aus Datei (optional)") }} <input type="file" name="abschrift" accept=".txt,text/plain">
+-      <span class="hilfe">{{ _("Ersetzt die Abschrift der Runde, Mitglieder und Bibel bleiben. Zeilen wie „[1:02:03] Name: Text“ – zum Beispiel die transkript.txt eines Modellvergleichs oder eine selbst geschriebene Abschrift.") }}</span></label>
++      <span class="hilfe">{{ _("Ersetzt nur die Abschrift. Zeilen wie „[1:02:03] Name: Text“.") }}</span></label>
+     <fieldset><legend>{{ _("Weg") }}</legend>
+       <label class="haken"><input type="radio" name="weg" value="notizen" checked> {{ _("Erst Notizen je Abschnitt, dann das Kapitel (Standard)") }}</label>
+@@ -153,5 +168,5 @@
+       <label class="haken"><input type="radio" name="stil" value="bisher" checked> {{ _("Wie bisher (eingesetzt)") }}</label>
+       <label class="haken"><input type="radio" name="stil" value="biograf"> {{ _("Bericht eines Biografen (zum Vergleich)") }}</label>
+-      <span class="hilfe">{{ _("Der Biografen-Stil fasst zusammen und gewichtet, statt Szene für Szene nachzuerzählen – ohne Deutungen, die am Tisch nicht gesagt wurden. Er wird erst eingesetzt, wenn er an den Goldrunden mindestens so gut abschneidet.") }}</span></fieldset>
++      <span class="hilfe">{{ _("Der Biograf fasst zusammen und gewichtet, statt Szene für Szene nachzuerzählen.") }}</span></fieldset>
+     {% if probe_modelle %}
+     <label>{{ _("Modell nur für diesen Lauf") }}
+@@ -162,6 +177,7 @@
+       <span class="hilfe">{{ _("Gilt für Kapitel und Notizen; die Vorschläge bleiben beim eingestellten Modell.") }}</span></label>
+     <label class="haken"><input type="checkbox" name="vorn" value="ja"> {{ _("Grundlage vorn (zum Vergleich)") }}
+-      <span class="hilfe">{{ _("Schickt Abschrift bzw. Notizen in jedem Aufruf zuerst und die Aufgabe dahinter. Der Anbieter rechnet den gleichen Anfang dann günstiger ab. Die Ergebnisdatei zeigt, wie viele Token aus dem Zwischenspeicher kamen.") }}</span></label>
++      <span class="hilfe">{{ _("Der Anbieter rechnet den gleichen Anfang jedes Aufrufs günstiger ab.") }}</span></label>
+     {% endif %}
++    </details>
+     <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Probelauf starten") }}</button></div>
+   </form>
+@@ -185,4 +201,5 @@
+ </div>
+ 
++{% if k.art == "lokal" or llm.worker or betrieb != "cloud" %}
+ <div class="karte tabelle-huelle">
+   <h2>{{ _("Worker mit Sprachmodell") }}</h2>
+@@ -202,3 +219,4 @@
+   </table>
+ </div>
++{% endif %}
+ {% endblock %}
+diff --git a/app/verwaltung/updates.py b/app/verwaltung/updates.py
+index 1a36c4e..9682988 100644
+--- a/app/verwaltung/updates.py
++++ b/app/verwaltung/updates.py
+@@ -6,4 +6,5 @@ import os
+ from fastapi import APIRouter, Depends, Request
+ from fastapi.responses import HTMLResponse
++from sqlalchemy import func, select
+ from sqlalchemy.orm import Session
+ 
+@@ -11,5 +12,5 @@ from app import aktualisierung
+ from app.db import get_db
+ from app.einstellungen import angaben, meta_lesen
+-from app.models import User
++from app.models import User, Worker
+ from app.verwaltung.router import _seite, _zurueck, csrf_pruefen, verwalter
+ 
+@@ -32,5 +33,6 @@ def seite(request: Request, user: User = Depends(verwalter), db: Session = Depen
+                   server_auto=aktualisierung.server_auto(), server_status=aktualisierung.server_status(),
+                   server_jetzt=aktualisierung.server_jetzt_angefordert(),
+-                  status_zeit=_zeitpunkt((aktualisierung.server_status() or {}).get("zeit")))
++                  status_zeit=_zeitpunkt((aktualisierung.server_status() or {}).get("zeit")),
++                  hat_worker=db.scalar(select(func.count()).select_from(Worker)) > 0)
+ 
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index c7c1082..cc29d36 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.129"
++version = "0.4.130"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index d8ab2aa..8755577 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -154,5 +154,5 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.129"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.130"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index 7e625c5..58afcaa 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -135,5 +135,5 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.129"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.130"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index d6a1556..930febd 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -84,5 +84,5 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.129"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.130"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+diff --git a/tests/test_server_04115.py b/tests/test_server_04115.py
+index b50d060..59c331c 100644
+--- a/tests/test_server_04115.py
++++ b/tests/test_server_04115.py
+@@ -72,5 +72,5 @@ def test_einstellungen_je_abschnitt(client, admin):  # noqa: F811
+     # Neue Fassung der Nutzungsbedingungen ganz am Ende, nach den Benachrichtigungen
+     assert seite.index('id="benachrichtigungen"') < seite.index('id="nutzungsbedingungen"')
+-    assert 'class="karte karte--achtung" id="nutzungsbedingungen"' in seite
++    assert '<details class="klappteil" id="nutzungsbedingungen">' in seite  # 0.4.130: zugeklappt
+     # Nur das Kostenlimit – Name und Betreiber fehlen im Formular und bleiben, wie sie sind
+     vorher = client.get("/api/v1/info").json()
+diff --git a/tests/test_server_04130.py b/tests/test_server_04130.py
+new file mode 100644
+index 0000000..0607425
+--- /dev/null
++++ b/tests/test_server_04130.py
+@@ -0,0 +1,191 @@
++"""Server 0.4.130: Die Verwaltung zeigt nur, was zur Betriebsart passt; der Rest steht zugeklappt. Kürzere Hilfetexte,
++neuer Standardname „Taleward“."""
++from tests.test_verwaltung import admin  # noqa: F401 (Fixture)
++
++
++def _betrieb(dbs, art):
++    from app.einstellungen import meta_schreiben
++
++    meta_schreiben(dbs, "betrieb.art", art)
++    dbs.commit()
++
++
++def test_transkription_nur_cloud_klappt_worker_zu(client, dbs, admin):  # noqa: F811
++    _betrieb(dbs, "cloud")
++    seite = client.get("/verwaltung/transkription").text
++    assert "Transkription über die Cloud" in seite and "Ausweichlösung" not in seite
++    assert '<details class="klappteil" id="worker-teil">' in seite  # zu, aber erreichbar
++    assert seite.index('id="extern"') < seite.index('id="worker-teil"') < seite.index('id="koppeln"')
++    assert 'name="stunden" value="' in seite and 'type="hidden" name="stunden"' in seite  # Wartezeit bleibt erhalten
++
++
++def test_transkription_lokal_zeigt_alles(client, dbs, admin):  # noqa: F811
++    _betrieb(dbs, "beides")
++    seite = client.get("/verwaltung/transkription").text
++    assert "worker-teil" not in seite and "Cloud als Ausweichlösung" in seite
++    assert seite.index('id="koppeln"') < seite.index('id="extern"')
++    assert "Wartezeit in Stunden" in seite
++
++
++def test_cloud_wartezeit_bleibt_beim_speichern(client, dbs, admin):  # noqa: F811
++    from app.einstellungen import extern_konfig
++
++    _betrieb(dbs, "cloud")
++    r = client.post("/verwaltung/transkription/extern", data={"csrf": admin, "anbieter": "", "stunden": "0"},
++                    follow_redirects=False)
++    assert r.status_code == 303
++    assert extern_konfig(dbs).stunden == 0
++
++
++def test_zusammenfassung_nur_gewaehlter_anbieter_offen(client, dbs, admin):  # noqa: F811
++    from app.einstellungen import meta_schreiben
++
++    meta_schreiben(dbs, "llm.art", "api")
++    meta_schreiben(dbs, "llm.api_url", "https://api.mistral.ai/v1")
++    meta_schreiben(dbs, "llm.api_modell", "mistral-medium-latest")
++    dbs.commit()
++    _betrieb(dbs, "cloud")
++    seite = client.get("/verwaltung/zusammenfassung").text
++    vorn, gruppe = seite.split('<details class="anbieter-gruppe">', 1)
++    assert 'data-anbieter="mistral"' in vorn and 'data-anbieter="mistral"' not in gruppe
++    assert 'data-anbieter="andere"' in gruppe
++    assert 'id="anbieter-url-feld" hidden' in seite  # Adresse nur bei „Anderer“
++    assert '<summary>Lokales Modell</summary>' in seite  # zugeklappt
++    assert "Erweitert: Weg zum Kapitel, Prüfung, Kosten" in seite
++    assert 'name="cent_ein"' in seite.split("Erweitert: Weg zum Kapitel")[1]  # Preise unter „Erweitert“
++    assert "Worker mit Sprachmodell" not in seite
++
++
++def test_zusammenfassung_speichern_aendert_nichts_an_zugeklappten_werten(client, dbs, admin):  # noqa: F811
++    """Alles Zugeklappte wird weiter mitgeschickt – Speichern setzt nichts zurück."""
++    import re
++
++    seite = client.get("/verwaltung/zusammenfassung").text
++    form = seite.split('action="/verwaltung/zusammenfassung"', 1)[1].split("</form>", 1)[0]
++    for name in ("weg", "pruefansicht", "lokal_modell", "lokal_kontext", "gegenpruefen_feld", "api_modell_notizen"):
++        assert re.search(rf'name="{name}"', form), name
++
++
++def test_abrechnung_aus_klappt_preise_zu(client, dbs, admin):  # noqa: F811
++    seite = client.get("/verwaltung/abrechnung").text
++    assert '<details class="klappteil" id="preise">' in seite
++    assert "<h2>Protokoll</h2>" not in seite
++    _betrieb(dbs, "cloud")
++    seite = client.get("/verwaltung/abrechnung").text
++    assert "Preise für eigene Worker" in seite and 'name="worker_kapitel_h"' in seite
++    assert "/guthaben" not in seite.split("<main>", 1)[1]
++
++
++def test_anmeldung_dienste_zugeklappt_bis_eingerichtet(client, dbs, admin):  # noqa: F811
++    seite = client.get("/verwaltung/anmeldung").text
++    assert '<details class="klappe" id="google"><summary>Google einrichten</summary>' in seite
++    r = client.post("/verwaltung/anmeldung/google", data={"csrf": admin, "client_id": "abc"}, follow_redirects=False)
++    assert r.status_code == 303
++    seite = client.get("/verwaltung/anmeldung").text
++    assert '<details class="klappe" id="google" open>' in seite  # halb eingerichtet: offen
++    client.post("/verwaltung/anmeldung/google", data={"csrf": admin, "client_id": "abc", "client_secret": "geheim"})
++    seite = client.get("/verwaltung/anmeldung").text
++    assert '<div class="karte" id="google">' in seite
++
++
++def test_einstellungen_klappen(client, dbs, admin):  # noqa: F811
++    seite = client.get("/verwaltung/einstellungen").text
++    assert "Registrierungscode (nur für „Mit Registrierungscode“)" in seite
++    assert '<details class="klappteil" id="app">' in seite
++    assert '<details class="klappteil" id="nutzungsbedingungen">' in seite
++    _betrieb(dbs, "cloud")
++    seite = client.get("/verwaltung/einstellungen").text
++    assert "ohne Worker warten" not in seite and 'type="hidden" name="stunden"' in seite
++
++
++def test_uebersicht_nur_cloud(client, dbs, admin):  # noqa: F811
++    _betrieb(dbs, "cloud")
++    seite = client.get("/verwaltung/").text
++    assert "Die Cloud-Transkription ist nicht eingerichtet" in seite and "Kein Worker bereit" not in seite
++    assert "<h2>Lokaler Worker</h2>" not in seite and "Worker bereit" not in seite
++
++
++def test_updates_ohne_repo_namen_und_ohne_worker_bei_nur_cloud(client, dbs, admin):  # noqa: F811
++    _betrieb(dbs, "cloud")
++    seite = client.get("/verwaltung/updates").text
++    assert "Taleward/taleward-app" not in seite and "Worker (Windows)" not in seite and "App (Android)" in seite
++
++
++def test_standardname_taleward(client, dbs, admin):  # noqa: F811
++    from app.einstellungen import angaben, meta_schreiben
++
++    assert angaben(dbs).server_name == "Taleward"
++    meta_schreiben(dbs, "angabe.server_name", "Session-Chronik")  # früher oft nur durch Speichern eingetragen
++    dbs.commit()
++    assert angaben(dbs).server_name == "Taleward"
++    meta_schreiben(dbs, "angabe.server_name", "Nebelfeld")
++    dbs.commit()
++    assert angaben(dbs).server_name == "Nebelfeld"
++    assert "Session-Chronik" not in client.get("/verwaltung/").text
++
++
++# ---------------------------------------------------------------- Neue Konten (offene Registrierung, Anzeigename)
++def test_anzeigename_ohne_steuerzeichen_und_mail_bleibt_heil(client, dbs, admin, monkeypatch):  # noqa: F811
++    from tests.test_konto import daten
++    from tests.test_server_04128 import mit_adresse, setzen
++
++    from app import mail
++    from app.models import User
++
++    gesendet = []
++    monkeypatch.setattr(mail, "senden", lambda db, an, betreff, text: gesendet.append(betreff))
++    setzen(dbs, registrierung="open", **{"melden.smtp_host": "smtp.example.org"})
++    mit_adresse(dbs, "chef", "chefin@example.org")
++    name = "Do" + chr(0x202E) + "ra" + chr(10) + "Betreff: x"
++    r = client.post("/api/v1/auth/register", json=daten(username="dreh", displayName=name))
++    assert r.status_code == 201, r.text
++    dora = dbs.query(User).filter_by(username="dreh").one()
++    assert dora.display_name == "Do ra Betreff: x"
++    # Ein alter Name mit Zeilenumbruch bricht die Mail an die Verwaltung nicht mehr ab
++    dora.display_name = "Alt\nName"
++    dbs.commit()
++    mit_adresse(dbs, "dreh", "dora@example.org")
++    login = client.post("/api/v1/auth/login", json={"username": "dreh", "password": "Drachenfeuer7"}).json()
++    r = client.post("/api/v1/me/gm-request", headers={"Authorization": f"Bearer {login['accessToken']}"})
++    assert r.status_code == 202 and gesendet and "\n" not in gesendet[0]
++    assert "Alt Name" in client.get("/verwaltung/sl-freigaben").text
++
++
++def test_anfrage_mail_mit_ungueltiger_kopfzeile_gilt_als_versandfehler(client, dbs, admin, monkeypatch):  # noqa: F811
++    from tests.test_server_04128 import mit_adresse, setzen
++
++    from app import mail, slfreigabe
++    from app.models import User
++
++    def kaputt(db, an, betreff, text):
++        raise ValueError("Header values may not contain linefeed or carriage return characters")
++
++    monkeypatch.setattr(mail, "senden", kaputt)
++    setzen(dbs, **{"melden.smtp_host": "smtp.example.org"})
++    mit_adresse(dbs, "chef", "chefin@example.org")
++    u = dbs.query(User).filter_by(username="chef").one()
++    from app.db import utcnow
++
++    u.gm_requested_at = utcnow()
++    assert slfreigabe.mail_an_verwaltung(dbs, u, "https://x.example.org") is False and u.gm_mail_fehler
++
++
++def test_offene_registrierung_hat_eine_obergrenze(client, world, dbs, admin, monkeypatch):  # noqa: F811
++    from tests.test_konto import daten, einladung
++    from tests.test_server_04128 import setzen
++
++    from app import konto
++
++    monkeypatch.setattr(konto, "OFFEN_GRENZEN", (("registrierung-offen:stunde", 2, 3600.0),
++                                                ("registrierung-offen:tag", 5, 86400.0)))
++    monkeypatch.setitem(konto.OFFEN_GRENZE_ERREICHT, "zeit", None)
++    setzen(dbs, registrierung="open")
++    url = "/api/v1/auth/register"
++    assert client.post(url, json=daten(username="eins")).status_code == 201
++    assert client.post(url, json=daten(username="zwei")).status_code == 201
++    r = client.post(url, json=daten(username="drei"))
++    assert r.status_code == 429 and r.json()["code"] == "too_many_requests"
++    assert "mehr neue Konten über die offene Registrierung" in client.get("/verwaltung/einstellungen").text
++    # Mit Einladung zählt die Grenze nicht
++    r = client.post(url, json=daten(username="vier", inviteCode=einladung(client, world)))
++    assert r.status_code == 201, r.text
+diff --git a/tests/test_verwaltung2.py b/tests/test_verwaltung2.py
+index 123668b..d40b1ac 100644
+--- a/tests/test_verwaltung2.py
++++ b/tests/test_verwaltung2.py
+@@ -77,5 +77,5 @@ def test_titel_ohne_html(client, admin):  # noqa: F811
+ def test_worker_und_extern_auf_einer_seite(client, admin):  # noqa: F811
+     seite = client.get("/verwaltung/transkription").text
+-    assert "Lokaler Worker" in seite and "Alle Worker" in seite and "Externe Transkription" in seite
++    assert "Lokaler Worker" in seite and "Alle Worker" in seite and "Cloud als Ausweichlösung" in seite
+     alt = client.get("/verwaltung/worker", follow_redirects=False)
+     assert alt.status_code == 301 and alt.headers["location"] == "/verwaltung/transkription"
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index f03c052..b0b16fc 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -113,5 +113,5 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.129"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.130"
+ 
+ 
+diff --git a/uv.lock b/uv.lock
+index 067e81f..9de4ffe 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -2089,5 +2089,5 @@ wheels = [
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.129"
++version = "0.4.130"
+ source = { editable = "." }
+ dependencies = [
+-- 
+2.43.0
+
