@@ -6,13 +6,13 @@
 <p class="leise"><a href="/verwaltung/zusammenfassung">{{ _("Zurück zur Zusammenfassung") }}</a></p>
 <div class="karte">
   <h2>{{ p.kampagne }} · {{ _("Kapitel {n}", n=p.kapitel) }}</h2>
-  <p>{{ _("Grundlage") }}: {{ _("Abschrift der Runde") if p.quelle == "Runde" else p.quelle }} ({{ _("{n} Zeilen", n=p.zeilen) }}) · {{ _("Modell") }}: {{ p.modell }} · {{ _("Weg") }}: {{ _("Erst Notizen, dann Kapitel") if p.weg == "notizen" else _("Ganze Abschrift") }} · {{ _("gestartet") }} {{ p.gestartet[:16]|replace("T", " ") }} UTC</p>
+  <p>{{ _("Grundlage") }}: {{ _("Abschrift der Runde") if p.quelle == "Runde" else p.quelle }} ({{ _("{n} Zeilen", n=p.zeilen) }}) · {{ _("Modell") }}: {{ p.modell }} · {{ _("Weg") }}: {{ _("Erst Notizen, dann Kapitel") if p.weg == "notizen" else _("Ganze Abschrift") }}{% if p.stil == "biograf" %} · {{ _("Stil") }}: {{ _("Biograf") }}{% endif %}{% if p.vorn %} · {{ _("Grundlage vorn") }}{% endif %} · {{ _("gestartet") }} {{ p.gestartet[:16]|replace("T", " ") }} UTC</p>
   {% if p.zustand == "läuft" %}
     <p><span class="marke-status marke-status--warten">{{ _("läuft") }}</span> {% if schritt %}{{ _("Schritt") }}: {{ _(schritt) }}{% endif %} · <span class="leise">{{ _("Die Seite lädt alle 10 Sekunden neu. Ein Kapitel aus einer langen Runde braucht einige Minuten.") }}</span></p>
   {% elif p.zustand == "fehler" %}
     <p><span class="marke-status marke-status--fehler">{{ _("fehlgeschlagen") }}</span> {{ p.fehler }}</p>
   {% else %}
-    <p><span class="marke-status marke-status--gut">{{ _("fertig") }}</span> {{ _("{n} Aufrufe", n=p.aufrufe) }} · {{ _("{ein} Tokens ein, {aus} aus", ein=p.tokens_ein, aus=p.tokens_aus) }} · {{ _("etwa {cent} Cent", cent=p.kosten_cent) }} · {{ (p.dauer_s // 60)|int }} min {{ (p.dauer_s % 60)|int }} s</p>
+    <p><span class="marke-status marke-status--gut">{{ _("fertig") }}</span> {{ _("{n} Aufrufe", n=p.aufrufe) }} · {{ _("{ein} Tokens ein, {aus} aus", ein=p.tokens_ein, aus=p.tokens_aus) }}{% if p.tokens_zwischengespeichert %} ({{ _("{n} davon aus dem Zwischenspeicher", n=p.tokens_zwischengespeichert) }}){% endif %} · {{ _("etwa {cent} Cent", cent=p.kosten_cent) }} · {{ (p.dauer_s // 60)|int }} min {{ (p.dauer_s % 60)|int }} s</p>
     {% for w in p.warnungen %}<p class="hilfe">{{ _("Hinweis") }} ({{ w.schritt }}): {{ w.fehler }}</p>{% endfor %}
     {% if p.bereinigt %}{% set arten = {"du_form": _("Du-/Ihr-Form (meist Rede der Spielleitung)"), "regel": _("Regelsprache"), "kraftausdruck": _("Kraftausdruck"), "name_am_tisch": _("Name eines Menschen am Tisch"), "name_ersetzt": _("Spielername durch Figur ersetzt"), "wiederholung": _("Wiederholung"), "tischgespraech": _("Hinweis: klingt nach Gespräch am Tisch (bleibt stehen)"), "erzaehlstimme": _("Hinweis: Erzählstimme in der Du-/Ihr-Form, nichts gelöscht (Sätze)")} %}
     <details><summary>{{ _("Vom Filter bereinigt ({n})", n=p.bereinigt|length) }}</summary>

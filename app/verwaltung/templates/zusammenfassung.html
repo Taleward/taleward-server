@@ -149,6 +149,20 @@
       <label class="haken"><input type="radio" name="weg" value="notizen" checked> {{ _("Erst Notizen je Abschnitt, dann das Kapitel (Standard)") }}</label>
       <label class="haken"><input type="radio" name="weg" value="abschrift"> {{ _("Ganze Abschrift auf einmal (früherer Weg, zum Vergleich)") }}</label>
       <span class="hilfe">{{ _("Notizen und Stand liegen nach dem ersten Weg in der ZIP-Datei.") }}</span></fieldset>
+    <fieldset><legend>{{ _("Stil des Kapitels") }}</legend>
+      <label class="haken"><input type="radio" name="stil" value="bisher" checked> {{ _("Wie bisher (eingesetzt)") }}</label>
+      <label class="haken"><input type="radio" name="stil" value="biograf"> {{ _("Bericht eines Biografen (zum Vergleich)") }}</label>
+      <span class="hilfe">{{ _("Der Biografen-Stil fasst zusammen und gewichtet, statt Szene für Szene nachzuerzählen – ohne Deutungen, die am Tisch nicht gesagt wurden. Er wird erst eingesetzt, wenn er an den Goldrunden mindestens so gut abschneidet.") }}</span></fieldset>
+    {% if probe_modelle %}
+    <label>{{ _("Modell nur für diesen Lauf") }}
+      <select name="modell">
+        <option value="">{{ _("Wie eingestellt ({modell})", modell=probe_modell_jetzt) }}</option>
+        {% for m in probe_modelle %}{% if m != probe_modell_jetzt %}<option value="{{ m }}">{{ m }}</option>{% endif %}{% endfor %}
+      </select>
+      <span class="hilfe">{{ _("Gilt für Kapitel und Notizen; die Vorschläge bleiben beim eingestellten Modell.") }}</span></label>
+    <label class="haken"><input type="checkbox" name="vorn" value="ja"> {{ _("Grundlage vorn (zum Vergleich)") }}
+      <span class="hilfe">{{ _("Schickt Abschrift bzw. Notizen in jedem Aufruf zuerst und die Aufgabe dahinter. Der Anbieter rechnet den gleichen Anfang dann günstiger ab. Die Ergebnisdatei zeigt, wie viele Token aus dem Zwischenspeicher kamen.") }}</span></label>
+    {% endif %}
     <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Probelauf starten") }}</button></div>
   </form>
   {% else %}<p class="leise">{{ _("Noch keine Runde mit Abschrift in deinen Kampagnen.") }}</p>{% endif %}
@@ -160,7 +174,7 @@
       <tr>
         <td data-label="{{ _('Gestartet') }}"><a href="/verwaltung/probelauf/{{ p.id }}">{{ p.gestartet[:16]|replace("T", " ") }}</a></td>
         <td data-label="{{ _('Runde') }}">{{ p.kampagne }} · {{ _("Kapitel {n}", n=p.kapitel) }}{% if p.quelle != "Runde" %}<br><span class="leise">{{ p.quelle }}</span>{% endif %}</td>
-        <td data-label="{{ _('Modell') }}" class="leise">{{ p.modell }}</td>
+        <td data-label="{{ _('Modell') }}" class="leise">{{ p.modell }}{% if p.stil == "biograf" %} · {{ _("Biograf") }}{% endif %}{% if p.vorn %} · {{ _("Grundlage vorn") }}{% endif %}</td>
         <td data-label="{{ _('Zustand') }}">{% if p.zustand == "fertig" %}<span class="marke-status marke-status--gut">{{ _("fertig") }}</span>{% elif p.zustand == "läuft" %}<span class="marke-status marke-status--warten">{{ _("läuft") }}</span>{% else %}<span class="marke-status marke-status--fehler">{{ _("fehlgeschlagen") }}</span>{% endif %}</td>
         <td data-label="{{ _('Kosten') }}" class="leise">{{ _("{cent} Cent", cent=p.kosten_cent) if p.zustand == "fertig" else "–" }}</td>
       </tr>

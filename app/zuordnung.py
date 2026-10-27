@@ -37,7 +37,7 @@ IM_SPIEL_MINDESTENS = 2  # so oft muss sich eine Figur im Spiel selbst nennen �
 IM_SPIEL_SICHERHEIT = 0.6  # … und so sicher ist der Vorschlag dann
 SL_UEBRIG_ANTEIL = 0.03  # übrige Stimme ab diesem Anteil an der Redezeit → unsicherer Vorschlag „Spielleitung“
 SL_UEBRIG_SICHERHEIT = 0.55
-GAST = "gast:"  # Kennung eines Gasts in den Hinweisen (nie als Vorschlag gespeichert)
+GAST = "gast:"  # Kennung eines Gasts in den Hinweisen (seit 0.4.24 als suggested_guest_name gespeichert)
 
 log = logging.getLogger("zuordnung")
 
@@ -318,8 +318,13 @@ def vorschlagen(db: Session, s: GameSession, weitere_hinweise: list[Hinweis] | N
     vorgeschlagen = 0
     for sp in stimmen:
         h = auswahl.get(sp.id)
-        if h is None or h.member_id.startswith(GAST):  # Gäste kann die Schnittstelle (noch) nicht vorschlagen
+        sp.suggested_guest_name = None
+        if h is None:
             sp.suggested_member_id, sp.confidence, sp.source = None, 0.0, "none"
+        elif h.member_id.startswith(GAST):  # 0.4.24: Gast-Vorschlag (schließt ein Mitglied aus)
+            sp.suggested_member_id, sp.suggested_guest_name = None, h.member_id[len(GAST):]
+            sp.confidence, sp.source = round(h.sicherheit, 2), h.quelle
+            vorgeschlagen += 1
         else:
             sp.suggested_member_id, sp.confidence, sp.source = h.member_id, round(h.sicherheit, 2), h.quelle
             vorgeschlagen += 1

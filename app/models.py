@@ -466,6 +466,7 @@ class Speaker(Base):
     embedding: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON-Liste, biometrisch – kurzlebig
     embedding_model: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Modell@Fassung
     suggested_member_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    suggested_guest_name: Mapped[str | None] = mapped_column(String(200), nullable=True)  # 0.4.24: Gast-Vorschlag
     confidence: Mapped[float] = mapped_column(Float, default=0)
     source: Mapped[str] = mapped_column(String(16), default="none")
     assigned_member_id: Mapped[str | None] = mapped_column(String(36), nullable=True)

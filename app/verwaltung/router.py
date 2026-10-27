@@ -102,6 +102,7 @@ MELDUNGEN = {
     "storno": "Die Gutschrift ist storniert.",
     "probe_runde": "Bitte eine Runde mit Abschrift wählen.",
     "probe_cloud": "Für diese Kampagne ist die Cloud-Zusammenfassung nicht freigegeben. Das entscheidet die Spielleitung in der App auf der Übersicht der Kampagne unter „Kampagne verwalten“ → „Cloud-Dienste“.",
+    "probe_modell": "Dieses Modell kennt der Anbieter nicht – bitte eines aus der Liste wählen.",
     "probe_datei": "Die Abschrift-Datei ist zu groß (höchstens 5 MB) oder enthält keine Zeilen „[h:mm:ss] Sprecher: Text“.",
     "probe_lokal": "Der Probelauf rechnet auf dem Server; dafür muss unter „Wer fasst zusammen?“ die Cloud-API oder der Testmodus eingestellt sein.",
     "probe_aus": "Zusammenfassung ist aus oder ohne API-Schlüssel – bitte erst einstellen.",
@@ -1034,9 +1035,12 @@ def zusammenfassung_seite(request: Request, user: User = Depends(verwalter), db:
     from app import modellwahl
     from app.einstellungen import llm_konfig
 
-    modellwahl.holen(db, llm_konfig(db))  # Modelle des Anbieters einmal je Adresse holen (für die Auswahl)
+    k = llm_konfig(db)
+    modellwahl.holen(db, k)  # Modelle des Anbieters einmal je Adresse holen (für die Auswahl)
     return _seite(request, "zusammenfassung.html", user, db, llm=_llm_anzeige(db), fehler=fehler,
-                  runden=_runden_mit_abschrift(db, user), proben=probelauf.eigene(db, user.id)[:10], pruefung=pruefung)
+                  runden=_runden_mit_abschrift(db, user), proben=probelauf.eigene(db, user.id)[:10], pruefung=pruefung,
+                  probe_modelle=modellwahl.auswahl(db, k) if k.art == "api" else [],
+                  probe_modell_jetzt=k.api_modell if k.art == "api" else "")
 
 
 @router.post("/zusammenfassung/pruefen", dependencies=[Depends(csrf_pruefen)])
@@ -1091,7 +1095,8 @@ def _runden_mit_abschrift(db: Session, user: User) -> list[dict]:
 # ---------- Probelauf der Zusammenfassung ----------
 @router.post("/probelauf", dependencies=[Depends(csrf_pruefen)])
 async def probelauf_starten(request: Request, session: str = Form(""), abschrift: UploadFile | None = File(None),
-                            weg: str = Form("notizen"), user: User = Depends(verwalter),
+                            weg: str = Form("notizen"), stil: str = Form("bisher"), vorn: str = Form(""),
+                            modell: str = Form(""), user: User = Depends(verwalter),
                             db: Session = Depends(get_db)):
     """Kapitel und Vorschläge für eine vorhandene Abschrift erzeugen, ohne die Runde zu verändern."""
     from app import kapitelprobe as probelauf
@@ -1108,7 +1113,8 @@ async def probelauf_starten(request: Request, session: str = Form(""), abschrift
             return _zurueck("/zusammenfassung", "probe_datei")
         text, name = roh.decode("utf-8", errors="replace"), abschrift.filename
     try:
-        p = probelauf.starten(db, s, text, name, user_id=user.id, weg=weg)
+        p = probelauf.starten(db, s, text, name, user_id=user.id, weg=weg, stil=stil, vorn=vorn == "ja",
+                              modell=modell)
     except ValueError as e:
         return _zurueck("/zusammenfassung", f"probe_{e}")
     return RedirectResponse(f"/verwaltung/probelauf/{p.id}", status_code=303)

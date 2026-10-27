@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import session_factory, utcnow
 from app.models import GameSession, UsageLog, new_id
+from app.sprachmodell import STILE  # 0.4.129: „bisher“ | „biograf“
 
 log = logging.getLogger("taleward.kapitelprobe")
 
@@ -77,6 +78,12 @@ class Probe:
     teile: list[dict] = field(default_factory=list)  # 0.4.78: Teile im Kapitel [{title, firstParagraph}]
     einschnitte: dict = field(default_factory=dict)  # 0.4.78: Antwort der Suche nach Einschnitten (einschnitte.json)
     kurzer_entwurf: list[dict] = field(default_factory=list)  # 0.4.78: zu kurze Entwürfe mit Rohantwort (rohantwort.txt)
+    # 0.4.129: Vergleich vor einer Umstellung – Stil des Kapitels, Grundlage vorn (Zwischenspeicher), Modell nur für
+    # diesen Lauf (leer = wie eingestellt) und wie viele Eingabe-Token aus dem Zwischenspeicher des Anbieters kamen
+    stil: str = "bisher"
+    vorn: bool = False
+    modell_probe: str = ""
+    tokens_zwischengespeichert: int = 0
 
 
 def text_mit_teilen(text: str, teile: list[dict]) -> str:
@@ -251,8 +258,19 @@ def abschrift_lesen(text: str) -> list[dict]:
 WEGE = ("abschrift", "notizen")
 
 
+def probe_konfig(k, p: Probe):
+    """0.4.129: Einstellung für diesen Lauf – mit anderem Modell für Kapitel und Notizen (Vorschläge wie eingestellt);
+    eigene Preise der Verwaltung gelten dann nicht, es zählt die Preistabelle."""
+    if not p.modell_probe:
+        return k
+    from dataclasses import replace
+
+    return replace(k, api_modell=p.modell_probe, api_modell_notizen="", cent_ein=None, cent_aus=None)
+
+
 def starten(db: Session, s: GameSession, abschrift: str | None = None, dateiname: str | None = None,
-            user_id: str = "", weg: str = "abschrift") -> Probe:
+            user_id: str = "", weg: str = "abschrift", stil: str = "bisher", vorn: bool = False,
+            modell: str = "") -> Probe:
     """Legt die Probe an und rechnet im Hintergrund. Wirft ValueError mit verständlicher Meldung, wenn nichts zu tun ist."""
     from app.einstellungen import llm_konfig
     from app.models import Campaign
@@ -263,6 +281,14 @@ def starten(db: Session, s: GameSession, abschrift: str | None = None, dateiname
     k = llm_konfig(db)
     if k.art == "lokal":
         raise ValueError("lokal")
+    modell = (modell or "").strip()
+    if modell and k.art == "api" and modell != k.api_modell:  # 0.4.129: anderes Modell nur für diesen Lauf
+        from app import modellwahl
+
+        if not modellwahl.erlaubt(db, k.api_url, k.anbieter, modell):
+            raise ValueError("modell")
+    else:
+        modell = ""
     if k.art == "aus" or (k.art == "api" and not k.api_key):
         raise ValueError("aus")
     c = db.get(Campaign, s.campaign_id)
@@ -283,12 +309,15 @@ def starten(db: Session, s: GameSession, abschrift: str | None = None, dateiname
     p = Probe(id=new_id(), session_id=s.id, kampagne=c.title if c else "?", kapitel=s.number, quelle=quelle,
               zeilen=len(recap_ein["transkript"]), modell=_modellname(k),
               gestartet=utcnow().isoformat().replace("+00:00", "Z"), campaign_id=s.campaign_id, besitzer=user_id,
-              weg=weg if weg in WEGE else "abschrift")
+              weg=weg if weg in WEGE else "abschrift", stil=stil if stil in STILE else "bisher", vorn=bool(vorn),
+              modell_probe=modell)
+    if modell:
+        p.modell = _modellname(probe_konfig(k, p))
     _aufraeumen()
     _speichern(p)
     if abschrift is not None:
         (ordner(p.id) / "transkript.txt").write_text(abschrift, encoding="utf-8", newline="\n")
-    threading.Thread(target=_rechnen, args=(p, k, recap_ein, vorschlag_ein, s.campaign_id, s.id),
+    threading.Thread(target=_rechnen, args=(p, probe_konfig(k, p), recap_ein, vorschlag_ein, s.campaign_id, s.id),
                      name=f"probelauf-{p.id[:8]}", daemon=True).start()
     return p
 
@@ -369,12 +398,14 @@ def _rechnen_jetzt(p: Probe, k, recap_ein: dict, vorschlag_ein: dict, campaign_i
             ablauf = Ablauf(klient, schritt=schritt, vorschlag_klient=api_klient_vorschlaege(k),
                             nachbesserung=k.art != "api",  # 0.4.62: wie im echten Ablauf
                             notizen_zuerst=p.weg == "notizen",  # 0.4.63: hier je Probelauf wählbar
-                            notiz_klient=api_klient_notizen(k), zweiter_blick_an=blick, pruefansicht=ansicht)
+                            notiz_klient=api_klient_notizen(k), zweiter_blick_an=blick, pruefansicht=ansicht,
+                            stil=p.stil, grundlage_vorn=p.vorn)  # 0.4.129
             d = ablauf.ausfuehren(recap_ein, vorschlag_ein, lambda _p: None, gegenpruefen=gegen)
             p.titel, p.text, p.offene_faeden = d["title"], d["text"], list(d["openThreads"])
             p.vorschlaege = d["proposals"]
             p.pruefung = d.get("review") or {}
             p.aufrufe = ablauf.zaehler.aufrufe
+            p.tokens_zwischengespeichert = ablauf.zaehler.tokens_zwischengespeichert
             p.tokens_ein, p.tokens_aus = d["tokensIn"], d["tokensOut"]
             p.kosten_cent = d.get("costCents", klient.kosten_cent(d["tokensIn"], d["tokensOut"]))
             p.warnungen = list(getattr(ablauf, "warnungen", []) or [])
@@ -497,7 +528,7 @@ def _korrektur_pruefen_und_setzen(db: Session, p: Probe, hinweise: dict[int, str
     ein = recap_eingabe(eingabe_bauen(db, s))
     p.korrektur_laeuft = True
     _speichern(p)
-    threading.Thread(target=_korrigieren, args=(p, k, ein, hinweise, fehlt), name=f"korrektur-{p.id[:8]}",
+    threading.Thread(target=_korrigieren, args=(p, probe_konfig(k, p), ein, hinweise, fehlt), name=f"korrektur-{p.id[:8]}",
                      daemon=True).start()
 
 
@@ -527,7 +558,7 @@ def _korrigieren(p: Probe, k, ein: dict, hinweise: dict[int, str], fehlt: str) -
                 from app.zusammenfassung import api_klient
 
                 klient = api_klient(k)
-                ablauf = Ablauf(klient)
+                ablauf = Ablauf(klient, stil=p.stil)  # 0.4.129: Korrektur im Stil des Laufs
                 text, bericht = ablauf.korrigieren(ein, vorher, hinweise, fehlt, p.notizen)
                 runde.update(bericht)
                 runde["nachher"] = text if bericht["geaendert"] else ""

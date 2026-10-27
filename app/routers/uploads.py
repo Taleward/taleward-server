@@ -102,6 +102,16 @@ def start_upload(sessionId: str, body: UploadStart, user: User = Depends(current
     if s.state not in ("created", "failed"):
         raise errors.conflict("invalid_state", "invalid_state.upload")
     _pruefe_dateien(s, body)
+    from app import abrechnung
+
+    wartend = abrechnung.wartende_aufnahme(db, s)  # 0.4.24: ohne Guthaben höchstens eine wartende Aufnahme
+    if wartend is not None:
+        from app.access import player_can_see_session
+
+        m = membership(db, wartend.campaign_id, user)  # wie GET /sessions/{id}: sonst fehlt die Angabe
+        sichtbar = m is not None and (m.role == "gm" or player_can_see_session(wartend))
+        raise errors.ApiError(409, "budget_recording_waiting",
+                              details={"sessionId": wartend.id} if sichtbar else None)
     # Neuanfang nach Fehlschlag: altes Audio verwerfen
     for alt in db.scalars(select(Upload).where(Upload.session_id == s.id, Upload.state == "completed")):
         storage.delete_upload_files(alt.id)

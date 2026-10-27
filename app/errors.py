@@ -31,6 +31,10 @@ MESSAGES: dict[str, tuple[str, str]] = {
     "email_unverified": ("Trag zuerst in deinem Konto eine E-Mail-Adresse ein und bestätige sie. Dorthin kommt die "
                          "Antwort.",
                          "First add an e-mail address to your account and confirm it. The answer is sent there."),
+    "budget_recording_waiting": ("Ohne Guthaben wartet schon eine Aufnahme. Eine weitere geht erst, wenn sie verarbeitet "
+                                 "oder gelöscht ist. Wende dich an die Verwaltung deines Servers.",
+                                 "Without credit, one recording is already waiting. Another one is only accepted once "
+                                 "it has been processed or deleted. Please contact the administrators of your server."),
     "gm_request_closed": ("Deine Anfrage wurde abgelehnt. Eine neue geht erst, wenn die Verwaltung sie wieder "
                           "erlaubt.",
                           "Your request was declined. You can ask again once the administrators allow it."),

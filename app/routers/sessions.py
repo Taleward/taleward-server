@@ -177,7 +177,8 @@ def list_speakers(sessionId: str, user: User = Depends(current_user), db: Sessio
     aus = []
     for sp in stimmen:
         daten = dict(id=sp.id, label=sp.label, speaking_seconds=sp.speaking_seconds, sample_text=sp.sample_text,
-                     suggested_member_id=sp.suggested_member_id, confidence=sp.confidence, source=sp.source,
+                     suggested_member_id=sp.suggested_member_id, suggested_guest_name=sp.suggested_guest_name,
+                     confidence=sp.confidence, source=sp.source,
                      assigned_guest_name=sp.assigned_guest_name, hint=None,
                      samples=[schemas.SpeakerSample(**pr) for pr in _proben(sp)])  # 0.4.21
         if bestaetigt:

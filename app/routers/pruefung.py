@@ -102,6 +102,10 @@ def confirm_speakers(sessionId: str, body: list[schemas.SpeakerAssignIn], reques
     for sp in stimmen.values():
         sp.assigned_member_id = angegeben[sp.id] if sp.id in angegeben else sp.suggested_member_id
         sp.assigned_guest_name = gast.get(sp.id)
+        if sp.id not in angegeben and sp.suggested_guest_name:  # 0.4.24: Gast-Vorschlag ohne Änderung bestätigt
+            vorschlag = gaeste.get(" ".join(sp.suggested_guest_name.split()).casefold())
+            if vorschlag:
+                sp.assigned_member_id, sp.assigned_guest_name = None, vorschlag
     db.flush()
     if not nachtraeglich:  # nachträglich sind Hörproben und Abdrücke längst gelöscht
         stimmprofile.lernen(db, s)  # nur Profile mit „aus Sessions lernen“, bevor die Abdrücke gelöscht werden

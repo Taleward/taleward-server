@@ -1,9 +1,9 @@
-Fassung 0.4.128
+Fassung 0.4.129
 
 ## Was ist neu
 
-- Neue Konten gibt es jetzt auf vier Arten: mit Einladung, mit einem Registrierungscode, offen für alle oder gar nicht. Einstellbar in der Verwaltung unter Einstellungen → Neue Konten.
-- SL-Freigabe: Auf Wunsch legt nur eigene Kampagnen an, wen die Verwaltung freigegeben hat. Anfragen kommen aus der App per Mail und stehen in der Verwaltung unter „SL-Freigaben“. Wer schon Spielleitung ist, behält das. Mit der Abrechnung „Einzelzahler“ entfällt die Freigabe.
-- Kampagnen ohne Cloud-Freigabe bekommen Kapitel, Vorschläge und Korrekturen jetzt von einem Worker mit lokalem Modell, auch wenn der Server sonst die Cloud nutzt.
-- Der Server führt kein Zugriffsprotokoll mehr, IP-Adressen landen nicht in seinen Protokollen.
+- Stimmen: Der Server schlägt jetzt auch Gäste vor, wenn sie sich in der Vorstellungsrunde nennen.
+- Mit der Abrechnung „Einzelzahler“ wartet ohne Guthaben höchstens eine Aufnahme je Konto. Die App behält eine weitere Aufnahme auf dem Gerät.
+- Die Benachrichtigung „Aufträge warten, kein Worker erreichbar“ zählt jetzt auch Kapitel, die auf einen Worker mit lokalem Modell warten, weil die Kampagne die Cloud nicht freigegeben hat.
+- Probelauf in der Verwaltung: Kapitelstil, Modell und eine günstigere Reihenfolge der Anfragen lassen sich für einen Vergleich wählen, ohne die Einstellung zu ändern.
 - Kleinere Verbesserungen.

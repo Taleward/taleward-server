@@ -535,6 +535,7 @@ class SpeakerOut(ApiModel):
     speaking_seconds: float
     sample_text: str
     suggested_member_id: str | None
+    suggested_guest_name: str | None = None  # 0.4.24: schließt suggested_member_id aus
     confidence: float
     source: Literal["intro_round", "voice_match", "discord_track", "none"]
     assigned_guest_name: str | None = None  # 0.4.7

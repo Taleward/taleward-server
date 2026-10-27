@@ -83,7 +83,7 @@ fastapi==0.141.1
     # via taleward-server
 faster-whisper==1.2.1
     # via whisperx
-filelock==4.0.3
+filelock==4.2.4
     # via
     #   huggingface-hub
     #   pyannote-pipeline

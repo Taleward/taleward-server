@@ -207,6 +207,34 @@ def zahler(db: Session, c: Campaign | None, anlegen: bool = False) -> Guthaben |
     return guthaben_konto(db, uid, anlegen) if uid else None
 
 
+# Zustände einer Runde, in denen ihre Aufnahme auf Verarbeitung wartet (Hochladen läuft oder Abschrift steht an)
+AUFNAHME_WARTET = ("uploading", "queued")
+
+
+def wartende_aufnahme(db: Session, s: GameSession) -> GameSession | None:
+    """0.4.24: Mit Einzelzahler und Guthaben ≤ 0 wartet höchstens eine Aufnahme je zahlendem Konto. Gibt die schon
+    wartende Runde zurück (eine andere als s), sonst None. Ohne Zahler entscheidet der übliche Wartegrund. Liegen
+    gebliebene Uploads setzt die Wartung zurück, Aufnahmen nach der Aufbewahrungsfrist zählen nicht mehr."""
+    if modus(db) != "guthaben":
+        return None
+    c = db.get(Campaign, s.campaign_id)
+    g = zahler(db, c)
+    if g is None or saldo(db, g.id) > 0:
+        return None
+    uid = zahler_user_id(db, c)
+    kampagnen = [m.campaign_id for m in db.scalars(select(Member).where(
+        Member.user_id == uid, Member.role == "gm", Member.left_at.is_(None), Member.deleted_at.is_(None)))]
+    for andere in db.scalars(select(GameSession).where(
+            GameSession.campaign_id.in_(kampagnen), GameSession.id != s.id,
+            GameSession.state.in_(AUFNAHME_WARTET), GameSession.audio_deleted_at.is_(None))  # nach Frist gelöscht: zählt nicht
+            .order_by(GameSession.created_at)):
+        k = db.get(Campaign, andere.campaign_id)
+        gz = zahler(db, k)
+        if gz is not None and gz.id == g.id:
+            return andere
+    return None
+
+
 def kampagne_von_auftrag(db: Session, job: Job) -> Campaign | None:
     from app.queue import kampagne_von
 

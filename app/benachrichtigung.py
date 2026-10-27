@@ -319,8 +319,16 @@ def pruefen(db: Session) -> list[str]:
         wartend = db.scalar(alt.where(Job.required_capability == "asr")) or 0
         n += wartend
         pausiert += pausierte_worker(db, "asr") if wartend else []
-    if llm_konfig(db).art == "lokal" and not llm_worker_online(db):
-        wartend = db.scalar(alt.where(Job.required_capability == "llm")) or 0
+    art = llm_konfig(db).art
+    if art in ("lokal", "api") and not llm_worker_online(db):
+        if art == "lokal":
+            wartend = db.scalar(alt.where(Job.required_capability == "llm")) or 0
+        else:  # 0.4.129: Cloud-API – Aufträge der Kampagnen ohne Cloud-Freigabe warten auf einen Worker
+            from app.queue import LLM_FAEHIGKEITEN, worker_darf
+
+            wartend = sum(1 for j in db.scalars(select(Job).where(
+                Job.state == "queued", Job.required_capability.in_(LLM_FAEHIGKEITEN), Job.created_at < grenze))
+                if worker_darf(db, j))
         n += wartend
         pausiert += pausierte_worker(db, "llm") if wartend else []
     # Ist ein passender Worker nur pausiert, sagt die Meldung das – statt „kein Worker erreichbar“

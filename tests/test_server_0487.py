@@ -176,6 +176,7 @@ def test_n4_nicht_messbar_zaehlt_das_groessere(client, world, dbs, tmp_path, mon
     dbs.commit()
     assert abrechnung.aufnahme_sekunden(dbs, s["id"]) == groesse + 500
     # 0.4.99 (M3): Mit Abrechnung wird eine nicht messbare Aufnahme gar nicht erst angenommen
+    _gutschreiben(dbs, _anna(dbs), 300)  # 0.4.129: ohne Guthaben wartet sonst schon die erste Aufnahme
     s2 = neue_session(client, world)
     up = hochladen(client, world["gm"], s2["id"], audio_abschnitte(tmp_path, (5,)), abschliessen=False)
     r = client.post(f"{API}/uploads/{up['uploadId']}/complete", headers=world["gm"])
