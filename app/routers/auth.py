@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import begrenzung, errors, schemas
+from app import begrenzung, errors, schemas, slfreigabe
 from app.links import betreiber_link
 from app.access import current_user
 from app.einstellungen import angaben, mail_adresse
@@ -14,7 +14,7 @@ from app.models import AuthMethod, Organization, OrgMember, User
 from app.security import create_token, verify_password
 from app.services import user_out
 
-API_VERSION = "0.4.22"
+API_VERSION = "0.4.23"
 
 router = APIRouter(tags=["Auth"])
 
@@ -39,7 +39,7 @@ def info(request: Request, db: Session = Depends(get_db)):
     cloud = cloud_anbieter(k) if k.art == "api" and k.api_key else None
     return schemas.ServerInfoOut(
         name=a.server_name, operator=a.server_operator, contact=a.server_contact, api_version=API_VERSION,
-        registration=registrierung(db), auth_methods=["password"] + (["oidc"] if dienste else []),
+        registration=registrierung(db), gm_approval=slfreigabe.gm_approval(db), auth_methods=["password"] + (["oidc"] if dienste else []),
         privacy_policy_url=a.privacy_policy_url if betreiber_link(a.privacy_policy_url, nur_https=False) else None,
         min_age=a.min_age, external_transcription=extern, min_app_version=a.app_min_version,
         latest_app_version=a.app_latest_version or (neu and neu["version"]),
@@ -118,7 +118,8 @@ def login(body: schemas.LoginRequest, request: Request, db: Session = Depends(ge
 
 @router.post("/auth/register", status_code=201, response_model=schemas.LoginResponse)
 def register(body: schemas.RegisterRequest, request: Request, db: Session = Depends(get_db)):
-    """Konto mit Einladungscode anlegen und gleich anmelden. Beitreten macht die App danach mit /campaigns/join."""
+    """Konto anlegen und gleich anmelden (Einladung, Registrierungscode oder offen, 0.4.23). Beitreten macht die App
+    danach mit /campaigns/join."""
     from app.konto import registrieren
 
     adresse = begrenzung.adresse(request)
@@ -131,7 +132,7 @@ def register(body: schemas.RegisterRequest, request: Request, db: Session = Depe
             raise errors.bad_request("validation_error", "validation_error.empty", field="username/password")
         u = registrieren(db, adresse, body.invite_code, body.username, body.display_name, body.password,
                          body.accept_privacy, body.age_confirmed, accept_terms=body.accept_terms,
-                         terms_version=body.terms_version)
+                         terms_version=body.terms_version, registration_code=body.registration_code)
     db.commit()
     token, expires = create_token(u.id, u.token_version, server_id())
     return schemas.LoginResponse(access_token=token, expires_at=expires, user=user_out(u))
@@ -156,6 +157,18 @@ def terms_zustimmen(body: schemas.TermsAcceptIn, user: User = Depends(current_us
         user.terms_accepted_version, user.terms_accepted_at = body.version, utcnow()
         db.commit()
         db.refresh(user)
+    return user_out(user)
+
+
+@router.post("/me/gm-request", response_model=schemas.UserOut, responses={202: {"model": schemas.UserOut}})
+def sl_freigabe_anfragen(request: Request, response: Response, user: User = Depends(current_user),
+                         db: Session = Depends(get_db)):
+    """0.4.23: SL-Freigabe anfragen (app/slfreigabe.py). 202 = Anfrage liegt vor, 200 = nichts zu tun."""
+    from app.einstellungen import oeffentliche_adresse
+
+    response.status_code = slfreigabe.anfragen(db, user, errors.sprache(request), oeffentliche_adresse(db, request))
+    db.commit()
+    db.refresh(user)
     return user_out(user)
 
 

@@ -47,7 +47,8 @@ def user_out(u: User) -> schemas.UserOut:
     return schemas.UserOut(id=u.id, username=u.username, display_name=u.display_name, email=u.email,
                            email_pending=u.email_pending, has_password="password" in arten,
                            providers=sorted(k.split(":", 1)[1] for k in arten if k.startswith("oidc:")),
-                           terms_accepted_version=u.terms_accepted_version, terms_accepted_at=u.terms_accepted_at)
+                           terms_accepted_version=u.terms_accepted_version, terms_accepted_at=u.terms_accepted_at,
+                           gm_permission=u.gm_permission or "none", gm_decided_at=u.gm_decided_at)
 
 
 def default_organization(db: Session) -> Organization:

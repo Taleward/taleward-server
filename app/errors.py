@@ -17,6 +17,23 @@ MESSAGES: dict[str, tuple[str, str]] = {
     "registration_closed": ("Auf diesem Server können sich keine neuen Konten selbst registrieren. "
                             "Bitte wende dich an die Betreiber.",
                             "New accounts cannot be registered on this server. Please contact the operators."),
+    # 0.4.23: Registrierungscode und SL-Freigabe
+    "registration_code_required": ("Für ein Konto auf diesem Server brauchst du einen Registrierungscode oder eine "
+                                   "Einladung. Frag die Betreiber oder deine Spielleitung.",
+                                   "You need a registration code or an invitation for an account on this server. "
+                                   "Ask the operators or your game master."),
+    "registration_code_invalid": ("Dieser Registrierungscode stimmt nicht. Prüf ihn oder frag die Betreiber.",
+                                  "This registration code is not correct. Check it or ask the operators."),
+    "gm_permission_required": ("Eigene Kampagnen anlegen geht auf diesem Server erst mit einer SL-Freigabe. Du "
+                               "kannst sie in der App anfragen.",
+                               "On this server you need game master approval before you can create your own "
+                               "campaigns. You can request it in the app."),
+    "email_unverified": ("Trag zuerst in deinem Konto eine E-Mail-Adresse ein und bestätige sie. Dorthin kommt die "
+                         "Antwort.",
+                         "First add an e-mail address to your account and confirm it. The answer is sent there."),
+    "gm_request_closed": ("Deine Anfrage wurde abgelehnt. Eine neue geht erst, wenn die Verwaltung sie wieder "
+                          "erlaubt.",
+                          "Your request was declined. You can ask again once the administrators allow it."),
     "consent_required": ("Bitte bestätige den Datenschutzhinweis und dein Alter.",
                          "Please accept the privacy notice and confirm your age."),
     "weak_password": ("Das Passwort braucht mindestens 8 Zeichen und darf nicht leicht zu erraten sein.",

@@ -10,7 +10,7 @@ API = "/api/v1"
 def test_info_und_oeffentliche_seite(client, world, dbs, admin):  # noqa: F811
     info = client.get(f"{API}/info").json()
     assert info["termsUrl"] == "http://testserver/nutzungsbedingungen" and info["termsVersion"] == 1
-    assert info["legalNoticeUrl"] is None and info["apiVersion"] == "0.4.22"
+    assert info["legalNoticeUrl"] is None and info["apiVersion"] == "0.4.23"
     seite = client.get("/nutzungsbedingungen")
     assert seite.status_code == 200 and "<h1>Nutzungsbedingungen</h1>" in seite.text and "Fassung 1" in seite.text
     assert "jede für sich selbst" in seite.text and "nicht Vertragspartner" in seite.text

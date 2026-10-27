@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Taleward API
-  version: 0.4.22
+  version: 0.4.23
   description: |
     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
 
@@ -226,6 +226,15 @@ info:
     Update angelegt wurden (termsAcceptedVersion null).
     Präzisiert in 0.4.22 (nur Text, keine neue Fassungsnummer): Aufbewahrung der Hörproben einheitlich bei
     ServerInfo.audioRetention beschrieben.
+    Änderungen in 0.4.23 (Registrierungsarten und SL-Freigabe): ServerInfo.registration kennt zusätzlich `code`
+    (allgemeiner Registrierungscode des Betreibers, Konto ohne Kampagne) und `open` (Konto ohne Code). Kampagnen-
+    einladungen gehen weiter in allen Arten außer `closed`. Registrierungscode und offene Registrierung geben weder
+    Mitgliedschaft noch SL-Recht. ServerInfo.gmApproval sagt, ob eigene Kampagnen eine SL-Freigabe brauchen;
+    User.gmPermission den Stand des eigenen Kontos. POST /me/gm-request stellt die Anfrage (bestätigte E-Mail nötig),
+    die Verwaltung entscheidet per Mail-Link nach Anmeldung. Ohne Freigabe → 403 `gm_permission_required` bei
+    POST /campaigns und POST /imports. Bestehende Konten, die schon SL einer Kampagne sind oder ein Verwaltungskonto
+    haben, bekommen beim Update `granted`, alle anderen `none`. Ältere Apps behandeln unbekannte registration-Werte
+    wie invite_only und sehen bei fehlender Freigabe den Fehler beim Anlegen.
 
 servers:
   - url: https://taleward.example.org/api/v1
@@ -304,10 +313,17 @@ paths:
   /auth/register:
     post:
       tags: [Auth]
-      summary: Konto mit Einladungscode anlegen
+      summary: Konto anlegen (mit Einladung, Registrierungscode oder offen)
       description: |
-        Nur mit gültigem Einladungscode (registration invite_only; 404 `invite_invalid`), sonst 403 `registration_closed`.
-        Legt nur das Konto an – den Beitritt zur Kampagne macht die App danach mit POST /campaigns/join.
+        Nach ServerInfo.registration:
+        - invite_only: inviteCode Pflicht (unbekannt, abgelaufen oder aufgebraucht → 404 `invite_invalid`).
+        - code (ab 0.4.23): inviteCode oder registrationCode. Falscher registrationCode → 400 `registration_code_invalid`;
+          fehlt beides → 400 `registration_code_required`.
+        - open (ab 0.4.23): kein Code nötig; ein inviteCode wird wie oben geprüft.
+        - closed: 403 `registration_closed`.
+        Legt nur das Konto an – den Beitritt zur Kampagne macht die App danach mit POST /campaigns/join (nur, wenn sie
+        mit inviteCode registriert hat). Der registrationCode tritt nichts bei und gibt kein SL-Recht; ein neues Konto
+        hat gmPermission none.
         acceptPrivacy und ageConfirmed müssen true sein (400 `consent_required`); beides mit Zeitpunkt protokollieren.
         Ab 0.4.22 zusätzlich acceptTerms true und termsVersion = ServerInfo.termsVersion (fehlt eins → 400
         `consent_required`; andere Fassung → 409 `terms_changed`, die App lädt /info neu und zeigt die neue Fassung).
@@ -323,9 +339,10 @@ paths:
               oneOf:
                 - type: object
                   title: Mit Benutzername und Passwort
-                  required: [inviteCode, username, displayName, password, acceptPrivacy, ageConfirmed]
+                  required: [username, displayName, password, acceptPrivacy, ageConfirmed]
                   properties:
-                    inviteCode: { type: string }
+                    inviteCode: { type: string, description: "Kampagneneinladung; Pflicht bei invite_only (vor 0.4.23 immer)" }
+                    registrationCode: { type: string, description: "Ab 0.4.23, nur bei registration code: allgemeiner Code des Betreibers" }
                     username: { type: string, description: "3–64 Zeichen aus Buchstaben, Ziffern, . - _ (400 username_invalid); wird kleingeschrieben" }
                     displayName: { type: string }
                     password: { type: string, format: password, minLength: 8 }
@@ -338,10 +355,11 @@ paths:
                   description: |
                     registrationToken aus POST /auth/oidc/exchange (status register, 15 min gültig). Benutzername bildet der
                     Server (eindeutig, später änderbar), kein Passwort. Die bestätigte E-Mail des Dienstes wird übernommen.
-                    Einladungspflicht wie oben. 400 registration_token_invalid.
-                  required: [inviteCode, registrationToken, displayName, acceptPrivacy, ageConfirmed]
+                    Code-Regeln wie oben. 400 registration_token_invalid.
+                  required: [registrationToken, displayName, acceptPrivacy, ageConfirmed]
                   properties:
                     inviteCode: { type: string }
+                    registrationCode: { type: string, description: "Ab 0.4.23, wie oben" }
                     registrationToken: { type: string }
                     displayName: { type: string }
                     acceptPrivacy: { type: boolean, enum: [true] }
@@ -493,6 +511,41 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "409": { $ref: "#/components/responses/Conflict" }
+
+  /me/gm-request:
+    post:
+      tags: [Auth]
+      summary: SL-Freigabe anfragen (ab 0.4.23)
+      description: |
+        Nur sinnvoll bei ServerInfo.gmApproval required. Legt eine Anfrage an und schickt eine Mail an die Verwaltung
+        des Servers; die Mail enthält einen Link zur Entscheidung, der selbst nichts vergibt (entschieden wird nach
+        Anmeldung in der Verwaltung). Die Entscheidung geht per Mail an die Person, der Stand steht in
+        User.gmPermission (GET /me).
+        - none → 202, gmPermission pending.
+        - pending → 202, nichts ändert sich, keine zweite Mail.
+        - granted → 200, nichts ändert sich.
+        - rejected → 409 `gm_request_closed`. Eine neue Anfrage geht erst, wenn die Verwaltung sie wieder erlaubt
+          (dann steht gmPermission wieder auf none).
+        Voraussetzung: bestätigte E-Mail (User.email); sonst 409 `email_unverified`. Kann der Server die Mail gerade
+        nicht schicken, bleibt die Anfrage trotzdem gespeichert (202, pending); die Verwaltung sieht sie mit Hinweis.
+        Bei gmApproval none → 200 mit dem aktuellen Stand, nichts wird angelegt.
+        Kein Text, keine Begründung von der Person: die Verwaltung sieht Anzeigename, Benutzername und Datum.
+      responses:
+        "200":
+          description: Nichts zu tun (schon freigegeben oder keine Freigabe nötig)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "202":
+          description: Anfrage liegt vor (pending)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429":
+          description: Zu viele Versuche
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
 
   /me/email:
     put:
@@ -722,6 +775,9 @@ paths:
     post:
       tags: [Kampagnen]
       summary: Neue Kampagne anlegen (Ersteller wird SL)
+      description: |
+        Ab 0.4.23: Bei ServerInfo.gmApproval required nur mit User.gmPermission granted, sonst 403
+        `gm_permission_required` (nichts wird angelegt). Die App fragt vorher und bietet stattdessen die Anfrage an.
       requestBody:
         required: true
         content:
@@ -747,6 +803,7 @@ paths:
               schema: { $ref: "#/components/schemas/Campaign" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
 
   /campaigns/join:
     post:
@@ -1294,6 +1351,8 @@ paths:
       description: |
         Stückweiser Upload wie bei Aufnahmen. Größte Datei stellt der Betreiber ein (Standard 1 GB). Nicht
         abgeschlossene Importe löscht der Server nach 7 Tagen.
+        Ab 0.4.23: Die importierende Person wird SL einer neuen Kampagne, daher gilt dieselbe Regel wie bei
+        POST /campaigns (403 `gm_permission_required`). Der Server prüft beim Beginn und noch einmal bei …/complete.
       requestBody:
         required: true
         content:
@@ -1318,6 +1377,7 @@ paths:
                   chunkCount: { type: integer }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "413":
           description: Datei zu groß (`import_too_large`, details.maxBytes)
           content:
@@ -1382,6 +1442,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ImportStatus" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: Es fehlen noch Teile (details.missingChunks)
@@ -3123,7 +3184,26 @@ components:
         operator: { type: string }
         contact: { type: [string, "null"] }
         apiVersion: { type: string, example: "0.3.8" }
-        registration: { type: string, enum: [invite_only, closed] }
+        registration:
+          type: string
+          enum: [invite_only, code, open, closed]
+          description: |
+            Wie man ein Konto bekommt (code und open ab 0.4.23):
+            - invite_only: nur mit einer Kampagneneinladung, die App tritt danach bei.
+            - code: mit dem allgemeinen Registrierungscode des Betreibers (steht nie hier) oder mit einer
+              Kampagneneinladung. Mit dem allgemeinen Code entsteht nur das Konto, ohne Kampagne.
+            - open: ohne Code (z. B. Community-Server); eine Kampagneneinladung geht weiter.
+            - closed: keine neuen Konten.
+            Unbekannte Werte behandelt die App wie invite_only.
+        gmApproval:
+          type: string
+          enum: [required, none]
+          description: |
+            Ab 0.4.23: required = eigene Kampagnen anlegen (POST /campaigns, POST /imports) nur mit User.gmPermission
+            granted; die App bietet sonst „SL-Freigabe anfragen“ an. none = jedes Konto darf. Fehlt das Feld (Server
+            vor 0.4.23), wie none. Welche Regel dahinter steht (Einstellung des Betreibers, Abrechnung), entscheidet
+            der Server; die App liest nur dieses Feld. SL einer bestehenden Kampagne werden (Einladung als SL,
+            Übergabe) braucht keine Freigabe.
         authMethods: { type: array, items: { type: string, enum: [password, oidc, passkey] }, description: "oidc, sobald mindestens ein Dienst eingerichtet ist" }
         privacyPolicyUrl: { type: [string, "null"] }
         legalNoticeUrl:
@@ -3449,6 +3529,16 @@ components:
             entfernen braucht die Zustimmung). Die App zeigt bei 403 `terms_required` den Weg zum Zustimmen; bei Widerrufen
             und beim Verlassen fragt sie nicht erst danach.
         termsAcceptedAt: { type: [string, "null"], format: date-time, description: "Ab 0.4.22, Zeitpunkt dieser Zustimmung" }
+        gmPermission:
+          type: string
+          enum: [granted, none, pending, rejected]
+          description: |
+            Ab 0.4.23: darf dieses Konto eigene Kampagnen anlegen? Zählt nur bei ServerInfo.gmApproval required.
+            none = nicht angefragt (oder die Verwaltung hat eine neue Anfrage wieder erlaubt), pending = wird geprüft,
+            rejected = abgelehnt (neue Anfrage erst, wenn die Verwaltung sie erlaubt), granted = freigegeben. Entzieht
+            die Verwaltung die Freigabe, steht hier wieder none bzw. rejected; bestehende Kampagnen bleiben. Fehlt das
+            Feld (Server vor 0.4.23), wie granted. Unbekannte Werte wie none.
+        gmDecidedAt: { type: [string, "null"], format: date-time, description: "Ab 0.4.23: Zeitpunkt der letzten Entscheidung der Verwaltung (granted/rejected), sonst null – auch bei Konten, die beim Update granted bekommen. Die App zeigt eine neue Entscheidung einmal an." }
 
     VoiceProfile:
       type: object

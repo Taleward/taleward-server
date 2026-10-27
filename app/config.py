@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     data_dir: Path = Path("./data")
     cors_origins: str = "http://localhost:5173,http://localhost"
     invite_ttl_days: int = 7
-    registration: str = "invite_only"  # invite_only = Konto per Einladungscode selbst anlegen | closed
+    registration: str = "invite_only"  # invite_only | code | open | closed (0.4.23), änderbar in der Verwaltung
     forwarded_allow_ips: str = "127.0.0.1"
     # Angaben für GET /info (öffentlich sichtbar in der App)
     server_name: str = "Session-Chronik"

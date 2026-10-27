@@ -30,7 +30,8 @@
       <tr>
         <td data-label="{{ _('Konto') }}"><strong>{{ k.u.display_name }}</strong><br><span class="leise">{{ k.u.username }} · {{ _("seit {zeit}", zeit=zeit(k.u.created_at)) }}</span>
           <br><span class="leise">{{ _("Anmeldung") }}: {% for m in k.u.auth_methods %}{{ _("Passwort") if m.kind == "password" else m.kind.split(":")[-1]|capitalize }}{% if not loop.last %}, {% endif %}{% endfor %}{% if k.faktor %} · {{ _("zweiter Faktor") }}{% endif %}{% if k.u.email %} · {{ _("E-Mail bestätigt") }}{% endif %}</span></td>
-        <td data-label="{{ _('Rolle') }}">{% if k.verwalter %}<span class="marke-status marke-status--gut">{{ _("Verwalter") }}</span>{% else %}<span class="leise">{{ _("Mitglied") }}</span>{% endif %}</td>
+        <td data-label="{{ _('Rolle') }}">{% if k.verwalter %}<span class="marke-status marke-status--gut">{{ _("Verwalter") }}</span>{% else %}<span class="leise">{{ _("Mitglied") }}</span>{% endif %}
+          {% if gm_approval == "required" and not k.verwalter %}<br><span class="leise">{{ {"granted": _("SL-Freigabe erteilt"), "pending": _("SL-Freigabe angefragt"), "rejected": _("SL-Freigabe abgelehnt")}.get(k.u.gm_permission, _("ohne SL-Freigabe")) }}</span>{% endif %}</td>
         <td class="leise" data-label="{{ _('Zuletzt angemeldet') }}">{{ zeit(k.zuletzt) }}</td>
         <td>
           <form method="post" action="/verwaltung/konten/{{ k.u.id }}/link"><input type="hidden" name="csrf" value="{{ csrf }}">
@@ -42,6 +43,10 @@
               <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit">{{ _("Setzen und überall abmelden") }}</button>
             </form>
           </details>
+          {% if gm_approval == "required" and not k.verwalter and k.u.gm_permission != "granted" %}
+          <form method="post" action="/verwaltung/sl-freigaben/{{ k.u.id }}/freigeben"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="zurueck" value="konten">
+            <button class="tw-btn tw-btn--quiet tw-btn--klein" type="submit">{{ _("SL-Freigabe erteilen") }}</button></form>
+          {% endif %}
           {% if k.u.id != user.id %}
           <form method="post" action="/verwaltung/konten/{{ k.u.id }}/verwalter"><input type="hidden" name="csrf" value="{{ csrf }}">
             <button class="tw-btn tw-btn--quiet tw-btn--klein" type="submit">{{ _("Verwalter-Recht entziehen") if k.verwalter else _("Zum Verwalter machen") }}</button></form>

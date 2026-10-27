@@ -43,9 +43,19 @@
     <label>{{ _("Registrierung") }}
       <select name="registrierung">
         <option value="invite_only" {% if registrierung == "invite_only" %}selected{% endif %}>{{ _("Mit Einladungscode – wer einen Einladungslink hat, legt sein Konto selbst an") }}</option>
+        <option value="code" {% if registrierung == "code" %}selected{% endif %}>{{ _("Mit Registrierungscode – wer den Code von dir hat, legt ein Konto an (ohne Kampagne)") }}</option>
+        <option value="open" {% if registrierung == "open" %}selected{% endif %}>{{ _("Offen – jede Person kann ein Konto anlegen") }}</option>
         <option value="closed" {% if registrierung == "closed" %}selected{% endif %}>{{ _("Geschlossen – Konten legt nur die Verwaltung an") }}</option>
       </select>
-      <span class="hilfe">{{ _("Bei der Registrierung bestätigt jede Person den Datenschutzhinweis und das Mindestalter; beides wird mit Zeitpunkt gespeichert.") }}</span></label>
+      <span class="hilfe">{{ _("Einladungen der Spielleitung funktionieren in jeder Einstellung außer „Geschlossen“.") }} {{ _("Bei der Registrierung bestätigt jede Person den Datenschutzhinweis und das Mindestalter; beides wird mit Zeitpunkt gespeichert.") }}</span></label>
+    <label>{{ _("Registrierungscode") }} <input type="text" name="registrierungscode" autocomplete="off" maxlength="80" placeholder="{{ _('eingetragen – zum Ändern neu eingeben') if registrierungscode else _('noch keiner') }}">
+      <span class="hilfe">{{ _("Nur für „Mit Registrierungscode“. Gib ihn persönlich weiter. Der Server merkt sich nur eine Prüfsumme und kann ihn dir nicht wieder anzeigen – notier ihn dir.") }}</span></label>
+    <label>{{ _("SL-Freigabe verlangen") }}
+      <select name="sl_freigabe" {% if einzelzahler %}aria-describedby="sl-freigabe-hilfe"{% endif %}>
+        <option value="offen" {% if sl_freigabe == "offen" %}selected{% endif %}>{{ _("Nur bei offener Registrierung") }}</option>
+        <option value="immer" {% if sl_freigabe == "immer" %}selected{% endif %}>{{ _("Immer") }}</option>
+      </select>
+      <span class="hilfe" id="sl-freigabe-hilfe">{% if einzelzahler %}{{ _("Entfällt, weil jede Spielleitung ihr Guthaben selbst bezahlt (Abrechnung: Einzelzahler).") }}{% else %}{{ _("Mit SL-Freigabe legt nur eigene Kampagnen an, wen du freigegeben hast. Anfragen kommen per Mail und stehen unter „SL-Freigaben“. Wer eingeladen wird, spielt immer mit.") }}{% endif %}</span></label>
   </div>
   <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
 </div>

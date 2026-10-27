@@ -1,7 +1,8 @@
-"""Eigenes Konto: Selbstregistrierung mit Einladungscode, Datenexport, Kontolöschung.
+"""Eigenes Konto: Selbstregistrierung (Einladung, Registrierungscode oder offen), Datenexport, Kontolöschung.
 
 Regeln aus der Schnittstelle (0.3.9):
-- Registrierung nur mit gültigem Einladungscode (Einstellung „nur mit Einladung“), sonst 403. Zustimmung zum
+- Registrierung nach der Einstellung (0.4.23): invite_only nur mit Einladung, code mit Einladung oder dem
+  allgemeinen Registrierungscode des Betreibers, open ohne Code, closed gar nicht (403). Zustimmung zum
   Datenschutzhinweis und Altersbestätigung werden mit Zeitpunkt gespeichert. Anfragen pro Adresse begrenzt (429).
 - Export: alles, was der Server über die Person weiß – ohne Stimmabdruck und ohne Inhalte anderer.
 - Löschen: Passwort bestätigen. Wer eine Kampagne als einzige SL leitet, in der noch andere sind, muss dort erst
@@ -28,7 +29,7 @@ from app.models import (
 from app.security import hash_password, verify_password
 from app.services import normalize_invite_code, set_move_consent, set_recording_consent
 
-REGISTRIERUNG = ("invite_only", "closed")
+REGISTRIERUNG = ("invite_only", "code", "open", "closed")
 BENUTZERNAME = re.compile(r"^[\w.-]{3,64}$")
 LEICHT = {"passwort", "password", "12345678", "123456789", "1234567890", "qwertzui", "qwertyui", "taleward",
           "admin123", "passwort1", "password1", "11111111", "00000000", "abcdefgh"}
@@ -42,6 +43,39 @@ def registrierung(db: Session) -> str:
 
     wert = meta_lesen(db, "registrierung") or get_settings().registration
     return wert if wert in REGISTRIERUNG else "closed"
+
+
+def _code_form(code: str) -> str:
+    """Registrierungscode ohne Leerzeichen, Groß-/Kleinschreibung egal (wird abgetippt)."""
+    return "".join((code or "").split()).lower()
+
+
+def _code_hash(code: str) -> str:
+    import hashlib
+
+    return "sha256:" + hashlib.sha256(_code_form(code).encode("utf-8")).hexdigest()
+
+
+def registrierungscode_setzen(db: Session, code: str | None) -> None:
+    """0.4.23: Allgemeiner Registrierungscode (nur als Prüfsumme gespeichert, nie in ServerInfo). Leer = keiner."""
+    from app.einstellungen import meta_schreiben
+
+    meta_schreiben(db, "registrierungscode", _code_hash(code) if _code_form(code or "") else "")
+
+
+def registrierungscode_gesetzt(db: Session) -> bool:
+    from app.einstellungen import meta_lesen
+
+    return bool(meta_lesen(db, "registrierungscode"))
+
+
+def registrierungscode_passt(db: Session, code: str) -> bool:
+    import hmac
+
+    from app.einstellungen import meta_lesen
+
+    gespeichert = meta_lesen(db, "registrierungscode") or ""
+    return bool(gespeichert) and bool(_code_form(code)) and hmac.compare_digest(gespeichert, _code_hash(code))
 
 
 def _begrenzen(adresse: str) -> None:
@@ -62,27 +96,42 @@ def passwort_zu_schwach(passwort: str, *namen: str) -> bool:
     return len(passwort) < 8 or p in LEICHT or any(n and p == n.lower() for n in namen) or len(set(p)) < 3
 
 
-def registrieren(db: Session, adresse: str, invite_code: str, username: str, display_name: str,
-                 password: str | None, accept_privacy: bool, age_confirmed: bool,
-                 methode: tuple[str, str] | None = None, accept_terms: bool = False,
-                 terms_version: int | None = None) -> User:
-    """Mit Passwort oder (0.4.0) mit einem Anmeldedienst: methode = ("oidc:<dienst>", sub).
-    0.4.22: nur mit Zustimmung zu den Nutzungsbedingungen in der gezeigten Fassung (400 consent_required bzw.
-    409 terms_changed); Zeitpunkt und Fassung stehen am Konto."""
-    _begrenzen(adresse)
-    if registrierung(db) != "invite_only":
+def _zugang_pruefen(db: Session, adresse: str, invite_code: str | None, registration_code: str | None) -> None:
+    """0.4.23: Wer darf ein Konto anlegen? Eine Einladung wird in jeder Art außer closed geprüft; der
+    Registrierungscode gilt nur bei code. Falsche Codes zählen wie beim Beitritt (0.4.83: Adresse und serverweit)."""
+    art = registrierung(db)
+    if art == "closed":
         raise errors.ApiError(403, "registration_closed")
-    # 0.4.83: falsche Codes zählen wie beim Beitritt (Adresse und serverweit)
+    einladung, code = (invite_code or "").strip(), (registration_code or "").strip()
+    if not einladung and art == "open":
+        return
+    if not einladung and art == "code" and not code:
+        raise errors.bad_request("registration_code_required")
     from app.begrenzung import ZAEHLER
     from app.routers.campaigns import code_versuch
 
     versuch = code_versuch(adresse)
     if versuch is None:
         raise errors.ApiError(429, "too_many_requests")
-    inv = db.get(Invite, normalize_invite_code(invite_code or ""))
-    if inv is None or inv.expires_at <= utcnow():
-        raise errors.ApiError(404, "invite_invalid")
+    if einladung or art == "invite_only":
+        inv = db.get(Invite, normalize_invite_code(einladung))
+        if inv is None or inv.expires_at <= utcnow():
+            raise errors.ApiError(404, "invite_invalid")
+    elif not registrierungscode_passt(db, code):
+        raise errors.bad_request("registration_code_invalid")
     ZAEHLER.freigeben(versuch)
+
+
+def registrieren(db: Session, adresse: str, invite_code: str | None, username: str, display_name: str,
+                 password: str | None, accept_privacy: bool, age_confirmed: bool,
+                 methode: tuple[str, str] | None = None, accept_terms: bool = False,
+                 terms_version: int | None = None, registration_code: str | None = None) -> User:
+    """Mit Passwort oder (0.4.0) mit einem Anmeldedienst: methode = ("oidc:<dienst>", sub).
+    0.4.22: nur mit Zustimmung zu den Nutzungsbedingungen in der gezeigten Fassung (400 consent_required bzw.
+    409 terms_changed); Zeitpunkt und Fassung stehen am Konto.
+    0.4.23: Zugang nach der Registrierungsart (_zugang_pruefen). Ein neues Konto hat keine SL-Freigabe (none)."""
+    _begrenzen(adresse)
+    _zugang_pruefen(db, adresse, invite_code, registration_code)
     if accept_privacy is not True or age_confirmed is not True:
         raise errors.bad_request("consent_required")
     from app import nutzungsbedingungen
@@ -177,6 +226,8 @@ def exportieren(db: Session, u: User, basis_url: str) -> dict:
                     "providers": sorted(m.kind.split(":", 1)[1] for m in u.auth_methods if m.kind.startswith("oidc:")),
                     "privacyAcceptedAt": _z(u.privacy_accepted_at), "ageConfirmedAt": _z(u.age_confirmed_at),
                     "termsAcceptedVersion": u.terms_accepted_version, "termsAcceptedAt": _z(u.terms_accepted_at),
+                    "gmPermission": u.gm_permission, "gmRequestedAt": _z(u.gm_requested_at),  # 0.4.23
+                    "gmDecidedAt": _z(u.gm_decided_at),
                     "signInMethods": [{"kind": m.kind, "createdAt": _z(m.created_at), "lastUsedAt": _z(m.last_used_at)}
                                       for m in anmeldungen]},
         "organizations": [{"id": o.id, "name": o.name, "role": om.role, "joinedAt": _z(om.joined_at)}

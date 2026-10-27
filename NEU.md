@@ -1,9 +1,9 @@
-Fassung 0.4.127
+Fassung 0.4.128
 
 ## Was ist neu
 
+- Neue Konten gibt es jetzt auf vier Arten: mit Einladung, mit einem Registrierungscode, offen für alle oder gar nicht. Einstellbar in der Verwaltung unter Einstellungen → Neue Konten.
+- SL-Freigabe: Auf Wunsch legt nur eigene Kampagnen an, wen die Verwaltung freigegeben hat. Anfragen kommen aus der App per Mail und stehen in der Verwaltung unter „SL-Freigaben“. Wer schon Spielleitung ist, behält das. Mit der Abrechnung „Einzelzahler“ entfällt die Freigabe.
 - Kampagnen ohne Cloud-Freigabe bekommen Kapitel, Vorschläge und Korrekturen jetzt von einem Worker mit lokalem Modell, auch wenn der Server sonst die Cloud nutzt.
-- Der Server kann auf Wunsch eine eigene Website gleich mit ausliefern – nur unter den dafür eingetragenen Adressen.
-- Antworten auf Mails des Servers, etwa bei „Passwort vergessen“, gehen an den Kontakt des Betreibers.
-- Der Server führt kein Zugriffsprotokoll mehr, IP-Adressen landen nicht in seinen Protokollen. Nach Updates räumt er alte Reste auf.
+- Der Server führt kein Zugriffsprotokoll mehr, IP-Adressen landen nicht in seinen Protokollen.
 - Kleinere Verbesserungen.

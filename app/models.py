@@ -47,6 +47,14 @@ class User(Base):
     # 0.4.22: zuletzt zugestimmte Fassung der Nutzungsbedingungen mit Zeitpunkt; None = noch nie (Konto von vorher)
     terms_accepted_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     terms_accepted_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # 0.4.23: SL-Freigabe (eigene Kampagnen anlegen): granted | none | pending | rejected. Zählt nur, wenn der Server
+    # sie verlangt (app/slfreigabe.py). Anfrage und Entscheidung mit Zeitpunkt und entscheidendem Verwaltungskonto.
+    gm_permission: Mapped[str] = mapped_column(String(16), default="none", server_default="none")
+    gm_requested_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    gm_decided_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    gm_decided_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    gm_sprache: Mapped[str | None] = mapped_column(String(8), nullable=True)  # Sprache der Antwort-Mail
+    gm_mail_fehler: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
     auth_methods: Mapped[list["AuthMethod"]] = relationship(cascade="all, delete-orphan")
 

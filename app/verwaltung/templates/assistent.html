@@ -240,7 +240,7 @@
     <label>{{ _("Startpasswort") }} <input type="text" name="password" required minlength="8" autocomplete="off"></label>
     <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Konto anlegen") }}</button></div>
   </form>
-  <p class="hilfe">{% if registrierung == "invite_only" %}{{ _("Spielerinnen und Spieler legen ihr Konto selbst an, wenn sie einen Einladungslink bekommen.") }}{% else %}{{ _("Die Registrierung ist geschlossen – Konten legt nur die Verwaltung an (Einstellungen → Neue Konten).") }}{% endif %}
+  <p class="hilfe">{% if registrierung == "closed" %}{{ _("Die Registrierung ist geschlossen – Konten legt nur die Verwaltung an (Einstellungen → Neue Konten).") }}{% else %}{{ _("Spielerinnen und Spieler legen ihr Konto selbst an, wenn sie einen Einladungslink bekommen.") }}{% endif %}
   {% if angaben.app_download_url %}{{ _("Die App gibt es hier:") }} <a href="{{ angaben.app_download_url }}">{{ angaben.app_download_url }}</a>{% endif %}</p>
   <div class="knopfzeile"><a class="tw-btn tw-btn--primary" href="/verwaltung/assistent/fertig">{{ _("Weiter") }}</a></div>
 </div>

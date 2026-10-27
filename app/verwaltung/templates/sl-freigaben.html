@@ -1,0 +1,73 @@
+{% extends "basis.html" %}
+{% block titel %}{{ _("SL-Freigaben") }}{% endblock %}
+{% block inhalt %}
+<h1>{{ _("SL-Freigaben") }}</h1>
+{% if gm_approval == "none" %}
+<p class="hinweis">{% if einzelzahler %}{{ _("Auf diesem Server braucht niemand eine SL-Freigabe: Jede Spielleitung bezahlt ihr Guthaben selbst (Abrechnung: Einzelzahler).") }}{% else %}{{ _("Auf diesem Server braucht gerade niemand eine SL-Freigabe. Einschalten kannst du sie unter Einstellungen → Neue Konten.") }}{% endif %}</p>
+{% else %}
+<p class="leise">{{ _("Eigene Kampagnen legt nur an, wen du freigegeben hast. Wer eingeladen wird, spielt immer mit. Bestehende Kampagnen bleiben, auch wenn du eine Freigabe zurücknimmst.") }}</p>
+{% endif %}
+<div class="karte" id="offen">
+  <h2>{{ _("Offene Anfragen") }}</h2>
+  {% if offene %}
+  <div class="tabelle-huelle"><table>
+    <thead><tr><th>{{ _("Konto") }}</th><th>{{ _("Angefragt") }}</th><th>{{ _("Entscheidung") }}</th></tr></thead>
+    <tbody>
+    {% for u in offene %}
+      <tr id="k-{{ u.id }}">
+        <td data-label="{{ _('Konto') }}"><strong>{{ u.display_name }}</strong><br><span class="leise">{{ u.username }}</span>
+          {% if u.gm_mail_fehler %}<br><span class="marke-status marke-status--fehler">{{ _("Mail an die Verwaltung nicht verschickt") }}</span>{% endif %}</td>
+        <td class="leise" data-label="{{ _('Angefragt') }}">{{ zeit(u.gm_requested_at) }}</td>
+        <td>
+          <form method="post" action="/verwaltung/sl-freigaben/{{ u.id }}/freigeben"><input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit" aria-label="{{ _('{name} freigeben', name=u.display_name) }}">{{ _("Freigeben") }}</button></form>
+          <form method="post" action="/verwaltung/sl-freigaben/{{ u.id }}/ablehnen"><input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="tw-btn tw-btn--quiet tw-btn--klein" type="submit" aria-label="{{ _('{name} ablehnen', name=u.display_name) }}">{{ _("Ablehnen") }}</button></form>
+          {% if u.gm_mail_fehler %}
+          <form method="post" action="/verwaltung/sl-freigaben/{{ u.id }}/mail"><input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="tw-btn tw-btn--quiet tw-btn--klein" type="submit">{{ _("Mail erneut senden") }}</button></form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="leise">{{ _("Keine offenen Anfragen.") }}</p>
+  {% endif %}
+  <p class="hilfe">{{ _("Die Person bekommt deine Entscheidung per Mail und sieht sie in der App.") }} {% if not mail_moeglich %}{{ _("Es ist noch kein Mailversand eingerichtet (Einstellungen → Benachrichtigungen). Anfragen stehen trotzdem hier.") }}{% endif %}</p>
+</div>
+<div class="karte" id="entschieden">
+  <h2>{{ _("Entschieden") }}</h2>
+  {% if entschiedene %}
+  <div class="tabelle-huelle"><table>
+    <thead><tr><th>{{ _("Konto") }}</th><th>{{ _("Stand") }}</th><th>{{ _("Aktionen") }}</th></tr></thead>
+    <tbody>
+    {% for u in entschiedene %}
+      <tr id="k-{{ u.id }}">
+        <td data-label="{{ _('Konto') }}"><strong>{{ u.display_name }}</strong><br><span class="leise">{{ u.username }}</span></td>
+        <td data-label="{{ _('Stand') }}">{% if u.gm_permission == "granted" %}<span class="marke-status marke-status--gut">{{ _("Freigegeben") }}</span>{% else %}<span class="marke-status marke-status--fehler">{{ _("Abgelehnt") }}</span>{% endif %}
+          {% if u.gm_decided_at %}<br><span class="leise">{{ zeit(u.gm_decided_at) }}</span>{% elif u.id in verwalter_ids %}<br><span class="leise">{{ _("Verwaltungskonto") }}</span>{% else %}<br><span class="leise">{{ _("schon vor dem Update Spielleitung") }}</span>{% endif %}</td>
+        <td>
+          {% if u.gm_permission == "granted" %}
+            {% if u.id not in verwalter_ids %}
+            <form method="post" action="/verwaltung/sl-freigaben/{{ u.id }}/entziehen"><input type="hidden" name="csrf" value="{{ csrf }}">
+              <button class="tw-btn tw-btn--quiet tw-btn--klein" type="submit" aria-label="{{ _('Freigabe für {name} zurücknehmen', name=u.display_name) }}">{{ _("Freigabe zurücknehmen") }}</button></form>
+            {% endif %}
+          {% else %}
+            <form method="post" action="/verwaltung/sl-freigaben/{{ u.id }}/freigeben"><input type="hidden" name="csrf" value="{{ csrf }}">
+              <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit" aria-label="{{ _('{name} freigeben', name=u.display_name) }}">{{ _("Doch freigeben") }}</button></form>
+            <form method="post" action="/verwaltung/sl-freigaben/{{ u.id }}/erlauben"><input type="hidden" name="csrf" value="{{ csrf }}">
+              <button class="tw-btn tw-btn--quiet tw-btn--klein" type="submit">{{ _("Neue Anfrage erlauben") }}</button></form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="leise">{{ _("Noch nichts entschieden.") }}</p>
+  {% endif %}
+  <p class="hilfe">{{ _("Ein Konto ohne Anfrage gibst du unter „Konten“ frei.") }}</p>
+</div>
+{% endblock %}

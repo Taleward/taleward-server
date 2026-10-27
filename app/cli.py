@@ -25,7 +25,7 @@ def _neues_konto(db, username: str, display_name: str, password: str, admin: boo
     """Konto + Anmeldeart „Passwort“ + Mitgliedschaft in der (Standard-)Organisation.
     zugestimmt (0.4.22): Zustimmung zu den Nutzungsbedingungen gleich eintragen – nur für das eigene Konto des
     Betreibers (Einrichtung, Einzelplatz, Demo); für andere Personen stimmt niemand stellvertretend zu."""
-    u = User(username=username, display_name=display_name)
+    u = User(username=username, display_name=display_name, gm_permission="granted" if admin else "none")
     if zugestimmt:
         from app import nutzungsbedingungen
         from app.db import utcnow

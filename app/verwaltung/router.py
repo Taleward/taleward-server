@@ -115,6 +115,13 @@ MELDUNGEN = {
     "konto_angelegt": "Konto angelegt.",
     "passwort": "Passwort geändert. Das Konto ist auf allen Geräten abgemeldet.",
     "verwalter": "Verwalter-Recht geändert.",
+    "sl_freigegeben": "Freigegeben. Die Person bekommt eine Mail, wenn sie eine bestätigte Adresse hat.",
+    "sl_abgelehnt": "Abgelehnt. Die Person bekommt eine Mail, wenn sie eine bestätigte Adresse hat.",
+    "sl_entzogen": "Freigabe zurückgenommen. Bestehende Kampagnen der Person bleiben.",
+    "sl_erlaubt": "Die Person kann wieder eine SL-Freigabe anfragen.",
+    "sl_mail": "Mail an die Verwaltung verschickt.",
+    "sl_mail_fehler": "Die Mail ließ sich nicht verschicken. Prüf unter Einstellungen → Benachrichtigungen den Mailversand.",
+    "sl_unveraendert": "Nichts geändert – der Stand hatte sich schon geändert.",
     "konto_geloescht": "Konto gelöscht. Kommentare der Person bleiben als „gelöschtes Konto“ stehen.",
     "gespeichert": "Gespeichert.",
     "worker_einstellungen": "Gespeichert. Der Worker startet nach dem laufenden Auftrag mit den neuen Einstellungen neu.",
@@ -499,6 +506,7 @@ def uebersicht(request: Request, user: User = Depends(verwalter), db: Session = 
         "knechte_online": sum(1 for w in workers if w.last_seen_at and w.last_seen_at > grenze and not w.paused
                               and w.app_paused_since is None),
         "knechte": len(workers),
+        "sl_anfragen": db.scalar(select(func.count()).select_from(User).where(User.gm_permission == "pending")),
     }
     db_datei = s.data_dir / "chronik.db"
     speicher = {
@@ -538,7 +546,49 @@ def konten(request: Request, user: User, db: Session, fehler: str = "", neuer_li
              for u in db.scalars(select(User).order_by(User.username))]
     for k in liste:
         k["faktor"] = zweiter_faktor.aktiv(db, k["u"].id)  # Hinweis „zweiter Faktor“ in der Liste
-    return _seite(request, "konten.html", user, db, konten=liste, fehler=fehler, neuer_link=neuer_link)
+    from app import slfreigabe
+
+    return _seite(request, "konten.html", user, db, konten=liste, fehler=fehler, neuer_link=neuer_link,
+                  gm_approval=slfreigabe.gm_approval(db))
+
+
+# ---------------------------------------------------------------- SL-Freigaben (0.4.23)
+@router.get("/sl-freigaben", response_class=HTMLResponse)
+def sl_freigaben(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)):
+    """Der Link aus der Mail an die Verwaltung führt hierher: Anzeigen ändert nichts, entschieden wird per POST."""
+    from app import mail, slfreigabe
+
+    return _seite(request, "sl-freigaben.html", user, db, offene=slfreigabe.offene(db),
+                  entschiedene=slfreigabe.entschiedene(db), gm_approval=slfreigabe.gm_approval(db),
+                  einzelzahler=slfreigabe.einzelzahler(db), mail_moeglich=mail.kann_senden(db),
+                  verwalter_ids=set(db.scalars(select(OrgMember.user_id).where(OrgMember.role == "admin"))))
+
+
+@router.post("/sl-freigaben/{user_id}/{aktion}", dependencies=[Depends(csrf_pruefen)])
+def sl_freigabe_entscheiden(request: Request, user_id: str, aktion: str, zurueck: str = Form(""),
+                            user: User = Depends(verwalter), db: Session = Depends(get_db)):
+    from app import slfreigabe
+    from app.einstellungen import oeffentliche_adresse
+
+    ziel = db.get(User, user_id)
+    if ziel is None or ziel.setup_account or aktion not in (*slfreigabe.ENTSCHEIDUNGEN, "mail"):
+        raise errors.not_found()
+    seite = "/konten" if zurueck == "konten" else "/sl-freigaben"
+    if aktion == "mail":
+        if ziel.gm_permission != "pending":
+            return _zurueck(seite, "sl_unveraendert")
+        ok = slfreigabe.mail_an_verwaltung(db, ziel, oeffentliche_adresse(db, request))
+        db.commit()
+        return _zurueck(seite, "sl_mail" if ok else "sl_mail_fehler")
+    if aktion == "entziehen" and _ist_verwalter(db, ziel):
+        return _zurueck(seite, "sl_unveraendert")  # Verwaltungskonten dürfen immer leiten
+    vorher = ziel.gm_permission
+    slfreigabe.entscheiden(db, ziel, aktion, user)
+    db.commit()
+    if ziel.gm_permission == vorher:
+        return _zurueck(seite, "sl_unveraendert")
+    return _zurueck(seite, {"freigeben": "sl_freigegeben", "ablehnen": "sl_abgelehnt", "entziehen": "sl_entzogen",
+                            "erlauben": "sl_erlaubt"}[aktion])
 
 
 def _konten_fehler(request: Request, user: User, db: Session, text: str) -> HTMLResponse:
@@ -619,6 +669,9 @@ def verwalter_umschalten(request: Request, user_id: str, user: User = Depends(ve
         org = default_organization(db)
         ensure_org_member(db, org.id, ziel)
         db.get(OrgMember, (org.id, ziel.id)).role = "admin"
+        from app import slfreigabe
+
+        slfreigabe.gewaehren_ohne_entscheidung(ziel)  # 0.4.23: Verwaltungskonten dürfen immer leiten
     db.commit()
     return _zurueck("/konten", "verwalter")
 
@@ -1307,7 +1360,8 @@ EINSTELLUNGS_BEREICHE = ("betreiber", "konten", "aufnahmen", "kosten", "app")
 @router.get("/einstellungen", response_class=HTMLResponse)
 def einstellungen(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db),
                   fehler: str = ""):
-    from app.konto import registrierung
+    from app import slfreigabe
+    from app.konto import registrierung, registrierungscode_gesetzt
 
     orgs = db.scalars(select(Organization).order_by(Organization.created_at)).all()
     from app import kosten
@@ -1325,6 +1379,8 @@ def einstellungen(request: Request, user: User = Depends(verwalter), db: Session
                   impressum_text=bool(meta_lesen(db, "impressum.text")), impressum_url=meta_lesen(db, "impressum.url"),
                   nb=nutzungsbedingungen.stand(db), nb_meldung=request.query_params.get("nb", ""),
                   registrierung=registrierung(db), limit_euro=(limit or 0) / 100,
+                  registrierungscode=registrierungscode_gesetzt(db), sl_freigabe=slfreigabe.einstellung(db),
+                  einzelzahler=slfreigabe.einzelzahler(db),
                   aufbewahrung=aufbewahrung.lesen(db), hoechstens_tage=aufbewahrung.HOECHSTENS_TAGE,
                   zustimmungen=db.scalar(select(func.count()).select_from(Member)
                                          .where(Member.recording_consent_at.is_not(None))) or 0,
@@ -1344,6 +1400,7 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
                             audio_tage: str = Form(""), audio_bestaetigt: str = Form(""),
                             betreiber_art: str = Form(""), betreiber_anschrift: str = Form(""),
                             betreiber_vertretung: str = Form(""), betreiber_register: str = Form(""),
+                            registrierungscode: str = Form(""), sl_freigabe: str = Form(""),
                             bereich: str = Form(""), user: User = Depends(verwalter),
                             db: Session = Depends(get_db)):
     """Jeder Abschnitt der Seite speichert für sich (`bereich`); ohne Angabe alles auf einmal (ältere Formulare)."""
@@ -1379,8 +1436,16 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
                 raise ValueError
         except ValueError:
             return fehler(_("Mindestalter bitte als Zahl angeben (z. B. 16)."))
-    if registrierung not in ("", "invite_only", "closed") or betreiber_art not in ("", "privat", "verein", "firma"):
+    from app import konto, slfreigabe
+
+    if registrierung not in ("", *konto.REGISTRIERUNG) or betreiber_art not in ("", "privat", "verein", "firma") \
+            or sl_freigabe not in ("", *slfreigabe.ARTEN):
         return fehler(_("Unbekannte Auswahl."))
+    neuer_code = "".join(registrierungscode.split())
+    if teil("konten") and neuer_code and not 6 <= len(neuer_code) <= 64:
+        return fehler(_("Der Registrierungscode braucht 6 bis 64 Zeichen (ohne Leerzeichen)."))
+    if teil("konten") and registrierung == "code" and not neuer_code and not konto.registrierungscode_gesetzt(db):
+        return fehler(_("Für „Mit Registrierungscode“ bitte einen Code eintragen."))
     if teil("kosten") and limit_euro.strip():
         try:
             euro = float(limit_euro.replace(",", "."))
@@ -1423,6 +1488,10 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
         meta_schreiben(db, "web.herkuenfte", "\n".join(herkunft(z) for z in zeilen[:20]))
     if teil("konten") and registrierung:
         meta_schreiben(db, "registrierung", registrierung)
+    if teil("konten") and neuer_code:
+        konto.registrierungscode_setzen(db, neuer_code)  # nur als Prüfsumme gespeichert
+    if teil("konten") and sl_freigabe:
+        meta_schreiben(db, "sl_freigabe", sl_freigabe)
     zurueckgesetzt = 0
     geaendert = neue_frist.api() != alt_frist.api()
     if geaendert:

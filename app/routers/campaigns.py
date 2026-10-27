@@ -34,6 +34,9 @@ def list_campaigns(user: User = Depends(current_user), db: Session = Depends(get
 
 @router.post("/campaigns", status_code=201, response_model=schemas.CampaignOut, response_model_exclude_unset=True)
 def create_campaign(body: schemas.CampaignCreate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from app import slfreigabe
+
+    slfreigabe.pruefen(db, user)  # 0.4.23: 403 gm_permission_required
     title = body.title.strip()
     if not title:
         raise errors.bad_request("validation_error", "validation_error.title")

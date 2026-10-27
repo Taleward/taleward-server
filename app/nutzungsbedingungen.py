@@ -100,8 +100,24 @@ def vorlage(db: Session, sprache: str = "de") -> str:
     from app import betreiber
     from app.einstellungen import angaben
 
+    from app import slfreigabe
+    from app.konto import registrierung
+
     b, a = betreiber.lesen(db), angaben(db)
     en = sprache == "en"
+    art, freigabe = registrierung(db), slfreigabe.gm_approval(db) == "required"  # 0.4.23: Text folgt der Einstellung
+    konto_en = {
+        "invite_only": "- You need an invitation to create an account.",
+        "code": "- You need an invitation or the operator's registration code to create an account.",
+        "open": "- Anyone can create an account here.",
+        "closed": "- Accounts are only created by the operator.",
+    }[art] + (" Running your own campaigns requires approval by the operator." if freigabe else "")
+    konto_de = {
+        "invite_only": "- Ein Konto gibt es nur mit Einladung.",
+        "code": "- Ein Konto gibt es mit Einladung oder mit dem Registrierungscode des Betreibers.",
+        "open": "- Ein Konto kann hier jede Person anlegen.",
+        "closed": "- Konten legt nur der Betreiber an.",
+    }[art] + (" Eigene Kampagnen leiten kannst du erst, wenn der Betreiber dich dafür freigibt." if freigabe else "")
     wir, _ = betreiber.wir(b.art)
     if en:
         return "\n\n".join([
@@ -110,11 +126,11 @@ def vorlage(db: Session, sprache: str = "de") -> str:
             "(see the legal notice). By creating an account you accept them.",
             "## What this server is for",
             "This server records game sessions of tabletop role-playing groups, transcribes them and turns them into "
-            "chapters (summaries) and a campaign bible for the members of a campaign. It is meant for the groups the "
-            "operator invites; there is no entitlement to an account or to availability.",
+            "chapters (summaries) and a campaign bible for the members of a campaign. "
+            + ("It is open to role-playing groups" if art == "open" else "It is meant for the groups the operator invites")
+            + "; there is no entitlement to an account or to availability.",
             "## Your account",
-            "- You need an invitation to create an account. Keep your login to yourself and tell the operator if you "
-            "think someone else is using it.",
+            f"{konto_en} Keep your login to yourself and tell the operator if you think someone else is using it.",
             "- Use your own name or a nickname that others at the table recognise. Do not impersonate other people.",
             "- You can delete your account yourself at any time in the app (“Accounts and servers”). Chapters and the "
             "campaign bible stay with the campaign; your personal data is removed as described in the privacy notice.",
@@ -148,12 +164,13 @@ def vorlage(db: Session, sprache: str = "de") -> str:
         f"Diese Bedingungen gelten für die Nutzung des Taleward-Servers „{a.server_name}“, den {b.name} betreibt "
         "(siehe Impressum). Mit dem Anlegen eines Kontos nimmst du sie an.",
         "## Wofür dieser Server da ist",
-        f"Dieser Server zeichnet Spielabende von Rollenspielgruppen auf, schreibt sie ab und macht daraus Kapitel "
-        f"(Zusammenfassungen) und eine Kampagnenbibel für die Mitglieder einer Kampagne – für {wir} und die Gruppen, "
-        "die der Betreiber einlädt. Einen Anspruch auf ein Konto oder auf Verfügbarkeit gibt es nicht.",
+        "Dieser Server zeichnet Spielabende von Rollenspielgruppen auf, schreibt sie ab und macht daraus Kapitel "
+        "(Zusammenfassungen) und eine Kampagnenbibel für die Mitglieder einer Kampagne – "
+        + ("offen für Rollenspielgruppen" if art == "open" else f"für {wir} und die Gruppen, die der Betreiber einlädt")
+        + ". Einen Anspruch auf ein Konto oder auf Verfügbarkeit gibt es nicht.",
         "## Dein Konto",
-        "- Ein Konto gibt es nur mit Einladung. Halte deine Zugangsdaten geheim und sag dem Betreiber Bescheid, wenn "
-        "du glaubst, dass jemand anderes sie benutzt.",
+        f"{konto_de} Halte deine Zugangsdaten geheim und sag dem Betreiber Bescheid, wenn du glaubst, dass jemand "
+        "anderes sie benutzt.",
         "- Nutze deinen Namen oder einen Spitznamen, den die anderen am Tisch kennen. Gib dich nicht als andere "
         "Person aus.",
         "- Du kannst dein Konto jederzeit selbst in der App löschen („Konten und Server“). Kapitel und Kampagnenbibel "

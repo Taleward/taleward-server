@@ -1,4 +1,4 @@
-"""E-Mails an Kontoinhaber (0.4.0): Adresse bestätigen, Passwort vergessen.
+"""E-Mails an Kontoinhaber (0.4.0): Adresse bestätigen, Passwort vergessen; SL-Freigabe (0.4.23).
 
 Gleicher Mailserver wie die Benachrichtigungen (Verwaltung → Einstellungen → E-Mail-Versand). Kein Tracking, keine
 Bilder, nur Text. Die Adresse dient nur Kontozwecken.
@@ -71,6 +71,43 @@ TEXTE = {
                "Hello {name},\n\nsomeone – hopefully you – wants to reset the password for your account “{benutzer}” "
                "on {server}. Choose a new one here (valid for one hour and only once):\n\n{link}\n\nIf this wasn't "
                "you, ignore this e-mail. Your current password stays valid.\n\n{betreiber}"),
+    },
+    # 0.4.23: SL-Freigabe. Der Link führt nur zur Liste in der Verwaltung; entschieden wird dort nach Anmeldung.
+    "sl_anfrage": {
+        "de": ("SL-Freigabe angefragt: {name} ({server})",
+               "Hallo,\n\n{name} (Benutzername „{benutzer}“) möchte auf {server} eigene Kampagnen leiten und bittet "
+               "um die SL-Freigabe (angefragt {datum}).\n\nEntscheiden kannst du nach der Anmeldung in der "
+               "Verwaltung:\n\n{link}\n\nDer Link selbst gibt nichts frei.\n\n{betreiber}"),
+        "en": ("Game master approval requested: {name} ({server})",
+               "Hello,\n\n{name} (username “{benutzer}”) would like to run their own campaigns on {server} and asks "
+               "for game master approval (requested {datum}).\n\nYou can decide after signing in to the "
+               "administration:\n\n{link}\n\nThe link itself does not approve anything.\n\n{betreiber}"),
+    },
+    "sl_freigegeben": {
+        "de": ("Du kannst jetzt eigene Kampagnen leiten ({server})",
+               "Hallo {name},\n\ndie Verwaltung von {server} hat deine SL-Freigabe erteilt. In der App kannst du "
+               "jetzt eigene Kampagnen anlegen.\n\n{betreiber}"),
+        "en": ("You can now run your own campaigns ({server})",
+               "Hello {name},\n\nthe administrators of {server} have approved you as a game master. You can now "
+               "create your own campaigns in the app.\n\n{betreiber}"),
+    },
+    "sl_abgelehnt": {
+        "de": ("Deine Anfrage zur SL-Freigabe ({server})",
+               "Hallo {name},\n\ndie Verwaltung von {server} hat deine Anfrage zur SL-Freigabe abgelehnt. In "
+               "Kampagnen, zu denen du eingeladen wirst, spielst du weiter wie bisher. Fragen beantworten die "
+               "Betreiber.\n\n{betreiber}"),
+        "en": ("Your request for game master approval ({server})",
+               "Hello {name},\n\nthe administrators of {server} have declined your request for game master "
+               "approval. You keep playing in campaigns you are invited to. The operators can answer any "
+               "questions.\n\n{betreiber}"),
+    },
+    "sl_entzogen": {
+        "de": ("Deine SL-Freigabe wurde zurückgenommen ({server})",
+               "Hallo {name},\n\ndie Verwaltung von {server} hat deine SL-Freigabe zurückgenommen. Neue Kampagnen "
+               "kannst du nicht mehr anlegen; deine bestehenden Kampagnen bleiben.\n\n{betreiber}"),
+        "en": ("Your game master approval was withdrawn ({server})",
+               "Hello {name},\n\nthe administrators of {server} have withdrawn your game master approval. You can "
+               "no longer create new campaigns; your existing campaigns stay.\n\n{betreiber}"),
     },
 }
 

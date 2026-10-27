@@ -49,7 +49,8 @@ class ServerInfoOut(ApiModel):
     operator: str
     contact: str | None
     api_version: str
-    registration: Literal["invite_only", "closed"]
+    registration: Literal["invite_only", "code", "open", "closed"]  # code, open ab 0.4.23
+    gm_approval: Literal["required", "none"] = "none"  # 0.4.23: eigene Kampagnen nur mit SL-Freigabe?
     auth_methods: list[Literal["password", "oidc", "passkey"]]
     privacy_policy_url: str | None
     min_age: int
@@ -115,11 +116,14 @@ class UserOut(ApiModel):
     providers: list[Literal["google", "discord", "apple", "microsoft"]] = []
     terms_accepted_version: int | None = None  # 0.4.22: null = noch nie zugestimmt
     terms_accepted_at: datetime | None = None
+    gm_permission: Literal["granted", "none", "pending", "rejected"] = "none"  # 0.4.23
+    gm_decided_at: datetime | None = None  # 0.4.23: letzte Entscheidung der Verwaltung
 
 
 class RegisterRequest(ApiModel):
     """Zwei Formen (0.4.0): mit username + password oder mit registrationToken aus /auth/oidc/exchange."""
-    invite_code: str = Field(max_length=64)
+    invite_code: str | None = Field(default=None, max_length=64)  # 0.4.23: nur noch bei invite_only Pflicht
+    registration_code: str | None = Field(default=None, max_length=200)  # 0.4.23: bei registration code
     username: str | None = Field(default=None, max_length=200)
     display_name: str = Field(max_length=300)
     password: str | None = Field(default=None, max_length=500)

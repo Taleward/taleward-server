@@ -34,6 +34,9 @@ def vorlage(db: Session, hosting: str = "") -> str:
     from app import anmeldedienste, mail
 
     email = mail.kann_senden(db)
+    from app.slfreigabe import gm_approval
+
+    freigabe = gm_approval(db) == "required"
     dienste = anmeldedienste.eingerichtet(db)
     dienst_namen = [anmeldedienste.DIENSTE[d]["name"] for d in dienste]
 
@@ -48,9 +51,10 @@ def vorlage(db: Session, hosting: str = "") -> str:
          "prüft alles, bevor die Runde es sieht.",
          "## Welche Daten wir verarbeiten",
          "- Konto: Benutzername, Anzeigename, Passwort (nur als Prüfwert gespeichert), Zeitpunkt der Zustimmung zu "
-         "diesem Hinweis und der Altersbestätigung.",
-         *(["- Freiwillig: eine E-Mail-Adresse – nur, damit du dein Passwort selbst zurücksetzen kannst. Du kannst sie "
-            "in der App jederzeit entfernen."] if email else []),
+         "diesem Hinweis und der Altersbestätigung, gegebenenfalls Stand und Zeitpunkt einer Anfrage zur SL-Freigabe.",
+         *(["- Freiwillig: eine E-Mail-Adresse – nur, damit du dein Passwort selbst zurücksetzen kannst"
+            + (" und die Antwort auf eine Anfrage zur SL-Freigabe bekommst" if freigabe else "")
+            + ". Du kannst sie in der App jederzeit entfernen."] if email else []),
          *([f"- Freiwillig, wenn du dich mit {', '.join(dienst_namen)} anmeldest: deine Kennung bei diesem Dienst, "
             "dein Name und – falls vom Dienst bestätigt – deine E-Mail-Adresse. Zugangsdaten des Dienstes speichern "
             "wir nicht."] if dienst_namen else []),

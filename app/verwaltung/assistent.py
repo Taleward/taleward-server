@@ -587,8 +587,10 @@ def spielleitung_anlegen(request: Request, username: str = Form(""), display_nam
         return fehler(text)
     if db.scalar(select(User).where(User.username == name)):
         return fehler(_("Den Benutzer „{name}“ gibt es schon.", name=name))
-    _neues_konto(db, name, display_name.strip()[:128], password)
-    db.commit()
+    from app import slfreigabe
+
+    slfreigabe.gewaehren_ohne_entscheidung(_neues_konto(db, name, display_name.strip()[:128], password))
+    db.commit()  # 0.4.23: das Konto für die Spielleitung darf gleich eigene Kampagnen anlegen
     return RedirectResponse(f"/verwaltung/assistent/spielleitung?angelegt={name}", status_code=303)
 
 

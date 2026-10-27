@@ -441,7 +441,7 @@ def registrieren_mit_dienst(db: Session, adresse: str, body: schemas.RegisterReq
     name = benutzername_bilden(db, email, daten.get("name"))
     u = registrieren(db, adresse, body.invite_code, name, body.display_name, None, body.accept_privacy,
                      body.age_confirmed, methode=(kind, daten["sub"]), accept_terms=body.accept_terms,
-                     terms_version=body.terms_version)
+                     terms_version=body.terms_version, registration_code=body.registration_code)
     einmal.einloesen(db, "oidc_registrierung", body.registration_token)
     if email and db.scalar(select(User).where(User.email == email, User.id != u.id)) is None:
         u.email, u.email_verified_at = email, utcnow()

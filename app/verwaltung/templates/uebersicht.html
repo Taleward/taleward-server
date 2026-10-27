@@ -27,6 +27,7 @@
   <div class="{{ 'achtung' if zahlen.bei_sl }}"><dt>{{ _("wartet auf die Spielleitung") }}</dt><dd>{{ zahlen.bei_sl }}{% if zahlen.bei_sl %} <a class="kennzahlen__link" href="/verwaltung/warteschlange">{{ _("Ansehen") }}</a>{% endif %}</dd></div>
 </dl>
 <p class="leise bestand">{{ _("1 Kampagne") if zahlen.kampagnen == 1 else _("{n} Kampagnen", n=zahlen.kampagnen) }} · {{ _("1 Kapitel veröffentlicht") if zahlen.veroeffentlicht == 1 else _("{n} Kapitel veröffentlicht", n=zahlen.veroeffentlicht) }} · {{ _("1 Konto") if zahlen.konten == 1 else _("{n} Konten", n=zahlen.konten) }}</p>
+{% if zahlen.sl_anfragen %}<p class="lage"><span>{{ _("Eine Anfrage zur SL-Freigabe wartet.") if zahlen.sl_anfragen == 1 else _("{n} Anfragen zur SL-Freigabe warten.", n=zahlen.sl_anfragen) }}</span> <a href="/verwaltung/sl-freigaben">{{ _("Ansehen") }}</a></p>{% endif %}
 {% if eingebaut %}
 <div class="karte">
   <h2>{{ _("Eingebauter Worker") }}</h2>

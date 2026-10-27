@@ -17,7 +17,7 @@
 {% if user %}
 {% set gruppen = [
   (_("Betrieb"), [("uebersicht", _("Übersicht")), ("warteschlange", _("Warteschlange")), ("transkription", _("Transkription")), ("zusammenfassung", _("Zusammenfassung"))]),
-  (_("Mitglieder"), [("konten", _("Konten")), ("anmeldung", _("Anmeldung"))]),
+  (_("Mitglieder"), [("konten", _("Konten")), ("sl-freigaben", _("SL-Freigaben")), ("anmeldung", _("Anmeldung"))]),
   (_("Server"), [("einstellungen", _("Einstellungen")), ("updates", _("Updates")), ("abrechnung", _("Abrechnung"))]),
 ] %}
 {% macro bereiche(gruppen, aktiv) %}{% for titel, eintraege in gruppen %}

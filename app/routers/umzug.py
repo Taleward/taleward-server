@@ -88,6 +88,9 @@ def export_file(campaignId: str, exportId: str, t: str | None = Query(default=No
 # ---------------------------------------------------------------- Import
 @router.post("/imports", status_code=201, response_model=schemas.ImportStartOut)
 def start_import(body: schemas.ImportStartIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from app import slfreigabe
+
+    slfreigabe.pruefen(db, user)  # 0.4.23: die importierende Person wird SL einer neuen Kampagne
     imp = umzug.import_beginnen(db, user, body)
     return schemas.ImportStartOut(import_id=imp.id, chunk_size_bytes=imp.chunk_size, chunk_count=imp.chunk_count)
 
@@ -111,7 +114,10 @@ async def put_import_chunk(importId: str, index: int, request: Request,
 @router.post("/imports/{importId}/complete", status_code=202, response_model=schemas.ImportStatusOut,
              response_model_exclude_unset=True)
 def complete_import(importId: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from app import slfreigabe
+
     imp = umzug.laden(db, importId, user)
+    slfreigabe.pruefen(db, user)  # 0.4.23: noch einmal, die Freigabe kann inzwischen entzogen sein
     umzug.import_abschliessen(db, imp)
     if imp.state == "processing":
         umzug.import_fortsetzen(imp.id)
