@@ -60,10 +60,10 @@ def _reset_senden(user_id: str, sprache: str, basis: str) -> None:
         if u is None or not u.email:
             return
         token, _ = passwortlink.erzeugen(db, u, RESET_GUELTIG)
-        betreff, text = mail.text(db, "passwort", sprache, name=u.display_name, benutzer=u.username,
-                                  link=f"{basis}/passwort/{token}")
+        betreff, text, html = mail.text(db, "passwort", sprache, name=u.display_name, benutzer=u.username,
+                                        link=f"{basis}/passwort/{token}")
         try:
-            mail.senden(db, u.email, betreff, text)
+            mail.senden(db, u.email, betreff, text, html)
         except mail.MailFehler:
             pass
 
@@ -101,10 +101,10 @@ def email_eintragen(body: schemas.EmailRequest, request: Request, user: User = D
     einmal.verwerfen(db, "email_bestaetigen", user.id)
     wert = einmal.erzeugen(db, "email_bestaetigen", EMAIL_GUELTIG, user_id=user.id, email=adresse)
     user.email_pending = adresse
-    betreff, text = mail.text(db, "bestaetigen", errors.sprache(request), name=user.display_name,
-                              benutzer=user.username, link=f"{basis}/konto/email/{wert}")
+    betreff, text, html = mail.text(db, "bestaetigen", errors.sprache(request), name=user.display_name,
+                                    benutzer=user.username, link=f"{basis}/konto/email/{wert}")
     try:
-        mail.senden(db, adresse, betreff, text)
+        mail.senden(db, adresse, betreff, text, html)
     except mail.MailFehler:
         db.rollback()
         raise errors.ApiError(503, "mail_unavailable") from None
@@ -392,6 +392,7 @@ def _tausch(body: schemas.OidcExchangeRequest, request: Request, db: Session) ->
         u = db.get(User, vorhanden.user_id)
         vorhanden.last_used_at = utcnow()
         _email_uebernehmen(db, u, email)
+        mail.sprache_merken(u, request)
         db.commit()
         token, bis = create_token(u.id, u.token_version, server_id())
         return schemas.OidcExchangeResponse(status="ok", access_token=token, expires_at=bis, user=user_out(u),

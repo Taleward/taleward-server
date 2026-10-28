@@ -107,6 +107,25 @@
 </section>
 {% endfor %}
 
+{% if mails_moeglich %}
+<section class="karte" id="hinweis-mails" aria-labelledby="hinweis-mails-titel">
+  <h2 id="hinweis-mails-titel">{{ _("Hinweise per E-Mail") }}</h2>
+  {% if person.email %}
+  <p>{{ _("Wenn eine Verarbeitung auf Guthaben oder auf „Verarbeiten“ wartet oder das Guthaben knapp wird, schickt der Server eine kurze Mail an {adresse}. Ohne Beträge, höchstens eine am Tag.", adresse=person.email) }}</p>
+  <form method="post" action="/guthaben/hinweis-mails">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% if person.guthaben_mails_aus %}<input type="hidden" name="an" value="1">
+    <p class="leise">{{ _("Gerade abbestellt.") }}</p>
+    <button class="tw-btn tw-btn--secondary" type="submit">{{ _("Wieder bestellen") }}</button>
+    {% else %}<input type="hidden" name="an" value="0">
+    <button class="tw-btn tw-btn--secondary" type="submit">{{ _("Abbestellen") }}</button>{% endif %}
+  </form>
+  {% else %}
+  <p class="hilfe">{{ _("Trag in der App unter Konto eine E-Mail-Adresse ein und bestätige sie. Dann sagt dir der Server Bescheid, wenn eine Verarbeitung auf Guthaben wartet oder das Guthaben knapp wird.") }}</p>
+  {% endif %}
+</section>
+{% endif %}
+
 {% if kampagnen %}
 <section class="karte" id="kampagnen" aria-labelledby="kampagnen-titel">
   <h2 id="kampagnen-titel">{{ _("Wer zahlt für deine Kampagnen") }}</h2>

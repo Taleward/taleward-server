@@ -1,9 +1,9 @@
-Fassung 0.4.134
+Fassung 0.4.135
 
 ## Was ist neu
 
-- Lokale Kapitel: Das Sprachmodell schreibt mit den Einstellungen, die seine Hersteller empfehlen, Urteile bleiben streng. Lange Kapitel werden nicht mehr abgeschnitten.
-- Lokale Kapitel können denselben Weg gehen wie in der Cloud: erst Notizen je Abschnitt, dann das Kapitel (Verwaltung → Zusammenfassung → Erweitert, vorerst zum Ausprobieren).
-- Seit 0.4.133: Spielleitungen laden ihr Guthaben auf der Seite ihres Servers auf (vorerst im Testmodus der Zahlungsanbieter), mit neu aufgeräumter Guthaben-Seite.
-- Seit 0.4.132: Guthaben und Kampagnen-Einstellungen für die kommende App. Seit 0.4.130: aufgeräumte Verwaltung mit Betriebsart unter Einstellungen.
+- Mails des Servers (Adresse bestätigen, Passwort, SL-Freigabe) kommen jetzt im Taleward-Stil mit Knopf. Wer nur Text anzeigt, bekommt weiter die Textfassung.
+- Hinweise zum Guthaben per E-Mail: Wartet etwas auf Guthaben oder auf „Verarbeiten“ oder wird das Guthaben knapp, bekommt die Spielleitung eine kurze Mail mit dem Weg zur Guthaben-Seite. Ohne Beträge, höchstens eine am Tag, abbestellbar.
+- Seit 0.4.134: Lokale Kapitel schreibt das Sprachmodell mit den Einstellungen, die seine Hersteller empfehlen, und lange Kapitel werden nicht mehr abgeschnitten. Auf Wunsch erst Notizen je Abschnitt, dann das Kapitel.
+- Seit 0.4.132: Guthaben in der App, Aufladen auf der Seite des Servers (vorerst im Testmodus) und eine aufgeräumte Verwaltung.
 - Kleinere Verbesserungen.

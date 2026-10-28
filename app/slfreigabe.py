@@ -91,11 +91,12 @@ def mail_an_verwaltung(db: Session, user: User, basis: str) -> bool:
     an = empfaenger(db)
     ok = False
     if an and mail.kann_senden(db):
-        betreff, text = mail.text(db, "sl_anfrage", konfig(db).sprache, name=user.display_name,
-                                  benutzer=user.username, datum=user.gm_requested_at.strftime("%d.%m.%Y %H:%M UTC"),
-                                  link=f"{basis.rstrip('/')}/verwaltung/sl-freigaben")
+        betreff, text, html = mail.text(db, "sl_anfrage", konfig(db).sprache, name=user.display_name,
+                                        benutzer=user.username,
+                                        datum=user.gm_requested_at.strftime("%d.%m.%Y %H:%M UTC"),
+                                        link=f"{basis.rstrip('/')}/verwaltung/sl-freigaben")
         try:
-            mail.senden(db, an, betreff, text)
+            mail.senden(db, an, betreff, text, html)
             ok = True
         except (mail.MailFehler, ValueError):  # ValueError: Kopfzeile ungültig – wie ein Versandfehler
             pass
@@ -151,9 +152,19 @@ def entscheiden(db: Session, user: User, aktion: str, von: User) -> bool:
     db.flush()
     if art is None or not user.email or not mail.kann_senden(db):
         return False
-    betreff, text = mail.text(db, art, user.gm_sprache or "de", name=user.display_name, benutzer=user.username)
+    werte = {}
+    if art == "sl_freigegeben":
+        # 0.4.135: mit eigenem Guthaben steht der Weg zum Aufladen dabei – nur mit der eingetragenen Adresse (G15)
+        from app import abrechnung
+        from app.einstellungen import mail_adresse
+
+        basis = mail_adresse(db)
+        if abrechnung.modus(db) == "guthaben" and basis:
+            art, werte = "sl_freigegeben_guthaben", {"link": f"{basis}/guthaben"}
+    betreff, text, html = mail.text(db, art, mail.sprache_fuer(db, user), name=user.display_name,
+                                    benutzer=user.username, **werte)
     try:
-        mail.senden(db, user.email, betreff, text)
+        mail.senden(db, user.email, betreff, text, html)
         return True
     except mail.MailFehler:
         return False

@@ -37,6 +37,9 @@ def vorlage(db: Session, hosting: str = "") -> str:
     from app.slfreigabe import gm_approval
 
     freigabe = gm_approval(db) == "required"
+    from app import abrechnung
+
+    guthaben = abrechnung.an(db)  # 0.4.135: Hinweis-Mails zum Guthaben (abbestellbar)
     dienste = anmeldedienste.eingerichtet(db)
     dienst_namen = [anmeldedienste.DIENSTE[d]["name"] for d in dienste]
 
@@ -54,6 +57,8 @@ def vorlage(db: Session, hosting: str = "") -> str:
          "diesem Hinweis und der Altersbestätigung, gegebenenfalls Stand und Zeitpunkt einer Anfrage zur SL-Freigabe.",
          *(["- Freiwillig: eine E-Mail-Adresse – nur, damit du dein Passwort selbst zurücksetzen kannst"
             + (" und die Antwort auf eine Anfrage zur SL-Freigabe bekommst" if freigabe else "")
+            + ("; als Spielleitung außerdem Hinweise, wenn dein Guthaben knapp wird oder etwas darauf wartet (auf der "
+               "Guthaben-Seite abbestellbar)" if guthaben else "")
             + ". Du kannst sie in der App jederzeit entfernen."] if email else []),
          *([f"- Freiwillig, wenn du dich mit {', '.join(dienst_namen)} anmeldest: deine Kennung bei diesem Dienst, "
             "dein Name und – falls vom Dienst bestätigt – deine E-Mail-Adresse. Zugangsdaten des Dienstes speichern "

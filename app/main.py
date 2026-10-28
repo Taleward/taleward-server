@@ -74,6 +74,13 @@ def _wartung_starten() -> threading.Event | None:
             except Exception:
                 log.exception("Benachrichtigungen fehlgeschlagen")
             try:
+                from app import guthaben_mail
+
+                with session_factory()() as db:
+                    guthaben_mail.pruefen(db)  # 0.4.135: Hinweise zum Guthaben an SL bzw. Verwalter
+            except Exception:
+                log.exception("Hinweis-Mails zum Guthaben fehlgeschlagen")
+            try:
                 from app import umzug
 
                 with session_factory()() as db:

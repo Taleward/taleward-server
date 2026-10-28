@@ -1335,6 +1335,14 @@ EN: dict[str, str] = {
     "Ganze Abschrift auf einmal (bisher)": "Whole transcript at once (current)",
     "Erst Notizen je Abschnitt, dann das Kapitel (wie in der Cloud, zum Ausprobieren)": "Notes per section first, then the chapter (as in the cloud, to try out)",
     "Der Weg über Notizen dauert auf dem Worker etwa zwei- bis dreimal so lange. Lange Runden bekommen dabei Teile im Kapitel.": "The path via notes takes about two to three times as long on the worker. Long sessions get parts in the chapter.",
+    "Du bekommst wieder Hinweise per E-Mail.": "You will get notices by e-mail again.",
+    "Hinweise per E-Mail sind abbestellt.": "Notices by e-mail are turned off.",
+    "Hinweise per E-Mail": "Notices by e-mail",
+    "Wenn eine Verarbeitung auf Guthaben oder auf „Verarbeiten“ wartet oder das Guthaben knapp wird, schickt der Server eine kurze Mail an {adresse}. Ohne Beträge, höchstens eine am Tag.": "When something is waiting for credit or for “Process”, or your credit is running low, the server sends a short e-mail to {adresse}. No amounts, at most one a day.",
+    "Gerade abbestellt.": "Currently turned off.",
+    "Wieder bestellen": "Turn back on",
+    "Abbestellen": "Turn off",
+    "Trag in der App unter Konto eine E-Mail-Adresse ein und bestätige sie. Dann sagt dir der Server Bescheid, wenn eine Verarbeitung auf Guthaben wartet oder das Guthaben knapp wird.": "Enter an e-mail address in the app under Account and confirm it. The server will then let you know when something is waiting for credit or your credit is running low.",
 }
 
 WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}

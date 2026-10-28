@@ -174,7 +174,7 @@ def test_ohne_oeffentliche_adresse_keine_mail(client, world, dbs, monkeypatch):
     from app.models import User
 
     gesendet = []
-    monkeypatch.setattr(mail, "senden", lambda db, an, betreff, text: gesendet.append(text))
+    monkeypatch.setattr(mail, "senden", lambda db, an, betreff, text, html=None: gesendet.append(text))
     meta_schreiben(dbs, "melden.smtp_host", "smtp.example.org")
     ben = dbs.query(User).filter_by(username="ben").one()
     ben.email = "ben@example.org"

@@ -42,6 +42,8 @@ MELDUNGEN = {
     "verarbeiten": "Bestätigt. Der Auftrag startet, sobald er an der Reihe ist.",
     "angeboten": "Die andere Spielleitung sieht das Angebot auf dieser Seite und kann es annehmen.",
     "uebernommen": "Du zahlst jetzt für diese Kampagne.",
+    "mails_an": "Du bekommst wieder Hinweise per E-Mail.",
+    "mails_aus": "Hinweise per E-Mail sind abbestellt.",
 }
 # 0.4.133: Die Bestätigungsseite schickt das Formular an den Zahlungsanbieter weiter – nur an diese Adressen
 FORM_ZIELE = "https://checkout.stripe.com https://www.paypal.com https://www.sandbox.paypal.com"
@@ -269,9 +271,25 @@ def _hauptseite(request: Request, db: Session, user: User, meldung: str | None =
     antwort = _seite(request, "guthaben.html", None, db, person=user, toepfe=toepfe,
                      kampagnen=_sl_kampagnen(db, user), euro=abrechnung.euro, topf=abrechnung.modus(db) == "topf",
                      meldung=meldung, fehler=fehler, zahlwege_an=zahlung.bereit(db), betraege=zahlung.betraege(db),
-                     testmodus=not zahlung.live(db), gutschein_offen=gutschein_offen)
+                     testmodus=not zahlung.live(db), gutschein_offen=gutschein_offen,
+                     mails_moeglich=_mails_moeglich(db))
     antwort.status_code = status
     return antwort
+
+
+def _mails_moeglich(db: Session) -> bool:
+    from app import mail
+    from app.einstellungen import mail_adresse
+
+    return mail.kann_senden(db) and bool(mail_adresse(db))
+
+
+@router.post("/hinweis-mails", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
+def hinweis_mails(an: str = Form(""), user: User = Depends(_angemeldet), db: Session = Depends(get_db)):
+    """0.4.135: Hinweis-Mails zum Guthaben ab- bzw. wieder bestellen (gilt für alle Guthaben der Person)."""
+    user.guthaben_mails_aus = an != "1"
+    db.commit()
+    return _zurueck("mails_aus" if user.guthaben_mails_aus else "mails_an", "hinweis-mails")
 
 
 def _eigenes(db: Session, user: User, guthaben_id: str) -> Guthaben:

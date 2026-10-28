@@ -28,7 +28,7 @@ def post(monkeypatch, dbs):
     gesendet = Postfach()
     gesendet.fehler = False
 
-    def senden(db, an, betreff, text):
+    def senden(db, an, betreff, text, html=None):
         if gesendet.fehler:
             raise mail.MailFehler("kaputt")
         gesendet.append((an, betreff, text))

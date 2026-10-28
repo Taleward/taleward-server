@@ -134,7 +134,7 @@ def test_anzeigename_ohne_steuerzeichen_und_mail_bleibt_heil(client, dbs, admin,
     from app.models import User
 
     gesendet = []
-    monkeypatch.setattr(mail, "senden", lambda db, an, betreff, text: gesendet.append(betreff))
+    monkeypatch.setattr(mail, "senden", lambda db, an, betreff, text, html=None: gesendet.append(betreff))
     setzen(dbs, registrierung="open", **{"melden.smtp_host": "smtp.example.org"})
     mit_adresse(dbs, "chef", "chefin@example.org")
     name = "Do" + chr(0x202E) + "ra" + chr(10) + "Betreff: x"
@@ -158,7 +158,7 @@ def test_anfrage_mail_mit_ungueltiger_kopfzeile_gilt_als_versandfehler(client, d
     from app import mail, slfreigabe
     from app.models import User
 
-    def kaputt(db, an, betreff, text):
+    def kaputt(db, an, betreff, text, html=None):
         raise ValueError("Header values may not contain linefeed or carriage return characters")
 
     monkeypatch.setattr(mail, "senden", kaputt)

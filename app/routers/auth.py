@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import begrenzung, errors, schemas, slfreigabe
+from app import begrenzung, errors, mail, schemas, slfreigabe
 from app.links import betreiber_link
 from app.access import current_user
 from app.einstellungen import angaben, mail_adresse
@@ -113,6 +113,7 @@ def login(body: schemas.LoginRequest, request: Request, db: Session = Depends(ge
     if user.setup_account:  # admin/admin: nur für die Ersteinrichtung in der Verwaltung
         raise errors.ApiError(401, "setup_account_only")
     methode.last_used_at = utcnow()
+    mail.sprache_merken(user, request)
     db.commit()
     token, expires = create_token(user.id, user.token_version, server_id())
     return schemas.LoginResponse(access_token=token, expires_at=expires, user=user_out(user))
@@ -135,6 +136,7 @@ def register(body: schemas.RegisterRequest, request: Request, db: Session = Depe
         u = registrieren(db, adresse, body.invite_code, body.username, body.display_name, body.password,
                          body.accept_privacy, body.age_confirmed, accept_terms=body.accept_terms,
                          terms_version=body.terms_version, registration_code=body.registration_code)
+    mail.sprache_merken(u, request)
     db.commit()
     token, expires = create_token(u.id, u.token_version, server_id())
     return schemas.LoginResponse(access_token=token, expires_at=expires, user=user_out(u))

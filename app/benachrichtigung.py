@@ -18,6 +18,7 @@ stunden (Wartezeit für worker_fehlt).
 """
 from __future__ import annotations
 
+import functools
 import logging
 import shutil
 import smtplib
@@ -26,6 +27,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
@@ -108,10 +110,16 @@ def _ntfy(k: Konfig, titel: str, text: str, wichtig: bool) -> None:
         raise VersandFehler(f"ntfy antwortet mit {r.status_code}.")
 
 
-def _email(k: Konfig, titel: str, text: str, antwort_an: str | None = None) -> None:
-    """Text-Mail über den eingestellten Mailserver. `antwort_an`: Antworten gehen dorthin statt an den Absender
-    (z. B. eine noreply-Adresse) – nur eine einzelne gültige Adresse."""
-    from app import mail
+@functools.cache
+def _zeichen_png() -> bytes:
+    return (Path(__file__).parent / "verwaltung" / "static" / "marke" / "zeichen-mail.png").read_bytes()
+
+
+def _email(k: Konfig, titel: str, text: str, antwort_an: str | None = None, html: str | None = None) -> None:
+    """Mail über den eingestellten Mailserver. `antwort_an`: Antworten gehen dorthin statt an den Absender
+    (z. B. eine noreply-Adresse) – nur eine einzelne gültige Adresse. `html` (0.4.135): zweite Fassung im Hausstil;
+    Aufbau multipart/alternative → text/plain + multipart/related (text/html + eingebettetes Zeichen)."""
+    from app import mail, mailvorlage
 
     nachricht = EmailMessage()
     nachricht["Subject"] = titel
@@ -123,6 +131,11 @@ def _email(k: Konfig, titel: str, text: str, antwort_an: str | None = None) -> N
     nachricht["Date"] = formatdate(localtime=True)
     nachricht["Message-ID"] = make_msgid(domain=(nachricht["From"].split("@")[-1] or None))
     nachricht.set_content(text)
+    if html:
+        nachricht.add_alternative(html, subtype="html")
+        # inline: sonst zeigen manche Mailprogramme das Zeichen zusätzlich als Anhang
+        nachricht.get_payload()[1].add_related(_zeichen_png(), "image", "png", cid=f"<{mailvorlage.ZEICHEN_CID}>",
+                                               filename="taleward.png", disposition="inline")
     try:
         if k.smtp_tls == "ssl":
             verbindung = smtplib.SMTP_SSL(k.smtp_host, k.smtp_port, timeout=20, context=ssl.create_default_context())

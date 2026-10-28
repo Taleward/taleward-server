@@ -24,7 +24,7 @@ def post(monkeypatch):
     from app.einstellungen import meta_schreiben
 
     gesendet = Postfach()
-    monkeypatch.setattr(mail, "senden", lambda db, an, betreff, text: gesendet.append((an, betreff, text)))
+    monkeypatch.setattr(mail, "senden", lambda db, an, betreff, text, html=None: gesendet.append((an, betreff, text)))
 
     def einrichten(dbs):
         meta_schreiben(dbs, "melden.smtp_host", "smtp.example.org")

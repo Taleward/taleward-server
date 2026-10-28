@@ -55,6 +55,10 @@ class User(Base):
     gm_decided_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     gm_sprache: Mapped[str | None] = mapped_column(String(8), nullable=True)  # Sprache der Antwort-Mail
     gm_mail_fehler: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # 0.4.135: Hinweis-Mails zum Guthaben abbestellt (Guthaben-Seite)
+    guthaben_mails_aus: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # 0.4.135: Sprache der App bei der letzten Anmeldung (de|en) – danach richten sich Mails an das Konto
+    sprache: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
     auth_methods: Mapped[list["AuthMethod"]] = relationship(cascade="all, delete-orphan")
 
@@ -770,6 +774,10 @@ class Guthaben(Base):
     boegen_je_spieler: Mapped[int] = mapped_column(Integer, default=3)
     # 0.4.133: nach einer Rückbuchung gesperrt, bis der Betreiber entscheidet (keine neuen Verarbeitungen, kein Aufladen)
     gesperrt_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # 0.4.135: Hinweis-Mails – schon gemeldete Anlässe (kommagetrennt, fallen weg, sobald der Anlass vorbei ist) und
+    # Zeitpunkt der letzten Mail (höchstens eine je 24 Stunden)
+    hinweise: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    hinweis_mail_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
