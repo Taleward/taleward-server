@@ -1,0 +1,517 @@
+From 4d6bf5db438587ce8ddc3c12f9af641e5366c103 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Wed, 28 Oct 2026 13:04:24 +0100
+Subject: [PATCH] Server 0.4.137
+
+Testinstanz neben dem Server (deploy/test-instanz.sh).
+---
+ NEU.md                              |   8 +-
+ app/config.py                       |   2 +
+ app/verwaltung/i18n.py              |   1 +
+ app/verwaltung/router.py            |   1 +
+ app/verwaltung/templates/basis.html |   2 +-
+ app/zahlung.py                      |   4 +
+ deploy/Caddyfile                    |   3 +
+ deploy/aktualisieren.sh             |   6 +-
+ deploy/docker-compose.yml           |  24 ++++++
+ deploy/test-instanz.sh              |  88 +++++++++++++++++++++
+ docs/BETRIEB.md                     |  14 ++++
+ install.sh                          |   4 +-
+ pyproject.toml                      |   2 +-
+ tests/test_aktualisierung.py        |   2 +-
+ tests/test_assistent.py             |   2 +-
+ tests/test_modellablage.py          |   2 +-
+ tests/test_server_04121.py          |   2 +-
+ tests/test_server_04124.py          |   4 +-
+ tests/test_server_04137.py          | 115 ++++++++++++++++++++++++++++
+ tests/test_worker_app.py            |   2 +-
+ uv.lock                             |   2 +-
+ 21 files changed, 271 insertions(+), 19 deletions(-)
+ create mode 100644 deploy/test-instanz.sh
+ create mode 100644 tests/test_server_04137.py
+
+diff --git a/NEU.md b/NEU.md
+index 29000f9..4bcd3a6 100644
+--- a/NEU.md
++++ b/NEU.md
+@@ -1,9 +1,9 @@
+-Fassung 0.4.136
++Fassung 0.4.137
+ 
+ ## Was ist neu
+ 
+-- Hinweis per E-Mail, wenn sich jemand an deinem Konto anmeldet oder es ändert (Passwort, Anmeldedienst, E-Mail-Adresse). Nur mit bestätigter Adresse, ohne Link, für Betreiber abschaltbar unter Einstellungen → Benachrichtigungen.
++- Für Betreiber: Auf Wunsch läuft neben dem Server eine Testinstanz mit eigener Adresse und eigenen Daten, zum Beispiel um das Aufladen gefahrlos auszuprobieren (docs/BETRIEB.md, „Testinstanz“).
++- Seit 0.4.136: Hinweis per E-Mail, wenn sich jemand an deinem Konto anmeldet oder es ändert (Passwort, Anmeldedienst, E-Mail-Adresse). Nur mit bestätigter Adresse, ohne Link, für Betreiber abschaltbar unter Einstellungen → Benachrichtigungen.
+ - Seit 0.4.135: Mails des Servers kommen im Taleward-Stil, wer nur Text anzeigt, bekommt weiter die Textfassung. Dazu Hinweise zum Guthaben per E-Mail, wenn etwas auf Guthaben oder auf „Verarbeiten“ wartet oder das Guthaben knapp wird – ohne Beträge, höchstens eine am Tag, abbestellbar.
+-- Seit 0.4.134: Lokale Kapitel schreibt das Sprachmodell mit den Einstellungen, die seine Hersteller empfehlen, und lange Kapitel werden nicht mehr abgeschnitten. Auf Wunsch erst Notizen je Abschnitt, dann das Kapitel.
+-- Seit 0.4.132: Guthaben in der App, Aufladen auf der Seite des Servers (vorerst im Testmodus) und eine aufgeräumte Verwaltung.
++- Seit 0.4.132: Guthaben in der App, Aufladen auf der Seite des Servers (vorerst im Testmodus), eine aufgeräumte Verwaltung und bessere lokale Kapitel (empfohlene Einstellungen der Modellhersteller, lange Kapitel nicht mehr abgeschnitten).
+ - Kleinere Verbesserungen.
+diff --git a/app/config.py b/app/config.py
+index 3ac4f0a..27e50ea 100644
+--- a/app/config.py
++++ b/app/config.py
+@@ -66,4 +66,6 @@ class Settings(BaseSettings):
+     eingebauter_worker: str = ""  # Inhalt von COMPOSE_PROFILES; leer = kein eingebauter Worker
+     eingebauter_worker_datei: Path = Path("/kopplung/worker-token")
++    # 0.4.137: Testinstanz neben dem Server (deploy/test-instanz.sh) – Zahlungen dort nie mit echtem Geld
++    taleward_testinstanz: bool = False
+     # Taleward-Box (Raspberry Pi, ohne Bildschirm): Ersteinrichtung ohne Code, aber nur aus dem eigenen Netz und nur,
+     # solange es noch keinen Verwalter gibt
+diff --git a/app/verwaltung/i18n.py b/app/verwaltung/i18n.py
+index 1be945f..e483476 100644
+--- a/app/verwaltung/i18n.py
++++ b/app/verwaltung/i18n.py
+@@ -1347,4 +1347,5 @@ EN: dict[str, str] = {
+     "Ohne IP-Adresse und ohne Link. Höchstens eine Anmelde-Mail je Konto in 15 Minuten.": "No IP address and no link. At most one sign-in e-mail per account in 15 minutes.",
+     "Guthaben je Spielleitung – jede SL zahlt ihre Kampagnen selbst": "Credit per game master – each GM pays for their own campaigns",
++    "Testinstanz": "Test instance",
+ }
+ 
+diff --git a/app/verwaltung/router.py b/app/verwaltung/router.py
+index 4406d9c..c35feeb 100644
+--- a/app/verwaltung/router.py
++++ b/app/verwaltung/router.py
+@@ -71,4 +71,5 @@ def _icon(name: str):
+ 
+ templates.env.globals["icon"] = _icon
++templates.env.globals["testinstanz"] = lambda: get_settings().taleward_testinstanz  # 0.4.137
+ templates.env.filters["datenschutz_link"] = links_modul.datenschutz_link
+ templates.env.filters["rein"] = zeichen_bereinigen  # 0.4.130: Namen ohne Steuer- und Richtungszeichen
+diff --git a/app/verwaltung/templates/basis.html b/app/verwaltung/templates/basis.html
+index 4c6066e..d03eb62 100644
+--- a/app/verwaltung/templates/basis.html
++++ b/app/verwaltung/templates/basis.html
+@@ -30,5 +30,5 @@
+     {% include "_sprachen.html" %}
+   </div>{% endmacro %}
+-{% macro marke() %}<a class="leiste__marke" href="/verwaltung/"><picture><source srcset="/verwaltung/static/marke/taleward-lockup-inverse.svg" media="(prefers-color-scheme: dark)"><img src="/verwaltung/static/marke/taleward-lockup.svg" alt="Taleward" width="132" height="32"></picture><small>{{ _("Verwaltung") }} · {{ angaben.server_name }}</small></a>{% endmacro %}
++{% macro marke() %}<a class="leiste__marke" href="/verwaltung/"><picture><source srcset="/verwaltung/static/marke/taleward-lockup-inverse.svg" media="(prefers-color-scheme: dark)"><img src="/verwaltung/static/marke/taleward-lockup.svg" alt="Taleward" width="132" height="32"></picture><small>{{ _("Verwaltung") }} · {{ angaben.server_name }}{% if testinstanz() %} · {{ _("Testinstanz") }}{% endif %}</small></a>{% endmacro %}
+ <div class="huelle">
+ <aside class="leiste" aria-label="{{ _('Bereiche') }}">
+diff --git a/app/zahlung.py b/app/zahlung.py
+index 18e75ab..271cb55 100644
+--- a/app/zahlung.py
++++ b/app/zahlung.py
+@@ -93,4 +93,8 @@ def betraege(db: Session) -> list[int]:
+ 
+ def live(db: Session) -> bool:
++    from app.config import get_settings
++
++    if get_settings().taleward_testinstanz:  # 0.4.137: Testinstanz nie mit echtem Geld
++        return False
+     return meta_lesen(db, "zahlung.live") == "1"
+ 
+diff --git a/deploy/Caddyfile b/deploy/Caddyfile
+index 23fe53a..feb0559 100644
+--- a/deploy/Caddyfile
++++ b/deploy/Caddyfile
+@@ -36,2 +36,5 @@
+ # Die Regeln dazu legt website-neu-laden.sh nach Prüfung hier ab; ohne Dateien passiert nichts.
+ import /etc/caddy/website/*.caddy
++
++# Optional: Testinstanz neben dem Server (test-instanz.sh legt die Regel an; ohne Datei passiert nichts).
++import /etc/caddy/test/*.caddy
+diff --git a/deploy/aktualisieren.sh b/deploy/aktualisieren.sh
+index 31d898f..5395b57 100755
+--- a/deploy/aktualisieren.sh
++++ b/deploy/aktualisieren.sh
+@@ -217,10 +217,10 @@ if grundbild_bauen && docker compose build >>"$BAULOG" 2>&1 \
+   for paar in aktualisieren.sh:aktualisieren.sh "$compose":docker-compose.yml Caddyfile:Caddyfile \
+               website-zugang.sh:website-zugang.sh website-neu-laden.sh:website-neu-laden.sh \
+-              website_regeln.py:website_regeln.py; do
++              website_regeln.py:website_regeln.py test-instanz.sh:test-instanz.sh; do
+     quelle=${paar%%:*}; datei=${paar##*:}
+     if curl -fsL "$QUELLE/$quelle" -o "$datei.neu"; then mv "$datei.neu" "$datei"; else rm -f "$datei.neu"; fi
+   done
+-  chmod 755 aktualisieren.sh website-zugang.sh website-neu-laden.sh 2>/dev/null || true
+-  mkdir -p website-caddy
++  chmod 755 aktualisieren.sh website-zugang.sh website-neu-laden.sh test-instanz.sh 2>/dev/null || true
++  mkdir -p website-caddy test-caddy
+   # Neu eingerichtete Website: die geprüfte Kopie des Neuladers mitziehen (website-zugang.sh legt sie an)
+   if [ -f /usr/local/sbin/taleward-website-neu-laden ] && [ -f website-neu-laden.sh ]; then
+diff --git a/deploy/docker-compose.yml b/deploy/docker-compose.yml
+index adb6c43..71c5112 100644
+--- a/deploy/docker-compose.yml
++++ b/deploy/docker-compose.yml
+@@ -89,4 +89,6 @@ services:
+       - ${WEBSITE_ORDNER:-./website}:/srv/website:ro
+       - ./website-caddy:/etc/caddy/website:ro
++      # Optional: Testinstanz (test-instanz.sh legt die Regel an); sonst leer
++      - ./test-caddy:/etc/caddy/test:ro
+       - caddy-daten:/data
+       - caddy-config:/config
+@@ -95,4 +97,26 @@ services:
+       options: { max-size: "10m", max-file: "5" }
+ 
++  # ---------------------------------------------------------------- Testinstanz (optional)
++  # Nur aktiv mit Profil „test“ (sudo bash test-instanz.sh an <adresse>): dasselbe Programm wie der Server, eigene
++  # Daten in ./test-daten, eigene Adresse. Zahlungen dort immer nur im Testmodus der Anbieter (TALEWARD_TESTINSTANZ).
++  testserver:
++    profiles: ["test"]
++    image: taleward-server:${TALEWARD_VERSION:-main}   # gebaut vom Dienst „server“
++    depends_on:
++      - server
++    restart: unless-stopped
++    environment:
++      DATA_DIR: /data
++      PUBLIC_URL: https://${TALEWARD_TEST_DOMAIN:-test.invalid}
++      TALEWARD_TESTINSTANZ: "1"
++      FORWARDED_ALLOW_IPS: "*"
++    volumes:
++      - ./test-daten:/data
++    expose:
++      - "8000"
++    logging:
++      driver: json-file
++      options: { max-size: "10m", max-file: "5" }
++
+   # ---------------------------------------------------------------- eingebauter Worker (optional)
+   # Nur aktiv, wenn in der .env COMPOSE_PROFILES=worker (Grafikkarte, NVIDIA) oder =worker-cpu (nur Prozessor) steht.
+diff --git a/deploy/test-instanz.sh b/deploy/test-instanz.sh
+new file mode 100644
+index 0000000..aafd2b1
+--- /dev/null
++++ b/deploy/test-instanz.sh
+@@ -0,0 +1,88 @@
++#!/bin/bash
++# Optional: eine Testinstanz neben dem Server auf demselben VPS (docs/BETRIEB.md, „Testinstanz“).
++# Eigene Adresse, eigene Daten (/opt/taleward/test-daten), dasselbe Programm wie der Server. Zahlungen laufen dort
++# immer nur im Testmodus der Anbieter. Gedacht zum Ausprobieren, etwa des Aufladens mit Test-Zugängen.
++#
++#   sudo bash /opt/taleward/test-instanz.sh an test.example.org   # einschalten (Adresse muss auf diesen Server zeigen)
++#   sudo bash /opt/taleward/test-instanz.sh aus                   # ausschalten, Daten bleiben in test-daten
++#   sudo bash /opt/taleward/test-instanz.sh code                  # Einrichtungscode der Testinstanz anzeigen
++# shellcheck disable=SC1111  # deutsche Anführungszeichen sind Absicht
++set -euo pipefail
++ZIEL=${TALEWARD_ZIEL:-/opt/taleward}
++ENV="$ZIEL/.env"
++REGELN="$ZIEL/test-caddy"
++cd "$ZIEL"
++
++wert() { sed -n "s/^$1=//p" "$ENV" | tail -1; }
++setzen() {  # Name, Wert – vorhandene Zeile ersetzen oder anhängen
++  if grep -q "^$1=" "$ENV"; then
++    sed -i "s|^$1=.*|$1=$2|" "$ENV"
++  else
++    printf '%s=%s\n' "$1" "$2" >>"$ENV"
++  fi
++}
++profile_ohne_test() { wert COMPOSE_PROFILES | tr ',' '\n' | grep -vx 'test' | grep -v '^$' | paste -sd, - || true; }
++
++[ -f "$ENV" ] || { echo "Keine Einstellungen gefunden ($ENV) – ist Taleward hier installiert?" >&2; exit 1; }
++
++case "${1:-}" in
++  an)
++    adresse=$(printf '%s' "${2:-}" | tr '[:upper:]' '[:lower:]')
++    if ! [[ "$adresse" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]]; then
++      echo "Bitte eine Adresse angeben, z. B.: sudo bash $0 an test.example.org" >&2
++      exit 2
++    fi
++    if [ "$adresse" = "$(wert TALEWARD_DOMAIN)" ]; then
++      echo "Abgelehnt: Das ist die Adresse des Servers selbst." >&2
++      exit 1
++    fi
++    for w in $(wert WEBSITE_DOMAINS); do
++      if [ "$adresse" = "$w" ]; then
++        echo "Abgelehnt: Die Adresse gehört zur Website." >&2
++        exit 1
++      fi
++    done
++    mkdir -p test-daten "$REGELN"
++    chown 1000:1000 test-daten && chmod 700 test-daten
++    setzen TALEWARD_TEST_DOMAIN "$adresse"
++    profile=$(profile_ohne_test)
++    setzen COMPOSE_PROFILES "${profile:+$profile,}test"
++    cat >"$REGELN/test.caddy" <<EOF
++# Von test-instanz.sh angelegt. Ausschalten: sudo bash $ZIEL/test-instanz.sh aus
++$adresse {
++	encode zstd gzip
++	header {
++		-Server
++		-Via
++		X-Robots-Tag "noindex, nofollow"
++		defer
++	}
++	request_body {
++		max_size 64MB
++	}
++	reverse_proxy testserver:8000
++}
++EOF
++    docker compose up -d
++    docker compose restart caddy
++    echo
++    echo "Testinstanz läuft unter https://$adresse (das Zertifikat holt Caddy in der ersten Minute)."
++    echo "Einrichtungscode: sudo bash $0 code"
++    ;;
++  aus)
++    profile=$(profile_ohne_test)
++    if [ -n "$profile" ]; then setzen COMPOSE_PROFILES "$profile"; else sed -i '/^COMPOSE_PROFILES=/d' "$ENV"; fi
++    rm -f "$REGELN/test.caddy"
++    docker compose stop testserver >/dev/null 2>&1 || true
++    docker compose rm -f testserver >/dev/null 2>&1 || true
++    docker compose restart caddy
++    echo "Testinstanz ist aus. Ihre Daten liegen weiter in $ZIEL/test-daten (löschen: sudo rm -rf $ZIEL/test-daten)."
++    ;;
++  code)
++    docker compose exec testserver chronik einrichtungscode
++    ;;
++  *)
++    echo "Aufruf: sudo bash $0 an <adresse> | aus | code" >&2
++    exit 2
++    ;;
++esac
+diff --git a/docs/BETRIEB.md b/docs/BETRIEB.md
+index 2c1f63b..3d7fdb7 100644
+--- a/docs/BETRIEB.md
++++ b/docs/BETRIEB.md
+@@ -266,4 +266,18 @@ Nach jedem erfolgreichen Update räumt der Server ungenutzte Docker-Bilder auf,
+ eingebauten Worker auch alte Bau-Zwischenstände) – wichtig bei kleinen Platten.
+ 
++## Testinstanz (optional)
++
++Zum Ausprobieren, etwa des Aufladens mit Test-Zugängen der Zahlungsanbieter, kann neben dem Server eine zweite Instanz
++auf demselben VPS laufen: eigene Adresse, eigene Daten (`/opt/taleward/test-daten`), dasselbe Programm. Zahlungen
++laufen dort immer im Testmodus, auch wenn jemand Live-Schlüssel einträgt.
++
++1. Beim Domain-Anbieter eine Adresse für die Testinstanz auf den Server zeigen lassen (A und ggf. AAAA, z. B. `test`).
++2. Auf dem Server: `sudo bash /opt/taleward/test-instanz.sh an test.example.org`
++3. Einrichtungscode anzeigen: `sudo bash /opt/taleward/test-instanz.sh code`, dann
++   `https://test.example.org/verwaltung/einrichtung` öffnen. Oben in der Verwaltung steht „Testinstanz“.
++
++Ausschalten mit `sudo bash /opt/taleward/test-instanz.sh aus` (die Daten bleiben liegen). Die Testinstanz läuft mit
++derselben Fassung wie der Server und wird mit ihm aktualisiert; ihre eigene Seite „Updates“ ist dort ohne Wirkung.
++
+ ## Updates für App und Worker
+ 
+diff --git a/install.sh b/install.sh
+index 939e6d7..da13e9d 100755
+--- a/install.sh
++++ b/install.sh
+@@ -257,8 +257,8 @@ curl -fsSL "$QUELLE/deploy/Caddyfile" -o "$ZIEL/Caddyfile"
+ curl -fsSL "$QUELLE/deploy/aktualisieren.sh" -o "$ZIEL/aktualisieren.sh" && chmod +x "$ZIEL/aktualisieren.sh"
+ # Optional: statische Website neben dem Server (docs/BETRIEB.md, „Website mitliefern“) – ohne Einrichtung bleibt das leer
+-for datei in website-zugang.sh website-neu-laden.sh website_regeln.py; do
++for datei in website-zugang.sh website-neu-laden.sh website_regeln.py test-instanz.sh; do
+   curl -fsSL "$QUELLE/deploy/$datei" -o "$ZIEL/$datei" && chmod 755 "$ZIEL/$datei"
+ done
+-mkdir -p "$ZIEL/website-caddy"
++mkdir -p "$ZIEL/website-caddy" "$ZIEL/test-caddy"
+ # Feste Fassung: neuestes Tag v…; die automatischen Updates gehen von dort weiter
+ VERSION=$(alt_wert TALEWARD_VERSION)
+diff --git a/pyproject.toml b/pyproject.toml
+index 5257976..e9a05a9 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.136"
++version = "0.4.137"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index b6ef598..71bec7c 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -154,5 +154,5 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.136"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.137"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index 2f9e6c3..8bf7d84 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -135,5 +135,5 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.136"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.137"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index 44d016f..a7c8515 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -84,5 +84,5 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.136"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.137"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+diff --git a/tests/test_server_04121.py b/tests/test_server_04121.py
+index 686f062..377bd4f 100644
+--- a/tests/test_server_04121.py
++++ b/tests/test_server_04121.py
+@@ -34,5 +34,5 @@ def test_zugang_nur_hochladen_und_neu_laden():
+ def test_installation_und_update_bringen_die_skripte_mit():
+     install = (WURZEL / "install.sh").read_text(encoding="utf-8")
+-    assert "for datei in website-zugang.sh website-neu-laden.sh website_regeln.py; do" in install
++    assert "for datei in website-zugang.sh website-neu-laden.sh website_regeln.py test-instanz.sh; do" in install
+     akt = (DEPLOY / "aktualisieren.sh").read_text(encoding="utf-8")
+     assert "website-zugang.sh:website-zugang.sh website-neu-laden.sh:website-neu-laden.sh" in akt
+diff --git a/tests/test_server_04124.py b/tests/test_server_04124.py
+index bfa6ca7..0d26b97 100644
+--- a/tests/test_server_04124.py
++++ b/tests/test_server_04124.py
+@@ -187,5 +187,5 @@ def test_e_hochladen_nur_mit_unschaedlichen_verknuepfungen():
+     assert '"rsync --server "*) exec /usr/bin/rrsync -wo -munge $ORDNER ;;' in z  # rrsync 3.2.7: -munge
+     assert 'setzen WEBSITE_DOMAINS "$DOMAINS"' in z and "website_regeln.py\" adressen" in z
+-    for datei, zeile in ((WURZEL / "install.sh", "website_regeln.py; do"),
+-                         (DEPLOY / "aktualisieren.sh", "website_regeln.py:website_regeln.py; do")):
++    for datei, zeile in ((WURZEL / "install.sh", "website_regeln.py test-instanz.sh; do"),
++                         (DEPLOY / "aktualisieren.sh", "website_regeln.py:website_regeln.py test-instanz.sh:test-instanz.sh; do")):  # noqa: E501
+         assert zeile in datei.read_text(encoding="utf-8")
+diff --git a/tests/test_server_04137.py b/tests/test_server_04137.py
+new file mode 100644
+index 0000000..32f79de
+--- /dev/null
++++ b/tests/test_server_04137.py
+@@ -0,0 +1,115 @@
++"""Server 0.4.137: Testinstanz neben dem Server auf demselben VPS (deploy/test-instanz.sh) – eigene Adresse, eigene
++Daten, Zahlungen dort nie mit echtem Geld."""
++import json
++import os
++import shutil
++import subprocess
++from pathlib import Path
++
++import pytest
++
++WURZEL = Path(__file__).resolve().parent.parent
++DEPLOY = WURZEL / "deploy"
++
++
++def _ordner(tmp_path, env_text):
++    ziel = tmp_path / "taleward"
++    ziel.mkdir()
++    (ziel / ".env").write_text(env_text, encoding="utf-8")
++    stub = tmp_path / "bin"
++    stub.mkdir()
++    for name, inhalt in {"docker": 'echo "$@" >> "$(dirname "$0")/aufrufe"\n', "chown": "exit 0\n"}.items():
++        (stub / name).write_text("#!/bin/sh\n" + inhalt)
++        (stub / name).chmod(0o755)
++    return ziel, stub
++
++
++def _aufruf(ziel, stub, *args):
++    env = {**os.environ, "TALEWARD_ZIEL": str(ziel), "PATH": f"{stub}:{os.environ['PATH']}"}
++    return subprocess.run(["bash", str(DEPLOY / "test-instanz.sh"), *args], capture_output=True, text=True, env=env)
++
++
++def test_an_und_aus(tmp_path):
++    ziel, stub = _ordner(tmp_path, "TALEWARD_DOMAIN=srv.example.org\nCOMPOSE_PROFILES=worker\n"
++                                   "WEBSITE_DOMAINS=example.org www.example.org\n")
++    r = _aufruf(ziel, stub, "an", "Test.Example.org")
++    assert r.returncode == 0, r.stderr
++    env = (ziel / ".env").read_text()
++    assert "TALEWARD_TEST_DOMAIN=test.example.org" in env and "COMPOSE_PROFILES=worker,test" in env
++    regel = (ziel / "test-caddy" / "test.caddy").read_text()
++    assert regel.splitlines()[1] == "test.example.org {" and "reverse_proxy testserver:8000" in regel
++    assert (ziel / "test-daten").is_dir()
++    assert _aufruf(ziel, stub, "an", "test.example.org").returncode == 0  # zweimal: Profil nur einmal
++    assert (ziel / ".env").read_text().count("test") == 2
++    r = _aufruf(ziel, stub, "aus")
++    assert r.returncode == 0 and not (ziel / "test-caddy" / "test.caddy").exists()
++    env = (ziel / ".env").read_text()
++    assert "COMPOSE_PROFILES=worker\n" in env and (ziel / "test-daten").is_dir()  # Daten bleiben
++    assert "stop testserver" in (stub / "aufrufe").read_text()
++
++
++def test_nur_aus_profil_test_wird_die_zeile_entfernt(tmp_path):
++    ziel, stub = _ordner(tmp_path, "TALEWARD_DOMAIN=srv.example.org\n")
++    assert _aufruf(ziel, stub, "an", "test.example.org").returncode == 0
++    assert "COMPOSE_PROFILES=test" in (ziel / ".env").read_text()
++    assert _aufruf(ziel, stub, "aus").returncode == 0
++    assert "COMPOSE_PROFILES" not in (ziel / ".env").read_text()
++
++
++@pytest.mark.parametrize("adresse", ["srv.example.org", "www.example.org", "", "test example.org", "a;b.org",
++                                     "test.example.org\nX=1", "-x.example.org", "localhost"])
++def test_abgelehnte_adressen(tmp_path, adresse):
++    ziel, stub = _ordner(tmp_path, "TALEWARD_DOMAIN=srv.example.org\nWEBSITE_DOMAINS=example.org www.example.org\n")
++    r = _aufruf(ziel, stub, "an", adresse)
++    assert r.returncode != 0
++    assert not (ziel / "test-caddy" / "test.caddy").exists() and "TEST_DOMAIN" not in (ziel / ".env").read_text()
++
++
++def test_caddy_nimmt_die_regel_an(tmp_path):
++    caddy = os.environ.get("CADDY") or shutil.which("caddy")
++    if not caddy:
++        pytest.skip("Caddy nicht vorhanden")
++    ziel, stub = _ordner(tmp_path, "TALEWARD_DOMAIN=srv.example.org\n")
++    assert _aufruf(ziel, stub, "an", "test.example.org").returncode == 0
++    datei = tmp_path / "Caddyfile"
++    datei.write_text((DEPLOY / "Caddyfile").read_text().replace("/etc/caddy/test/", f"{ziel}/test-caddy/"))
++    env = {**os.environ, "ACME_EMAIL": "a@example.org", "TALEWARD_DOMAIN": "srv.example.org"}
++    r = subprocess.run([caddy, "adapt", "--adapter", "caddyfile", "--config", str(datei)], capture_output=True,
++                       text=True, env=env)
++    assert r.returncode == 0, r.stderr
++    routen = json.loads(r.stdout)["apps"]["http"]["servers"]["srv0"]["routes"]
++    hosts = [h for x in routen for m in x.get("match", []) for h in m.get("host", [])]
++    assert "test.example.org" in hosts and "srv.example.org" in hosts
++
++
++def test_compose_und_update_bringen_die_testinstanz_mit():
++    compose = (DEPLOY / "docker-compose.yml").read_text(encoding="utf-8")
++    assert 'profiles: ["test"]' in compose and "- ./test-daten:/data" in compose
++    assert 'TALEWARD_TESTINSTANZ: "1"' in compose and "- ./test-caddy:/etc/caddy/test:ro" in compose
++    assert "import /etc/caddy/test/*.caddy" in (DEPLOY / "Caddyfile").read_text(encoding="utf-8")
++    assert "test-instanz.sh:test-instanz.sh" in (DEPLOY / "aktualisieren.sh").read_text(encoding="utf-8")
++    assert subprocess.run(["bash", "-n", str(DEPLOY / "test-instanz.sh")]).returncode == 0
++
++
++def test_testinstanz_nie_live(dbs, monkeypatch):
++    from app import zahlung
++    from app.config import get_settings
++    from app.einstellungen import meta_schreiben
++
++    meta_schreiben(dbs, "zahlung.live", "1")
++    dbs.commit()
++    assert zahlung.live(dbs)
++    monkeypatch.setattr(get_settings(), "taleward_testinstanz", True)
++    assert not zahlung.live(dbs)
++    assert not zahlung.stripe_schluessel_erlaubt("sk_live_abc", dbs)
++
++
++def test_verwaltung_zeigt_testinstanz(client, admin, monkeypatch):  # noqa: F811
++    from app.config import get_settings
++
++    assert "Testinstanz" not in client.get("/verwaltung/").text
++    monkeypatch.setattr(get_settings(), "taleward_testinstanz", True)
++    assert "· Testinstanz" in client.get("/verwaltung/").text
++
++
++from tests.test_verwaltung import admin  # noqa: E402, F401
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index 11e03f4..fbece2b 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -113,5 +113,5 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.136"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.137"
+ 
+ 
+diff --git a/uv.lock b/uv.lock
+index 504d2c5..83e90ae 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -2089,5 +2089,5 @@ wheels = [
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.136"
++version = "0.4.137"
+ source = { editable = "." }
+ dependencies = [
+-- 
+2.43.0
+
