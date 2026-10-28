@@ -226,8 +226,10 @@ def exportieren(db: Session, u: User, basis_url: str) -> dict:
     orgs = db.execute(select(Organization, OrgMember).join(OrgMember, OrgMember.organization_id == Organization.id)
                       .where(OrgMember.user_id == u.id)).all()
     anmeldungen = db.scalars(select(AuthMethod).where(AuthMethod.user_id == u.id))
+    from app.routers.miteinander import empfaenger_von
+
     kommentare = [{"id": k.id, "sessionId": k.session_id, "recipientMemberId": k.recipient_member_id,
-                   "text": k.text, "createdAt": _z(k.created_at), "editedAt": _z(k.edited_at)}
+                   "recipientMemberIds": empfaenger_von(db, k), "text": k.text, "createdAt": _z(k.created_at), "editedAt": _z(k.edited_at)}
                   for k in db.scalars(select(Comment).where(Comment.author_member_id.in_(member_ids))
                                       .order_by(Comment.created_at))] if member_ids else []
     stimmen = [{"campaignId": p.campaign_id, "pollId": p.id, "optionStartsAt": _z(o.starts_at), "answer": v.answer,

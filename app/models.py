@@ -576,6 +576,10 @@ class Proposal(Base):
     # Entscheidung der SL, bei diesem Eintrag zu ergänzen statt neu anzulegen (nur action create)
     match_json: Mapped[str | None] = mapped_column("match", Text, nullable=True)
     merge_into_entry_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # 0.4.26: bei Beute aus Runden – bei welcher Figur der Gegenstand danach ist (aktives Mitglied mit Rolle player)
+    # bzw. dass ihn keine Figur mehr hat (nur update bzw. mit merge_into_entry_id); nie beides
+    holder_member_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    holder_cleared: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
 
 class GmNotice(Base):
@@ -695,8 +699,9 @@ class ChapterPlan(Base):
 
 # ---------------------------------------------------------------- Miteinander (Kommentare, Termine)
 class Comment(Base):
-    """Kommentar zu einem Kapitel: öffentlich (recipient None) oder privat zwischen zwei Mitgliedern.
-    Fließt nie in Recaps oder Vorschläge ein."""
+    """Kommentar zu einem Kapitel: öffentlich (recipient None) oder privat. Fließt nie in Recaps oder Vorschläge ein.
+    0.4.26: privat an mehrere – alle Empfänger stehen in CommentRecipient (auch der erste), recipient_member_id ist der
+    erste Empfänger für ältere Apps und zeigt, dass der Kommentar privat ist."""
 
     __tablename__ = "comments"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -707,6 +712,15 @@ class Comment(Base):
     text: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
     edited_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
+
+class CommentRecipient(Base):
+    """0.4.26: Empfänger eines privaten Kommentars (einer oder mehrere)."""
+
+    __tablename__ = "comment_recipients"
+    comment_id: Mapped[str] = mapped_column(ForeignKey("comments.id", ondelete="CASCADE"), primary_key=True)
+    member_id: Mapped[str] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"), primary_key=True, index=True)
+    position: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class DatePoll(Base):

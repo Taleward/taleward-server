@@ -53,7 +53,7 @@ def mit_adresse(dbs, name: str, adresse: str):
 # ---------------------------------------------------------------- Regel gmApproval
 def test_gm_approval_nach_registrierung_einstellung_und_abrechnung(client, dbs):
     info = client.get(f"{API}/info").json()
-    assert info["apiVersion"] == "0.4.25" and info["registration"] == "invite_only" and info["gmApproval"] == "none"
+    assert info["apiVersion"] == "0.4.26" and info["registration"] == "invite_only" and info["gmApproval"] == "none"
     for registrierung, freigabe, modus, erwartet in [
         ("open", "offen", "aus", "required"), ("code", "offen", "aus", "none"), ("invite_only", "immer", "aus", "required"),
         ("closed", "immer", "topf", "required"), ("open", "immer", "guthaben", "none"), ("open", "offen", "topf", "required"),

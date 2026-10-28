@@ -185,6 +185,8 @@ class Vorschlag:
     confidence: float = 0.5
     flags: list[str] = field(default_factory=list)
     evidence: list[dict] = field(default_factory=list)
+    holder: str | None = None  # 0.4.26: Name der Figur aus der Abschrift (nur item)
+    holder_gone: bool = False  # 0.4.26: keine Figur hat ihn mehr (nur update/reveal)
 
 
 @dataclass
@@ -297,7 +299,9 @@ def ergebnis_aus(d: dict, kosten_cent: int = 0) -> Ergebnis:
                    target_entry_id=p.get("targetEntryId"), gm_notes=p.get("gmNotes"),
                    suggested_visibility=p.get("suggestedVisibility") or "gm_only",
                    visibility_reason=p.get("visibilityReason"), confidence=float(p.get("confidence", 0.5)),
-                   flags=list(p.get("flags") or []), evidence=list(p.get("evidence") or []))
+                   flags=list(p.get("flags") or []), evidence=list(p.get("evidence") or []),
+                   holder=p.get("holder") if isinstance(p.get("holder"), str) else None,
+                   holder_gone=p.get("holderGone") is True)
          for p in d.get("proposals") or []]
     return Ergebnis(titel=titel_saeubern(d.get("title") or ""), text=d["text"], offene_faeden=list(d.get("openThreads") or []),
                     vorschlaege=v, modell=d.get("model") or "?", tokens_in=int(d.get("tokensIn") or 0),
@@ -420,6 +424,9 @@ def speichern(db: Session, s: GameSession, erg: Ergebnis, rechenzeit: float, eng
     # Qualitätsprüfung Stufe 1: Belege gegen das Transkript prüfen (erfundene Zitate fallen weg)
     transkript = stellen.woerter
     ohne_beleg = 0
+    from app import beute
+
+    halter = beute.Halter(db, s.campaign_id)
     for pos, v in enumerate(erg.vorschlaege):
         ziel = eintraege.get(v.target_entry_id or "")
         if v.action in ("update", "reveal") and ziel is None:
@@ -455,6 +462,8 @@ def speichern(db: Session, s: GameSession, erg: Ergebnis, rechenzeit: float, eng
             # 0.4.21: klingt der neue Eintrag wie ein vorhandener? (ohne Sprachmodell, nur für die SL)
             match_json=dubletten.schreiben(dubletten.finden(v.title, eintraege.values(), allgemein))
             if v.action == "create" else None,
+            holder_member_id=halter.aufloesen(v.holder) if v.entry_type == "item" and not v.holder_gone else None,
+            holder_cleared=v.entry_type == "item" and v.holder_gone and v.action in ("update", "reveal"),
         ))
     if ohne_beleg:
         log.info("Session %s: %d von %d Vorschlägen ohne auffindbaren Beleg im Transkript", s.id, ohne_beleg,

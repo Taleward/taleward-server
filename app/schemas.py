@@ -645,6 +645,8 @@ class ProposalOut(ApiModel):
     decision: Literal["open", "accepted", "rejected"]
     match: "ProposalMatch | None" = None  # 0.4.21: nur bei action create, nur für die SL (Vorschläge sieht nur sie)
     merge_into_entry_id: str | None = None  # 0.4.21
+    holder_member_id: str | None = None  # 0.4.26: nur bei Beute aus Runden
+    holder_cleared: bool = False  # 0.4.26
 
 
 class ProposalMatch(ApiModel):
@@ -663,6 +665,8 @@ class ProposalPatch(ApiModel):
     visibility: Visibility | None = None
     hidden_from_member_ids: list[str] | None = None
     merge_into_entry_id: str | None = Field(default=None, max_length=64)  # 0.4.21
+    holder_member_id: str | None = Field(default=None, max_length=64)  # 0.4.26
+    holder_cleared: bool | None = None  # 0.4.26
 
 
 class TranscriptLineOut(ApiModel):
@@ -727,6 +731,7 @@ class CommentOut(ApiModel):
     session_id: str
     author_member_id: str
     recipient_member_id: str | None
+    recipient_member_ids: list[str] = []  # 0.4.26: alle Empfänger, leer = öffentlich
     text: str
     created_at: datetime
     edited_at: datetime | None
@@ -735,6 +740,7 @@ class CommentOut(ApiModel):
 class CommentCreate(ApiModel):
     text: str = ""  # Länge prüft der Endpunkt selbst (413 comment_too_long statt 400)
     recipient_member_id: str | None = None
+    recipient_member_ids: list[str | None] | None = Field(default=None, max_length=100)  # 0.4.26; Prüfung im Endpunkt
 
 
 class CommentPatch(ApiModel):

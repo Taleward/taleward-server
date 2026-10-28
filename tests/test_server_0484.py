@@ -77,7 +77,7 @@ def test_info_mit_public_url_und_server_id(client, dbs):
     from app.routers.auth import oeffentliche_herkunft
 
     i = client.get(f"{API}/info").json()
-    assert i["apiVersion"] == "0.4.25" and i["serverId"] == server_id() and i["publicUrl"] is None
+    assert i["apiVersion"] == "0.4.26" and i["serverId"] == server_id() and i["publicUrl"] is None
     meta_schreiben(dbs, "angabe.public_url", "https://taleward.example.org/pfad/")
     dbs.commit()
     assert client.get(f"{API}/info").json()["publicUrl"] == "https://taleward.example.org"

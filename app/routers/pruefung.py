@@ -168,7 +168,31 @@ def proposal_out(p: Proposal) -> schemas.ProposalOut:
         decision=p.decision,
         match=schemas.ProposalMatch(**_camel_zu_schlange(m)) if (m := dubletten.lesen(p.match_json)) else None,
         merge_into_entry_id=p.merge_into_entry_id,
+        holder_member_id=p.holder_member_id, holder_cleared=bool(p.holder_cleared),
     )
+
+
+def _halter_setzen(db: Session, p: Proposal, campaign_id: str, body: schemas.ProposalPatch, felder: set) -> None:
+    """0.4.26: Halter am Beute-Vorschlag ändern. holderMemberId nur aktive Mitglieder mit Rolle player (sonst 400
+    holder_unknown), holderCleared nur bei update bzw. „Dort ergänzen“; je eins setzt das andere zurück."""
+    if p.entry_type != "item" or p.source == "character":
+        raise errors.bad_request("invalid_input")
+    if "holder_member_id" in felder and body.holder_member_id is not None:
+        m = db.get(Member, body.holder_member_id)
+        if m is None or m.campaign_id != campaign_id or not m.aktiv or m.role != "player":
+            raise errors.bad_request("holder_unknown")
+        if body.holder_cleared:
+            raise errors.bad_request("invalid_input")
+        p.holder_member_id, p.holder_cleared = m.id, False
+        return
+    if "holder_member_id" in felder:
+        p.holder_member_id = None
+    if "holder_cleared" in felder and body.holder_cleared is not None:
+        if body.holder_cleared:
+            if not (p.action == "update" or p.merge_into_entry_id):
+                raise errors.bad_request("invalid_input")
+            p.holder_member_id = None
+        p.holder_cleared = bool(body.holder_cleared)
 
 
 def _camel_zu_schlange(d: dict) -> dict:
@@ -247,6 +271,10 @@ def patch_proposal(proposalId: str, body: schemas.ProposalPatch, user: User = De
                     or ziel.type == "pc"):
                 raise errors.bad_request("invalid_input", "invalid_input.merge_target")
             p.merge_into_entry_id = ziel.id
+    if "holder_member_id" in felder or "holder_cleared" in felder:  # 0.4.26: Wer hat den Gegenstand?
+        _halter_setzen(db, p, campaign_id, body, felder)
+    if p.holder_cleared and not (p.action == "update" or p.merge_into_entry_id):
+        p.holder_cleared = False  # „Dort ergänzen“ zurückgenommen: ein neuer Eintrag hat sonst einfach keinen Halter
     if "decision" in felder and body.decision is not None:
         p.decision = body.decision
     if (p.decision == "accepted" and p.suggested_visibility == "public" and p.action != "update" and not p.detail
@@ -513,7 +541,10 @@ def _uebernehmen(db: Session, campaign_id: str, s: GameSession | None, p: Propos
         if e is None or e.campaign_id != campaign_id or e.type == "pc":
             e = None
         if e is not None:
+            umleitung = _weniger_sichtbar(p, e, public, verborgen)
             _ergaenzen(db, e, p, s, public, verborgen)
+            if not umleitung:  # Umleitung in gmNotes: Halter bleibt, wie er ist (0.4.26)
+                _halter_uebernehmen(db, e, p)
             return
     if p.action == "create":
         e = Entry(campaign_id=campaign_id, type=p.entry_type, name=p.title)
@@ -543,9 +574,26 @@ def _uebernehmen(db: Session, campaign_id: str, s: GameSession | None, p: Propos
                 # 0.3.7: gilt auch für update – vereinigen, damit niemand versehentlich wieder alles sieht
                 daten["hidden_from_member_ids"] = sorted(set(e.hidden_member_ids) | set(verborgen))
             notiz = p.detail if e.visibility == "public" else ""
+    halter = p.action in ("create", "reveal") or not (e.visibility == "public" and not public)
     apply_entry_input(db, e, schemas.EntryInput(**daten))
+    if halter:  # nicht bei Geheimem zu einem öffentlichen Eintrag – sonst sähen Spieler über den Halter, was verborgen ist
+        _halter_uebernehmen(db, e, p)
     if s is not None:
         erwaehnt(db, e, s, notiz)
+
+
+def _halter_uebernehmen(db: Session, e: Entry, p: Proposal) -> None:
+    """0.4.26: Halter aus dem Beute-Vorschlag an den Eintrag – nur, wenn die Figur noch aktiv mitspielt."""
+    if p.entry_type != "item" or (e.type or p.entry_type) != "item":
+        return
+    if p.holder_cleared:
+        if e.holder_member_id is not None:
+            apply_entry_input(db, e, schemas.EntryInput(holder_member_id=None))
+        return
+    if p.holder_member_id and p.holder_member_id != e.holder_member_id:
+        m = db.get(Member, p.holder_member_id)
+        if m is not None and m.campaign_id == e.campaign_id and m.aktiv and m.role == "player":
+            apply_entry_input(db, e, schemas.EntryInput(holder_member_id=m.id))
 
 
 @router.post("/sessions/{sessionId}/publish", tags=["Chronik"], response_model=schemas.SessionOut,

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Taleward API
-  version: 0.4.25
+  version: 0.4.26
   description: |
     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
 
@@ -257,6 +257,13 @@ info:
       Protokoll (GET …/settings/log), Vorgaben des Betreibers (locks). PATCH /campaigns/{id} nimmt die Felder weiter an
       (ältere Apps) und zählt die Fassung ebenso hoch. POST /campaigns nimmt die Einstellungen beim Anlegen an.
     Ältere Apps sehen von alldem nichts außer der Meldung am Kapitel (ohne Adresse).
+    Änderungen in 0.4.26 (Wer hat den Gegenstand?): Proposal.holderMemberId und Proposal.holderCleared – bei Beute
+    schlägt der Server vor, bei welcher Figur der Gegenstand nach der Runde ist (oder dass ihn keine Figur mehr hat).
+    Die SL bestätigt oder ändert das beim Prüfen (PATCH /proposals/{id}); beim Veröffentlichen bzw. Übernehmen wird es
+    zu Entry.holderMemberId. Entry.holderMemberId selbst gibt es schon länger (POST/PATCH /entries). Ältere Apps sehen
+    den Vorschlag ohne Halter; übernimmt die SL ihn dort, setzt der Server den vorgeschlagenen Halter trotzdem.
+    Außerdem private Kommentare an mehrere Personen: POST …/comments nimmt recipientMemberIds, Comment liefert
+    recipientMemberIds. recipientMemberId bleibt (erster Empfänger) für ältere Apps.
 
 servers:
   - url: https://taleward.example.org/api/v1
@@ -2454,6 +2461,17 @@ paths:
                     jeder Eintrag der Kampagne ist erlaubt); null nimmt es zurück. Anderer Eintrag oder andere action → 400
                     `invalid_input`. Die App schickt dabei in der Regel decision accepted mit. Ist der Vorschlag weniger
                     sichtbar als der Eintrag, gilt die Umleitung in gmNotes (siehe Proposal.mergeIntoEntryId).
+                holderMemberId:
+                  type: [string, "null"]
+                  description: |
+                    Ab 0.4.26, nur bei entryType item: Halter, den die SL festlegt (aktives Mitglied der Kampagne mit Rolle
+                    player, sonst 400 `holder_unknown`); setzt holderCleared auf false. null = keine Änderung am Halter
+                    des Eintrags (bei create: niemand).
+                holderCleared:
+                  type: boolean
+                  description: |
+                    Ab 0.4.26, nur bei entryType item mit action update bzw. mergeIntoEntryId: true = der Eintrag hat danach
+                    keinen Halter mehr; setzt holderMemberId auf null. Sonst 400 `invalid_input`.
       responses:
         "200":
           description: OK
@@ -2933,6 +2951,9 @@ paths:
       summary: Kommentieren oder privat schreiben
       description: |
         `recipientMemberId` leer = für alle. Gesetzt = privat, sichtbar nur für Absender und Empfänger.
+        Ab 0.4.26 `recipientMemberIds` (geht vor `recipientMemberId`): privat an mehrere Personen, sichtbar für Absender
+        und alle Empfänger; jede von ihnen sieht auch, an wen der Kommentar sonst noch ging. Leer oder fehlend = für alle.
+        Höchstens 20, keine doppelten, nicht der Absender selbst (sonst 400 `recipient_unknown`).
         Spieler dürfen privat nur an die SL schreiben (sonst 403), die SL an jede Person.
         Leerer Text 400, mehr als 4000 Zeichen 413 `comment_too_long`.
       requestBody:
@@ -2945,6 +2966,11 @@ paths:
               properties:
                 text: { type: string, maxLength: 4000 }
                 recipientMemberId: { type: [string, "null"] }
+                recipientMemberIds:
+                  type: array
+                  maxItems: 20
+                  items: { type: string }
+                  description: Ab 0.4.26, siehe oben
       responses:
         "201":
           description: Angelegt
@@ -4464,6 +4490,22 @@ components:
             public; oder der Vorschlag ist vor Mitgliedern verborgen, die den Eintrag sehen), kommen Titel und Text nur
             in die gmNotes des Eintrags – kein Alias, kein öffentlicher Text, keine Erwähnung für Spieler. Die App sagt
             das in der Rückfrage. null = als neuer Eintrag.
+        holderMemberId:
+          type: [string, "null"]
+          description: |
+            Ab 0.4.26, nur bei entryType item (Session-Vorschläge; bei Unterlagen und source character immer null): bei
+            welcher Figur der Gegenstand nach dieser Runde ist. Bei create = wer ihn hat, bei update/reveal bzw. mit
+            mergeIntoEntryId = an wen er geht (nur gesetzt, wenn er laut Runde den Besitzer wechselt). Der Server löst
+            den Namen aus der Abschrift selbst auf (characterName, Name und aliases des pc-Eintrags); erlaubt sind nur
+            aktive Mitglieder mit Rolle player. Unsicher oder nicht auflösbar → null (der Name darf im detail stehen).
+            Die Belegstelle gehört in evidence. null = keine Angabe, der Halter bleibt, wie er ist. Greift beim Ergänzen
+            die Umleitung in gmNotes (siehe mergeIntoEntryId), bleibt der Halter des Eintrags unverändert.
+        holderCleared:
+          type: boolean
+          description: |
+            Ab 0.4.26, nur bei entryType item und action update (bzw. mergeIntoEntryId): Der Gegenstand ist laut Runde bei
+            keiner Figur mehr (verkauft, verloren, abgegeben, zerstört). Wirkt beim Veröffentlichen wie
+            holderMemberId null am Eintrag. Nie zusammen mit holderMemberId. Standard false.
         title: { type: string }
         detail: { type: string, description: "Spielerwissen (öffentlicher Teil)" }
         gmNotes: { type: [string, "null"], description: "Geheimer Teil, nur für die SL" }
@@ -4535,7 +4577,15 @@ components:
         authorMemberId: { type: string }
         recipientMemberId:
           type: [string, "null"]
-          description: null = für alle; sonst privat (nur Absender und Empfänger sehen ihn)
+          description: |
+            null = für alle; sonst privat (nur Absender und Empfänger sehen ihn). Ab 0.4.26 bei mehreren Empfängern der
+            erste (für ältere Apps); maßgeblich ist recipientMemberIds.
+        recipientMemberIds:
+          type: array
+          items: { type: string }
+          description: |
+            Ab 0.4.26, immer gesetzt: alle Empfänger eines privaten Kommentars, leer = für alle. Sichtbar für alle, die den
+            Kommentar sehen. Ältere Apps zeigen nur den ersten Empfänger.
         text: { type: string }
         createdAt: { type: string, format: date-time }
         editedAt: { type: [string, "null"], format: date-time }
@@ -4711,7 +4761,12 @@ components:
         name: { type: string }
         summary: { type: string }
         status: { type: [string, "null"], enum: [active, done, null], description: Nur für Quests }
-        holderMemberId: { type: [string, "null"], description: Nur für Gegenstände }
+        holderMemberId:
+          type: [string, "null"]
+          description: |
+            Nur für Gegenstände: bei welcher Figur der Gegenstand ist (Mitglied der Kampagne, sonst 400 `holder_unknown`);
+            null = bei niemandem. Bei anderen Arten außer pc verwirft der Server den Wert. Die App bietet ab 0.4.26 eine
+            Auswahl „Bei wem?“ an; Vorschläge dafür siehe Proposal.holderMemberId.
         aliases:
           type: array
           maxItems: 10

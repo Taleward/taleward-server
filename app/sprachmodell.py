@@ -867,11 +867,17 @@ vorbeizieht, kommt zuletzt oder gar nicht: kein Eintrag für einen Ort, durch de
 Flughafen, eine Bar für einen Drink), für die Stadt oder Welt als Ganzes oder für Kleidung und Ausrüstung ohne eigenen \
 Namen.
 - Offene Vorhaben der Gruppe (ein Plan, eine Erkundung, deren Ergebnis noch aussteht) gehören in die quest.
+- Nur bei Gegenständen (item): holder = Name der Spielerfigur aus „Am Tisch“, die den Gegenstand am Ende der Session \
+hat, so wie er am Tisch fällt. Bei create: wer ihn hat. Bei update oder reveal nur, wenn er in dieser Session an eine \
+andere Spielerfigur geht. holderGone = true, wenn ihn danach keine Spielerfigur mehr hat (verkauft, verloren, \
+abgegeben, zerstört) – nur bei update oder reveal. Nichtspielercharaktere sind nie holder. Ist unklar, wer ihn hat, \
+oder hat ihn niemand: holder null, holderGone false. Nie raten.
 - detail und gmNotes sind reiner Text ohne Markdown (keine Sternchen, keine Rauten); mehrere Punkte als eigene Zeilen. \
 Keine Vermutungen – nur, was gesagt wurde; keine Sätze mit „könnte“. Was eine Figur nur erzählt oder gehört hat (Gerücht, Legende, Hörensagen), bleibt als Erzählung kenntlich: „soll … haben“, „heißt es“.
 Antworte nur mit JSON: {"proposals": [{"entryType": "…", "action": "…", "targetEntryId": null, "title": "…", \
 "detail": "…", "gmNotes": null, "suggestedVisibility": "…", "visibilityReason": "…", "confidence": 0.7, \
-"flags": [], "evidence": [{"start": "m:ss", "quote": "…"}]}]}. Sprache der Texte: {sprache}."""
+"flags": [], "evidence": [{"start": "m:ss", "quote": "…"}], "holder": null, "holderGone": false}]}. Sprache der \
+Texte: {sprache}."""
 
 
 SYSTEM_PRUEFUNG = """Du prüfst den Recap einer Pen-&-Paper-Session gegen seine Grundlage (Transkript oder \
@@ -3434,6 +3440,12 @@ def pruefen(roh: list, bibel_ids: set[str], geheim_ids: set[str], charaktere=(),
             "suggestedVisibility": sicht, "visibilityReason": klartext(v.get("visibilityReason"))[:500] or None,
             "confidence": sicherheit, "flags": flags, "evidence": belege,
         }
+        # 0.4.26: Halter bei Beute – nur der Name, wie er fällt; aufgelöst wird beim Speichern (nie geraten)
+        if typ == "item":
+            weg = v.get("holderGone") is True and art in ("update", "reveal")
+            halter = None if weg else (klartext(v.get("holder")) if isinstance(v.get("holder"), str) else "")[:100]
+            v_neu["holder"] = halter or None
+            v_neu["holderGone"] = weg
         out.append(v_neu)
         gewichte.append(gewicht(v_neu, belegt, n))
         if len(out) >= MAX_VORSCHLAEGE_ROH:

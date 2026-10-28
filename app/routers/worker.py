@@ -513,6 +513,8 @@ class ProposalIn(ApiModel):
     confidence: float = Field(default=0.5, ge=0, le=1)
     flags: list[str] = Field(default=[], max_length=5)
     evidence: list[dict] = Field(default=[], max_length=5)
+    holder: str | None = Field(default=None, max_length=200)  # 0.4.26
+    holder_gone: bool = False  # 0.4.26
 
 
 class SummaryResultIn(ApiModel):

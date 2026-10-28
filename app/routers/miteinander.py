@@ -3,7 +3,8 @@
 Kommentare:
 - Sichtbar ist ein Kapitel wie überall (Spieler nur veröffentlichte, sonst 404).
 - Öffentliche Kommentare sehen alle, die das Kapitel sehen. Private nur Absender und Empfänger – auch die SL sieht
-  fremde private Nachrichten nicht (bei mehreren SLs).
+  fremde private Nachrichten nicht (bei mehreren SLs). 0.4.26: privat an mehrere (`recipientMemberIds`, bis 20); jede
+  Empfängerin sieht auch die übrigen Empfänger.
 - Spieler schreiben privat nur an eine SL, die SL an jede Person. Gelöschte Konten sind keine Empfänger.
 - Was man nicht sehen darf, gibt es nicht (404). Bearbeiten nur eigene, löschen eigene; die SL alle, die sie sieht.
 - Kommentare fließen nie in Recaps oder Vorschläge ein (die Zusammenfassung liest sie nicht).
@@ -12,29 +13,41 @@ Terminabstimmung: höchstens eine offene je Kampagne. Alle Mitglieder schlagen v
 hat automatisch „yes“ gestimmt. Die SL legt den Termin fest (→ Campaign.nextSessionAt) oder bricht ab.
 """
 from fastapi import APIRouter, Depends, Response
-from sqlalchemy import or_, select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session
 
 from app import errors, schemas
 from app.access import current_user, load_session, membership, require_gm, require_member
 from app.db import get_db, utcnow
-from app.models import Campaign, Comment, DateOption, DatePoll, DateVote, GameSession, Member, User
+from app.models import Campaign, Comment, CommentRecipient, DateOption, DatePoll, DateVote, GameSession, Member, User
 
 router = APIRouter()
 MAX_TEXT = 4000
+MAX_EMPFAENGER = 20  # 0.4.26
 
 
 # ---------------------------------------------------------------- Kommentare
-def kommentar_out(k: Comment) -> schemas.CommentOut:
+def empfaenger_von(db: Session, k: Comment) -> list[str]:
+    """Alle Empfänger eines privaten Kommentars in der gewählten Reihenfolge (leer = öffentlich)."""
+    if k.recipient_member_id is None:
+        return []
+    ids = list(db.scalars(select(CommentRecipient.member_id).where(CommentRecipient.comment_id == k.id)
+                          .order_by(CommentRecipient.position, CommentRecipient.member_id)))
+    return ids or [k.recipient_member_id]
+
+
+def kommentar_out(db: Session, k: Comment) -> schemas.CommentOut:
+    ids = empfaenger_von(db, k)
     return schemas.CommentOut(id=k.id, session_id=k.session_id, author_member_id=k.author_member_id,
-                              recipient_member_id=k.recipient_member_id, text=k.text, created_at=k.created_at,
-                              edited_at=k.edited_at)
+                              recipient_member_id=ids[0] if ids else None, recipient_member_ids=ids, text=k.text,
+                              created_at=k.created_at, edited_at=k.edited_at)
 
 
 def sichtbar_fuer(me: Member):
-    """Bedingung: öffentlich oder eigene private Nachricht (geschrieben oder bekommen)."""
+    """Bedingung: öffentlich oder eigene private Nachricht (geschrieben oder bekommen, auch als einer von mehreren)."""
     return or_(Comment.recipient_member_id.is_(None), Comment.author_member_id == me.id,
-               Comment.recipient_member_id == me.id)
+               Comment.recipient_member_id == me.id,
+               exists().where(CommentRecipient.comment_id == Comment.id, CommentRecipient.member_id == me.id))
 
 
 def _text(roh: str) -> str:
@@ -51,7 +64,7 @@ def comments_list(sessionId: str, user: User = Depends(current_user), db: Sessio
     acc = load_session(db, sessionId, user)
     q = (select(Comment).where(Comment.session_id == acc.session.id, sichtbar_fuer(acc.member))
          .order_by(Comment.created_at, Comment.id))
-    return [kommentar_out(k) for k in db.scalars(q)]
+    return [kommentar_out(db, k) for k in db.scalars(q)]
 
 
 @router.post("/sessions/{sessionId}/comments", tags=["Kommentare"], status_code=201, response_model=schemas.CommentOut)
@@ -59,19 +72,29 @@ def comments_create(sessionId: str, body: schemas.CommentCreate, user: User = De
                     db: Session = Depends(get_db)):
     acc = load_session(db, sessionId, user)
     text = _text(body.text)
-    empfaenger = None
-    if body.recipient_member_id:
-        empfaenger = db.get(Member, body.recipient_member_id)
-        if (empfaenger is None or empfaenger.campaign_id != acc.session.campaign_id or not empfaenger.aktiv
-                or empfaenger.id == acc.member.id):
+    # 0.4.26: recipientMemberIds geht vor recipientMemberId; leer bzw. fehlend = für alle
+    if "recipient_member_ids" in body.model_fields_set and body.recipient_member_ids is not None:
+        wunsch = list(body.recipient_member_ids)
+    else:
+        wunsch = [body.recipient_member_id] if body.recipient_member_id else []
+    if len(wunsch) > MAX_EMPFAENGER or len(set(wunsch)) != len(wunsch):
+        raise errors.bad_request("recipient_unknown")
+    empfaenger: list[Member] = []
+    for mid in wunsch:
+        m = db.get(Member, mid) if isinstance(mid, str) and mid else None
+        if (m is None or m.campaign_id != acc.session.campaign_id or not m.aktiv or m.id == acc.member.id):
             raise errors.bad_request("recipient_unknown")
-        if not acc.is_gm and empfaenger.role != "gm":
-            raise errors.forbidden("forbidden.private_to_gm")
+        empfaenger.append(m)
+    if not acc.is_gm and any(m.role != "gm" for m in empfaenger):
+        raise errors.forbidden("forbidden.private_to_gm")
     k = Comment(session_id=acc.session.id, author_member_id=acc.member.id,
-                recipient_member_id=empfaenger.id if empfaenger else None, text=text, created_at=utcnow())
+                recipient_member_id=empfaenger[0].id if empfaenger else None, text=text, created_at=utcnow())
     db.add(k)
+    db.flush()
+    for i, m in enumerate(empfaenger):
+        db.add(CommentRecipient(comment_id=k.id, member_id=m.id, position=i))
     db.commit()
-    return kommentar_out(k)
+    return kommentar_out(db, k)
 
 
 def _kommentar(db: Session, comment_id: str, user: User):
@@ -84,7 +107,7 @@ def _kommentar(db: Session, comment_id: str, user: User):
     except errors.ApiError:
         raise errors.not_found("comment") from None
     me = acc.member
-    if k.recipient_member_id is not None and me.id not in (k.author_member_id, k.recipient_member_id):
+    if k.recipient_member_id is not None and me.id != k.author_member_id and me.id not in empfaenger_von(db, k):
         raise errors.not_found("comment")
     return k, acc
 
@@ -97,7 +120,7 @@ def comment_edit(commentId: str, body: schemas.CommentPatch, user: User = Depend
         raise errors.forbidden("forbidden.own_comment")
     k.text, k.edited_at = _text(body.text), utcnow()
     db.commit()
-    return kommentar_out(k)
+    return kommentar_out(db, k)
 
 
 @router.delete("/comments/{commentId}", tags=["Kommentare"], status_code=204)

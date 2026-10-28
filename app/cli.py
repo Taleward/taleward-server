@@ -230,6 +230,7 @@ def demo_data(password: str = typer.Option("chronik-demo", help="Passwort für b
                                                      ensure_ascii=False)),
         Proposal(campaign_id=c.id, session_id=s2.id, position=3, entry_type="item", action="create",
                  title="Goldene Gummiente", detail="Angeblich das mächtigste Artefakt Aventuriens.",
+                 holder_member_id=pl.id,  # 0.4.26
                  suggested_visibility="gm_only", confidence=0.2, flags=json.dumps(["joke_suspected", "low_confidence"]),
                  evidence=json.dumps([{"start": 6000.0, "quote": "Ich kaufe die goldene Gummiente!"}],
                                      ensure_ascii=False)),

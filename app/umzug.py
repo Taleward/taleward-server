@@ -41,6 +41,7 @@ from app.config import get_settings
 from app.db import utcnow
 from app.models import (
     Attendee, Campaign, CampaignDocument, ChapterPlan, CampaignExport, CampaignImport, CharacterAnalysis, Comment,
+    CommentRecipient,
     DateOption, DateVote, Entry, EntryHidden, EntryMention, GameSession, GmNote, GmNotice, Invite, Member, Proposal,
     Recap, SessionSeen, Speaker, User,
 )
@@ -272,10 +273,14 @@ def packliste(db: Session, c: Campaign, zugestimmt: set[str]) -> tuple[dict, lis
         for k in db.scalars(select(Comment).where(Comment.session_id == s.id).order_by(Comment.created_at)):
             if k.author_member_id not in zugestimmt:
                 continue
-            if k.recipient_member_id is not None and k.recipient_member_id not in zugestimmt:
-                continue  # privat: nur, wenn beide zugestimmt haben
+            from app.routers.miteinander import empfaenger_von
+
+            empf = empfaenger_von(db, k)
+            if any(m not in zugestimmt for m in empf):
+                continue  # privat: nur, wenn alle Beteiligten zugestimmt haben
             kommentare.append({"author": platz.get(k.author_member_id),
-                               "recipient": platz.get(k.recipient_member_id) if k.recipient_member_id else None,
+                               "recipient": platz.get(empf[0]) if empf else None,
+                               "recipients": [platz.get(m) for m in empf],  # 0.4.26
                                "text": k.text, "createdAt": _z(k.created_at), "editedAt": _z(k.edited_at)})
         kapitel.append({
             "key": kapitel_schluessel[s.id], "number": s.number, "title": s.title, "playedAt": _z(s.played_at),
@@ -518,6 +523,11 @@ def _teile_json(teile: list, text: str) -> str | None:
 class _Kommentar(schemas.ApiModel):
     author: str
     recipient: str | None = None
+    recipients: list[str] = Field(default=[], max_length=20)  # 0.4.26; ältere Dateien nur recipient
+
+    @property
+    def alle_empfaenger(self) -> list[str]:
+        return list(dict.fromkeys(self.recipients)) if self.recipients else ([self.recipient] if self.recipient else [])
     text: str = Field(min_length=1, max_length=20000)
     created_at: datetime
     edited_at: datetime | None = None
@@ -704,7 +714,7 @@ def _verweise_pruefen(d: _Datei) -> None:
             if bool(a.seat) == bool((a.guest or "").strip()) or (a.seat and a.seat not in plaetze):
                 raise ImportFehler("import_format")
         for k in s.comments:
-            if k.author not in plaetze or (k.recipient and k.recipient not in plaetze):
+            if k.author not in plaetze or any(r not in plaetze or r == k.author for r in k.alle_empfaenger):
                 raise ImportFehler("import_format")
     for e in d.entries:
         if (e.holder_seat and e.holder_seat not in plaetze) or any(p not in plaetze for p in e.hidden_from_seats):
@@ -874,9 +884,14 @@ def _anlegen(db: Session, user: User, z: zipfile.ZipFile, d: _Datei, angelegt: l
         if (s.gm_note or "").strip():
             db.add(GmNote(session_id=g.id, text=s.gm_note, updated_at=jetzt))
         for kom in s.comments:
-            db.add(Comment(session_id=g.id, author_member_id=platz[kom.author].id,
-                           recipient_member_id=platz[kom.recipient].id if kom.recipient else None,
-                           text=kom.text, created_at=kom.created_at, edited_at=kom.edited_at))
+            empf = kom.alle_empfaenger
+            neu_k = Comment(session_id=g.id, author_member_id=platz[kom.author].id,
+                            recipient_member_id=platz[empf[0]].id if empf else None,
+                            text=kom.text, created_at=kom.created_at, edited_at=kom.edited_at)
+            db.add(neu_k)
+            db.flush()
+            for i, r in enumerate(empf):
+                db.add(CommentRecipient(comment_id=neu_k.id, member_id=platz[r].id, position=i))
     imp.progress = 0.5
 
     # Bibel
@@ -977,6 +992,12 @@ def _zusammenlegen(db: Session, alt: Member, platz: Member) -> None:
         if h.entry_id not in vorhanden:
             db.add(EntryHidden(entry_id=h.entry_id, member_id=platz.id))
     db.execute(EntryHidden.__table__.delete().where(EntryHidden.member_id == alt.id))
+    # 0.4.26: Empfänger privater Kommentare – war platz schon Empfänger desselben Kommentars, fällt alt weg
+    schon = set(db.scalars(select(CommentRecipient.comment_id).where(CommentRecipient.member_id == platz.id)))
+    for r in db.scalars(select(CommentRecipient).where(CommentRecipient.member_id == alt.id)):
+        if r.comment_id not in schon:
+            db.add(CommentRecipient(comment_id=r.comment_id, member_id=platz.id, position=r.position))
+    db.execute(CommentRecipient.__table__.delete().where(CommentRecipient.member_id == alt.id))
     db.execute(SessionSeen.__table__.delete().where(SessionSeen.member_id == alt.id))
     db.execute(DateVote.__table__.delete().where(DateVote.member_id == alt.id))
     if alt.recording_consent_at is not None and platz.recording_consent_at is None:
@@ -1041,8 +1062,8 @@ def nehmen(db: Session, c: Campaign, ich: Member, platz: Member) -> None:
 
 # 0.4.94: Was der Person gehört, nicht der Figur – geht beim Freigeben an ein „Ehemaliges Mitglied“
 _PRIVAT = (
-    (Comment, "author_member_id"), (Comment, "recipient_member_id"), (Proposal, "submitted_by_member_id"),
-    (CampaignDocument, "uploaded_by_member_id"), (CharacterAnalysis, "member_id"), (Entry, "origin_member_id"),
+    (Comment, "author_member_id"), (Comment, "recipient_member_id"), (CommentRecipient, "member_id"),
+    (Proposal, "submitted_by_member_id"), (CampaignDocument, "uploaded_by_member_id"), (CharacterAnalysis, "member_id"), (Entry, "origin_member_id"),
     (DateOption, "proposed_by_member_id"),
 )
 

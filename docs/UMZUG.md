@@ -42,8 +42,9 @@ Alle Zeiten in UTC im Format ISO 8601. Querverweise innerhalb der Datei laufen �
 
 **`sessions[]`**: `key`, `number`, `title`, `playedAt`, `publishedAt`, `attendees[]` (`{seat}` oder `{guest}`),
 `recap` (`title`, `text`, `openThreads`, `editedAt` – ohne Prüfteil), `gmNote`, `comments[]` (`author`, `recipient`
-oder `null`, `text`, `createdAt`, `editedAt`). Öffentliche Kommentare nur von Plätzen mit Zustimmung, private nur,
-wenn beide zugestimmt haben.
+oder `null`, ab 0.4.26 `recipients[]` mit allen Empfängern – `recipient` ist dann der erste –, `text`, `createdAt`,
+`editedAt`). Öffentliche Kommentare nur von Plätzen mit Zustimmung, private nur, wenn alle Beteiligten zugestimmt
+haben. Ältere Dateien ohne `recipients` gelten mit `recipient` als einzigem Empfänger.
 
 **`entries[]`**: `key`, `type`, `name`, `summary`, `gmNotes`, `status`, `holderSeat`, `visibility`,
 `hiddenFromSeats[]`, `pcCharacterId`, `origin` (mitgebrachte Welt: `characterId`, `entryId`, `version`, `seat` – nur
