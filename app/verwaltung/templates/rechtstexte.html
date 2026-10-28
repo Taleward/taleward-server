@@ -1,0 +1,29 @@
+{% extends "basis.html" %}
+{% block titel %}{{ _("Bedingungen und Widerruf") }}{% endblock %}
+{% block inhalt %}
+<h1>{{ _("Bedingungen und Widerruf") }}</h1>
+<p class="leise"><a href="/verwaltung/abrechnung">{{ _("Zurück zur Abrechnung") }}</a></p>
+<div class="schmal">
+<div class="meldung">{{ _("Das sind Vorlagen, keine Rechtsberatung. Sie sind aus deinen Angaben und den Einstellungen der Abrechnung befüllt. Bitte lesen, Stellen in [eckigen Klammern] ausfüllen und im Zweifel von jemandem mit rechtlichem Blick prüfen lassen. Deutsch und Englisch werden zusammen veröffentlicht.") }}</div>
+<p class="hilfe">{{ _("Spielleitungen sehen beide Texte beim Aufladen und bestätigen dort, dass das Guthaben sofort nutzbar sein soll. Mit echtem Geld lässt sich erst aufladen, wenn beide veröffentlicht sind. Ändert sich ein Text, gilt er mit neuem Stand-Datum für alle späteren Aufladungen.") }}</p>
+{% if fehler and not fehler_art %}<p class="meldung meldung--fehler" role="alert">{{ fehler }}</p>{% endif %}
+{% for art, titel in [("bedingungen", _("Bedingungen für Guthaben")), ("widerruf", _("Widerrufsbelehrung"))] %}
+<div class="karte" id="{{ art }}">
+  <h2>{{ titel }}</h2>
+  <p class="hilfe">{% if veroeffentlicht[art] %}{{ _("Veröffentlicht") }} ({{ stand[art] }}) · <a href="{{ pfade[art] }}" target="_blank" rel="noopener">{{ _("Ansehen") }}</a>{% else %}{{ _("Noch nicht veröffentlicht. Unten steht die Vorlage.") }}{% endif %}</p>
+  {% if art == "widerruf" %}<p class="hilfe">{{ _("Die Widerrufsbelehrung folgt dem gesetzlichen Muster und siezt deshalb. Am Muster selbst besser nichts umschreiben.") }}</p>{% endif %}
+  {% if fehler and fehler_art == art %}<p class="meldung meldung--fehler" role="alert">{{ fehler }}</p>{% endif %}
+  <form class="formular formular--breit" method="post" action="/verwaltung/abrechnung/rechtstexte">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="art" value="{{ art }}">
+    <label>{{ _("Deutsch") }} <textarea name="text_de" rows="18" lang="de">{{ texte[(art, "de")] }}</textarea></label>
+    <label>{{ _("Englisch") }} <textarea name="text_en" rows="18" lang="en">{{ texte[(art, "en")] }}</textarea>
+      <span class="hilfe">{{ _("Überschriften mit „## “, Aufzählungen mit „- “, Absätze durch Leerzeilen.") }}</span></label>
+    <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit" name="aktion" value="veroeffentlichen">{{ _("Veröffentlichen") }}</button>
+      <a class="tw-btn tw-btn--quiet" href="/verwaltung/abrechnung/rechtstexte?vorlage={{ art }}#{{ art }}">{{ _("Vorlage neu laden") }}</a>
+      {% if veroeffentlicht[art] %}<button class="tw-btn tw-btn--quiet" type="submit" name="aktion" value="zurueckziehen" formnovalidate>{{ _("Zurückziehen") }}</button>{% endif %}</div>
+  </form>
+</div>
+{% endfor %}
+<p class="hilfe">{{ _("Den Abschnitt „Guthaben und Zahlungen“ für den Datenschutzhinweis enthält die Vorlage des Datenschutzhinweises, solange die Abrechnung eingeschaltet ist.") }} <a href="/verwaltung/assistent/datenschutz">{{ _("Datenschutzhinweis") }}</a></p>
+</div>
+{% endblock %}

@@ -147,18 +147,28 @@ def heute(db: Session, user_id: str) -> tuple[int, int]:
     return int(anzahl or 0), int(summe or 0)
 
 
-def starten(db: Session, g: Guthaben, user_id: str, anbieter: str, netto: int, sprache: str = "de") -> str:
+def starten(db: Session, g: Guthaben, user_id: str, anbieter: str, netto: int, sprache: str = "de", *,
+            zugestimmt: bool = False) -> str:
     """Bezahlvorgang anlegen und die Adresse der Bezahlseite des Anbieters zurückgeben. ValueError bei unzulässigem
-    Betrag oder Zahlweg bzw. über der Tagesgrenze, ZahlungFehler, wenn der Anbieter nicht will."""
+    Betrag oder Zahlweg, ohne Zustimmung zum sofortigen Beginn, ohne veröffentlichte Bedingungen (nur bei echtem Geld)
+    bzw. über der Tagesgrenze, ZahlungFehler, wenn der Anbieter nicht will."""
+    from app import rechtstexte
+
     if anbieter not in bereit(db) or netto not in betraege(db):
         raise ValueError("eingabe")
+    if not zugestimmt:  # 0.4.138: Häkchen „sofort nutzbar“ (Widerruf) ist Pflicht
+        raise ValueError("zustimmung")
+    fassung = rechtstexte.fassung(db)
+    if fassung is None and live(db):  # echtes Geld nur mit veröffentlichten Bedingungen und Widerrufsbelehrung
+        raise ValueError("bedingungen")
     if g.gesperrt_at is not None:
         raise ValueError("gesperrt")
     anzahl, summe = heute(db, user_id)
     if anzahl >= JE_TAG_VORGAENGE or summe + netto > JE_TAG_CENT:
         raise ValueError("grenze")
     v = Bezahlvorgang(guthaben_id=g.id, von=user_id, anbieter=anbieter, netto_cent=netto,
-                      brutto_cent=brutto(db, anbieter, netto), zustand="offen")
+                      brutto_cent=brutto(db, anbieter, netto), zustand="offen", zustimmung_at=utcnow(),
+                      zustimmung_fassung=fassung or "unveroeffentlicht (Testmodus)")
     db.add(v)
     db.flush()
     zurueck = basis(db)

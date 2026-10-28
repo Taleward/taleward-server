@@ -126,6 +126,9 @@ def vorlage(db: Session, hosting: str = "") -> str:
     empfaenger.append("- Innerhalb einer Kampagne sehen die Mitglieder, was die Spielleitung freigibt. Abschriften, "
                       "Vorschläge und geheime Notizen sieht nur die Spielleitung.")
     t.append("\n".join(empfaenger))
+    from app import rechtstexte
+
+    t += rechtstexte.datenschutz_abschnitt(db)  # 0.4.138: nur bei eingeschalteter Abrechnung
     t += ["## Deine Rechte",
           "Du hast das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, "
           "Datenübertragbarkeit und Widerspruch sowie auf Widerruf erteilter Einwilligungen. In der App kannst du "

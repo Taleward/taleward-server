@@ -461,6 +461,30 @@ def impressum_oeffentlich(request: Request, db: Session = Depends(get_db)):
                   text=_("Für diesen Server ist hier kein Impressum veröffentlicht. Frag bitte die Person, die den Server betreibt oder dich eingeladen hat."))
 
 
+# -- Bedingungen für Guthaben und Widerrufsbelehrung (0.4.138), bearbeitet unter Verwaltung → Abrechnung
+def _rechtstext(request: Request, db: Session, art: str, titel: str) -> HTMLResponse:
+    from app import rechtstexte
+    from app.datenschutz import html
+
+    sprache = sprache_von(request)
+    _ = tr(request)
+    if not rechtstexte.veroeffentlicht(db, art):
+        return _seite(request, "hinweis_seite.html", None, db, status_code=404, titel=titel,
+                      text=_("Für diesen Server ist hier noch nichts veröffentlicht. Frag bitte die Person, die den Server betreibt."))
+    inhalt = rechtstexte.text(db, art, sprache) + "\n\n" + rechtstexte.stand_anzeige(rechtstexte.stand(db, art), sprache)
+    return _seite(request, "datenschutz.html", None, db, inhalt=html(inhalt), titel_seite=titel)
+
+
+@oeffentlich.get("/guthaben-bedingungen", response_class=HTMLResponse)
+def guthaben_bedingungen(request: Request, db: Session = Depends(get_db)):
+    return _rechtstext(request, db, "bedingungen", tr(request)("Bedingungen für Guthaben"))
+
+
+@oeffentlich.get("/widerruf", response_class=HTMLResponse)
+def widerruf(request: Request, db: Session = Depends(get_db)):
+    return _rechtstext(request, db, "widerruf", tr(request)("Widerrufsbelehrung"))
+
+
 # -- Nutzungsbedingungen (0.4.22): jeder Server hat welche – Vorlage dieses Servers, eigener Text oder eigener Link
 def _nb_schritt(request: Request, user: User, db: Session, **ctx):
     from app import nutzungsbedingungen

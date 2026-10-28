@@ -120,12 +120,12 @@ def _seite_abrechnung(request: Request, user: User, db: Session, status: int = 2
                    for a in abrechnung.KOSTENPFLICHTIG}
     daten = {"bestaetigen": None, "codes": None, "cloud_ohne_schaetzung": ", ".join(ohne), "automatisch": automatisch,
              **ctx}
-    from app import zahlung
+    from app import rechtstexte, zahlung
     from app.einstellungen import meta_lesen
 
     geb = zahlung.gebuehren(db)
     daten.update(
-        zahlwege=zahlung.bereit(db), zahl_basis=zahlung.basis(db),
+        zahlwege=zahlung.bereit(db), zahl_basis=zahlung.basis(db), rechtstexte_an=rechtstexte.veroeffentlicht(db),
         betraege_text=", ".join(_euro_kurz(b) for b in zahlung.betraege(db)),
         zahl_gesetzt={n: bool(meta_lesen(db, f"zahlung.{n}")) for n in ("stripe_schluessel", "stripe_webhook",
                                                                        "paypal_geheim")},
@@ -339,3 +339,61 @@ def entsperren(request: Request, guthaben_id: str, user: User = Depends(verwalte
     zahlung.entsperren(db, g, user.id)
     db.commit()
     return _zurueck("/abrechnung", "gespeichert")
+
+
+# ---------------------------------------------------------------- Bedingungen und Widerruf (0.4.138)
+def _rechtstexte_seite(request: Request, user: User, db: Session, status: int = 200, entwurf: dict | None = None,
+                       vorlage: str = "", **ctx) -> HTMLResponse:
+    from app import rechtstexte
+
+    texte = {}
+    for art in rechtstexte.ARTEN:
+        for s in rechtstexte.SPRACHEN:
+            if entwurf and art in entwurf:
+                texte[(art, s)] = entwurf[art][s]
+            elif vorlage == art:
+                texte[(art, s)] = rechtstexte.vorlage(db, art, s)
+            else:
+                texte[(art, s)] = rechtstexte.text_oder_vorlage(db, art, s)
+    stand = {a: rechtstexte.stand_anzeige(rechtstexte.stand(db, a), "de") for a in rechtstexte.ARTEN}
+    antwort = _seite(request, "rechtstexte.html", user, db, texte=texte, stand=stand,
+                     veroeffentlicht={a: rechtstexte.veroeffentlicht(db, a) for a in rechtstexte.ARTEN},
+                     pfade=rechtstexte.PFADE, an=abrechnung.an(db), **ctx)
+    antwort.status_code = status
+    return antwort
+
+
+@router.get("/abrechnung/rechtstexte", response_class=HTMLResponse)
+def rechtstexte_seite(request: Request, vorlage: str = "", user: User = Depends(verwalter),
+                      db: Session = Depends(get_db)):
+    return _rechtstexte_seite(request, user, db, vorlage=vorlage)
+
+
+@router.post("/abrechnung/rechtstexte", dependencies=[Depends(csrf_pruefen)])
+def rechtstexte_speichern(request: Request, art: str = Form(""), aktion: str = Form(""), text_de: str = Form(""),
+                          text_en: str = Form(""), user: User = Depends(verwalter), db: Session = Depends(get_db)):
+    from app import rechtstexte
+
+    _ = tr(request)
+    if art not in rechtstexte.ARTEN:
+        return _rechtstexte_seite(request, user, db, 400, fehler=_("Bitte einen der beiden Texte wählen."))
+    if aktion == "zurueckziehen":
+        rechtstexte.zurueckziehen(db, art)
+        abrechnung.protokoll(db, user.id, "rechtstext_zurueck", None, art=art)
+        db.commit()
+        return _zurueck(f"/abrechnung/rechtstexte#{art}", "gespeichert")
+    entwurf = {art: {"de": text_de, "en": text_en}}
+    for s, inhalt in (("de", text_de), ("en", text_en)):
+        sprache = _("Deutsch") if s == "de" else _("Englisch")
+        if len(inhalt.strip()) < rechtstexte.MIN_TEXT:
+            return _rechtstexte_seite(request, user, db, 400, entwurf=entwurf, fehler_art=art,
+                                      fehler=_("Der Text auf {sprache} fehlt oder ist zu kurz.", sprache=sprache))
+        offen = rechtstexte.offene_stellen(inhalt)
+        if offen:
+            return _rechtstexte_seite(request, user, db, 400, entwurf=entwurf, fehler_art=art, fehler=_(
+                "Im Text auf {sprache} sind noch {n} Stellen in eckigen Klammern offen. Bitte ausfüllen oder entfernen.",
+                sprache=sprache, n=offen))
+    if rechtstexte.speichern(db, art, text_de, text_en):
+        abrechnung.protokoll(db, user.id, "rechtstext", None, art=art, stand=rechtstexte.stand(db, art))
+    db.commit()
+    return _zurueck(f"/abrechnung/rechtstexte#{art}", "gespeichert")

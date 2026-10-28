@@ -887,3 +887,6 @@ class Bezahlvorgang(Base):
     buchung_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     abgeschlossen: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # 0.4.138: Häkchen „sofort nutzbar“ (Widerruf) – Zeitpunkt und Fassung der Bedingungen und der Widerrufsbelehrung
+    zustimmung_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    zustimmung_fassung: Mapped[str | None] = mapped_column(String(80), nullable=True)

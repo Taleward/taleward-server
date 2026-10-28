@@ -8,10 +8,12 @@
   <div class="karte">
     <form class="formular" method="post" action="{{ ziel or '/verwaltung/anmelden/code' }}">
       <label>{{ _("Code aus deiner Authenticator-App") }}
-        <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus maxlength="20"></label>
+        <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus maxlength="20"
+               data-code-kaesten="1" data-ziffer="{{ _('Ziffer {n} von 6') }}" data-gruppe="{{ _('Code mit sechs Ziffern') }}" data-umschalten="{{ _('Stattdessen einen Wiederherstellungscode eingeben') }}"></label>
       <p class="hilfe">{{ _("Handy nicht zur Hand? Gib einen deiner Wiederherstellungscodes ein. Jeder gilt nur einmal.") }}</p>
       <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Anmelden") }}</button></div>
     </form>
+    <script src="/verwaltung/static/code-kaesten.js" defer></script>
   </div>
   <p class="zentriert"><a href="{{ zurueck or '/verwaltung/anmelden' }}">{{ _("Zurück zur Anmeldung") }}</a></p>
 </div>

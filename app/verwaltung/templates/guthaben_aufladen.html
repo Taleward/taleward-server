@@ -16,11 +16,18 @@
   <p>{% if anbieter == "stripe" %}{{ _("Du wechselst zur Bezahlseite von Stripe. Dort zahlst du mit Karte, Apple Pay oder Google Pay.") }}{% else %}{{ _("Du wechselst zu PayPal.") }}{% endif %}
     {{ _("Deine Zahldaten sieht Taleward nicht. Danach kommst du hierher zurück.") }}</p>
   {% if testmodus %}<p class="hinweis">{{ _("Testmodus: Es fließt kein echtes Geld.") }}</p>{% endif %}
-  <form method="post" action="/guthaben/aufladen/weiter" class="knopfzeile">
+  {% if haken_fehler %}<p class="meldung meldung--fehler" role="alert">{{ haken_fehler }}</p>{% endif %}
+  <form method="post" action="/guthaben/aufladen/weiter" class="formular">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="guthaben_id" value="{{ guthaben_id }}">
     <input type="hidden" name="betrag" value="{{ netto }}"><input type="hidden" name="anbieter" value="{{ anbieter }}">
-    <button class="tw-btn tw-btn--primary" type="submit">{% if anbieter == "stripe" %}{{ _("Weiter zu Stripe") }}{% else %}{{ _("Weiter zu PayPal") }}{% endif %}</button>
-    <a class="tw-btn tw-btn--quiet" href="/guthaben">{{ _("Zurück") }}</a>
+    <label class="haken"><input type="checkbox" name="sofort" value="1" required{% if haken_fehler %} aria-invalid="true" autofocus{% endif %}>
+      <span>{{ _("Ich möchte, dass das Guthaben sofort nutzbar ist und Verarbeitungen schon vor Ablauf der Widerrufsfrist beginnen. Mir ist bekannt, dass ich bei einem Widerruf nur den noch nicht verbrauchten Teil zurückbekomme.") }}
+      {% if bedingungen %}{% set b %}<a href="/guthaben-bedingungen" target="_blank" rel="noopener">{{ _("Bedingungen für Guthaben") }}</a>{% endset %}{% set w %}<a href="/widerruf" target="_blank" rel="noopener">{{ _("Widerrufsbelehrung") }}</a>{% endset %}
+      {% if sprache == "en" %}The {{ b }} and the {{ w }} apply.{% else %}Es gelten die {{ b }} und die {{ w }}.{% endif %}{% endif %}</span></label>
+    <div class="knopfzeile">
+      <button class="tw-btn tw-btn--primary" type="submit">{% if anbieter == "stripe" %}{{ _("Weiter zu Stripe") }}{% else %}{{ _("Weiter zu PayPal") }}{% endif %}</button>
+      <a class="tw-btn tw-btn--quiet" href="/guthaben">{{ _("Zurück") }}</a>
+    </div>
   </form>
   <p class="hilfe">{{ _("Restguthaben erstattet der Betreiber auf Anfrage zurück auf dieselbe Zahlung. Gutscheine und Gutschriften werden nicht ausgezahlt.") }}</p>
 </section>

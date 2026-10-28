@@ -74,7 +74,7 @@ def _signiert(daten: dict, geheimnis=WEBHOOK, t=None) -> tuple[bytes, dict]:
     return roh, {"Stripe-Signature": f"t={t},v1={sig}", "Content-Type": "application/json"}
 
 
-def _aufladen(client, dbs, anbieter_name="stripe", betrag=1000):
+def _aufladen(client, dbs, anbieter_name="stripe", betrag=1000, sofort=True):
     from app import abrechnung
 
     csrf, seite = _sl_anmelden(client)
@@ -82,8 +82,10 @@ def _aufladen(client, dbs, anbieter_name="stripe", betrag=1000):
     r = client.post("/guthaben/aufladen", data={"csrf": csrf, "guthaben_id": gid, "betrag": str(betrag),
                                                 "anbieter": anbieter_name})
     assert r.status_code == 200, r.text
-    weiter = client.post("/guthaben/aufladen/weiter", data={"csrf": csrf, "guthaben_id": gid, "betrag": str(betrag),
-                                                            "anbieter": anbieter_name}, follow_redirects=False)
+    daten = {"csrf": csrf, "guthaben_id": gid, "betrag": str(betrag), "anbieter": anbieter_name}
+    if sofort:  # 0.4.138: Häkchen „sofort nutzbar“
+        daten["sofort"] = "1"
+    weiter = client.post("/guthaben/aufladen/weiter", data=daten, follow_redirects=False)
     return r, weiter, gid
 
 

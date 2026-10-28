@@ -69,6 +69,7 @@
     <li>{{ _("Stripe") }}: {% if "stripe" in zahlwege %}<span class="marke-status marke-status--gut">{{ _("bereit") }}</span>{% else %}<span class="marke-status">{{ _("nicht eingerichtet") }}</span>{% endif %}</li>
     <li>{{ _("PayPal") }}: {% if "paypal" in zahlwege %}<span class="marke-status marke-status--gut">{{ _("bereit") }}</span>{% else %}<span class="marke-status">{{ _("nicht eingerichtet") }}</span>{% endif %}</li>
   </ul>
+  <p>{{ _("Bedingungen für Guthaben und Widerrufsbelehrung:") }} {% if rechtstexte_an %}<span class="marke-status marke-status--gut">{{ _("veröffentlicht") }}</span>{% else %}<span class="marke-status">{{ _("noch nicht veröffentlicht – ohne sie gibt es kein Aufladen mit echtem Geld") }}</span>{% endif %} · <a href="/verwaltung/abrechnung/rechtstexte">{{ _("Bearbeiten") }}</a></p>
   {% if zahl_basis %}
   <p>{{ _("Adressen für die Meldungen der Anbieter (beim Anbieter als Webhook eintragen):") }}</p>
   <p class="kopierzeile"><span>Stripe</span> <code class="ganz">{{ zahl_basis }}/zahlung/stripe</code></p>

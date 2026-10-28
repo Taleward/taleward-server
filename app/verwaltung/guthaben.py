@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import abrechnung, begrenzung, errors, zahlung
+from app import abrechnung, begrenzung, errors, rechtstexte, zahlung
 from app.config import get_settings
 from app.db import get_db, server_id, utcnow
 from app.models import AuthMethod, Campaign, Guthaben, Job, Member, User
@@ -279,7 +279,7 @@ def _hauptseite(request: Request, db: Session, user: User, meldung: str | None =
                      kampagnen=_sl_kampagnen(db, user), euro=abrechnung.euro, topf=abrechnung.modus(db) == "topf",
                      meldung=meldung, fehler=fehler, zahlwege_an=zahlung.bereit(db), betraege=zahlung.betraege(db),
                      testmodus=not zahlung.live(db), gutschein_offen=gutschein_offen,
-                     mails_moeglich=_mails_moeglich(db))
+                     mails_moeglich=_mails_moeglich(db), bedingungen=rechtstexte.veroeffentlicht(db))
     antwort.status_code = status
     return antwort
 
@@ -368,6 +368,22 @@ def _zahl_oder_none(text: str) -> int | None:
         return None
 
 
+def _pruefen_seite(request: Request, db: Session, g, netto: int, anbieter: str, haken_fehler: str | None = None,
+                   status: int = 200) -> HTMLResponse:
+    """Bestätigungsseite: Betrag, Gebühr, Pflicht-Häkchen zum sofortigen Beginn (0.4.138), dann weiter zum Anbieter."""
+    from app import rechtstexte
+
+    antwort = _seite(request, "guthaben_aufladen.html", None, db, status_code=status, schritt="pruefen",
+                     guthaben_id=g.id, netto=netto, brutto=zahlung.brutto(db, anbieter, netto), anbieter=anbieter,
+                     euro=abrechnung.euro, testmodus=not zahlung.live(db), haken_fehler=haken_fehler,
+                     bedingungen=rechtstexte.veroeffentlicht(db))
+    from app.verwaltung.router import SICHERHEITS_KOPFZEILEN
+
+    antwort.headers["Content-Security-Policy"] = SICHERHEITS_KOPFZEILEN["Content-Security-Policy"].replace(
+        "form-action 'self'", f"form-action 'self' {FORM_ZIELE}")
+    return antwort
+
+
 @router.post("/aufladen", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
 def aufladen(request: Request, guthaben_id: str = Form(""), betrag: str = Form(""), anbieter: str = Form(""),
              user: User = Depends(_angemeldet), db: Session = Depends(get_db)):
@@ -376,19 +392,12 @@ def aufladen(request: Request, guthaben_id: str = Form(""), betrag: str = Form("
     netto = _zahl_oder_none(betrag)
     if anbieter not in zahlung.bereit(db) or netto not in zahlung.betraege(db) or g.gesperrt_at is not None:
         return _fehler(request, db, user, tr(request)("Bitte einen Betrag und eine Zahlweise wählen."))
-    antwort = _seite(request, "guthaben_aufladen.html", None, db, schritt="pruefen", guthaben_id=g.id, netto=netto,
-                     brutto=zahlung.brutto(db, anbieter, netto), anbieter=anbieter, euro=abrechnung.euro,
-                     testmodus=not zahlung.live(db))
-    from app.verwaltung.router import SICHERHEITS_KOPFZEILEN
-
-    antwort.headers["Content-Security-Policy"] = SICHERHEITS_KOPFZEILEN["Content-Security-Policy"].replace(
-        "form-action 'self'", f"form-action 'self' {FORM_ZIELE}")
-    return antwort
+    return _pruefen_seite(request, db, g, netto, anbieter)
 
 
 @router.post("/aufladen/weiter", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
 def aufladen_weiter(request: Request, guthaben_id: str = Form(""), betrag: str = Form(""), anbieter: str = Form(""),
-                    user: User = Depends(_angemeldet), db: Session = Depends(get_db)):
+                    sofort: str = Form(""), user: User = Depends(_angemeldet), db: Session = Depends(get_db)):
     """Schritt 2: Vorgang anlegen und zum Anbieter weiterleiten."""
     from app.verwaltung.router import sprache_von
 
@@ -396,12 +405,17 @@ def aufladen_weiter(request: Request, guthaben_id: str = Form(""), betrag: str =
     netto = _zahl_oder_none(betrag)
     _ = tr(request)
     try:
-        url = zahlung.starten(db, g, user.id, anbieter, netto if netto is not None else -1, sprache_von(request))
+        url = zahlung.starten(db, g, user.id, anbieter, netto if netto is not None else -1, sprache_von(request),
+                              zugestimmt=sofort == "1")
     except ValueError as e:
         db.rollback()
+        if str(e) == "zustimmung":
+            return _pruefen_seite(request, db, g, netto, anbieter, status=400, haken_fehler=_(
+                "Bitte bestätige zuerst, dass das Guthaben sofort nutzbar sein soll."))
         text = {"grenze": _("Für heute sind genug Aufladungen begonnen. Bitte morgen noch einmal."),
-                "gesperrt": _("Dieses Guthaben ist gerade gesperrt.")}.get(str(e),
-                                                                           _("Bitte einen Betrag und eine Zahlweise wählen."))
+                "gesperrt": _("Dieses Guthaben ist gerade gesperrt."),
+                "bedingungen": _("Aufladen geht hier erst, wenn der Betreiber die Bedingungen für Guthaben und die Widerrufsbelehrung veröffentlicht hat.")}.get(  # noqa: E501
+            str(e), _("Bitte einen Betrag und eine Zahlweise wählen."))
         return _fehler(request, db, user, text)
     except zahlung.ZahlungFehler:
         text = _("Der Zahlungsanbieter ist gerade nicht erreichbar. Es wurde nichts abgebucht. Bitte später noch einmal.")

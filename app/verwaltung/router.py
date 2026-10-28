@@ -422,9 +422,15 @@ def _faktor_seite(request: Request, user: User, db: Session, fehler: str | None 
 
 
 def _faktor_einrichten(request: Request, user: User, db: Session, geheim: str, fehler: str | None = None):
+    from urllib.parse import urlsplit
+
+    from app.einstellungen import oeffentliche_adresse
     from app.verwaltung import zweiter_faktor
 
-    adresse = zweiter_faktor.uri(geheim, user.username, angaben(db).server_name or "Taleward")
+    # 0.4.138: Adresse im Namen des Eintrags – zwei Server mit gleichem Namen überschreiben sich in der App nicht
+    host = urlsplit(oeffentliche_adresse(db, request)).hostname or ""
+    name = angaben(db).server_name or "Taleward"
+    adresse = zweiter_faktor.uri(geheim, user.username, f"{name} ({host})" if host else name)
     return _faktor_seite(request, user, db, fehler=fehler,
                          neu={"geheim": " ".join(geheim[i:i + 4] for i in range(0, len(geheim), 4)),
                               "qr": qr_bild(adresse)})
@@ -1809,7 +1815,8 @@ def passwort_seite_setzen(token: str, request: Request, password: str = Form("")
 @seiten.get("/verwaltung/sprache/{code}")
 def sprache_waehlen(code: str, weiter: str = "/verwaltung/"):
     """Sprache der Weboberfläche wählen (Cookie für ein Jahr). Nur Rücksprung auf eigene Seiten."""
-    if not weiter.startswith(("/verwaltung", "/einladung", "/konto-loeschen", "/datenschutz")) or "//" in weiter \
+    if not weiter.startswith(("/verwaltung", "/einladung", "/konto-loeschen", "/datenschutz", "/impressum",
+                              "/nutzungsbedingungen", "/guthaben", "/widerruf")) or "//" in weiter \
             or "\\" in weiter:
         weiter = "/verwaltung/"
     antwort = RedirectResponse(weiter, status_code=303)
@@ -1890,7 +1897,7 @@ def einbinden(app: FastAPI) -> None:
             antwort.headers.setdefault("Cache-Control", "public, max-age=86400")  # Stil und Logo dürfen zwischengespeichert werden
             antwort.headers.setdefault("X-Content-Type-Options", "nosniff")
         elif pfad.startswith(("/verwaltung", "/einladung", "/datenschutz", "/passwort", "/konto/", "/konto-loeschen",
-                              "/auth/oidc/", "/guthaben")):  # auch die Bestätigungsseite der Anmeldung mit Diensten
+                              "/auth/oidc/", "/guthaben", "/widerruf")):  # auch die Bestätigungsseite der Anmeldung mit Diensten
             kopf = SICHERHEITS_KOPFZEILEN
             if pfad.startswith("/verwaltung"):  # Verwaltung im Rahmen von Taleward Desktop
                 kopf = einbettbar(kopf, get_settings().einzelplatz_huelle)
