@@ -70,6 +70,7 @@ def _icon(name: str):
 
 
 templates.env.globals["icon"] = _icon
+templates.env.globals["testinstanz"] = lambda: get_settings().taleward_testinstanz  # 0.4.137
 templates.env.filters["datenschutz_link"] = links_modul.datenschutz_link
 templates.env.filters["rein"] = zeichen_bereinigen  # 0.4.130: Namen ohne Steuer- und Richtungszeichen
 BERLIN = ZoneInfo("Europe/Berlin")

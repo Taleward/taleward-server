@@ -88,8 +88,32 @@ services:
       # Optional: statische Website neben dem Server (WEBSITE_ORDNER in der .env, website-zugang.sh); sonst leer
       - ${WEBSITE_ORDNER:-./website}:/srv/website:ro
       - ./website-caddy:/etc/caddy/website:ro
+      # Optional: Testinstanz (test-instanz.sh legt die Regel an); sonst leer
+      - ./test-caddy:/etc/caddy/test:ro
       - caddy-daten:/data
       - caddy-config:/config
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  # ---------------------------------------------------------------- Testinstanz (optional)
+  # Nur aktiv mit Profil „test“ (sudo bash test-instanz.sh an <adresse>): dasselbe Programm wie der Server, eigene
+  # Daten in ./test-daten, eigene Adresse. Zahlungen dort immer nur im Testmodus der Anbieter (TALEWARD_TESTINSTANZ).
+  testserver:
+    profiles: ["test"]
+    image: taleward-server:${TALEWARD_VERSION:-main}   # gebaut vom Dienst „server“
+    depends_on:
+      - server
+    restart: unless-stopped
+    environment:
+      DATA_DIR: /data
+      PUBLIC_URL: https://${TALEWARD_TEST_DOMAIN:-test.invalid}
+      TALEWARD_TESTINSTANZ: "1"
+      FORWARDED_ALLOW_IPS: "*"
+    volumes:
+      - ./test-daten:/data
+    expose:
+      - "8000"
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }

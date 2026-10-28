@@ -35,3 +35,6 @@
 # Optional: eine statische Website neben dem Server über denselben Caddy (siehe docs/BETRIEB.md, „Website mitliefern“).
 # Die Regeln dazu legt website-neu-laden.sh nach Prüfung hier ab; ohne Dateien passiert nichts.
 import /etc/caddy/website/*.caddy
+
+# Optional: Testinstanz neben dem Server (test-instanz.sh legt die Regel an; ohne Datei passiert nichts).
+import /etc/caddy/test/*.caddy

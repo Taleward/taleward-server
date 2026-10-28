@@ -186,6 +186,6 @@ def test_e_hochladen_nur_mit_unschaedlichen_verknuepfungen():
     z = (DEPLOY / "website-zugang.sh").read_text(encoding="utf-8")
     assert '"rsync --server "*) exec /usr/bin/rrsync -wo -munge $ORDNER ;;' in z  # rrsync 3.2.7: -munge
     assert 'setzen WEBSITE_DOMAINS "$DOMAINS"' in z and "website_regeln.py\" adressen" in z
-    for datei, zeile in ((WURZEL / "install.sh", "website_regeln.py; do"),
-                         (DEPLOY / "aktualisieren.sh", "website_regeln.py:website_regeln.py; do")):
+    for datei, zeile in ((WURZEL / "install.sh", "website_regeln.py test-instanz.sh; do"),
+                         (DEPLOY / "aktualisieren.sh", "website_regeln.py:website_regeln.py test-instanz.sh:test-instanz.sh; do")):  # noqa: E501
         assert zeile in datei.read_text(encoding="utf-8")

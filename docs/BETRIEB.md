@@ -265,6 +265,20 @@ Wer neben dem Server eine statische Website betreibt, kann sie über denselben C
 Nach jedem erfolgreichen Update räumt der Server ungenutzte Docker-Bilder auf, die älter als eine Woche sind (ohne
 eingebauten Worker auch alte Bau-Zwischenstände) – wichtig bei kleinen Platten.
 
+## Testinstanz (optional)
+
+Zum Ausprobieren, etwa des Aufladens mit Test-Zugängen der Zahlungsanbieter, kann neben dem Server eine zweite Instanz
+auf demselben VPS laufen: eigene Adresse, eigene Daten (`/opt/taleward/test-daten`), dasselbe Programm. Zahlungen
+laufen dort immer im Testmodus, auch wenn jemand Live-Schlüssel einträgt.
+
+1. Beim Domain-Anbieter eine Adresse für die Testinstanz auf den Server zeigen lassen (A und ggf. AAAA, z. B. `test`).
+2. Auf dem Server: `sudo bash /opt/taleward/test-instanz.sh an test.example.org`
+3. Einrichtungscode anzeigen: `sudo bash /opt/taleward/test-instanz.sh code`, dann
+   `https://test.example.org/verwaltung/einrichtung` öffnen. Oben in der Verwaltung steht „Testinstanz“.
+
+Ausschalten mit `sudo bash /opt/taleward/test-instanz.sh aus` (die Daten bleiben liegen). Die Testinstanz läuft mit
+derselben Fassung wie der Server und wird mit ihm aktualisiert; ihre eigene Seite „Updates“ ist dort ohne Wirkung.
+
 ## Updates für App und Worker
 
 Der Server fragt einmal am Tag bei GitHub nach neuen Fassungen (**Updates**):

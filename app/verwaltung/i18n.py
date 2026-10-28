@@ -1346,6 +1346,7 @@ EN: dict[str, str] = {
     "Mitglieder mit bestätigter Adresse bekommen einen Hinweis, wenn sich jemand an ihrem Konto anmeldet oder es ändert": "Members with a confirmed address get a notice when someone signs in to their account or changes it",
     "Ohne IP-Adresse und ohne Link. Höchstens eine Anmelde-Mail je Konto in 15 Minuten.": "No IP address and no link. At most one sign-in e-mail per account in 15 minutes.",
     "Guthaben je Spielleitung – jede SL zahlt ihre Kampagnen selbst": "Credit per game master – each GM pays for their own campaigns",
+    "Testinstanz": "Test instance",
 }
 
 WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}

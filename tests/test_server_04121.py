@@ -33,7 +33,7 @@ def test_zugang_nur_hochladen_und_neu_laden():
 
 def test_installation_und_update_bringen_die_skripte_mit():
     install = (WURZEL / "install.sh").read_text(encoding="utf-8")
-    assert "for datei in website-zugang.sh website-neu-laden.sh website_regeln.py; do" in install
+    assert "for datei in website-zugang.sh website-neu-laden.sh website_regeln.py test-instanz.sh; do" in install
     akt = (DEPLOY / "aktualisieren.sh").read_text(encoding="utf-8")
     assert "website-zugang.sh:website-zugang.sh website-neu-laden.sh:website-neu-laden.sh" in akt
     assert 'docker image prune -af --filter "until=168h"' in akt

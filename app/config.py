@@ -65,6 +65,8 @@ class Settings(BaseSettings):
     # frischen Schlüssel für ihn an und schreibt ihn in diese Datei (gemeinsames Volume, nur Server und Worker).
     eingebauter_worker: str = ""  # Inhalt von COMPOSE_PROFILES; leer = kein eingebauter Worker
     eingebauter_worker_datei: Path = Path("/kopplung/worker-token")
+    # 0.4.137: Testinstanz neben dem Server (deploy/test-instanz.sh) – Zahlungen dort nie mit echtem Geld
+    taleward_testinstanz: bool = False
     # Taleward-Box (Raspberry Pi, ohne Bildschirm): Ersteinrichtung ohne Code, aber nur aus dem eigenen Netz und nur,
     # solange es noch keinen Verwalter gibt
     einrichtung_im_heimnetz: bool = False

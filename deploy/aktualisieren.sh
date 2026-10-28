@@ -216,12 +216,12 @@ if grundbild_bauen && docker compose build >>"$BAULOG" 2>&1 \
   [ "$(sed -n 's/^TALEWARD_MODUS=//p' .env)" = "heimnetz" ] && compose=docker-compose.heimnetz.yml
   for paar in aktualisieren.sh:aktualisieren.sh "$compose":docker-compose.yml Caddyfile:Caddyfile \
               website-zugang.sh:website-zugang.sh website-neu-laden.sh:website-neu-laden.sh \
-              website_regeln.py:website_regeln.py; do
+              website_regeln.py:website_regeln.py test-instanz.sh:test-instanz.sh; do
     quelle=${paar%%:*}; datei=${paar##*:}
     if curl -fsL "$QUELLE/$quelle" -o "$datei.neu"; then mv "$datei.neu" "$datei"; else rm -f "$datei.neu"; fi
   done
-  chmod 755 aktualisieren.sh website-zugang.sh website-neu-laden.sh 2>/dev/null || true
-  mkdir -p website-caddy
+  chmod 755 aktualisieren.sh website-zugang.sh website-neu-laden.sh test-instanz.sh 2>/dev/null || true
+  mkdir -p website-caddy test-caddy
   # Neu eingerichtete Website: die geprüfte Kopie des Neuladers mitziehen (website-zugang.sh legt sie an)
   if [ -f /usr/local/sbin/taleward-website-neu-laden ] && [ -f website-neu-laden.sh ]; then
     install -m 755 -o root -g root website-neu-laden.sh /usr/local/sbin/taleward-website-neu-laden || true

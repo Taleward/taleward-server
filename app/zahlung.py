@@ -92,6 +92,10 @@ def betraege(db: Session) -> list[int]:
 
 
 def live(db: Session) -> bool:
+    from app.config import get_settings
+
+    if get_settings().taleward_testinstanz:  # 0.4.137: Testinstanz nie mit echtem Geld
+        return False
     return meta_lesen(db, "zahlung.live") == "1"
 
 
