@@ -14,7 +14,8 @@ pytestmark = pytest.mark.usefixtures("_kleine_teile")
 ADRESSE = "https://chronik.example.org"
 RLO = chr(0x202E)  # Richtungszeichen
 WERTE = dict(name="Anna", benutzer="anna", link=ADRESSE + "/pfad/abc", datum="01.10.2026 12:00 UTC",
-             guthaben="dein Guthaben", guthaben_gross="Dein Guthaben", wo="")
+             guthaben="dein Guthaben", guthaben_gross="Dein Guthaben", wo="", wann="28.10.2026, 09:00 UTC",
+             wie="mit Passwort in der App")
 
 
 # ---------------------------------------------------------------- Vorlage

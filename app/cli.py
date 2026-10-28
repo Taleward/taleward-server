@@ -127,7 +127,7 @@ def passwort_neu(username: str = typer.Option(..., "--username", "-u")):
         raise typer.Exit(2)
     from app import passwortlink
 
-    passwortlink.passwort_setzen(db, user, pw)
+    passwortlink.passwort_setzen(db, user, pw, ort="server")
     db.commit()
     typer.echo("Passwort geändert.")
 

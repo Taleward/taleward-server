@@ -692,7 +692,7 @@ EN: dict[str, str] = {
     "Aufladen mit Bezahlung kommt später. Bis dahin: Gutschein einlösen oder beim Betreiber melden.": "Topping up with a payment comes later. Until then: redeem a voucher or contact the operator.",
     "Aufschlag in Prozent (auf alle Kosten)": "Surcharge in percent (on all costs)",
     "Aufträge über diesem Betrag warten auf „Verarbeiten“ (Euro)": "Jobs above this amount wait for “Process” (euros)",
-    "Aus – alles wie bisher, nichts wird abgerechnet": "Off – everything as before, nothing is billed",
+    "Aus – Verarbeitung kostet die Spielleitungen nichts": "Off – processing costs game masters nothing",
     "Bestätigt. Der Auftrag startet, sobald er an der Reihe ist.": "Confirmed. The job starts as soon as it is its turn.",
     "Betrag": "Amount",
     "Betrag (Euro)": "Amount (euros)",
@@ -782,7 +782,7 @@ EN: dict[str, str] = {
     "Schalter": "Switch",
     "So weit darf ein Auftrag laut Schätzung ins Minus führen (Euro)": "How far a job may go into the red according to the estimate (euros)",
     "Stornieren": "Reverse",
-    "Topf der Organisation (zahlt für ihre Kampagnen)": "Organisation pot (pays for its campaigns)",
+    "Gemeinsames Guthaben – die Organisation zahlt für ihre Kampagnen": "Shared credit – the organisation pays for its campaigns",
     "Verarbeiten": "Process",
     "Verarbeitung": "Processing",
     "Wartende Aufträge": "Waiting jobs",
@@ -1343,6 +1343,9 @@ EN: dict[str, str] = {
     "Wieder bestellen": "Turn back on",
     "Abbestellen": "Turn off",
     "Trag in der App unter Konto eine E-Mail-Adresse ein und bestätige sie. Dann sagt dir der Server Bescheid, wenn eine Verarbeitung auf Guthaben wartet oder das Guthaben knapp wird.": "Enter an e-mail address in the app under Account and confirm it. The server will then let you know when something is waiting for credit or your credit is running low.",
+    "Mitglieder mit bestätigter Adresse bekommen einen Hinweis, wenn sich jemand an ihrem Konto anmeldet oder es ändert": "Members with a confirmed address get a notice when someone signs in to their account or changes it",
+    "Ohne IP-Adresse und ohne Link. Höchstens eine Anmelde-Mail je Konto in 15 Minuten.": "No IP address and no link. At most one sign-in e-mail per account in 15 minutes.",
+    "Guthaben je Spielleitung – jede SL zahlt ihre Kampagnen selbst": "Credit per game master – each GM pays for their own campaigns",
 }
 
 WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}

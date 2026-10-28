@@ -98,6 +98,14 @@ def world(client, make_user, login):
 
 
 @pytest.fixture(autouse=True)
+def _keine_konto_hinweise(monkeypatch):
+    """Hinweis-Mails bei Änderungen am Konto (0.4.136) laufen im eigenen Faden – in Tests nur, wo ein Test es will."""
+    from app import konto_mail
+
+    monkeypatch.setattr(konto_mail, "_starten", lambda posten: None)
+
+
+@pytest.fixture(autouse=True)
 def _freigabe_testschluessel(monkeypatch):
     """Freigaben in Tests mit einem eigenen Schlüssel (tests/freigabe_hilfe.py) statt dem echten."""
     from app import freigabe

@@ -2,6 +2,7 @@
 
 - Abrechnung aus oder Anbieter nicht eingerichtet → 404.
 - Signatur falsch oder fehlt → 400 ohne Einzelheiten, nichts gebucht.
+- PayPal: höchstens 60 Meldungen je Minute (sonst 429, ohne Anfrage bei PayPal).
 - Sonst 200, auch für Ereignisse, die nichts bewirken (sonst wiederholt der Anbieter sie tagelang).
 """
 from __future__ import annotations
@@ -17,6 +18,8 @@ from app.einstellungen import meta_lesen
 
 router = APIRouter(prefix="/zahlung", include_in_schema=False)
 HOECHSTENS_BYTES = 256 * 1024
+# 0.4.136 (S54): Jede Meldung an /zahlung/paypal kostet zwei Anfragen bei PayPal – serverweit begrenzt
+PAYPAL_JE_MINUTE = 60
 
 
 async def _roh(request: Request) -> bytes | None:
@@ -45,6 +48,10 @@ async def stripe(request: Request, db: Session = Depends(get_db)):
 async def paypal(request: Request, db: Session = Depends(get_db)):
     if "paypal" not in zahlung.bereit(db):
         return Response(status_code=404)
+    from app.begrenzung import ZAEHLER
+
+    if not ZAEHLER.versuch("zahlung-paypal", PAYPAL_JE_MINUTE, 60):
+        return Response(status_code=429)
     roh = await _roh(request)
     try:
         ereignis = json.loads(roh) if roh is not None else None

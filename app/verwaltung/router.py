@@ -314,6 +314,10 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
                 return antwort
             antwort = _zurueck("/einrichtung" if user.setup_account else "/")
             _sitzung_setzen(antwort, request, db, user)
+            from app import konto_mail
+
+            konto_mail.vormerken(db, user, "anmeldung", ort="verwaltung")
+            db.commit()
             return antwort
     antwort = _seite(request, "anmelden.html", None, db, kein_verwalter=False, fehler=fehler, ersteinrichtung=False)
     antwort.status_code = 400
@@ -376,6 +380,9 @@ def code_pruefen(request: Request, code: str = Form(""), db: Session = Depends(g
         fehler = tr(request)("Zu viele Fehlversuche. Bitte in ein paar Minuten erneut versuchen.")
     elif zweiter_faktor.pruefen(db, user.id, code):
         ZAEHLER.freigeben(versuch)
+        from app import konto_mail
+
+        konto_mail.vormerken(db, user, "anmeldung", ort="verwaltung")
         db.commit()
         antwort = _zurueck("/")
         _sitzung_setzen(antwort, request, db, user)
@@ -650,7 +657,7 @@ def passwort_setzen(request: Request, user_id: str, password: str = Form(""), us
         return _konten_fehler(request, user, db, tr(request)("Dieses Passwort ist zu leicht zu erraten."))
     from app import passwortlink
 
-    passwortlink.passwort_setzen(db, ziel, password)
+    passwortlink.passwort_setzen(db, ziel, password, ort="verwaltung" if ziel.id == user.id else "durch_verwaltung")
     db.commit()
     if ziel.id == user.id:
         return RedirectResponse("/verwaltung/anmelden?ok=passwort", status_code=303)
@@ -1592,6 +1599,7 @@ def benachrichtigungen_speichern(request: Request, ntfy_url: str = Form(""), ntf
                                  smtp_pass: str = Form(""), email_von: str = Form(""), email_an: str = Form(""),
                                  sprache: str = Form("de"), stunden: str = Form("6"),
                                  zugang_loeschen: str = Form(""), aktion: str = Form(""),
+                                 konto_hinweise: str = Form(""), konto_hinweise_feld: str = Form(""),
                                  user: User = Depends(verwalter),
                                  db: Session = Depends(get_db)):
     """ntfy und/oder E-Mail für Meldungen an den Betreiber. Token und Passwort sind nur schreibbar."""
@@ -1624,6 +1632,8 @@ def benachrichtigungen_speichern(request: Request, ntfy_url: str = Form(""), ntf
              "email_an": email_an[:200], "sprache": sprache, "stunden": str(std)}
     for k, v in werte.items():
         meta_schreiben(db, f"melden.{k}", v)
+    if konto_hinweise_feld:  # 0.4.136: nur, wenn das Formular den Haken überhaupt zeigt
+        meta_schreiben(db, "melden.konto_hinweise", "1" if konto_hinweise else "0")
     if zugang_loeschen:
         meta_schreiben(db, "melden.ntfy_token", "")
         meta_schreiben(db, "melden.smtp_pass", "")

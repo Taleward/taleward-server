@@ -195,6 +195,77 @@ INHALTE = {
     },
 }
 
+# 0.4.136: Hinweise bei Änderungen am Konto (app/konto_mail.py). Kein Knopf und kein Link (nichts, was etwas auslöst
+# oder anmeldet); {wann} mit Uhrzeit, {wie} je Anlass (Anmeldeart und Ort, Dienst bzw. Weg der Änderung).
+KONTO_WARNUNG = {
+    "de": "Warst du das nicht? Ändere in der App unter Konto dein Passwort. Das meldet dich überall ab. Sag außerdem "
+          "der Verwaltung von {server} Bescheid.",
+    "en": "Wasn't you? Change your password in the app under Account. That signs you out everywhere. Also let the "
+          "administrators of {server} know.",
+}
+KONTO_HINWEIS = {
+    "de": "Diese Mail ist nur ein Hinweis und enthält keinen Link. Du bekommst sie, weil an deinem Konto diese "
+          "E-Mail-Adresse hinterlegt ist.",
+    "en": "This e-mail is only a notice and contains no link. You get it because this e-mail address is set for "
+          "your account.",
+}
+KONTO_HINWEIS_ALT = {
+    "de": "Diese Mail ist nur ein Hinweis und enthält keinen Link. Du bekommst sie, weil diese Adresse bisher an "
+          "deinem Konto hinterlegt war.",
+    "en": "This e-mail is only a notice and contains no link. You get it because this address was set for your "
+          "account until now.",
+}
+KONTO_ARTEN = {
+    # art: (Betreff de, Überschrift de, Absatz de, Betreff en, Überschrift en, Absatz en)
+    "konto_anmeldung": (
+        "Neue Anmeldung bei deinem Konto ({server})", "Neue Anmeldung bei deinem Konto.",
+        "Dein Konto „{benutzer}“ auf {server} wurde gerade angemeldet: {wann}, {wie}.",
+        "New sign-in to your account ({server})", "New sign-in to your account.",
+        "Your account “{benutzer}” on {server} was just signed in: {wann}, {wie}."),
+    "konto_passwort": (
+        "Dein Passwort wurde geändert ({server})", "Dein Passwort wurde geändert.",
+        "Das Passwort für dein Konto „{benutzer}“ auf {server} wurde neu gesetzt: {wann}, {wie}.",
+        "Your password was changed ({server})", "Your password was changed.",
+        "The password for your account “{benutzer}” on {server} was set anew: {wann}, {wie}."),
+    "konto_dienst_neu": (
+        "Neuer Anmeldedienst an deinem Konto ({server})", "Ein Anmeldedienst wurde verknüpft.",
+        "Dein Konto „{benutzer}“ auf {server} lässt sich jetzt auch über {wie} anmelden. Verknüpft: {wann}.",
+        "New sign-in service on your account ({server})", "A sign-in service was linked.",
+        "Your account “{benutzer}” on {server} can now also be signed in via {wie}. Linked: {wann}."),
+    "konto_dienst_weg": (
+        "Anmeldedienst von deinem Konto getrennt ({server})", "Ein Anmeldedienst wurde getrennt.",
+        "Dein Konto „{benutzer}“ auf {server} lässt sich nicht mehr über {wie} anmelden. Getrennt: {wann}.",
+        "Sign-in service removed from your account ({server})", "A sign-in service was removed.",
+        "Your account “{benutzer}” on {server} can no longer be signed in via {wie}. Removed: {wann}."),
+    "konto_email": (
+        "Die E-Mail-Adresse deines Kontos wurde geändert ({server})", "Die E-Mail-Adresse wurde geändert.",
+        "Für dein Konto „{benutzer}“ auf {server} ist seit {wann} eine andere oder keine E-Mail-Adresse mehr "
+        "eingetragen. An diese Adresse kommen keine Mails des Servers mehr.",
+        "The e-mail address of your account was changed ({server})", "The e-mail address was changed.",
+        "Since {wann}, your account “{benutzer}” on {server} has a different e-mail address or none at all. This "
+        "address gets no more e-mails from the server."),
+    "konto_faktor_an": (
+        "Zweiter Faktor eingeschaltet ({server})", "Der zweite Faktor ist eingeschaltet.",
+        "Für dein Verwaltungskonto „{benutzer}“ auf {server} ist seit {wann} der zweite Faktor an. Die "
+        "Wiederherstellungscodes sind neu.",
+        "Second factor turned on ({server})", "The second factor is turned on.",
+        "Since {wann}, the second factor is on for your administration account “{benutzer}” on {server}. The "
+        "recovery codes are new."),
+    "konto_faktor_aus": (
+        "Zweiter Faktor ausgeschaltet ({server})", "Der zweite Faktor ist ausgeschaltet.",
+        "Für dein Verwaltungskonto „{benutzer}“ auf {server} ist seit {wann} kein zweiter Faktor mehr an.",
+        "Second factor turned off ({server})", "The second factor is turned off.",
+        "Since {wann}, there is no second factor on your administration account “{benutzer}” on {server}."),
+}
+for _art, (_bd, _ud, _ad, _be, _ue, _ae) in KONTO_ARTEN.items():
+    _alt = KONTO_HINWEIS_ALT if _art == "konto_email" else KONTO_HINWEIS
+    INHALTE[_art] = {
+        "de": dict(betreff=_bd, ueberschrift=_ud, anrede="name", absaetze=[_ad, KONTO_WARNUNG["de"]], knopf=None,
+                   hinweis=_alt["de"]),
+        "en": dict(betreff=_be, ueberschrift=_ue, anrede="name", absaetze=[_ae, KONTO_WARNUNG["en"]], knopf=None,
+                   hinweis=_alt["en"]),
+    }
+
 FUSS = {
     "de": dict(anrede_name="Hallo {name},", anrede_ohne="Hallo,", betrieben="{server} · betrieben von {betreiber}",
                automatisch="Diese Mail wurde automatisch verschickt.", antwort="Antworten erreichen {kontakt}.",

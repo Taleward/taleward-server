@@ -51,8 +51,11 @@ def pruefen(db: Session, token: str) -> User | None:
     return db.get(User, uid)
 
 
-def passwort_setzen(db: Session, user: User, passwort: str) -> None:
-    """Neues Passwort und überall abmelden (App und Verwaltung). Ein offener Passwort-Link verfällt."""
+def passwort_setzen(db: Session, user: User, passwort: str, ort: str | None = None) -> None:
+    """Neues Passwort und überall abmelden (App und Verwaltung). Ein offener Passwort-Link verfällt. ort (0.4.136): Weg
+    für den Hinweis an das Konto (app, link, durch_verwaltung, server)."""
+    from app import konto_mail
+
     methode = db.scalar(select(AuthMethod).where(AuthMethod.user_id == user.id, AuthMethod.kind == "password"))
     if methode is None:
         db.add(AuthMethod(user_id=user.id, kind="password", secret=hash_password(passwort)))
@@ -62,12 +65,13 @@ def passwort_setzen(db: Session, user: User, passwort: str) -> None:
     user.token_ausnahme = None
     if meta_lesen(db, f"pwlink.{user.id}"):
         meta_schreiben(db, f"pwlink.{user.id}", "")
+    konto_mail.vormerken(db, user, "passwort", ort=ort)
 
 
 def einloesen(db: Session, token: str, passwort: str) -> User | None:
     user = pruefen(db, token)
     if user is None:
         return None
-    passwort_setzen(db, user, passwort)
+    passwort_setzen(db, user, passwort, ort="link")
     db.commit()
     return user

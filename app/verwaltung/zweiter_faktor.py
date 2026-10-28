@@ -142,12 +142,22 @@ def bestaetigen(db: Session, user_id: str, eingabe: str) -> list[str] | None:
     meta_schreiben(db, _schluessel(user_id), json.dumps({
         "geheim": _zu(geheim), "zuletzt": fenster, "codes": [_hash(c) for c in codes], "seit": int(time.time())}))
     _loeschen(db, _neu_schluessel(user_id))
+    from app import konto_mail
+    from app.models import User
+
+    konto_mail.vormerken(db, db.get(User, user_id), "faktor_an")
     return codes
 
 
 def ausschalten(db: Session, user_id: str) -> None:
+    war_an = aktiv(db, user_id)
     _loeschen(db, _schluessel(user_id))
     _loeschen(db, _neu_schluessel(user_id))
+    if war_an:
+        from app import konto_mail
+        from app.models import User
+
+        konto_mail.vormerken(db, db.get(User, user_id), "faktor_aus")
 
 
 def _loeschen(db: Session, schluessel: str) -> None:

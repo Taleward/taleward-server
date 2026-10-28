@@ -32,7 +32,7 @@
   <h2>{{ _("Schalter") }}</h2>
   <form class="formular" method="post" action="/verwaltung/abrechnung/modus">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    {% for wert, text in [("aus", _("Aus – alles wie bisher, nichts wird abgerechnet")), ("guthaben", _("Guthaben je Spielleitung")), ("topf", _("Topf der Organisation (zahlt für ihre Kampagnen)"))] %}
+    {% for wert, text in [("aus", _("Aus – Verarbeitung kostet die Spielleitungen nichts")), ("guthaben", _("Guthaben je Spielleitung – jede SL zahlt ihre Kampagnen selbst")), ("topf", _("Gemeinsames Guthaben – die Organisation zahlt für ihre Kampagnen"))] %}
     <label class="haken"><input type="radio" name="modus" value="{{ wert }}" {% if modus == wert %}checked{% endif %}> {{ text }}</label>
     {% endfor %}
     <p class="hilfe">{{ _("Eingeschaltet sehen Spielleitungen ihr Guthaben auf der Guthaben-Seite dieses Servers. Das Kostenlimit unter Einstellungen bleibt als Notbremse.") }}</p>

@@ -114,6 +114,10 @@ def email_eintragen(body: schemas.EmailRequest, request: Request, user: User = D
 
 @router.delete("/me/email", status_code=204)
 def email_entfernen(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from app import konto_mail
+
+    if user.email:
+        konto_mail.vormerken(db, user, "email", an_adresse=user.email)  # an die bisherige Adresse
     user.email = user.email_pending = user.email_verified_at = None
     einmal.verwerfen(db, "email_bestaetigen", user.id)
     db.commit()
@@ -157,6 +161,10 @@ def email_bestaetigen(token: str, request: Request, db: Session = Depends(get_db
                          fehler=tr(request)("Diese Adresse gehört inzwischen zu einem anderen Konto."))
         antwort.status_code = 409
         return antwort
+    if u.email and u.email != adresse:
+        from app import konto_mail
+
+        konto_mail.vormerken(db, u, "email", an_adresse=u.email)  # an die bisherige Adresse
     u.email, u.email_verified_at = adresse, utcnow()
     if u.email_pending == adresse:
         u.email_pending = None
@@ -232,7 +240,7 @@ def passwort_aendern(body: schemas.PasswordChangeRequest, request: Request, user
     if passwort_zu_schwach(body.new_password or "", user.username, user.display_name):
         raise errors.bad_request("weak_password")
     alt = user.token_version
-    passwortlink.passwort_setzen(db, user, body.new_password)
+    passwortlink.passwort_setzen(db, user, body.new_password, ort="app")
     # Alle anderen Geräte abgemeldet, dieses bleibt angemeldet
     auth = request.headers.get("authorization", "")
     user.token_ausnahme = f"{alt}:{token_jti(auth.split(' ', 1)[-1])}"
@@ -265,6 +273,9 @@ def trennen(provider: str, user: User = Depends(current_user), db: Session = Dep
     if len(arten) <= 1:
         raise errors.conflict("last_login_method")
     db.delete(methode)
+    from app import konto_mail
+
+    konto_mail.vormerken(db, user, "dienst_weg", dienst=provider)
     db.commit()
     return Response(status_code=204)
 
@@ -379,11 +390,16 @@ def _tausch(body: schemas.OidcExchangeRequest, request: Request, db: Session) ->
             db.rollback()
             raise errors.conflict("provider_linked_elsewhere")
         eigene = db.scalar(select(AuthMethod).where(AuthMethod.user_id == u.id, AuthMethod.kind == kind))
+        neu_verknuepft = eigene is None or eigene.secret != sub
         if eigene is None:
             db.add(AuthMethod(user_id=u.id, kind=kind, secret=sub))
         else:
             eigene.secret = sub
         _email_uebernehmen(db, u, email)
+        if neu_verknuepft:
+            from app import konto_mail
+
+            konto_mail.vormerken(db, u, "dienst_neu", dienst=dienst)
         db.commit()
         db.refresh(u)
         return schemas.OidcExchangeResponse(status="ok", user=user_out(u), provider=dienst)
@@ -393,6 +409,9 @@ def _tausch(body: schemas.OidcExchangeRequest, request: Request, db: Session) ->
         vorhanden.last_used_at = utcnow()
         _email_uebernehmen(db, u, email)
         mail.sprache_merken(u, request)
+        from app import konto_mail
+
+        konto_mail.vormerken(db, u, "anmeldung", ort=konto_mail.ort_aus(request), dienst=dienst)
         db.commit()
         token, bis = create_token(u.id, u.token_version, server_id())
         return schemas.OidcExchangeResponse(status="ok", access_token=token, expires_at=bis, user=user_out(u),

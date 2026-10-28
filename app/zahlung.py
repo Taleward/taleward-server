@@ -206,11 +206,30 @@ def _paypal_basis(db: Session) -> str:
     return PAYPAL_API["live" if live(db) else "sandbox"]
 
 
+# 0.4.136 (S54): Zugangstoken von PayPal bis kurz vor Ablauf im Speicher (je Adresse und Zugang)
+_TOKEN: dict[str, tuple[str, float]] = {}
+TOKEN_PUFFER = 120  # Sekunden vor Ablauf neu holen
+
+
 def _paypal_token(db: Session) -> str:
+    kennung, geheim = meta_lesen(db, "zahlung.paypal_id") or "", meta_lesen(db, "zahlung.paypal_geheim") or ""
+    schluessel = hashlib.sha256(f"{_paypal_basis(db)}|{kennung}|{geheim}".encode()).hexdigest()
+    gemerkt = _TOKEN.get(schluessel)
+    if gemerkt is not None and gemerkt[1] > time.monotonic():
+        return gemerkt[0]
     r = _c().post(f"{_paypal_basis(db)}/v1/oauth2/token", data={"grant_type": "client_credentials"},
-                  auth=(meta_lesen(db, "zahlung.paypal_id") or "", meta_lesen(db, "zahlung.paypal_geheim") or ""))
+                  auth=(kennung, geheim))
     r.raise_for_status()
-    return r.json()["access_token"]
+    daten = r.json()
+    token = daten["access_token"]
+    try:
+        dauer = int(daten.get("expires_in") or 0)
+    except (TypeError, ValueError):
+        dauer = 0
+    _TOKEN.clear()  # höchstens ein Zugang zugleich
+    if dauer > TOKEN_PUFFER:
+        _TOKEN[schluessel] = (token, time.monotonic() + dauer - TOKEN_PUFFER)
+    return token
 
 
 def _paypal_auftrag(db: Session, v: Bezahlvorgang, zurueck: str, sprache: str) -> tuple[str, str]:
@@ -412,6 +431,11 @@ def paypal_meldung(db: Session, ereignis: dict) -> None:
     if art == "PAYMENT.CAPTURE.COMPLETED":
         v = _vorgang(db, res.get("custom_id"), "paypal")
         if v is None:
+            return
+        # 0.4.136 (S54): die Zahlung muss zum eigenen Auftrag bei PayPal gehören
+        auftrag = ((res.get("supplementary_data") or {}).get("related_ids") or {}).get("order_id")
+        if not v.anbieter_ref or auftrag != v.anbieter_ref:
+            _hinweis(db, "zahlung_abweichung", v, grund="fremder Auftrag")
             return
         betrag = res.get("amount") or {}
         bezahlt(db, v, _cent(betrag.get("value")), str(betrag.get("currency_code") or ""), res.get("id"))

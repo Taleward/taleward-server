@@ -40,6 +40,9 @@ def vorlage(db: Session, hosting: str = "") -> str:
     from app import abrechnung
 
     guthaben = abrechnung.an(db)  # 0.4.135: Hinweis-Mails zum Guthaben (abbestellbar)
+    from app import konto_mail
+
+    konto_hinweise = konto_mail.an(db)  # 0.4.136
     dienste = anmeldedienste.eingerichtet(db)
     dienst_namen = [anmeldedienste.DIENSTE[d]["name"] for d in dienste]
 
@@ -54,9 +57,11 @@ def vorlage(db: Session, hosting: str = "") -> str:
          "prüft alles, bevor die Runde es sieht.",
          "## Welche Daten wir verarbeiten",
          "- Konto: Benutzername, Anzeigename, Passwort (nur als Prüfwert gespeichert), Zeitpunkt der Zustimmung zu "
-         "diesem Hinweis und der Altersbestätigung, gegebenenfalls Stand und Zeitpunkt einer Anfrage zur SL-Freigabe.",
+         "diesem Hinweis und der Altersbestätigung, gegebenenfalls Stand und Zeitpunkt einer Anfrage zur SL-Freigabe, "
+         "die Sprache der App bei der letzten Anmeldung (für Mails in deiner Sprache).",
          *(["- Freiwillig: eine E-Mail-Adresse – nur, damit du dein Passwort selbst zurücksetzen kannst"
             + (" und die Antwort auf eine Anfrage zur SL-Freigabe bekommst" if freigabe else "")
+            + (" und Hinweise bekommst, wenn sich jemand an deinem Konto anmeldet oder es ändert" if konto_hinweise else "")
             + ("; als Spielleitung außerdem Hinweise, wenn dein Guthaben knapp wird oder etwas darauf wartet (auf der "
                "Guthaben-Seite abbestellbar)" if guthaben else "")
             + ". Du kannst sie in der App jederzeit entfernen."] if email else []),

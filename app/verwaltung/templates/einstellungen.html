@@ -129,6 +129,9 @@
       </select></label>
     {% if betrieb == "cloud" %}<input type="hidden" name="stunden" value="{{ melden.stunden }}">
     {% else %}<label>{{ _("Melden, wenn Aufträge so viele Stunden ohne Worker warten") }} <input type="number" name="stunden" value="{{ melden.stunden }}" min="1" max="168"></label>{% endif %}
+    <input type="hidden" name="konto_hinweise_feld" value="1">
+    <label class="haken"><input type="checkbox" name="konto_hinweise" value="1" {% if melden.konto_hinweise %}checked{% endif %}> {{ _("Mitglieder mit bestätigter Adresse bekommen einen Hinweis, wenn sich jemand an ihrem Konto anmeldet oder es ändert") }}
+      <span class="hilfe">{{ _("Ohne IP-Adresse und ohne Link. Höchstens eine Anmelde-Mail je Konto in 15 Minuten.") }}</span></label>
     {% if melden.ntfy_token or melden.smtp_pass %}<label class="haken"><input type="checkbox" name="zugang_loeschen" value="1"> {{ _("Gespeicherten Token und Passwort löschen") }}</label>{% endif %}
   </div>
   <div class="knopfzeile">

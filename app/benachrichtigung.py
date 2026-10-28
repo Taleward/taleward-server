@@ -57,6 +57,7 @@ class Konfig:
     email_an: str
     sprache: str
     stunden: int
+    konto_hinweise: bool = True  # 0.4.136: Hinweis-Mails bei Änderungen am Konto (app/konto_mail.py)
 
     @property
     def ntfy(self) -> bool:
@@ -84,7 +85,8 @@ def konfig(db: Session) -> Konfig:
     return Konfig(ntfy_url=m("ntfy_url"), ntfy_token=m("ntfy_token"), smtp_host=m("smtp_host"),
                   smtp_port=zahl("smtp_port", 587), smtp_user=m("smtp_user"), smtp_pass=m("smtp_pass"),
                   smtp_tls=m("smtp_tls", "starttls"), email_von=m("email_von"), email_an=m("email_an"),
-                  sprache=m("sprache", "de"), stunden=zahl("stunden", STANDARD_STUNDEN))
+                  sprache=m("sprache", "de"), stunden=zahl("stunden", STANDARD_STUNDEN),
+                  konto_hinweise=m("konto_hinweise", "1") == "1")
 
 
 # ---------------------------------------------------------------- Versand

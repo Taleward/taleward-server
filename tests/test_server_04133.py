@@ -218,7 +218,8 @@ def test_paypal_ruecksprung_bucht_ab_und_meldung_bucht_nicht_doppelt(client, wor
     assert r.headers["location"] == f"/guthaben/aufladen/fertig?v={v.id}"
     assert _saldo(dbs, gid) == 1000 and _vorgang(dbs).zahlung_ref == "CAP1"
     meldung = {"id": "WH-EV1", "event_type": "PAYMENT.CAPTURE.COMPLETED", "resource": {
-        "id": "CAP1", "custom_id": v.id, "amount": {"currency_code": "EUR", "value": "10.72"}}}
+        "id": "CAP1", "custom_id": v.id, "amount": {"currency_code": "EUR", "value": "10.72"},
+        "supplementary_data": {"related_ids": {"order_id": "ORDER1"}}}}
     kopf = {"PAYPAL-AUTH-ALGO": "SHA256withRSA", "PAYPAL-CERT-URL": "https://api.sandbox.paypal.com/cert",
             "PAYPAL-TRANSMISSION-ID": "t1", "PAYPAL-TRANSMISSION-SIG": "sig", "PAYPAL-TRANSMISSION-TIME": "now"}
     assert client.post("/zahlung/paypal", json=meldung, headers=kopf).status_code == 200

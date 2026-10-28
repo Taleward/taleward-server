@@ -158,6 +158,10 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
                            max_age=CODE_MINUTEN * 60, httponly=True, samesite="strict",
                            secure=request.url.scheme == "https", path="/guthaben")
         return antwort
+    from app import konto_mail
+
+    konto_mail.vormerken(db, user, "anmeldung", ort="guthaben")
+    db.commit()
     return _sitzung(request, user)
 
 
@@ -206,6 +210,9 @@ def anmelden_code(request: Request, code: str = Form(""), db: Session = Depends(
         return _code_seite(request, db, tr(request)(
             "Der Code stimmt nicht oder wurde schon benutzt. Nimm den nächsten aus deiner App."), 400)
     ZAEHLER.freigeben(versuch)
+    from app import konto_mail
+
+    konto_mail.vormerken(db, user, "anmeldung", ort="guthaben")
     db.commit()
     return _sitzung(request, user)
 
