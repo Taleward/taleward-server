@@ -1,50 +1,567 @@
-# Dungeons & Dragons – häufige Eigennamen und Begriffe (Schreibhilfe für die Transkription)
+# Dungeons & Dragons 5e – Begriffe für die Transkription
+# Erkennungsnamen: dungeons & dragons, dungeons and dragons, d&d, dnd, d und d, fünfte edition, forgotten realms, vergessene reiche, faerûn, faerun
+# Stufe A (höchstens 40, häufigste zuerst)
 Faerûn
-Schwertküste
-Waterdeep
 Tiefwasser
+Niewinter
+Schwertküste
+Vergessene Reiche
+Tiefling
+Drachenblütiger
+Drow
+Gedankenschinder
+Tiamat
+Unterreich
+Lathander
+Mystra
+Tymora
+Selûne
+Bahamut
+Asmodeus
+Lolth
+Zhentarim
+Harfner
+Elminster
+Strahd
+Barovia
+Phandalin
+Eberron
+# Stufe A (en)
+Dungeon Master
+Waterdeep
 Baldur's Gate
 Neverwinter
-Niewinter
+Sword Coast
+Dragonborn
+Illithid
 Underdark
-Unterreich
 Feywild
 Shadowfell
-Barovia
-Strahd
-Elminster
-Mordenkainen
-Tiamat
-Bahamut
-Lolth
-Drow
-Tiefling
-Dragonborn
-Drachenblütiger
-Halbling
-Githyanki
-Illithid
-Gedankenschinder
 Beholder
+Owlbear
+Harpers
+Candlekeep
+Icewind Dale
+# Stufe B
+Toril
+Abeir-Toril
+Amn
+Calimshan
+Calimport
+Cormyr
+Sembia
+Thay
+Rashemen
+Chult
+Bryn Shander
+Luskan
+Mirabar
+Silbrigmond
+Mithral Hall
+Menzoberranzan
+Gauntlgrym
+Phandelver
+Triboar
+Daggerford
+Elturel
+Kerzenburg
+Evermeet
+Myth Drannor
+Netheril
+Anauroch
+Mulhorand
+Unther
+Halruaa
+Mondsee
+Schattental
+Undermountain
+Skullport
+Saltmarsh
+Vallaki
+Ravenloft
+Feenwildnis
+Astralebene
+Ätherebene
+Neun Höllen
+Abyss
+Avernus
+Elysium
+Mechanus
+Limbo
+Sigil
+Planescape
+Spelljammer
+Sharn
+Khorvaire
+Greyhawk
+Oerth
+Dragonlance
+Krynn
+Dark Sun
+Athas
+Exandria
+Wildemount
+Tal'Dorei
+Theros
+Ravnica
+Strixhaven
+Rote Magier
+Kult des Drachen
+Tyr
+Shar
+Tempus
+Torm
+Bane
+Bhaal
+Myrkul
+Cyric
+Kelemvor
+Oghma
+Ilmater
+Umberlee
+Talos
+Chauntea
+Mielikki
+Silvanus
+Sune
+Moradin
+Gruumsh
+Orcus
+Demogorgon
+Graz'zt
+Juiblex
+Baphomet
+Yeenoghu
+Zuggtmoy
+Fraz-Urb'luu
+Vecna
+Acererak
+Strahd von Zarovich
+Drizzt Do'Urden
+Volo
+Mordenkainen
+Tasha
+Xanathar
+Jarlaxle
+Khelben Arunsun
+Manshoon
+Szass Tam
+Raistlin
 Betrachter
+Eulenbär
+Tarrasque
+Kuo-toa
+Duergar
+Svirfneblin
+Githyanki
+Githzerai
+Yuan-ti
+Bugbear
+Grottenschrat
+Hobgoblin
+Gnoll
+Gallertwürfel
+Rostmonster
+Aboleth
+Chuul
+Ettercap
+Ettin
+Vettel
+Dracolich
+Banshee
+Wight
+Wraith
+Bulette
+Cockatrice
+Manticore
+Nothic
+Flumph
+Modron
+Slaad
+Lich
 Paladin
-Warlock
-Hexenmeister
-Sorcerer
-Zauberer
-Kleriker
-Druide
 Barde
+Kleriker
+Hexenmeister
 Waldläufer
 Schurke
-Barbar
-Cantrip
-Zaubertrick
-Zauberplatz
+Kämpfer
+Halbling
+Halbork
+Halbelf
+Aasimar
+Dunkelelf
+Hochelf
+Eladrin
+Shadar-kai
+Genasi
+Firbolg
+Goliath
+Tabaxi
+Kenku
+Aarakocra
+Tortle
+Warforged
+Changeling
+Schauerlicher Strahl
+Heilendes Wort
+Feuerball
+Magisches Geschoss
+Nebelschritt
+Gegenzauber
+Magierhand
+Magie entdecken
+Magie bannen
+Feenfeuer
+Nimmervoller Beutel
+Goldstücke
+Silberstücke
+Kupferstücke
+Platinstücke
+Elektrum
+Alturiak
+Ches
+Tarsakh
+Mirtul
+Kythorn
+Flamerule
+Eleasis
+Eleint
+Marpenoth
+Uktar
+Nightal
+Shieldmeet
+Greengrass
+Spielerhandbuch
+Spielleiterhandbuch
+Monsterhandbuch
+# Stufe B (en)
+Forgotten Realms
+Port Nyanzaru
+Ten Towns
+Silverymoon
+Wave Echo Cave
+Neverwinter Wood
+Moonshae Isles
+Moonsea
+Dalelands
+Shadowdale
+Zhentil Keep
+Yawning Portal
+Astral Plane
+Ethereal Plane
+Nine Hells
+Lords' Alliance
+Emerald Enclave
+Order of the Gauntlet
+Red Wizards
+Cult of the Dragon
+Flaming Fist
+Corellon Larethian
+Volothamp Geddarm
+Laeral Silverhand
+Halaster Blackcloak
+Lord Soth
+Displacer Beast
+Gelatinous Cube
+Mimic
+Rust Monster
+Umber Hulk
+Death Knight
+Will-o'-Wisp
+Intellect Devourer
+Shambling Mound
+Mind Flayer
+Barbarian
+Bard
+Cleric
+Druid
+Fighter
+Monk
+Ranger
+Rogue
+Sorcerer
+Warlock
+Wizard
+Artificer
+Halfling
+Gnome
+Half-Orc
+Half-Elf
+High Elf
+Wood Elf
+Hill Dwarf
+Mountain Dwarf
+Eldritch Blast
+Healing Word
+Divine Smite
+Wild Shape
+Fireball
+Magic Missile
+Cure Wounds
+Mage Armor
+Misty Step
+Counterspell
+Hold Person
+Spiritual Weapon
+Spirit Guardians
+Guidance
+Thaumaturgy
+Prestidigitation
+Mage Hand
+Minor Illusion
+Fire Bolt
+Toll the Dead
+Sacred Flame
+Vicious Mockery
+Thunderwave
+Detect Magic
+Find Familiar
+Dispel Magic
+Polymorph
+Banishment
+Wall of Force
+Revivify
+Power Word Kill
+Meteor Swarm
+Faerie Fire
+Hellish Rebuke
+Hunger of Hadar
+Armor of Agathys
+Lightning Bolt
+Cone of Cold
+Animate Dead
+Speak with Dead
+Raise Dead
+Resurrection
+Tasha's Hideous Laughter
+Bigby's Hand
+Leomund's Tiny Hut
+Otiluke's Resilient Sphere
+Mordenkainen's Magnificent Mansion
+Melf's Acid Arrow
+Evard's Black Tentacles
+Bag of Holding
+Potion of Healing
+Spell Scroll
+Copper Pieces
+Silver Pieces
+Gold Pieces
+Electrum Pieces
+Platinum Pieces
+Calendar of Harptos
+Dale Reckoning
+Player's Handbook
+Dungeon Master's Guide
+Monster Manual
+Homebrew
+Session Zero
+# Regelbegriffe (de)
 Rettungswurf
-Initiative
-Rüstungsklasse
+Zauberplatz
+Zaubertrick
 Trefferpunkte
-Vorteil
-Nachteil
-Konzentration
+Rüstungsklasse
+Bonusaktion
+Kurze Rast
+Lange Rast
+Inspiration
+Übungsbonus
+Gelegenheitsangriff
+Trefferwürfel
+Todesrettungswurf
+Hinterhältiger Angriff
+Arkane Kunde
+Initiative
+Advantage
+Disadvantage
+Saving Throw
+Spell Slot
+Cantrip
+Hit Points
+Armor Class
+Bonus Action
+Short Rest
+Long Rest
+Ability Check
+Proficiency Bonus
+Concentration
+Opportunity Attack
+Hit Dice
+Death Saving Throw
+Death Save
+Sneak Attack
+Attack Roll
+Damage Roll
+Ability Score
+Ability Score Improvement
+Strength
+Dexterity
+Constitution
+Intelligence
+Wisdom
+Charisma
+Athletics
+Acrobatics
+Sleight of Hand
+Stealth
+Arcana
+Investigation
+Animal Handling
+Insight
+Perception
+Passive Perception
+Survival
+Deception
+Intimidation
+Performance
+Persuasion
+Blinded
+Charmed
+Frightened
+Grappled
+Incapacitated
+Paralyzed
+Petrified
+Poisoned
+Prone
+Restrained
+Stunned
+Unconscious
+Exhaustion
+Temporary Hit Points
+Spell Save DC
+Difficulty Class
+Spell Attack
+Spellcasting Modifier
+Ritual Casting
+Multiclassing
+Feat
+Subclass
+Natural 20
+Nat 20
+Natural One
+Critical Hit
+Attunement
+Action Surge
+Second Wind
+Cunning Action
+Extra Attack
+Lay on Hands
+Channel Divinity
+Metamagic
+Sorcery Points
+Ki Points
+Flurry of Blows
+Stunning Strike
+Uncanny Dodge
+Evasion
+Hunter's Mark
+Favored Enemy
+Bardic Inspiration
+Pact Magic
+Eldritch Invocation
+Pact Boon
+Wild Magic
+Reckless Attack
+# Regelbegriffe (en)
+Advantage
+Disadvantage
+Saving Throw
+Spell Slot
+Cantrip
+Hit Points
+Armor Class
+Bonus Action
+Short Rest
+Long Rest
+Ability Check
+Proficiency Bonus
+Concentration
+Opportunity Attack
+Hit Dice
+Death Saving Throw
+Death Save
+Sneak Attack
+Attack Roll
+Damage Roll
+Ability Score
+Ability Score Improvement
+Strength
+Dexterity
+Constitution
+Intelligence
+Wisdom
+Charisma
+Athletics
+Acrobatics
+Sleight of Hand
+Stealth
+Arcana
+Investigation
+Animal Handling
+Insight
+Perception
+Passive Perception
+Survival
+Deception
+Intimidation
+Performance
+Persuasion
+Blinded
+Charmed
+Frightened
+Grappled
+Incapacitated
+Paralyzed
+Petrified
+Poisoned
+Prone
+Restrained
+Stunned
+Unconscious
+Exhaustion
+Temporary Hit Points
+Spell Save DC
+Difficulty Class
+Spell Attack
+Spellcasting Modifier
+Ritual Casting
+Multiclassing
+Feat
+Subclass
+Natural 20
+Nat 20
+Natural One
+Critical Hit
+Attunement
+Action Surge
+Second Wind
+Cunning Action
+Extra Attack
+Lay on Hands
+Channel Divinity
+Metamagic
+Sorcery Points
+Ki Points
+Flurry of Blows
+Stunning Strike
+Uncanny Dodge
+Evasion
+Hunter's Mark
+Favored Enemy
+Bardic Inspiration
+Pact Magic
+Eldritch Invocation
+Pact Boon
+Wild Magic
+Reckless Attack
+# Verhörer
+Sehving Srou => Saving Throw
+Seving Throw => Saving Throw
+Spellslot => Spell Slot
+Kantrip => Cantrip
+Baldurs Gate => Baldur's Gate
+Faerun => Faerûn
+Eldrich Blast => Eldritch Blast
+Ilitid => Illithid

@@ -1,0 +1,155 @@
+# Mutant: Jahr Null – Begriffe für die Transkription
+# Erkennungsnamen: mutant jahr null, mutant: jahr null, mutant year zero, jahr null, year zero, genlabor alpha, genlab alpha, mechatron, elysium
+# Stufe A (höchstens 40, häufigste zuerst)
+Arche
+Zone
+Fäule
+Zonenghule
+Zonenghul
+Mutanten
+Pirscher
+Chronist
+Boss
+Der Älteste
+Das Volk
+Eden
+Alte Welt
+Zonensektor
+Säureregen
+Zonenmonster
+Paradiestal
+Tiermutanten
+Kollektiv
+# Stufe A (en)
+Ark
+Rot
+Zone Ghouls
+Zone Ghoul
+Stalker
+Enforcer
+Gearhead
+Fixer
+Dog Handler
+Chronicler
+Grunt
+The People
+Old World
+Zone Sector
+Artifact
+Artifacts
+Acid Rain
+Zone Monster
+Automatons
+Paradise Valley
+# Stufe B
+Vollstrecker
+Schrauber
+Hundeführer
+Sklave
+Spezielle Zonensektoren
+Spezieller Zonensektor
+Zonenkarte
+Zonenkompendium
+Zonenkompendien
+Pelzogene
+Pelzogen
+Mechatron-7
+Mechatron 7
+Eden Dome
+Dux
+Bormin
+Selma
+Iridia
+Freie Liga
+# Stufe B (en)
+Special Zone Sectors
+Special Zone Sector
+Zone Map
+Zone Compendium
+Zone Compendia
+Zone Riders
+Nova Cult
+Rot Suit
+Development Levels
+Mechatron-7
+Elysium
+Genlab Alpha
+Mechatron
+Mutant Year Zero
+Road to Eden
+Seed of Evil
+Die, Meat Eaters, Die
+Garbage Masters
+Blackhand's Bar
+Lair of the Saurians
+# Regelbegriffe (de)
+Mutationspunkte
+MP
+Grundwürfel
+Fertigkeitswürfel
+Ausrüstungswürfel
+Erfolg
+Erfolge
+Pressen
+Stärke
+Geschicklichkeit
+Verstand
+Empathie
+Spezialfertigkeit
+Spezialfertigkeiten
+Talente
+Erfahrungspunkte
+Hungrig
+Durstig
+Erschöpft
+Unterkühlt
+Kritische Verletzung
+Gebrochen
+Fäulepunkte
+Großer Traum
+Initiative
+Panzerung
+Reichweite
+# Regelbegriffe (en)
+Mutation Points
+MP
+Base Dice
+Skill Dice
+Gear Dice
+Pushing the Roll
+Confusion
+Doubt
+Wits
+Specialist Skill
+Specialist Skills
+Experience Points
+Endure
+Comprehend
+Know the Zone
+Sense Emotion
+Manipulate
+Starving
+Dehydrated
+Sleepless
+Hypothermic
+Critical Injury
+Critical Injuries
+Rot Points
+Rot Point
+Rot Level
+Gear Bonus
+Relationships
+Big Dream
+Initiative
+Armor Rating
+Arm's Length
+Zone Rot
+Rot Suit
+Rot Eater
+Threat Level
+# Verhörer
+Zonenguhl => Zonenghul
+Zonen Ghul => Zonenghul
+Jahr 0 => Jahr Null
+Year 0 => Year Zero
+Pierscher => Pirscher

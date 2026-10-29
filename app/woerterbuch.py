@@ -1,6 +1,6 @@
 """Wörterbücher für die Prüfung unsicher erkannter Namen (app/unsicher.py).
 
-Drei Quellen sagen, ob ein Wort „bekannt“ ist und deshalb nicht als unsicherer Name gemeldet wird:
+Vier Quellen sagen, ob ein Wort „bekannt“ ist und deshalb nicht als unsicherer Name gemeldet wird:
 
 1. **Allgemeine Wortliste** je Sprache (de, en): Häufigkeitslisten gesprochener Sprache aus Filmuntertiteln
    (OpenSubtitles 2018, aufbereitet von Hermit Dave, https://github.com/hermitdave/FrequencyWords, Inhalt unter
@@ -17,7 +17,8 @@ Drei Quellen sagen, ob ein Wort „bekannt“ ist und deshalb nicht als unsicher
    -hintergründe, SL-Notizen der Kapitel, ausgelesene SL-Unterlagen. Was dort geschrieben steht, ist eine bekannte
    Schreibweise. Großgeschriebene Wörter daraus, die kein allgemeines Wort sind, dienen außerdem als Vorschläge
    („Meintest du …“). Das Ergebnis sieht nur die SL; in Recaps oder Vorschläge fließt davon nichts.
-3. **Was die Runde schon gesagt hat:** Wörter, die in anderen Kapiteln der Kampagne mehrfach sicher erkannt wurden
+3. **Begriffsliste des Systems** (0.4.140, app/begriffe.py): alle Namen und Begriffe beider Sprachen.
+4. **Was die Runde schon gesagt hat:** Wörter, die in anderen Kapiteln der Kampagne mehrfach sicher erkannt wurden
    (nicht in der Liste der unsicheren Wörter standen).
 """
 from __future__ import annotations
@@ -48,6 +49,7 @@ NEUER_VERSUCH_S = 3600   # nach einem gescheiterten Download frühestens wieder
 FUGEN = ("", "s", "es", "n", "en", "e", "er")
 MIN_TEIL = 3
 MIN_SICHER_GEHOERT = 3   # so oft in anderen Kapiteln sicher erkannt → bekannt
+MIN_VORSCHLAG_SYSTEM = 5  # 0.4.140: Namen aus der Begriffsliste des Systems erst ab dieser Länge als Vorschlag
 
 _TOKEN = re.compile(r"[^\W\d_][\w'’-]*", re.UNICODE)
 _letzter_versuch: dict[str, float] = {}
@@ -230,6 +232,16 @@ def kampagne(db: Session, campaign, ausser_session_id: str | None = None) -> Bek
             k = w.casefold()
             b.kampagne.add(k)
             if w[0].isupper() and len(w) >= 3 and k not in b.allgemein:
+                b.namen.setdefault(k, w)
+    # 0.4.140: Begriffsliste des Systems – bekannte Schreibweisen; als Vorschlag nur längere Namen (sonst zu viele
+    # falsche „Meintest du …“)
+    from app import begriffe
+
+    for t in begriffe.woerterbuch(begriffe.system_fuer(campaign.system, campaign.system_name)):
+        for w in woerter(t):
+            k = w.casefold()
+            b.kampagne.add(k)
+            if w[0].isupper() and len(w) >= MIN_VORSCHLAG_SYSTEM and k not in b.allgemein:
                 b.namen.setdefault(k, w)
     b.kampagne |= gesagt(db, [s for s in sitzungen if s != ausser_session_id])
     return b

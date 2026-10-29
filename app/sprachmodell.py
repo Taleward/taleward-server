@@ -687,13 +687,27 @@ def woerter_fuer(minuten: float, lang: bool = False) -> str:
 
 
 def _regelwoerter(ein: dict) -> tuple[str, ...]:
-    """0.4.79: Regelbegriffe des Systems der Kampagne (fallen im Kapitel weg)."""
-    from app.namenshilfe import regelbegriffe
+    """0.4.79: Regelbegriffe des Systems der Kampagne, die als ganzes Wort wegfallen (Fachwörter). 0.4.140: Der Server
+    gibt sie mit (`regel_fach`, aufgeteilt mit seiner Wortliste); fehlt das (ältere Server), aus den Listen hier."""
+    if "regel_fach" in ein:
+        return tuple(ein.get("regel_fach") or ())
+    return _regel_aus_liste(ein)[0]
+
+
+def _alltagswoerter(ein: dict) -> tuple[str, ...]:
+    """0.4.140: Regelbegriffe, die auch Alltagswörter sind – nur mit Zahl dicht daneben ein Regelrest."""
+    if "regel_alltag" in ein:
+        return tuple(ein.get("regel_alltag") or ())
+    return _regel_aus_liste(ein)[1]
+
+
+def _regel_aus_liste(ein: dict) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    from app import begriffe
 
     try:
-        return regelbegriffe(ein.get("system"))
+        return begriffe.regelwoerter(begriffe.system_fuer(ein.get("system"), ein.get("system_name")))
     except (OSError, ValueError):
-        return ()
+        return (), ()
 
 
 def vorschlaege_hoechstens(ein: dict) -> int:
@@ -2874,7 +2888,8 @@ class Ablauf:
         neu, bericht["verworfen"] = korrektur_anwenden(d, teile, hinweise, frei)
         geschuetzt = [e["name"] for e in ein.get("bibel") or []]
         for i, t in list(neu.items()):
-            sauber, _befunde = artefakte.kapitel(t, ein.get("personen") or [], geschuetzt, _regelwoerter(ein))
+            sauber, _befunde = artefakte.kapitel(t, ein.get("personen") or [], geschuetzt, _regelwoerter(ein),
+                                                _alltagswoerter(ein))
             sauber = " ".join(sauber.split())
             if not sauber:
                 bericht["verworfen"].append({"absatz": i + 1, "grund": "vom Filter geleert"})
@@ -3206,7 +3221,7 @@ class Ablauf:
 
         geschuetzt = [e["name"] for e in recap_ein.get("bibel") or []]
         r["text"], self.bereinigt = artefakte.kapitel(r["text"], recap_ein.get("personen") or [], geschuetzt,
-                                                      _regelwoerter(recap_ein))
+                                                      _regelwoerter(recap_ein), _alltagswoerter(recap_ein))
         r["title"] = artefakte.feinschliff(r.get("title") or "")
         r["openThreads"] = [artefakte.feinschliff(f) for f in r.get("openThreads") or []]
         fortschritt(0.6 if gegenpruefen else 0.8)
@@ -3221,7 +3236,7 @@ class Ablauf:
             pruefung = self.gegenpruefen(recap_ein, titel, grundlage, r) if gegenpruefen else None
         if pruefung is not None and pruefung.get("revised"):  # Nachbesserung kann Artefakte wieder hineinbringen
             r["text"], nachher = artefakte.kapitel(r["text"], recap_ein.get("personen") or [], geschuetzt,
-                                                   _regelwoerter(recap_ein))
+                                                   _regelwoerter(recap_ein), _alltagswoerter(recap_ein))
             self.bereinigt += [b for b in nachher if b["art"] not in ("tischgespraech", "erzaehlstimme")]
         if pruefung is not None:
             hinweise_eintragen(pruefung, self.bereinigt, recap_ein.get("sprache"))

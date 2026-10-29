@@ -1,0 +1,557 @@
+# Warhammer 40.000 Rollenspiel – Begriffe für die Transkription
+# Erkennungsnamen: warhammer 40k, warhammer 40000, warhammer 40.000, 40k, wrath & glory, wrath and glory, dark heresy, rogue trader, deathwatch, black crusade, only war, imperium maledictum
+# Stufe A (höchstens 40, häufigste zuerst)
+Imperium
+Imperator
+Space Marines
+Astartes
+Adeptus Astartes
+Adeptus Mechanicus
+Inquisition
+Inquisitor
+Psioniker
+Warp
+Chaos
+Khorne
+Nurgle
+Tzeentch
+Slaanesh
+Orks
+Aeldari
+Eldar
+Drukhari
+Tyraniden
+Necrons
+Tau
+Genestealer
+Terra
+Holy Terra
+Cadia
+Makropole
+Bolter
+Boltpistole
+Lasgewehr
+Kettenschwert
+Servorüstung
+# Stufe A (en)
+Emperor
+God-Emperor
+Psyker
+Tyranids
+Lasgun
+Chainsword
+Power Armour
+Tech-Priest
+Commissar
+Imperial Guard
+# Stufe B
+Servitor
+Techpriester
+Kommissar
+Astra Militarum
+Imperiale Armee
+Adeptus Sororitas
+Sororitas
+Primaris
+Gilead-System
+Gilead
+Varonius
+Jakel Varonius
+Großer Riss
+Imperium Nihilus
+Imperium Sanctus
+Cicatrix Maledictum
+Macragge
+Ultramar
+Fenris
+Baal
+Nocturne
+Mars
+Holy Mars
+Agripinaa
+Armageddon
+Calixis-Sektor
+Koronus-Weite
+Jericho-Weite
+Askellon-Sektor
+Scintilla
+Hive Sibellus
+Makropolwelt
+Todeswelt
+Agrarwelt
+Schmiedewelt
+Schreinwelt
+Totenwelt
+Paradieswelt
+Segmentum
+Segmentum Solar
+Segmentum Obscurus
+Auge des Schreckens
+Maelstrom
+Warpsturm
+Immaterium
+Empyreum
+Astronomican
+Navigator
+Navis Nobilite
+Freihändler
+Handelspatent
+Adeptus Administratum
+Adeptus Arbites
+Arbitrator
+Adeptus Astra Telepathica
+Astropath
+Adeptus Custodes
+Custodes
+Adeptus Ministorum
+Ekklesiarchie
+Officio Assassinorum
+Ordo Malleus
+Ordo Hereticus
+Ordo Xenos
+Grey Knights
+Graue Ritter
+Deathwatch
+Ultramarines
+Blood Angels
+Dark Angels
+Space Wolves
+Imperial Fists
+Salamanders
+Raven Guard
+Iron Hands
+White Scars
+Black Templars
+Roboute Guilliman
+Guilliman
+Sanguinius
+Lion El'Jonson
+Leman Russ
+Rogal Dorn
+Vulkan
+Corvus Corax
+Ferrus Manus
+Jaghatai Khan
+Horus
+Horus-Häresie
+Chaos Space Marines
+Black Legion
+Abaddon
+Death Guard
+Mortarion
+Thousand Sons
+Magnus
+World Eaters
+Angron
+Emperor's Children
+Fulgrim
+Word Bearers
+Lorgar
+Night Lords
+Konrad Curze
+Iron Warriors
+Perturabo
+Alpha Legion
+Dämonenprinz
+Blutdämon
+Seuchenhüter
+Nurglinge
+Horror
+Pink Horror
+Dämonette
+Dämonetten
+Herold
+Unteilbares Chaos
+Chaoskultist
+Kultist
+Häretiker
+Mutant
+Scavvy
+Underhive
+Unterwelt
+Hive City
+Necromunda
+Goliath
+Escher
+Orlock
+Van Saar
+Delaque
+Cawdor
+Waaagh
+Boss
+Warboss
+Mek
+Gretchin
+Grotz
+Nobz
+Boyz
+Craftworld
+Weltenschiff
+Ulthwé
+Biel-Tan
+Iyanden
+Saim-Hann
+Alaitoc
+Harlequin
+Harlequins
+Commorragh
+Ynnari
+Avatar des Khaine
+Farseer
+Runenprophet
+Warlock
+Hexer
+Warp Spider
+Phantomlord
+Wraithlord
+Tyraniden-Schwarm
+Hive Mind
+Schwarmbewusstsein
+Hive Fleet
+Schwarmflotte
+Leviathan
+Kraken
+Behemoth
+Hormagant
+Termagant
+Carnifex
+Genestealer Cult
+Genestealer-Kult
+Patriarch
+Magus
+Lictor
+Necron Lord
+Necron-Lord
+Overlord
+Phaeron
+Szarekh
+Silent King
+Schweigender König
+C'tan
+Trazyn
+T'au
+Tau-Imperium
+Ethereals
+Ätherische
+Fire Warrior
+Feuerkrieger
+Kroot
+Vespid
+Farsight
+Shadowsun
+Aun'Va
+Votann
+Leagues of Votann
+Squats
+Ogryn
+Ratling
+Beastman
+Abhuman
+Abmensch
+Catachan
+Cadianer
+Cadian
+Krieg
+Death Korps
+Mordian
+Tallarn
+Valhalla
+Vostroya
+Steel Legion
+Leman Russ Panzer
+Chimäre
+Chimera
+Baneblade
+Rhino
+Land Raider
+Predator
+Dreadnought
+Cybot
+Thunderhawk
+Valkyrie
+Titan
+Warlord-Titan
+Collegia Titanica
+Skitarii
+Magos
+Omnissiah
+Maschinengott
+Mechanicus
+Dark Mechanicum
+Belisarius Cawl
+Cawl
+Lebender Heiliger
+Living Saint
+Celestine
+Sankt Celestine
+Canoness
+Kanonisse
+Repentia
+Seraphim
+Imperiales Credo
+Imperial Creed
+Lectitio Divinitatus
+Ministorum
+Confessor
+Prediger
+Preacher
+Missionar
+Assassine
+Vindicare
+Callidus
+Eversor
+Culexus
+Cherub
+Servoschädel
+Servo-Skull
+Auspex
+Vox
+Vox-Caster
+Cogitator
+Datenschiefer
+Dataslate
+Melter
+Meltagun
+Plasmawerfer
+Plasma Gun
+Flammenwerfer
+Flamer
+Schwerer Bolter
+Heavy Bolter
+Bolt Pistol
+Sturmbolter
+Storm Bolter
+Energieschwert
+Power Sword
+Energiefaust
+Power Fist
+Donnerhammer
+Thunder Hammer
+Sturmschild
+Storm Shield
+Lasrifle
+Hellgun
+Autogewehr
+Autogun
+Stubber
+Schrotflinte
+Shotgun
+Needle Rifle
+Carapace Armour
+Flak-Rüstung
+Flak Armour
+Terminator-Rüstung
+Terminator Armour
+Sprungmodul
+Jump Pack
+Refractor Field
+Stimm
+Obscura
+Lho-Stick
+Amasec
+Recaf
+Throne Gelt
+Thrones
+Thronen
+Aquila
+Imperialer Adler
+Gothic
+Low Gothic
+High Gothic
+Hochgotisch
+Niedergotisch
+# Stufe B (en)
+Sisters of Battle
+Gilead System
+Great Rift
+Eye of Terror
+Warp Storm
+Hive World
+Death World
+Agri World
+Forge World
+Shrine World
+Rogue Trader
+Warrant of Trade
+Calixis Sector
+Koronus Expanse
+Jericho Reach
+Askellon Sector
+Hive
+Horus Heresy
+Daemon Prince
+Bloodletter
+Plaguebearer
+Nurglings
+Daemonette
+Daemonettes
+Chaos Undivided
+Chaos Cultist
+Heretic
+Tyranid Swarm
+Hive Fleet Leviathan
+Kraken
+Avatar of Khaine
+Wraithguard
+Ethereal
+Tau Empire
+Fire Caste
+Water Caste
+Earth Caste
+Air Caste
+Cadians
+Living Saint
+Saint Celestine
+Imperial Eagle
+Machine God
+Servo-skull
+Servitors
+Preacher
+Missionary
+Assassin
+Power Armor
+Laspistol
+Autopistol
+Hand Flamer
+Melta
+Plasma Pistol
+Grav Gun
+Volkite
+Krak Grenade
+Frag Grenade
+Chainaxe
+Lightning Claw
+Force Sword
+Force Staff
+Psychic Hood
+Rosarius
+Iron Halo
+Imperial Navy
+Battlefleet
+Imperial Knight
+Knight World
+Questor Imperialis
+Adeptus Terra
+High Lords of Terra
+Golden Throne
+Goldener Thron
+Throne World
+Terran
+Scholam
+Schola Progenium
+Storm Trooper
+Tempestus Scion
+Militarum Tempestus
+Kasrkin
+Ratlings
+Ogryns
+Bullgryn
+Underhive Scum
+Hive Ganger
+Ganger
+Chaos Marine
+Traitor Legion
+Traitor Marine
+Possessed
+Obliterator
+Warp Talon
+Sorcerer
+Dark Apostle
+Lord of Change
+Great Unclean One
+Bloodthirster
+Keeper of Secrets
+Daemon World
+# Regelbegriffe (de)
+Wrath
+Glory
+Ruin
+Zorn
+Ruhm
+Verderben
+Stufe
+Tier
+Framework
+Erfolge
+Wunden
+Schock
+Shock
+Rüstung
+Korruption
+Mutation
+Wahnsinn
+Wahnsinnspunkte
+Schicksalspunkte
+Fate Points
+Initiative
+Talent
+Archetyp
+Fraktion
+Psionische Kraft
+Verderbnis
+# Regelbegriffe (en)
+Wrath
+Glory
+Ruin
+Wrath Dice
+Wrath Die
+Wrath Points
+Glory Points
+Ruin Points
+Tier
+Framework
+Icons
+Exalted Icons
+Shifting
+Shift
+Wounds
+Shock
+Resilience
+Armour Rating
+Determination
+Soak
+Corruption
+Mutation
+Insanity
+Insanity Points
+Fate Points
+Fate
+Initiative
+Talent
+Archetype
+Faction
+Keyword
+Psychic Power
+Perils of the Warp
+Psychic Phenomena
+Warp Charge
+Defiance
+Complication
+Multi-Action
+Full Defence
+All-Out Attack
+Salvo
+Spread
+Toughness
+Agility
+Willpower
+Fellowship
+Influence
+Wealth
+Rank
+Build Points
+Subtlety
+Combat Tests
+Skill Test
+Characteristic Test
+Degrees of Success
+Righteous Fury
+Critical Damage
+Fatigue
+# Verhörer
+Astartis => Astartes
+Tiraniden => Tyraniden
+Neckrons => Necrons
+Elda => Eldar
+Zentsch => Tzeentch
+Slanesh => Slaanesh

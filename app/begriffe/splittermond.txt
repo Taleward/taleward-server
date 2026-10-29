@@ -1,41 +1,338 @@
-# Splittermond – häufige Eigennamen und Begriffe (Schreibhilfe für die Transkription)
+# Splittermond – Begriffe für die Transkription
+# Erkennungsnamen: splittermond, lorakis, splitter mond
+# Stufe A (höchstens 40, häufigste zuerst)
 Lorakis
-Selenia
-Dragorea
-Farukan
-Takasadu
-Arakea
-Pash Anar
-Zwingard
-Mertalischer Städtebund
-Wintholt
-Midstad
-Sadu
-Kintai
-Surmakar
-Jagodien
 Splitterträger
-Splittermond
 Mondzeichen
-Mondpfad
-Feenwelten
-Varg
-Alb
-Gnom
-Zwerg
-Ticks
-Tickleiste
-Splitterpunkte
-Fokus
-Lebenspunkte
-Heldengrad
-Meisterschaft
-Magieschule
-Stärke
-Fertigkeit
 Lunare
+Telare
+Solare
+Dragorea
+Selenia
+Zwingard
+Wintholt
+Patalis
+Farukan
+Mertalischer Städtebund
+Takasadu
+Pash Anar
+Arakea
+Frostlande
+Sarnburg
+Feenwelt
+Mondfall
+Mondpfade
+Alben
+Varge
 Drachlinge
-Vargen
-Albenhain
-Lichtalben
-Nachtalben
+Unreich
+Dalmarisches Reich
+Schwertalben
+Zhoujiang
+Kintai
+Splittermond
+Kristallsee
+Smaragdküste
+Galonea
+Mahaluu
+Surmakar
+Verheerte Lande
+Ioria
+Termark
+Lamassu
+Rattlinge
+# Stufe B
+Splitter
+Mondsteinkriege
+Dracurische Herrschaft
+Drachlingsherrschaft
+Bund der Bewahrer
+Wächterbund
+Seealben
+Dämmeralben
+Raugarr
+Frynjord
+Taigavarge
+Keshabid
+Tarr
+Länder am Binnenmeer
+Exotenküste
+Blutgrasweite
+Magura-Archipel
+Reich des himmlischen Kranichs
+Gotor
+Immersommerwald
+Westergroms
+Sadu
+Kungaitan
+Jaguardschungel
+Herzogtum Calten
+Calten
+Arwinger Mark
+Gondalis
+Shahandir
+Badashan
+Pashtar
+Demerai
+Aitushar
+Inani
+Teleshai
+Auge von Telwari
+Randmeer
+Tiefdunkel
+Schattenwand
+Himmelsraum
+Anderswelten
+Mond-Trias
+Farukanisches Pantheon
+Titanen der Elemente
+Himmlische Familie
+Göttliches Rudel
+Himmlisches Rudel
+Pantheon der See
+Pilzpantheon
+Töchter der Götter
+Fünf Tugenden der Kintarai
+Kintarai
+Fasnirr der Wanderer
+Aand
+Adalu
+Aewynna
+Agomai
+Ahas
+Akahara
+Alwodin
+Amantia
+Anding
+Anios
+Asha-Vera
+Atlatoto
+Avyn
+Balang
+Baowayara
+Baruo
+Bawalin
+Cabrid
+Cashu
+Cictlapactona
+Cuapochtli
+Dagener
+Darunwal
+Dernwan
+Din-Loh
+Dornius
+Drugon
+Durbash
+Egaris
+Errezid
+Eughos
+Fatargon
+Firrgin
+Fiure
+Fleadyne
+Furbrom
+Gagamba
+Gasharika
+Gol Gara
+Gorri
+Grimman
+Gunwar
+Hamion
+Valtara
+Hanib
+Hapzhab
+Hekaria
+Helarianakarathaa
+Herilie
+Hüeng
+Iosaris
+Iruka
+Isageir
+Isgar
+Itztochitl
+Jaga-Mersaj
+Jarakah
+Jasane
+Jausei
+Jesavis
+Jivon
+Kanatauna
+Karzadai
+Kashrok
+Katiar
+Krarach
+Kronar
+Kunmai
+Liabar
+Lukton
+Luseria
+Lyxa
+Lyxerion
+Maddad
+Mairir
+Mak-Manuu
+Mama Wawilla
+Manigong
+Manildan
+Mersiela
+Monbo Gara
+Morkai
+Moroun
+Morri
+Morwano
+Myuriko
+Nahid
+Naraka
+Niangur
+Niantaui
+Nigali
+Nunogoumbawatahang
+Nurghon
+Oma Barka
+Onkel Swentu
+Padraik
+Pajur
+Papa Drugo
+Porukalaos
+Prllklegutr
+Pudjari
+Pudschu
+Quatikul
+Rahidi
+Rim Gara
+Ronash
+Ronay
+Rraika
+Ruchorr
+Shalenki
+Shandirr
+Shanezi
+Shar Anar
+Shasandiri
+Sheiniu
+Siala
+Sinbara
+Skalangor
+Starrekyng
+Sunja
+Swibalga
+Tamtamkamara
+Tanglang
+Tante Kanja
+Taomai
+Tayru
+Thatarr
+Tomi Gara
+Turagorr
+Ulmon
+Unggoy
+Unjurai
+Urgano
+Uryat
+Valkyrji
+Vangara
+Vanusuri
+Varnu
+Vi'Ela
+Vordan
+Wesantia
+Wesinta
+Wugei
+Yayu Shai
+Yelat
+Yonnus
+Ysgarr
+Zarusz
+Zeshid
+Zul Gara
+Zurasi
+Zuru
+Wyrmbann-Orden
+Dakardsmyr
+Zirkel der Zinne
+Flimmerfee
+Feenblut
+Feenwesen
+Lorakier
+Blutiges Antlitz des Mondes
+Das zweite Gesicht
+Freundschaft der Trabanten
+Geist der Gedanken
+Gunst des reichen Mannes
+Omen des schwarzen Mondes
+Segen der Mondkraft
+Bannmagie
+Beherrschungsmagie
+Bewegungsmagie
+Erkenntnismagie
+Felsmagie
+Feuermagie
+Heilungsmagie
+Illusionsmagie
+Kampfmagie
+Lichtmagie
+Naturmagie
+Schattenmagie
+Schicksalsmagie
+Schutzmagie
+Stärkungsmagie
+Todesmagie
+Verwandlungsmagie
+Wassermagie
+Windmagie
+Absolute Stille
+Allerweltsgesicht
+Altersgespür
+Asche zu Asche
+Atemkontrolle
+Befehlswort
+Betäubungsschlag
+Blitzschild
+Böses Omen
+Brennender Zorn
+Dahinsiechen
+Dämonenaugen
+Donnerschlag
+Dornenranken
+Druckwelle
+Antimagischer Wall
+Arkaner Bogenschütze
+# Regelbegriffe (de)
+Splitterpunkte
+Sicherheitswurf
+Risikowurf
+Standardwurf
+Körperlicher Widerstand
+Verteidigung
+Erschöpfter Fokus
+Stärken
+Wundabzüge
+Lebenspunkte
+Erfahrungspunkte
+Ausstrahlung
+Beweglichkeit
+Splitterpunkt
+Tickleiste
+Ticks
+Heldengrad
+Erfolgsgrade
+Erfolgsgrad
+Triumph
+Patzer
+Geistiger Widerstand
+Fokus
+Kanalisierter Fokus
+Verzehrter Fokus
+Meisterschaft
+Meisterschaften
+Schwerpunkt
+Ressourcen
+Gefolge
+Gesundheitsstufen
+Steigerungskosten
+Mystik
+Willenskraft
+Initiative
+# Regelbegriffe (en)
+# Verhörer
+Splitter Mond => Splittermond

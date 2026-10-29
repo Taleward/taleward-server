@@ -1,0 +1,121 @@
+# HeXXen 1733 – Begriffe für die Transkription
+# Erkennungsnamen: hexxen 1733, hexxen, hexxen1733, savage hexxen
+# Stufe A (höchstens 40, häufigste zuerst)
+HeXXen
+Jäger
+Jägerin
+Hexen
+Alben
+Dämonen
+Erzdämon
+Asmodäus
+Inquisition
+Inquisitor
+Johanneus-Bruder
+Johanneus-Orden
+Hexenjäger
+Gulden
+Dreißigjähriger Krieg
+Schwarzwald
+Erzgebirge
+Rosenkönigin
+Dornenmauer
+# Stufe B
+HeXXenmeister
+Hexenkunst
+Bandenfreunde
+Erzfeind
+Freischaffender Hexenjäger
+Gelehrtenkleidung
+Reisekleidung
+Kultrobe
+Kleidungsset
+Laboratorium
+Waffengifte
+Mystische Rituale
+Ritual der Macht
+Blutheilung
+Kreaturenwissen
+Hammerkunde
+Grimmiger Ruf
+Heimtücke
+Abtauchen
+Heimtückischer Angriff
+Ambitionierter Schaden
+Duellant
+Erzdämonen
+Regionalia
+Ritter, Fürst und Bischofslande
+Königreich der Dornen
+Der Herr der Fliegen
+Schaurige Stätten
+Buch der Regeln
+Grundregeln der Jagd
+Ausbauregeln
+Bestiarium
+# Regelbegriffe (de)
+Coups
+Coup
+Ideen
+Idee
+Segnungen
+Segnung
+Verderbnis
+Ambition
+Ambitionen
+Rage
+Esprit
+Espritsterne
+Espritstern
+HeXXenwürfel
+Elixierwürfel
+Jägerkräfte
+Jägerkraft
+Ausbaukräfte
+Ausbaukraft
+Jägerstufe
+Profession
+Motivation
+Lebenspunkte
+Puffer-Lep
+Basis-Lep
+Minus-Lep
+Lep
+Panzerung
+Initiative
+Körperkraft
+Athletik
+Geschick
+Sinnesschärfe
+Wissen
+Willenskraft
+Unempfindlichkeit
+Wissensgebiete
+Akrobatik
+Aufmerksamkeit
+Erkennen
+Erste Hilfe
+Fingerfertigkeit
+Geistesstärke
+Muskelspiel
+Reflexe
+Reiten
+Unterhalt
+Vermögen
+Hex-Punkte
+Malusschaden
+Freie Reaktion
+Bandengegner
+Kleidungssets
+# Regelbegriffe (en)
+Coups
+Ambition
+Rage
+Esprit
+Profession
+Motivation
+Initiative
+# Verhörer
+Hexen 1733 => HeXXen 1733
+Hexxen Würfel => HeXXenwürfel
+Esprit Sterne => Espritsterne

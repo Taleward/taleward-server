@@ -1,0 +1,377 @@
+# Warhammer Fantasy Rollenspiel – Begriffe für die Transkription
+# Erkennungsnamen: warhammer fantasy, warhammer fantasy rollenspiel, warhammer fantasy roleplay, wfrp, wfrsp, alte welt, old world, reikland
+# Stufe A (höchstens 40, häufigste zuerst)
+Imperium
+Sigmar
+Altdorf
+Reikland
+Middenheim
+Nuln
+Ubersreik
+Bögenhafen
+Marienburg
+Ulric
+Morr
+Shallya
+Ranald
+Taal
+Myrmidia
+Verena
+Manann
+Khorne
+Nurgle
+Tzeentch
+Slaanesh
+Skaven
+Warpstein
+Morrslieb
+Mannslieb
+Goldkronen
+Silberschillinge
+Messingpfennige
+Hexenjäger
+Tiermenschen
+Grünhäute
+Kislev
+Bretonia
+Sylvania
+Talabheim
+Averheim
+Karl Franz
+Kurfürsten
+Chaos
+Alte Welt
+# Stufe B
+Wissenburg
+Kemperbad
+Carroburg
+Grünburg
+Middenland
+Nordland
+Ostland
+Hochland
+Talabecland
+Stirland
+Averland
+Wissenland
+Ostermark
+Mootland
+Drakwald
+Reik
+Talabec
+Stir
+Aver
+Graue Berge
+Schwarze Berge
+Weltrandgebirge
+Mittelberge
+Tilea
+Estalia
+Grenzgrafschaften
+Norsca
+Arabia
+Lustria
+Ulthuan
+Naggaroth
+Albion
+Cathay
+Nippon
+Khemri
+Nehekhara
+Karaz-a-Karak
+Karak Kadrin
+Karak Acht Gipfel
+Karak Eight Peaks
+Zhufbar
+Barak Varr
+Karak Izor
+Karak Hirn
+Karak Norn
+Karak Azgal
+Praag
+Erengrad
+Couronne
+Miragliano
+Magritta
+Mousillon
+Chaoswüste
+Handrich
+Rhya
+Khaine
+Grungni
+Valaya
+Grimnir
+Isha
+Asuryan
+Lileath
+Hashut
+Ungeteiltes Chaos
+Gehörnte Ratte
+Hochelfen
+Waldelfen
+Dunkelelfen
+Halblinge
+Oger
+Orks
+Goblins
+Snotlinge
+Zwerge
+Slayer
+Trollslayer
+Chaoskrieger
+Chaosbarbaren
+Chaosbrut
+Gor
+Ungor
+Bestigor
+Minotauren
+Mutanten
+Mutation
+Ghul
+Vampirfürsten
+Grabkönige
+Vlad von Carstein
+Mannfred von Carstein
+Konrad von Carstein
+Von Carstein
+Nagash
+Heinrich Kemmler
+Kaiser Karl Franz
+Magnus der Fromme
+Teclis
+Volkmar
+Großtheogonist
+Ar-Ulric
+Boris Todbringer
+Emmanuelle von Liebwitz
+Archaon
+Be'lakor
+Gotrek
+Winde der Magie
+Aethyr
+Ghur
+Ghyran
+Chamon
+Aqshy
+Hysh
+Azyr
+Ulgu
+Shyish
+Dhar
+Qhaysh
+Kollegien der Magie
+Hexer
+Heckenhexe
+Sigmarpriester
+Sigmarit
+Templer
+Reiksgarde
+Ritter des Weißen Wolfs
+Pantherritter
+Orden des Silbernen Hammers
+Purpurne Hand
+Rote Krone
+Kaiserlicher Kalender
+Nachexen
+Jahrdrung
+Pflugzeit
+Sigmarzeit
+Sommerzeit
+Vorgeheim
+Nachgeheim
+Erntezeit
+Brauzeit
+Kaldezeit
+Ulriczeit
+Vorhexen
+Wellentag
+Aubentag
+Marktag
+Backertag
+Bezahltag
+Konistag
+Angestag
+Festag
+Hexensnacht
+Geheimnisnacht
+Mondstille
+Sonnstill
+Mittherbst
+Mitterfruhl
+Goldkrone
+Silberschilling
+Messingpfennig
+Rattenfänger
+Gralsritter
+Herrin des Sees
+Feenzauberin
+Rattenoger
+Clan Eshin
+Clan Moulder
+Clan Pestilens
+Clan Skryre
+Clan Mors
+Clan Rictus
+Grauer Seher
+Skavenblight
+Schwarzorks
+Wolfsreiter
+Buch des Grolls
+Dawi
+Grobi
+Umgi
+Elgi
+Asur
+Druchii
+Asrai
+Athel Loren
+Laurëlorn
+Drachenfels
+Konstantin Drachenfels
+Der Feind im Innern
+Sturm des Chaos
+Sigmars Hammer
+Ghal Maraz
+Reiksmarschall
+Hochkönig
+Altdorfer
+Middenheimer
+Reikländer
+Kislevit
+Bretone
+Norse
+Kurgan
+Ulthuaner
+Lahmia
+Blutdrachen
+Necrarch
+Strigoi
+Neferata
+Settra
+Grimgor Ironhide
+Stromfels
+Dazh
+Ursun
+Eiskönigin
+Katarin
+Kossars
+Burgomeister
+Teutogen
+Unberogen
+Sigmar Heldenhammer
+Heldenhammer
+Schwarzfeuerpass
+Solkan
+Mordheim
+Hergig
+Wolfenburg
+Salzenmund
+Bechafen
+Pfeildorf
+Streissen
+Grissenwald
+Weissbruck
+# Stufe B (en)
+Old World
+Empire
+Worlds Edge Mountains
+Bretonnia
+Border Princes
+Chaos Wastes
+Chaos Undivided
+Horned Rat
+Snotlings
+Chaos Spawn
+Tomb Kings
+Grand Theogonist
+Elector Counts
+Gotrek Gurnisson
+Felix Jaeger
+Winds of Magic
+Colleges of Magic
+Amber College
+Bright College
+Celestial College
+Gold College
+Grey College
+Jade College
+Light College
+Amethyst College
+Hedge Witch
+Reiksguard
+Knights of the White Wolf
+Knights Panther
+Order of the Silver Hammer
+Purple Hand
+Red Crown
+Imperial Calendar
+Gold Crown
+Silver Shilling
+Brass Penny
+Rat Catcher
+Witch Hunter
+Grail Knight
+Lady of the Lake
+Fay Enchantress
+Warpstone
+Warplightning
+Rat Ogre
+Grey Seer
+Black Orcs
+Orc Boyz
+Ungrim Ironfist
+Thorgrim Grudgebearer
+Book of Grudges
+The Enemy Within
+Storm of Chaos
+Blood Dragons
+Ice Queen
+Black Fire Pass
+# Regelbegriffe (de)
+Schicksalspunkte
+Glückspunkte
+Fate Points
+Korruption
+Erfolgsgrade
+Advantage
+Vorteil
+Kampfgeschick
+Ballistische Fertigkeit
+Karriere
+Talent
+Initiative
+Wunden
+Kritischer Treffer
+Fortune Points
+Resilience
+Resolve
+Corruption
+Success Levels
+Critical Wounds
+Weapon Skill
+Ballistic Skill
+Willpower
+Fellowship
+Careers
+Wounds
+Critical Hit
+# Regelbegriffe (en)
+Fortune Points
+Resilience
+Resolve
+Corruption
+Success Levels
+Critical Wounds
+Weapon Skill
+Ballistic Skill
+Willpower
+Fellowship
+Careers
+Wounds
+Critical Hit
+# Verhörer
+Bögen Hafen => Bögenhafen
+Überreik => Ubersreik
+Ubersreich => Ubersreik
+Zentsch => Tzeentch
+Slanesh => Slaanesh

@@ -92,6 +92,9 @@ class Eingabe:
     transkript: list[Zeile]
     bibel: list[BekannterEintrag]
     geheim: list[GeheimerEintrag]
+    # 0.4.140: Regelbegriffe des Systems, aufgeteilt mit der Wortliste des Servers (Fachwort / Alltagswort)
+    regel_fach: list[str] = field(default_factory=list)
+    regel_alltag: list[str] = field(default_factory=list)
 
     def als_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False)
@@ -137,10 +140,14 @@ def eingabe_bauen(db: Session, s: GameSession) -> Eingabe:
             bibel.append(BekannterEintrag(e.id, e.type, e.name, e.summary, e.aliases))
         else:
             geheim.append(GeheimerEintrag(e.id, e.type, e.name, e.aliases))
+    from app import begriffe, woerterbuch
+
+    fach, alltag = begriffe.regelwoerter(begriffe.system_fuer(c.system, c.system_name),
+                                         woerterbuch.liste(c.language if c.language in ("de", "en") else "de"))
     return Eingabe(
         sprache=c.language, kampagne=c.title, system=c.system, system_name=c.system_name, welt=c.world_info,
         session_nummer=s.number, session_titel=s.title, personen=personen, gaeste=gaeste,
-        transkript=zeilen, bibel=bibel, geheim=geheim,
+        transkript=zeilen, bibel=bibel, geheim=geheim, regel_fach=list(fach), regel_alltag=list(alltag),
     )
 
 

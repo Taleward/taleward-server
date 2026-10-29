@@ -125,13 +125,18 @@ def begriffe(db: Session, s: GameSession) -> list[dict]:
             g["werte"].append(float(w.get("score") or 0))
             if len(g["beispiele"]) < 3 and all(b["start"] != seg.start for b in g["beispiele"]):
                 g["beispiele"].append({"start": round(seg.start, 2), "quote": seg.text.strip()[:200]})
+    from app import begriffe
+
+    bekannte_verhoerer = begriffe.verhoerer(begriffe.system_fuer(c.system, c.system_name))
     aus = []
     for g in gruppen.values():
         heard = max(g["schreibweisen"], key=lambda k: (g["schreibweisen"][k], k))
         vorschlaege = sorted(((aehnlich(heard, n), n, eid, mid) for n, eid, mid in namen), reverse=True)
         passend = [v for v in vorschlaege if v[0] >= AEHNLICH]
         andere = [k for k in sorted(g["schreibweisen"], key=lambda k: -g["schreibweisen"][k]) if k != heard]
-        alternativen = list(dict.fromkeys([v[1] for v in passend[:2]] + andere))[:4]
+        # 0.4.140: bekannter Verhörer des Systems („Tschummer“ → „Chummer“) als erster Vorschlag – nie still ersetzt
+        verhoert = [bekannte_verhoerer[n] for n in (begriffe.norm(k) for k in g["schreibweisen"]) if n in bekannte_verhoerer]
+        alternativen = list(dict.fromkeys(verhoert + [v[1] for v in passend[:2]] + andere))[:4]
         vorkommen = sum(g["schreibweisen"].values())
         sicherheit = round(sum(g["werte"]) / len(g["werte"]), 3)
         bester = passend[0] if passend else None

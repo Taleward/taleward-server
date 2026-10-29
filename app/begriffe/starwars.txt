@@ -1,0 +1,397 @@
+# Star Wars – Begriffe für die Transkription
+# Erkennungsnamen: star wars, starwars, edge of the empire, age of rebellion, force and destiny, am rande des imperiums, zeitalter der rebellion, macht und schicksal, krieg der sterne, swrpg
+# Stufe A (höchstens 40, häufigste zuerst)
+Jedi
+Sith
+Macht
+Lichtschwert
+Imperium
+Rebellen
+Sturmtruppen
+Credits
+Blaster
+Hyperraum
+Droide
+Wookiee
+Hutten
+Twi'lek
+Coruscant
+Tatooine
+Mos Eisley
+Äußerer Rand
+Corellia
+Nar Shaddaa
+Mandalorianer
+Beskar
+Sternzerstörer
+Darth Vader
+Palpatine
+Imperator
+Rodianer
+Trandoshaner
+Bothaner
+Mon Calamari
+Zabrak
+Togruta
+Jawas
+Tusken
+Bacta
+Holonetz
+Kyberkristall
+# Stufe A (en)
+Lightsaber
+Outer Rim
+X-Wing
+# Stufe B
+Am Rande des Imperiums
+Zeitalter der Rebellion
+Macht und Schicksal
+Die Macht
+Dunkle Seite
+Helle Seite
+Machtsinn
+Darth Sidious
+Luke Skywalker
+Leia Organa
+Han Solo
+Chewbacca
+Obi-Wan Kenobi
+Yoda
+Boba Fett
+Jango Fett
+Jabba
+Jabba der Hutte
+Lando Calrissian
+R2-D2
+C-3PO
+Anakin Skywalker
+Tarkin
+Thrawn
+Ahsoka Tano
+Din Djarin
+Grogu
+Mace Windu
+Qui-Gon Jinn
+Padmé Amidala
+Graf Dooku
+General Grievous
+Darth Maul
+Kylo Ren
+Poe Dameron
+Snoke
+Cassian Andor
+Jyn Erso
+Saw Gerrera
+Mon Mothma
+Bail Organa
+Hera Syndulla
+Ezra Bridger
+Kanan Jarrus
+Sabine Wren
+Bo-Katan Kryze
+Cad Bane
+Bossk
+IG-88
+Dengar
+Greedo
+Wedge Antilles
+Admiral Ackbar
+Jar Jar Binks
+Duros
+Sullustaner
+Ithorianer
+Gamorreaner
+Sandleute
+Gungan
+Chiss
+Gand
+Kel Dor
+Nautolaner
+Weequay
+Toydarianer
+Mirialan
+Cerean
+Aqualish
+Ugnaught
+Geonosianer
+Kaminoaner
+Neimoidianer
+Astromechdroide
+Protokolldroide
+Kampfdroide
+Sondendroide
+Y-Wing
+A-Wing
+B-Wing
+X-Flügler
+TIE-Jäger
+TIE-Abfangjäger
+Supersternzerstörer
+Millennium Falke
+YT-1300
+Slave I
+Razor Crest
+Corellianische Korvette
+Blockadebrecher
+Lambda-Fähre
+AT-AT
+AT-ST
+Todesstern
+Yavin
+Yavin 4
+Dantooine
+Jakku
+Lothal
+Ryloth
+Mustafar
+Kamino
+Geonosis
+Utapau
+Scarif
+Jedha
+Ord Mantell
+Bespin
+Wolkenstadt
+Dathomir
+Felucia
+Mygeeto
+Kessel
+Kessel-Flug
+Hoth
+Endor
+Naboo
+Alderaan
+Dagobah
+Kashyyyk
+Mandalore
+Kernwelten
+Mittlerer Rand
+Unbekannte Regionen
+Hutten-Raum
+Galaktisches Imperium
+Rebellen-Allianz
+Galaktische Republik
+Separatisten
+Handelsföderation
+Jedi-Orden
+Jedi-Rat
+Inquisitoren
+ISB
+Klontruppen
+Klonkriege
+Schwarze Sonne
+Kopfgeldjägergilde
+Erste Ordnung
+Widerstand
+Neue Republik
+DL-44
+E-11
+Thermaldetonator
+Carbonit
+Hyperantrieb
+Midichlorianer
+Wupiupi
+Peggat
+Truguts
+Glitzerstim
+Sabacc
+Pazaak
+Huttisch
+Shyriiwook
+Mando'a
+Binär
+Padawan
+Jedi-Meister
+Jedi-Ritter
+Darth
+Sith-Lord
+Moff
+Großmoff
+Sternenjäger
+Darth Bane
+Darth Plagueis
+Darth Revan
+Revan
+Darth Malak
+Exar Kun
+Darth Nihilus
+Kit Fisto
+Plo Koon
+Ki-Adi-Mundi
+Aayla Secura
+Luminara Unduli
+Barriss Offee
+Quinlan Vos
+Cal Kestis
+Cere Junda
+Kreia
+Chopper
+Zeb Orrelios
+Agent Kallus
+Großinquisitor
+Moff Gideon
+Orson Krennic
+Captain Phasma
+General Hux
+Fennec Shand
+Cobb Vanth
+Greef Karga
+Cara Dune
+IG-11
+Kuiil
+Maz Kanata
+Taris
+Dromund Kaas
+Korriban
+Moraband
+Tython
+Ilum
+Ahch-To
+Exegol
+Crait
+Canto Bight
+Batuu
+Ferrix
+Nevarro
+Kuat
+Fondor
+Sullust
+Rodia
+Tantive IV
+Ebon Hawk
+Outrider
+Galaktischer Senat
+Oberster Kanzler
+# Stufe B (en)
+Edge of the Empire
+Age of Rebellion
+Force and Destiny
+Genesys
+Dark Side
+Light Side
+Battle Meditation
+Imperator Palpatine
+Grand Moff Tarkin
+Count Dooku
+Rodian
+Trandoshan
+Bothan
+Jawa
+Ewoks
+Hutte
+Wookiees
+Droiden
+Astromech
+Droideka
+TIE Fighter
+TIE Interceptor
+TIE Bomber
+Star Destroyer
+Millennium Falcon
+Speeder Bike
+Landspeeder
+Podracer
+Death Star
+Cloud City
+Kessel Run
+Inner Rim
+Core Worlds
+Mid Rim
+Wild Space
+Unknown Regions
+Hutt Space
+Corporate Sector
+Corellian Run
+Hydian Way
+Perlemian Trade Route
+Galactic Empire
+Rebel Alliance
+Trade Federation
+Imperial Security Bureau
+Stormtroopers
+Clone Wars
+Black Sun
+Crimson Dawn
+Pyke Syndicate
+Hutt Cartel
+Bounty Hunters' Guild
+First Order
+New Republic
+Death Watch
+Kyber Crystal
+HoloNet
+Holocron
+Imperial Credits
+Huttese
+Grand Moff
+Grand Inquisitor
+Black Spire Outpost
+Executor
+Home One
+# Regelbegriffe (de)
+Advantage
+Threat
+Despair
+Triumph
+Vorteil
+Bedrohung
+Verzweiflung
+Destiny Points
+Schicksalspunkte
+Obligation
+Verpflichtung
+Pflicht
+Moral
+Strain
+Belastung
+Soak
+Spezialisierung
+Fähigkeitswürfel
+Leistungswürfel
+Schwierigkeitswürfel
+Herausforderungswürfel
+Verstärkungswürfel
+Komplikationswürfel
+Machtwürfel
+Initiative
+Duty
+Morality
+Wound Threshold
+Strain Threshold
+Critical Injury
+Talent Tree
+Specialization
+Force Rating
+Force Power
+Boost Die
+Setback Die
+Ability Die
+Proficiency Die
+Difficulty Die
+Challenge Die
+Force Die
+Narrative Dice
+# Regelbegriffe (en)
+Duty
+Morality
+Wound Threshold
+Strain Threshold
+Critical Injury
+Talent Tree
+Specialization
+Force Rating
+Force Power
+Boost Die
+Setback Die
+Ability Die
+Proficiency Die
+Difficulty Die
+Challenge Die
+Force Die
+Narrative Dice
+# Verhörer
+Tatuin => Tatooine
+Wooki => Wookiee
+Corusant => Coruscant
+Twilek => Twi'lek
+Nar Schadda => Nar Shaddaa

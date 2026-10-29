@@ -663,6 +663,9 @@ def config(worker: Worker = Depends(current_worker), db: Session = Depends(get_d
         antwort = {"hfToken": None, "models": {stand.repo: stand.fassung}, "serverVersion": server_fassung()}
     else:
         antwort = {"hfToken": meta_lesen(db, "hf.token") or None, "models": {}, "serverVersion": server_fassung()}
+    baustein = modellablage.vorhanden(db, modellablage.SPRACHBAUSTEIN)
+    if baustein is not None:  # 0.4.140: Satzmodelle für die Ausrichtung
+        antwort["models"][baustein.repo] = baustein.fassung
     if worker.local:  # eingebauter Worker: Einstellungen aus der Verwaltung
         from app import eingebaut
 

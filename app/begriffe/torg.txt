@@ -1,0 +1,168 @@
+# Torg Eternity – Begriffe für die Transkription
+# Erkennungsnamen: torg eternity, torg, possibility wars, möglichkeitskriege, sturmritter, storm knights
+# Stufe A (höchstens 40, häufigste zuerst)
+Torg
+Sturmritter
+Kosmos
+Kosmen
+Core Earth
+Aysle
+Cyberpapacy
+Living Land
+Nile Empire
+Orrorsh
+Pan-Pacifica
+Tharkold
+Hohe Lords
+Gaunt Man
+Mobius
+Baruk Kaah
+Uthorion
+Malraux
+Kanawa
+Jean Malraux
+Delphi-Rat
+Axiome
+Axiom
+Edeinos
+Gospog
+Nippon Tech
+GodNet
+Ravagon
+Ravagons
+# Stufe A (en)
+Storm Knights
+Storm Knight
+Cosm
+Cosms
+High Lords
+High Lord
+Delphi Council
+Possibility Wars
+Pharaoh Mobius
+Reality
+Realities
+# Stufe B
+Möglichkeitskriege
+Möglichkeiten
+Stormers
+Realitätssturm
+Rec Stalek
+Ardinay
+Kanawa Corporation
+Ryuchi Kanawa
+Jiangshi
+Infiniverse
+# Stufe B (en)
+Possibility Energy
+Reality Storm
+Reality Storms
+Maelstrom Bridge
+Gospog of the First Planting
+Possibility-rated
+Ords
+Ord
+Eternity Shard
+Eternity Shards
+Darkness Device
+Pure Zone
+Dominant Zone
+Mixed Zone
+Hardpoint
+Hardpoints
+Pella Ardinay
+Lady Ardinay
+Tolwyn
+Thratchen
+Jakatts
+Optants
+Gotaks
+Deep Mist
+Land Below
+Electric Samurai
+Ion Gusoko
+Techno-Demons
+Techno-Demon
+Tharkoldu
+Blasted Lands
+Cyberpope
+Church Police
+Hospitallers
+Cyberpriest
+Cyberpriests
+Spirit Chip
+Pulp Powers
+Weird Science
+Mystery Men
+Victorians
+Sacellum
+Nightmares
+Horrors
+Day One
+Delphi Missions
+Infiniverse Exchange
+First Planting
+# Regelbegriffe (de)
+Möglichkeitspunkte
+Dramakarten
+Schicksalskarten
+Kosmoskarten
+Initiative
+Weltgesetze
+# Regelbegriffe (en)
+Possibility Points
+Possibility Point
+Reality Test
+Reality Shock
+Reality Rank
+Connected
+Disconnected
+Drama Cards
+Destiny Cards
+Conflict Line
+Dramatic Skill Resolution
+Shock
+Stymied
+Very Stymied
+Vulnerable
+Very Vulnerable
+Multi-Action
+Tech Axiom
+Magic Axiom
+Social Axiom
+Spiritual Axiom
+World Laws
+Contradiction
+Glory
+Cosm Cards
+Cosm Deck
+Law of Savagery
+Law of Drama
+Law of Action
+Law of Heroism
+Law of Fear
+Law of Pain
+Law of Intrigue
+Transformed
+Reality Bubble
+Setback
+Player's Call
+Hero Card
+Combat Card
+Multi-Targeting
+Approved Actions
+Good Success
+Outstanding Success
+Mishap
+Toughness
+Skill Adds
+Transcendence
+Disconnection
+# Verhörer
+Torck => Torg
+Torg Eternitie => Torg Eternity
+Eisle => Aysle
+Aisle => Aysle
+Orosh => Orrorsh
+Tarkold => Tharkold
+Zyberpapacy => Cyberpapacy

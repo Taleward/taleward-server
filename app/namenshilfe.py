@@ -4,8 +4,6 @@ kleine Begriffsliste. Reihenfolge nach Wichtigkeit, weil Whisper nur einen begre
 Nie enthalten: Charakter-Hintergründe, SL-Notizen, gmNotes, Kommentare (nur Namen, keine Inhalte).
 """
 import json
-from functools import lru_cache
-from pathlib import Path
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -15,36 +13,20 @@ from app.models import Campaign, Entry, EntryMention, GameSession, Member, User
 MAX_BEGRIFFE = 80
 MAX_ZEICHEN = 700  # grob 200 Token – mehr schneidet Whisper ohnehin ab
 
-_ORDNER = Path(__file__).resolve().parent / "begriffe"
+
+def systembegriffe(system: str | None, sprache: str = "de", system_name: str | None = None) -> tuple[str, ...]:
+    """Schreibhilfe des Systems (app/begriffe.py): Stufe A der Sprache, danach die ersten Regelbegriffe."""
+    from app import begriffe
+
+    return tuple(begriffe.schreibhilfe(begriffe.system_fuer(system, system_name), sprache))
 
 
-@lru_cache
-def systembegriffe(system: str | None) -> tuple[str, ...]:
-    if not system or system == "other":
-        return ()
-    datei = _ORDNER / f"{system}.txt"
-    if not datei.exists():
-        return ()
-    zeilen = datei.read_text(encoding="utf-8").splitlines()
-    return tuple(z.strip() for z in zeilen if z.strip() and not z.startswith("#"))
+def regelbegriffe(system: str | None, system_name: str | None = None) -> tuple[str, ...]:
+    """Alle Regelbegriffe des Systems (beide Sprachen) – Fach- und Alltagswörter zusammen."""
+    from app import begriffe
 
-
-@lru_cache
-def regelbegriffe(system: str | None) -> tuple[str, ...]:
-    """0.4.79: Begriffe, die nur zu den Regeln gehören (Abschnitt „# Regelbegriffe“ der Begriffsliste). Sie helfen der
-    Transkription wie alle anderen, im Kapitel haben sie nichts zu suchen."""
-    if not system or system == "other":
-        return ()
-    datei = _ORDNER / f"{system}.txt"
-    if not datei.exists():
-        return ()
-    aus, drin = [], False
-    for z in datei.read_text(encoding="utf-8").splitlines():
-        if z.startswith("#"):
-            drin = z[1:].strip().casefold().startswith("regelbegriffe")
-        elif drin and z.strip():
-            aus.append(z.strip())
-    return tuple(aus)
+    fach, alltag = begriffe.regelwoerter(begriffe.system_fuer(system, system_name))
+    return fach + alltag
 
 
 MAX_ANZEIGE = 200   # Schnittstelle 0.4.6: höchstens 200 Einträge …
@@ -143,7 +125,7 @@ def fuer_kampagne(db: Session, campaign: Campaign, kapitel: int | None = None) -
     from app.routers.plaene import namen_fuer
 
     namen = _eindeutig(namen_fuer(db, campaign.id, kapitel) + anzeige(db, campaign)
-                       + list(systembegriffe(campaign.system)))
+                       + list(systembegriffe(campaign.system, campaign.language, campaign.system_name)))
     ergebnis, laenge = [], 0
     for n in namen[:MAX_BEGRIFFE]:
         if laenge + len(n) + 2 > MAX_ZEICHEN:

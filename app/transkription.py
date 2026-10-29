@@ -369,6 +369,18 @@ def _uebersetzen(e: Exception) -> AudioFehler:
     return AudioFehler("worker_error", text[:500], retryable=True)
 
 
+def satz_pfad_eintragen(ordner) -> bool:
+    """Ordner mit tokenizers/punkt_tab/… vorn in den Suchpfad von nltk (für whisperx.align)."""
+    try:
+        import nltk.data
+    except ImportError:
+        return False
+    p = str(ordner)
+    if p not in nltk.data.path:
+        nltk.data.path.insert(0, p)
+    return True
+
+
 # ---------------------------------------------------------------- WhisperX (nur mit Grafikkarte)
 class EinrichtungsFehler(Exception):
     """Worker kann nicht starten – verständliche Meldung für die Kommandozeile."""
@@ -458,10 +470,29 @@ class WhisperXMotor:
                            "sprecher": sprecher}
         except modelle.ModellFehler as e:
             raise EinrichtungsFehler(str(e)) from None
+        baustein = self._sprachbaustein()
+        if baustein is not None:
+            self.bereit["sprachbaustein"] = baustein
         return {"gpu": torch.cuda.get_device_name(0) if braucht_gpu else "CPU",
                 "vramMb": VramMesser.gesamt_mb() if braucht_gpu else None, "modell": self.modell,
                 "genauigkeit": self.genauigkeit, "geraete": self.geraete, "grenzeMb": self.grenze_mb or None,
                 "modelle": {b.repo: (b.fassung or "")[:12] for b in self.bereit.values()}}
+
+    def _sprachbaustein(self):
+        """0.4.140: Satzmodelle (punkt_tab) vom Server, damit nltk sie nicht selbst aus dem Internet holen muss.
+        Fehlt der Baustein (älterer Server, kein Netz), bleibt alles wie bisher."""
+        from app import modelle
+
+        if not self.quelle:
+            return None
+        try:
+            b = modelle.vom_server(modelle.SPRACHBAUSTEIN, self.quelle)
+        except Exception as e:  # noqa: BLE001 – nie ein Grund, den Auftrag abzubrechen
+            log.info("Sprachbaustein nicht vom Server (%s) – nltk sucht selbst", e)
+            return None
+        if b is not None:
+            satz_pfad_eintragen(b.pfad)
+        return b
 
     def sparsamer(self) -> bool:
         """Nach „Grafikspeicher voll“: eine Stufe zurück (halber Stapel, Ausrichtung und Sprecher auf dem Prozessor).

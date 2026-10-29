@@ -739,18 +739,23 @@ def modell_holen():
 
 
 @app.command("modell-spiegel")
-def modell_spiegel(ziel: Path = typer.Argument(..., help="Ordner, der später auf einem Webserver liegt")):
+def modell_spiegel(ziel: Path = typer.Argument(..., help="Ordner, der später auf einem Webserver liegt"),
+                   sprachbaustein: bool = typer.Option(False, "--sprachbaustein",
+                                                       help="Statt des Sprechermodells die Satzmodelle (punkt_tab)")):
     """Für das Taleward-Projekt: Spiegel des Sprechermodells erstellen (mit Namensnennung nach CC-BY-4.0).
     Die ausgegebene Prüfsumme gehört in SPIEGEL in app/modellablage.py."""
     from app import modellablage
 
+    repo = modellablage.SPRACHBAUSTEIN if sprachbaustein else modellablage.SPRECHERMODELL
     with _db() as db:
         try:
-            ordner, summe = modellablage.spiegel_erstellen(db, ziel.expanduser().resolve())
+            if sprachbaustein:
+                modellablage.holen(db, repo)
+            ordner, summe = modellablage.spiegel_erstellen(db, ziel.expanduser().resolve(), repo)
         except modellablage.AblageFehler as e:
             typer.echo(str(e), err=True)
             raise typer.Exit(1)
-        stand = modellablage.vorhanden(db)
+        stand = modellablage.vorhanden(db, repo)
     typer.echo(f"Spiegel liegt in {ordner}")
     typer.echo(f'In app/modellablage.py eintragen:  SPIEGEL = {{"{stand.repo}": ("{stand.fassung}", "{summe}")}}')
     typer.echo("Den Ordner so hochladen, dass <MODEL_MIRROR_URL>/<repo>/<fassung>/manifest.json erreichbar ist.")

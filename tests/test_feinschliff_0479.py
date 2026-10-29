@@ -45,16 +45,18 @@ def test_geruechte_in_allen_anweisungen():
 
 
 def test_regelbegriffe_des_systems():
-    assert regelbegriffe("shadowrun") == ("Edge",) and "Edge" in systembegriffe("shadowrun")
+    # 0.4.140: Listen mit Sprachabschnitten; „Edge“ ist ein einzelnes Wort – ohne Wortliste zählt es als Alltagswort
+    assert "Edge" in regelbegriffe("shadowrun") and "Chummer" in systembegriffe("shadowrun")
     assert regelbegriffe("other") == () and regelbegriffe(None) == () and regelbegriffe("gibt-es-nicht") == ()
     text = ("Mit einem Lächeln und einem Hauch von Edge überredete Ana den Fahrer, die Fahrt zu schenken. Bo nickte, "
             "während Ana überlegte, Edge für den ersten Eindruck einzusetzen. Der Rand der Klinge war scharf.")
-    aus, befunde = artefakte.kapitel(text, [], [], regelbegriffe("shadowrun"))
+    aus, befunde = artefakte.kapitel(text, [], [], ("Edge",))  # als Fachwort: weg, wo es steht
     assert aus == "Mit einem Lächeln überredete Ana den Fahrer, die Fahrt zu schenken. Bo nickte. Der Rand der Klinge war scharf."
     assert [b["art"] for b in befunde] == ["regel", "regel"]
     # ohne System bleibt der Text, wie er war (der Rand heißt nicht Edge)
     assert artefakte.kapitel(text, [], [])[0] == text
-    assert sm._regelwoerter({"system": "shadowrun"}) == ("Edge",) and sm._regelwoerter({}) == ()
+    assert "Edge" in sm._alltagswoerter({"system": "shadowrun"}) and sm._regelwoerter({}) == ()
+    assert sm._regelwoerter({"regel_fach": ["Edge"], "regel_alltag": []}) == ("Edge",)
 
 
 def test_saetze_ueber_die_runde_fallen_weg():

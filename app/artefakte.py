@@ -220,6 +220,19 @@ def regelwoerter_muster(woerter) -> re.Pattern | None:
     return re.compile(r"\b(?:" + "|".join(re.escape(x) for x in w) + r")\b") if w else None
 
 
+_ZAHL = r"(?:\d+|plus|minus|[+" + chr(0x2212) + chr(0xB1) + "])"  # Ziffern, plus/minus, +, −, ±
+
+
+def alltagswoerter_muster(woerter) -> re.Pattern | None:
+    """0.4.140: Regelbegriffe, die auch Alltagswörter sind („Schmerz“, „Wunden“), zählen nur mit einer Zahl oder
+    „plus/minus“ höchstens drei Wörter daneben als Regelrest („Schmerz plus eins“, „Belastung 2“)."""
+    w = sorted({x.strip() for x in woerter or () if x and x.strip()}, key=len, reverse=True)
+    if not w:
+        return None
+    a = "(?:" + "|".join(re.escape(x) for x in w) + ")"
+    return re.compile(rf"(?:{_ZAHL}\W+(?:\w+\W+){{0,2}}\b{a}\b|\b{a}(?:\W+\w+){{0,2}}\W+{_ZAHL})")
+
+
 def regelwort_entfernen(satz: str, muster: re.Pattern) -> str:
     """0.4.79: Einen Regelbegriff des Systems aus dem Satz nehmen, möglichst ohne den Satz zu zerbrechen: erst als kurze
     Wendung („und einem Hauch von Edge“), dann als Nebensatz („, während sie überlegte, Edge einzusetzen“), sonst wie
@@ -236,23 +249,24 @@ def regelwort_entfernen(satz: str, muster: re.Pattern) -> str:
 
 
 def kapitel(text: str, personen: list[dict] | None = None, geschuetzte_namen: list[str] | None = None,
-            regelwoerter=()) -> tuple[str, list[dict]]:
+            regelwoerter=(), alltagswoerter=()) -> tuple[str, list[dict]]:
     """Kapiteltext säubern. Liefert (Text, Befunde).
 
     0.4.62: Steht ein großer Teil der Sätze in der Du-/Ihr-Form, erzählt das Modell so – dann würde das Löschen das
     halbe Kapitel kosten. Die Sätze bleiben, es gibt einen Hinweis (Art „erzaehlstimme“)."""
     muster = regelwoerter_muster(regelwoerter)
-    aus, befunde = _kapitel(text, personen, geschuetzte_namen, du_weg=True, regelmuster=muster)
+    alltag = (alltagswoerter_muster(alltagswoerter), regelwoerter_muster(alltagswoerter))
+    aus, befunde = _kapitel(text, personen, geschuetzte_namen, du_weg=True, regelmuster=muster, alltag=alltag)
     du = sum(1 for b in befunde if b["art"] == "du_form")
     saetze = sum(len(_saetze(a.strip())) for a in re.split(r"\n\s*\n", text or ""))
     if du > max(3, ERZAEHLSTIMME_ANTEIL * saetze):
-        aus, befunde = _kapitel(text, personen, geschuetzte_namen, du_weg=False, regelmuster=muster)
+        aus, befunde = _kapitel(text, personen, geschuetzte_namen, du_weg=False, regelmuster=muster, alltag=alltag)
         befunde.insert(0, {"art": "erzaehlstimme", "text": f"{du} von {saetze}"})
     return aus, befunde
 
 
 def _kapitel(text: str, personen: list[dict] | None, geschuetzte_namen: list[str] | None, du_weg: bool,
-             regelmuster: re.Pattern | None = None) -> tuple[str, list[dict]]:
+             regelmuster: re.Pattern | None = None, alltag: tuple = (None, None)) -> tuple[str, list[dict]]:
     personen = personen or []
     geschuetzt = {n.casefold() for n in (geschuetzte_namen or []) if n}
     for p in personen:
@@ -282,6 +296,9 @@ def _kapitel(text: str, personen: list[dict] | None, geschuetzte_namen: list[str
             if satz and regelmuster is not None and regelmuster.search(satz):
                 befunde.append({"art": "regel", "text": satz[:200]})
                 satz = regelwort_entfernen(satz, regelmuster)
+            if satz and alltag[0] is not None and alltag[0].search(satz):  # 0.4.140: Alltagswort nur mit Zahl
+                befunde.append({"art": "regel", "text": satz[:200]})
+                satz = regelwort_entfernen(satz, alltag[1])
             if satz and _TISCHMETA.search(satz):  # ein Satz über die Runde selbst: ganz weg
                 befunde.append({"art": "tischmeta", "text": satz[:200]})
                 continue

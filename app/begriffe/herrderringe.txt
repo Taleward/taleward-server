@@ -1,0 +1,380 @@
+# Der Eine Ring / Herr der Ringe – Begriffe für die Transkription
+# Erkennungsnamen: der eine ring, the one ring, herr der ringe, lord of the rings, mittelerde, middle-earth, tor2e, lotr, abenteuer in mittelerde
+# Stufe A (höchstens 40, häufigste zuerst)
+Mittelerde
+Auenland
+Bruchtal
+Bree
+Eriador
+Gandalf
+Hobbits
+Dúnedain
+Elben
+Moria
+Gondor
+Rohan
+Mordor
+Sauron
+Saruman
+Isengard
+Düsterwald
+Lothlórien
+Nebelgebirge
+Arnor
+Angmar
+Wetterspitze
+Hügelgräberhöhen
+Nazgûl
+Ringgeister
+Aragorn
+Streicher
+Elrond
+Galadriel
+Frodo
+Bilbo
+Beorninger
+Waldläufer
+Orks
+Uruk-hai
+Warge
+# Stufe A (en)
+Rivendell
+Shire
+Mirkwood
+Wilderland
+# Stufe B
+Der Eine Ring
+Herr der Ringe
+Ringgeist
+Freie Völker
+Frodo Beutlin
+Bilbo Beutlin
+Legolas
+Gimli
+Boromir
+Faramir
+Samweis Gamdschie
+Meriadoc Brandybock
+Merry
+Peregrin Tuk
+Pippin
+Celeborn
+Gollum
+Sméagol
+Thorin Eichenschild
+Balin
+Dáin
+Dáin Eisenfuß
+Beorn
+Radagast
+Tom Bombadil
+Goldbeere
+Théoden
+Éowyn
+Éomer
+Denethor
+Glorfindel
+Arwen
+Thranduil
+Bard
+Smaug
+Hexenkönig
+Balrog
+Kankra
+Huorns
+Ents
+Baumbart
+Gríma Schlangenzunge
+Gríma
+Butterblume
+Gerstenmann Butterblume
+Tänzelndes Pony
+Hobbingen
+Beutelsend
+Bockland
+Alter Wald
+Graue Anfurten
+Mithlond
+Fornost
+Annúminas
+Tharbad
+Bruinen
+Lautwasser
+Brandywein
+Fangorn
+Helms Klamm
+Edoras
+Osgiliath
+Minas Tirith
+Minas Morgul
+Cirith Ungol
+Barad-dûr
+Schicksalsberg
+Orodruin
+Dol Guldur
+Carrock
+Langer See
+Seestadt
+Esgaroth
+Erebor
+Einsamer Berg
+Thal
+Eisenberge
+Graue Berge
+Rhûn
+Harad
+Umbar
+Dunland
+Lindon
+Ered Luin
+Blaue Berge
+Trollhöhen
+Ettenöden
+Eregion
+Hollin
+Anduin
+Großer Strom
+Schwertelfelder
+Rhovanion
+Tal des Anduin
+Breeland
+Chetwald
+Archet
+Staddel
+Combe
+Nordhöhen
+Südhöhen
+Wetterberge
+Rhudaur
+Cardolan
+Arthedain
+Carn Dûm
+Khazad-dûm
+Zwergenbinge
+Dunharg
+Isen
+Gondolin
+Valinor
+Beleriand
+Númenor
+Westernis
+Noldor
+Sindar
+Waldelben
+Durins Volk
+Waldmenschen
+Bardinger
+Rohirrim
+Dunländer
+Ostlinge
+Haradrim
+Breeländer
+Waldläufer des Nordens
+Westron
+Sindarin
+Quenya
+Khuzdul
+Schwarze Sprache
+Drittes Zeitalter
+Auenland-Zeitrechnung
+Mithril
+Palantír
+Palantíri
+Lembas
+Athelas
+Königskraut
+Pfeifenkraut
+Morgulklinge
+Anduril
+Andúril
+Narsil
+Stich
+Glamdring
+Orcrist
+Ringe der Macht
+Weißer Rat
+Istari
+Maiar
+Valar
+Elbereth
+Gilthoniel
+Varda
+Eru Ilúvatar
+Ilúvatar
+Morgoth
+Melkor
+Thingol
+Celebrimbor
+Isildur
+Elendil
+Gil-galad
+Círdan
+Halbarad
+Gilraen
+Erkenbrand
+Gamling
+Háma
+Imrahil
+Beregond
+Bergil
+Lobelia Sackheim-Beutlin
+Sackheim-Beutlin
+Bauer Maggot
+Bill Ferny
+Bombadil
+Alter Weidenmann
+Grabunhold
+Grabunholde
+Azog
+Bolg
+Gundabad
+Nekromant
+Dol Amroth
+Belfalas
+Lebennin
+Pelargir
+Ithilien
+Henneth Annûn
+Morannon
+Schwarzes Tor
+Gorgoroth
+Udûn
+Nurn
+Mithrandir
+Olórin
+Tharkûn
+Elessar
+Estel
+Undómiel
+Abendstern
+Elbenstein
+Caras Galadhon
+Nimrodel
+Silberlauf
+Celebrant
+Kheled-zâram
+Spiegelsee
+Caradhras
+Rothorn
+Bundushathûr
+Zirakzigil
+Celebdil
+Schattenbachtal
+Azanulbizar
+# Stufe B (en)
+Middle-earth
+The One Ring
+Free Peoples
+Samwise Gamgee
+Thorin Oakenshield
+Goldberry
+Witch-king
+Ringwraiths
+Shelob
+Wargs
+Treebeard
+Barliman Butterbur
+Prancing Pony
+Hobbiton
+Bag End
+Buckland
+Weathertop
+Barrow-downs
+Old Forest
+Misty Mountains
+Grey Havens
+Brandywine
+Helm's Deep
+Mount Doom
+Long Lake
+Lake-town
+Lonely Mountain
+Dale
+Iron Hills
+Grey Mountains
+Blue Mountains
+Trollshaws
+Ettenmoors
+Gladden Fields
+Vales of Anduin
+North Downs
+South Downs
+Weather Hills
+Lone-lands
+Silvan Elves
+Durin's Folk
+Beornings
+Woodmen
+Bardings
+Dunlendings
+Easterlings
+Bree-folk
+Rangers of the North
+Black Speech
+Third Age
+Shire Reckoning
+Pipe-weed
+Morgul-blade
+Sting
+Rings of Power
+White Council
+Fredegar Bolger
+Farmer Maggot
+Old Man Willow
+Barrow-wight
+Necromancer
+Black Gate
+Evenstar
+Mirrormere
+Redhorn
+Dimrill Dale
+# Regelbegriffe (de)
+Schattenpunkte
+Gandalf-Rune
+Auge Saurons
+Feat Die
+Erfolgswürfel
+Gemeinschaftsphase
+Hope
+Hoffnungspunkte
+Erschöpft
+Ausdauer
+Tapferkeit
+Weisheit
+Initiative
+Shadow Points
+Gandalf Rune
+Eye of Sauron
+Success Dice
+Fellowship Phase
+Adventuring Phase
+Eye Awareness
+Weary
+Miserable
+Endurance
+Valour
+Wisdom
+Safe Haven
+Shadow Path
+# Regelbegriffe (en)
+Shadow Points
+Gandalf Rune
+Eye of Sauron
+Success Dice
+Fellowship Phase
+Adventuring Phase
+Eye Awareness
+Weary
+Miserable
+Endurance
+Valour
+Wisdom
+Safe Haven
+Shadow Path
+# Verhörer
+Mittel Erde => Mittelerde
+Nasgul => Nazgûl
+Lothlorien => Lothlórien
+Dunedain => Dúnedain
+Galadrjel => Galadriel
+Saurons Auge => Auge Saurons

@@ -29,6 +29,7 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 SPRECHERMODELL = "pyannote/speaker-diarization-community-1"
+SPRACHBAUSTEIN = "nltk/punkt_tab"  # Satzmodelle für die Ausrichtung (0.4.140, app/modellablage.py)
 
 # Hugging-Face-Kennung → Commit. Eingetragen wird nur, was auf echter Hardware geprüft ist.
 FASSUNGEN: dict[str, str] = {}

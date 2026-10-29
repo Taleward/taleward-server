@@ -1,0 +1,337 @@
+# Earthdawn – Begriffe für die Transkription
+# Erkennungsnamen: earthdawn, barsaive, zeitalter der legenden, age of legend
+# Stufe A (höchstens 40, häufigste zuerst)
+Barsaive
+Throal
+Thera
+Theraner
+Theranisches Reich
+Kaer
+Kaers
+Namensgeber
+Adept
+Adepten
+Dämonen
+Plage
+Passionen
+Obsidianer
+T'skrang
+Windlinge
+Blutwald
+Blutelfen
+Bartertown
+Kratas
+Travar
+Iopos
+Parlainth
+Vivane
+Sky Point
+Schlangenfluss
+# Stufe A (en)
+Therans
+Theran Empire
+Name-giver
+Name-givers
+Horrors
+Scourge
+Passions
+Obsidimen
+Windlings
+Blood Wood
+Blood Elves
+Serpent River
+# Stufe B
+Mountainshadow
+Fadenweben
+Haven
+Urupa
+Jerris
+Kaer Tardim
+Cara Fahd
+Scythia
+Landis
+Sosanopa
+Ustrect
+Darranis
+Marrek
+Ardanyan
+Tylon
+Twilight Peaks
+Thunder Mountains
+Caucavic Mountains
+Tylon Mountains
+König Varulus
+Varulus
+Neden
+Thom Edrull
+Denairastas
+Iopaner
+Vasgothia
+Wyrm Wood
+Elven Court
+Alachia
+Königin Alachia
+Kaer Eidolon
+Verjigorm
+Vestrial
+Ysrthgrathe
+Aardelea
+Icewing
+Earthroot
+Vasdenjas
+Usun
+Dvilgaynon
+Großdrache
+Great Dragon
+Astor
+Chorrolis
+Floranuus
+Garlen
+Jaspree
+Lochost
+Mynbruje
+Thystonius
+Upandal
+Dis
+Raggok
+Questor
+Questoren
+Mad Passion
+Krieger
+Warrior
+Schwertmeister
+Swordmaster
+Dieb
+Thief
+Troubadour
+Elementarist
+Elementalist
+Illusionist
+Nethermancer
+Magier
+Wizard
+Sky Raider
+Bogenschütze
+Archer
+Tiermeister
+Beastmaster
+Kavallerist
+Cavalryman
+Waffenschmied
+Weaponsmith
+Schamane
+Scout
+Kundschafter
+Thread Magic
+True Pattern
+Pattern Item
+Thread Item
+Elemental Air
+Living Crystal
+Crystal Raiders
+Luftschiff
+Airship
+Drakkar
+Riverboat
+Horror Construct
+Horror Mark
+Cadaver Man
+Spirits
+Ally Spirit
+Elemental Spirit
+City of Thieves
+Merchant City
+Grand Bazaar
+Ork Nation
+Ork Scorcher
+Crystal Raiders of Barsaive
+Legenden von Barsaive
+Legends of Barsaive
+# Stufe B (en)
+Haven
+Kaer Tardim
+Twilight Peaks
+Thunder Mountains
+King Varulus
+Elven Court
+Queen Alachia
+Blood Warder
+Great Dragons
+Horror
+Horror Stalker
+Horror Mark
+Horror Construct
+Cadaver Men
+Thread
+Threads
+Thread Weaving
+Pattern Item
+Thread Item
+Legend Points
+Legend Point
+Karma Point
+Karma Points
+Namegiver
+Namegivers
+Obsidiman
+Windling
+Troubadour
+Illusionist
+Wizard
+Nethermancer
+Elementalist
+Beastmaster
+Archer
+Cavalryman
+Scout
+Sky Raider
+Swordmaster
+Thief
+Warrior
+Weaponsmith
+Shaman
+Journeyman
+Warden
+Master
+Novice
+Circle
+Circles
+Discipline
+Disciplines
+Talent
+Talents
+Talent Knack
+Knack
+Half-Magic
+Elemental Spirit
+Ally Spirit
+Blood Magic
+Blood Charm
+Blood Oath
+Blood Peace
+Living Crystal
+Airship
+Riverboat
+Crystal Raiders
+City of Thieves
+Merchant City
+Grand Bazaar
+Ork Nation
+Ork Scorchers
+Theran
+# Regelbegriffe (de)
+Kreis
+Kreise
+Disziplin
+Disziplinen
+Talent
+Talente
+Karma
+Karmapunkte
+Legendenpunkte
+Stufe
+Stufen
+Mindestwurf
+Probe
+Blutmagie
+Spruchmatrix
+Matrix
+Zauberspruch
+Zaubersprüche
+Faden
+Fäden
+Fadenweben
+Mystische Verteidigung
+Todesschwelle
+Wunde
+Wunden
+Erholungsprobe
+Erholungsproben
+Eiserner Wille
+Initiative
+Geschicklichkeit
+Stärke
+Zähigkeit
+Wahrnehmung
+Willenskraft
+Charisma
+Novize
+Geselle
+Wächter
+Meister
+# Regelbegriffe (en)
+Circle
+Circles
+Discipline
+Disciplines
+Talent
+Talents
+Talent Knack
+Knack
+Karma
+Karma Points
+Legend Points
+Step
+Steps
+Step Number
+Action Dice
+Difficulty Number
+Target Number
+Test
+Result Level
+Success Level
+Extraordinary Success
+Blood Magic
+Blood Charm
+Blood Oath
+Blood Peace
+Spell Matrix
+Matrix
+Spell
+Spells
+Thread
+Threads
+Thread Weaving
+Weave Threads
+Thread Rank
+Mystic Defense
+Social Defense
+Physical Defense
+Mystic Armor
+Physical Armor
+Death Rating
+Unconsciousness Rating
+Wound Threshold
+Wound
+Wounds
+Recovery Test
+Recovery Tests
+Iron Will
+Initiative
+Dexterity
+Strength
+Toughness
+Perception
+Willpower
+Charisma
+Damage Step
+Armor Rating
+Half-Magic
+Novice
+Journeyman
+Warden
+Master
+Legend
+Naming
+Spirit Summoning
+Astral Space
+Astral Sight
+Astral Sensing
+Raw Casting
+Warping
+# Verhörer
+Barsaiv => Barsaive
+Troal => Throal
+Teraner => Theraner
+Käer => Kaer
+Tskrang => T'skrang

@@ -1,0 +1,386 @@
+# Legend of the Five Rings – Begriffe für die Transkription
+# Erkennungsnamen: legend of the five rings, l5r, rokugan, legende der fünf ringe, fünf ringe, five rings
+# Stufe A (höchstens 40, häufigste zuerst)
+Rokugan
+Smaragdreich
+Hantei
+Crab
+Crane
+Dragon
+Lion
+Phoenix
+Scorpion
+Unicorn
+Mantis
+Samurai
+Shugenja
+Bushi
+Courtier
+Daimyo
+Shadowlands
+Schattenlande
+Fu Leng
+Kami
+Bushido
+Koku
+Bu
+Zeni
+Katana
+Wakizashi
+Otosan Uchi
+Toshi Ranbo
+# Stufe A (en)
+Emerald Empire
+Emperor
+Empress
+# Stufe B
+Hida
+Hiruma
+Kaiu
+Kuni
+Yasuki
+Doji
+Kakita
+Asahina
+Daidoji
+Togashi
+Mirumoto
+Kitsuki
+Agasha
+Tamori
+Akodo
+Matsu
+Kitsu
+Ikoma
+Isawa
+Shiba
+Asako
+Bayushi
+Shosuro
+Soshi
+Yogo
+Moto
+Shinjo
+Utaku
+Iuchi
+Ide
+Yoritomo
+Tsuruchi
+Kitsune
+Moshi
+Yoshitsune
+Shinsei
+Tao des Shinsei
+Tao of Shinsei
+Fortunen
+Fortunes
+Sieben Fortunen
+Seven Fortunes
+Benten
+Bishamon
+Daikoku
+Ebisu
+Fukurokujin
+Hotei
+Jurojin
+Amaterasu
+Lady Sun
+Onnotangu
+Lord Moon
+Jigoku
+Yomi
+Meido
+Tengoku
+Ningen-do
+Chikushudo
+Toshigoku
+Gaki-do
+Sakkaku
+Spirit Realms
+Kolat
+Lying Darkness
+Oni
+Oni-Lord
+Oni no Akuma
+Akuma
+Kuni Oni
+Tsuno
+Bakemono
+Gaki
+Shadowlands Taint
+Taint
+Jade
+Jade Champion
+Emerald Champion
+Emerald Magistrate
+Jade Magistrate
+Imperial Heir
+Imperial Families
+Seppun
+Otomo
+Miya
+Imperial Chancellor
+Imperial Advisor
+Imperial Legions
+Imperial Court
+Winter Court
+Kyuden
+Shiro
+Mura
+Toshi
+Kyuden Doji
+Kyuden Bayushi
+Kyuden Hida
+Kyuden Isawa
+Shiro Matsu
+Shiro Akodo
+Shiro Mirumoto
+Shiro Shinjo
+Shiro Shiba
+Shiro Kitsuki
+Kyuden Togashi
+Kyuden Ikoma
+Kyuden Kakita
+Mura Sabishii Toshi
+Ryoko Owari
+Ryoko Owari Toshi
+City of Lies
+Imperial City
+Kyuden Seppun
+Dragon's Teeth
+Great Wall
+Carpenter Wall
+Kaiu Wall
+Burning Sands
+Ivory Kingdoms
+Day of Thunder
+Seven Thunders
+Clan War
+Scorpion Clan Coup
+Steel Chrysanthemum
+Gozoku
+Ronin
+Rōnin
+Ashigaru
+Heimin
+Hinin
+Eta
+Bonge
+Buke
+Kuge
+Geisha
+Sensei
+Shireikan
+Gunso
+Taisa
+Chui
+Nikutai
+Hatamoto
+Karo
+Yojimbo
+Kensai
+Duellant
+Duelist
+Iaijutsu
+Kenjutsu
+Kyujutsu
+Jiujutsu
+Kiho
+Mahō
+Maho
+Maho-tsukai
+Bloodspeaker
+Iuchiban
+Daisho
+Tanto
+Naginata
+Yumi
+Tetsubo
+Nodachi
+Kanabo
+Yari
+Dai-tsuchi
+Kimono
+Mon
+Mempo
+Sashimono
+Netsuke
+Inro
+Sake
+Tea Ceremony
+Chado
+Ikebana
+Origami
+Haiku
+Shogi
+Kemari
+Sadane
+Nemuranai
+Mujina
+Kenku
+Naga
+Nezumi
+Ratlings
+Zokujin
+Kappa
+Tengu
+Yobanjin
+Gaijin
+Unicorn Clan
+Mantis Clan
+Spider Clan
+Daigotsu
+Hantei XXXVIII
+Toturi
+Toturi I
+Iweko
+Hida Kisada
+Doji Hotaru
+Doji Satsume
+Bayushi Shoju
+Bayushi Kachiko
+Kachiko
+Akodo Toturi
+Akodo Arasou
+Matsu Tsuko
+Shiba Tsukune
+Isawa Tadaka
+Togashi Yokuni
+Mirumoto Hitomi
+Shinjo Altansarnai
+Kakita Toshimoko
+Hida Yakamo
+Hida Sukune
+Kuni Yori
+Shosuro Furuyari
+# Stufe B (en)
+Crab Clan
+Crane Clan
+Dragon Clan
+Lion Clan
+Phoenix Clan
+Scorpion Clan
+Great Clans
+Minor Clans
+Hare Clan
+Fox Clan
+Badger Clan
+Sparrow Clan
+Tortoise Clan
+Bat Clan
+Falcon Clan
+Dragonfly Clan
+Great Wall of Kaiu
+Celestial Heavens
+Celestial Order
+Celestial Wedding
+Jade Throne
+Emerald Throne
+Imperial Throne
+Imperial Palace
+Forbidden City
+Shadowlands Horde
+Dark Oracle
+Elemental Dragons
+Elemental Terror
+Elemental Terrors
+Oracle of Thunder
+Oracle of Fire
+Thunder Dragon
+Celestial Dragon
+Dragon of Air
+Dragon of Earth
+Dragon of Fire
+Dragon of Water
+Dragon of Void
+Honor
+Glory
+Status
+Infamy
+# Regelbegriffe (de)
+Ehre
+Ruhm
+Status
+Ringe
+Ring
+Luftring
+Erdring
+Feuerring
+Wasserring
+Leerering
+Leerepunkte
+Haltungen
+Kata
+Kiho
+Schulrang
+Streben
+Erfolge
+Explosive Erfolge
+Gelegenheit
+Gelegenheiten
+Initiative
+Iaijutsu-Duell
+Roll and Keep
+Honor
+Glory
+Strife
+Opportunity
+Composure
+# Regelbegriffe (en)
+Honor
+Glory
+Status
+Infamy
+Rings
+Ring
+Air Ring
+Earth Ring
+Fire Ring
+Water Ring
+Void Ring
+Void Points
+Stances
+Approaches
+Distinction
+Distinctions
+Adversity
+Adversities
+Kata
+Kiho
+Shuji
+Invocation
+Invocations
+Mahō
+School Rank
+Giri
+Ninjō
+Ninjo
+Strife
+Composure
+Unmasking
+Critical Strike
+Critical Strikes
+Explosive Success
+Explosive Successes
+Opportunity
+Opportunities
+TN
+Ring Dice
+Skill Dice
+Roll and Keep
+Raises
+Free Raise
+Initiative
+Iaijutsu Duel
+Staredown
+Finishing Blow
+Insight Rank
+Taint
+Shadowlands Taint
+Taint Rank
+# Verhörer
+Rokugahn => Rokugan
+Shugendscha => Shugenja
+Buschi => Bushi
+Daimio => Daimyo
+Hantai => Hantei

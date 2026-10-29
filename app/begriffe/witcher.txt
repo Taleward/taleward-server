@@ -1,0 +1,343 @@
+# The Witcher – Begriffe für die Transkription
+# Erkennungsnamen: the witcher, witcher, der hexer, hexer rollenspiel, witcher trpg, witcher rollenspiel, kontinent
+# Stufe A (höchstens 40, häufigste zuerst)
+Hexer
+Witcher
+Kontinent
+Nilfgaard
+Nilfgaarder
+Redanien
+Temerien
+Kaedwen
+Aedirn
+Skellige
+Cintra
+Novigrad
+Oxenfurt
+Wyzima
+Kaer Morhen
+Toussaint
+Velen
+Scoia'tael
+Aard
+Igni
+Quen
+Yrden
+Axii
+Gwint
+Weiße Flamme
+Emhyr
+Geralt
+Yennefer
+Triss
+Ciri
+Rittersporn
+# Stufe A (en)
+Redania
+Temeria
+Vizima
+Gwent
+White Flame
+Dandelion
+Jaskier
+# Stufe B
+Mahakam
+Brokilon
+Lyrien
+Rivien
+Rivia
+Verden
+Brugge
+Sodden
+Kovir
+Poviss
+Hengfors
+Zerrikanien
+Ofir
+Blaviken
+Ard Carraigh
+Vengerberg
+Tretogor
+Pontar
+Jaruga
+Blauberge
+Drachenberge
+Beauclair
+Ard Skellig
+An Skellig
+Spikeroog
+Undvik
+Hindarsfjall
+Kaer Trolde
+Dol Blathanna
+Tal der Blumen
+Thanedd
+Aretusa
+Ban Ard
+Gors Velen
+Ellander
+Maribor
+Dillingen
+Crinfrid
+Hagge
+Vergen
+Loc Muinne
+Flotsam
+Rosrog
+Nilfgaardisches Imperium
+Kaiserreich Nilfgaard
+Schwarze
+Die Schwarzen
+Kaiser Emhyr
+Emhyr var Emreis
+Foltest
+Radovid
+Henselt
+Demawend
+Meve
+Calanthe
+Pavetta
+Vesemir
+Eskel
+Lambert
+Coën
+Letho
+Regis
+Zoltan Chivay
+Zoltan
+Milva
+Cahir
+Angoulême
+Philippa Eilhart
+Fringilla Vigo
+Keira Metz
+Sheala de Tancarville
+Francesca Findabair
+Vilgefortz
+Sigismund Dijkstra
+Dijkstra
+Vernon Roche
+Iorweth
+Saskia
+Stregobor
+Renfri
+Vivienne
+Anna Henrietta
+Olgierd
+Gaunter O'Dim
+Avallac'h
+Eredin
+Wilde Jagd
+Wild Hunt
+Aen Elle
+Aen Seidhe
+Aen Saevherne
+Ältere Blut
+Älteres Blut
+Hen Ichaer
+Elder Blood
+Lara Dorren
+Ithlinne
+Prophezeiung Ithlinnes
+Sphärenkonjunktion
+Conjunction of the Spheres
+Hexerschulen
+Wolfsschule
+Schule des Wolfes
+Katzenschule
+Schule der Katze
+Greifenschule
+Schule des Greifen
+Bärenschule
+Schule des Bären
+Vipernschule
+Schule der Viper
+Mantikorschule
+School of the Wolf
+School of the Cat
+School of the Griffin
+School of the Bear
+School of the Viper
+Kräuterprobe
+Trial of the Grasses
+Hexermedaillon
+Witcher Medallion
+Silberschwert
+Silver Sword
+Stahlschwert
+Steel Sword
+Weißer Honig
+White Honey
+Goldener Pirol
+Golden Oriole
+Schwarzes Blut
+Black Blood
+Kikimora
+Kikimore
+Griffin
+Greif
+Leshen
+Waldschrat
+Alghoul
+Nekker
+Drowner
+Ertrunkener
+Ertrunkene
+Wasserweib
+Water Hag
+Nachtmahr
+Noonwraith
+Mittagserscheinung
+Nightwraith
+Nachterscheinung
+Striga
+Strige
+Wyvern
+Kokatrix
+Cockatrice
+Ekimmara
+Katakan
+Bruxa
+Höhere Vampire
+Higher Vampire
+Fiend
+Chort
+Doppler
+Godling
+Botchling
+Rock Troll
+Sylvan
+Endrega
+Archespore
+Echinops
+Zeugl
+Zeugel
+Villentretenmerth
+Borkh
+Saskia von Aedirn
+Hexenjäger
+Witch Hunters
+Ewiges Feuer
+Eternal Fire
+Kirche des Ewigen Feuers
+Church of the Eternal Fire
+Melitele
+Freya
+Lebioda
+Kreve
+Große Sonne
+Great Sun
+Ermion
+Mäusesack
+Mousesack
+Zauberinnenloge
+Lodge of Sorceresses
+Kapitel der Magier
+Brüderschaft der Zauberer
+Brotherhood of Sorcerers
+Crach an Craite
+Cerys
+Hjalmar
+Birna Bran
+Bran Tuirseach
+Ciaran
+Blut und Wein
+Blood and Wine
+Hearts of Stone
+Herz aus Stein
+Der letzte Wunsch
+Das Schwert der Vorsehung
+Das Erbe der Elfen
+Die Zeit der Verachtung
+Feuertaufe
+Der Schwalbenturm
+Die Dame vom See
+Zeit des Sturms
+# Stufe B (en)
+Lyria
+Rivia
+Zerrikania
+Ofier
+Blue Mountains
+Dragon Mountains
+Valley of Flowers
+Nilfgaardian Empire
+Empire of Nilfgaard
+The Black Ones
+Emperor Emhyr
+Elder Blood
+Ithlinne's Prophecy
+Witcher Schools
+Griffin
+Leshen
+Noonwraith
+Nightwraith
+Rock Troll
+Forest Troll
+Trollwife
+Higher Vampire
+Cat School
+Wolf School
+Bear School
+Viper School
+Griffin School
+Manticore School
+Witcher Medallion
+Silver Sword
+Steel Sword
+Decoction
+Decoctions
+Mutagens
+Place of Power
+Ort der Macht
+Eternal Fire
+Great Sun
+Lodge of Sorceresses
+Brotherhood of Sorcerers
+Chapter of Sorcerers
+Witch Hunter
+Lesser Evil
+The Last Wish
+Sword of Destiny
+Blood of Elves
+Time of Contempt
+Baptism of Fire
+The Tower of the Swallow
+The Lady of the Lake
+Season of Storms
+Clan an Craite
+Clan Tuirseach
+Clan Brokvar
+Clan Drummond
+Clan Dimun
+Clan Heymaey
+# Regelbegriffe (de)
+Trefferpunkte
+Stamina
+Vigor
+Stopping Power
+Kritischer Treffer
+Verifikation
+Reputation
+Lebenspfad
+Lifepath
+Initiative
+# Regelbegriffe (en)
+Hit Points
+Stamina
+Vigor
+Stopping Power
+Skill Check
+Critical Hit
+Critical Wound
+Verification
+Reputation
+Lifepath
+Initiative
+# Verhörer
+Nilfgard => Nilfgaard
+Kaer Moren => Kaer Morhen
+Skellig => Skellige
+Jenefer => Yennefer
+Geralt von Riva => Geralt von Rivia
+Scoiatael => Scoia'tael

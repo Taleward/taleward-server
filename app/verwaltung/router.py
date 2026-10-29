@@ -839,6 +839,8 @@ def modell_holen(request: Request, user: User = Depends(verwalter), db: Session 
     """Sprechermodell sofort auf den Server laden (sonst übernimmt das die Wartung)."""
     from app import modellablage
 
+    if modellablage.vorhanden(db, modellablage.SPRACHBAUSTEIN) is None:
+        modellablage.baustein_versuchen(db)  # 0.4.140: klappt das nicht, arbeiten die Worker wie bisher
     if modellablage.versuchen(db) is None:
         from app.einstellungen import meta_lesen
 

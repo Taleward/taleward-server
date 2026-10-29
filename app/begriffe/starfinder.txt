@@ -1,0 +1,282 @@
+# Starfinder – Begriffe für die Transkription
+# Erkennungsnamen: starfinder, starfinder 2e, sf2e, sfrpg, paktwelten, pact worlds
+# Stufe A (höchstens 40, häufigste zuerst)
+Starfinder
+Paktwelten
+Absalom-Station
+Drift
+Die Lücke
+Eox
+Akiton
+Castrovel
+Verces
+Triaxus
+Aballon
+Vesk
+Veskarium
+Kasatha
+Lashunta
+Shirren
+Ysoki
+Android
+Schwarm
+Starfinder-Gesellschaft
+Solarier
+Technomant
+Triune
+Weydan
+Hylax
+Pharasma
+Abadar
+Desna
+Iomedae
+Sarenrae
+Lamashtu
+# Stufe A (en)
+Pact Worlds
+Absalom Station
+The Gap
+Swarm
+Starfinder Society
+Solarian
+Envoy
+Operative
+Mechanic
+Mystic
+Technomancer
+Hellknights
+# Stufe B
+Asmodeus
+Besmara
+Zon-Kuthon
+Urgathoa
+Golarion
+Idari
+Diaspora
+Höllenritter
+Sternenstein
+Absalom
+Kortos
+Apostae
+Liavara
+Bretheda
+Aucturn
+Vesk Prime
+AbadarCorp
+Arcanamirium
+Casandalee
+Epoch
+Ibra
+Talavet
+Oras
+Yaraesa
+Eloritu
+Damoritosh
+Lao Shu Po
+Nyarlathotep
+Rovagug
+Skittermander
+Barathu
+Kalo
+Pahtra
+Vlaka
+Khizar
+Shobhad
+Nuar
+Haan
+Borai
+Bantrid
+Brenneri
+Draelik
+Gnoll
+Hobgoblin
+Ikeshti
+Ghibrani
+Sro
+Embri
+Osharu
+Quorlu
+Dessamar
+Stelliferas
+Kish
+Dirindi
+Drow
+Chiskisk
+Ehu Hadif
+Luwazi Elsebo
+Iseph
+Keskodai
+Navasi
+Obozaya
+Altronus
+Quig
+Raia
+Damaya
+Korasha
+Qabarat
+Elytrioi
+Bolida
+Brightside
+Darkside
+Dataphiles
+Second Seekers
+Scoured Stars
+Witchwyrd
+Akata
+Ellicoth
+Ksarik
+Hanakan
+Dromada
+Ferran
+Morlamaw
+Tashtari
+# Stufe B (en)
+Energy Armor Class
+Kinetic Armor Class
+Universal Polymer Base
+Credstick
+Drift Beacon
+Driftnet
+Drift Rock
+Near Space
+The Vast
+Azlanti Star Empire
+Corpse Fleet
+Stewards
+Free Captains
+Eoxian
+Bone Sages
+Aspis Consortium
+Pact Council
+Xenowardens
+Starstone
+Ryphorian
+Contemplative
+Dragonkin
+Formian
+Sarcesian
+Uplifted Bear
+Astrazoan
+Reptoid
+Reptoids
+Elebrian
+Pact Worlds Guide
+Armory
+Character Operations Manual
+Alien Archive
+Starfinder Core Rulebook
+Dead Suns
+Against the Aeon Throne
+Signal of Screams
+Dawn of Flame
+Attack of the Swarm
+Fly Free or Die
+Sunrise Maiden
+Ring of Fates
+Armada
+Lorespire Complex
+Lorespire
+Raxilites
+Exo-Guardians
+Acquisitives
+Wayfinders
+First Seeker
+The Devourer
+Space Goblin
+Space Goblins
+Bone Trooper
+Necrovite
+Contemplatives
+Biohacker
+Vanguard
+Witchwarper
+Nanocyte
+Evolutionist
+Precog
+Laser Pistol
+Azimuth Laser Pistol
+Tactical Pistol
+Pulsecaster Pistol
+Static Arc Pistol
+Tactical Dueling Sword
+Second Skin
+Freebooter Armor
+Personal Comm Unit
+Comm Unit
+Datapad
+Serum of Healing
+Spell Gem
+Fusion Seal
+Weapon Fusion
+Armor Upgrade
+Jetpack
+Holoskin
+# Regelbegriffe (de)
+Ausdauerpunkte
+Trefferpunkte
+Heldenpunkte
+Rettungswurf
+Zauberplatz
+Zaubertrick
+Reflex
+Willen
+Zähigkeit
+Initiative
+EAC
+KAC
+UPB
+Stamina Points
+Resolve Points
+# Regelbegriffe (en)
+Stamina Points
+Resolve Points
+Hit Points
+Saving Throw
+Fortitude
+Reflex
+Will Save
+Spell Slot
+Cantrip
+Hero Points
+EAC
+KAC
+UPB
+Augmentations
+Hybrid Item
+Solar Weapon
+Solar Flare
+Solar Armor
+Stellar Mode
+Graviton
+Photon
+Stellar Revelation
+Zenith Revelation
+Envoy Improvisation
+Mechanic Trick
+Exocortex
+Custom Rig
+Operative Exploit
+Trick Attack
+Starship Combat
+Science Officer
+Build Points
+Hull Points
+Critical Threshold
+Mystic Cure
+Magic Missile
+Energy Ray
+Psychokinetic Hand
+Token Spell
+Telekinetic Projectile
+Mind Thrust
+Supercharge Weapon
+Jolting Surge
+Overheat
+Holographic Image
+Initiative
+# Verhörer
+Absolom => Absalom
+Kasata => Kasatha
+Lashuntha => Lashunta
+Eoks => Eox
+Solarien => Solarian

@@ -1,0 +1,388 @@
+# Vampire: Die Maskerade / World of Darkness – Begriffe für die Transkription
+# Erkennungsnamen: vampire, vampir, maskerade, masquerade, world of darkness, welt der dunkelheit, vampire die maskerade, vampire the masquerade, vtm, werwolf die apokalypse, werewolf the apocalypse
+# Stufe A (höchstens 40, häufigste zuerst)
+Kainiten
+Camarilla
+Sabbat
+Anarchen
+Brujah
+Gangrel
+Malkavianer
+Nosferatu
+Toreador
+Tremere
+Ventrue
+Lasombra
+Tzimisce
+Ravnos
+Banu Haqim
+Hecata
+Caitiff
+Dünnblütige
+Maskerade
+Elysium
+Prinz
+Primogen
+Disziplinen
+Ghul
+Blutsband
+Vitae
+Diablerie
+Erzeuger
+Kain
+Gehenna
+Jyhad
+Antediluvianer
+Methusalem
+Zweite Inquisition
+# Stufe A (en)
+Kindred
+Anarchs
+Malkavian
+Masquerade
+Sire
+Caine
+# Stufe B
+Kainit
+Setiten
+Salubri
+Giovanni
+Assamiten
+Baali
+Kappadozianer
+Lamia
+Kiasyd
+Lilith
+Abel
+Enoch
+Zillah
+Irad
+Zweite Stadt
+Ältester
+Ahn
+Ancilla
+Neonat
+Kuss
+Domitor
+Torpor
+Endgültiger Tod
+Golconda
+Pfade der Erleuchtung
+Zuflucht
+Domäne
+Herde
+Koterie
+Chronik
+Erzähler
+Seneschall
+Harpie
+Hüter des Elysiums
+Geißel
+Justikar
+Archon
+Innerer Zirkel
+Anarchenrevolte
+Konvention von Thorns
+Sechs Traditionen
+Lex Talionis
+Blutjagd
+Prestation
+Vaulderie
+Ritae
+Bischof
+Erzbischof
+Kardinal
+Priscus
+Schwarze Hand
+Inconnu
+FIRSTLIGHT
+Arcanum
+Buch von Nod
+Animalismus
+Auspex
+Celerity
+Geschwindigkeit
+Beherrschung
+Fortitude
+Seelenstärke
+Verdunkelung
+Stärke
+Präsenz
+Protean
+Gestaltwandel
+Blutzauberei
+Thaumaturgie
+Oblivion
+Chimerstry
+Dementation
+Vicissitude
+Obtenebration
+Quietus
+Serpentis
+Nekromantie
+Malkav
+Haqim
+Saulot
+Absimiliard
+Ennoia
+Arikel
+Cappadocius
+Augustus Giovanni
+Etrius
+Goratrix
+Hardestadt
+Jan Pieterzoon
+Theo Bell
+Lucita
+Beckett
+Anatole
+Kuei-jin
+Werwolf: Die Apokalypse
+Garou
+Wyrm
+Wyld
+Gaia
+Umbra
+Pentex
+Lupinen
+Magus: Die Erleuchtung
+Technokratie
+Traditionen
+Changeling
+Wraith
+Auctoritas Ritae
+Ignoblis Ritae
+Elfenbeinturm
+Konklave
+Rote Liste
+Alastor
+Blutlinie
+Bratovitch
+Grimaldi
+Zantosa
+Obertus
+Ducheski
+Dünnblütiger
+Kainskinder
+Antitribu
+Nictuku
+Haus Tremere
+Hesha Ruhadze
+Fatima al-Faqadi
+Ur-Shulgi
+Mithras
+Helena
+Victoria Ash
+Nines Rodriguez
+Sebastian LaCroix
+Invictus
+Lancea Sanctum
+Ordo Dracul
+Daeva
+Mekhet
+Ankh
+# Stufe B (en)
+Cainite
+Anarch
+Thin-Blood
+Thin-Blooded
+Duskborn
+Ministry
+Ministry of Set
+Followers of Set
+Assamite
+Cappadocian
+Gargoyles
+Harbingers of Skulls
+Daughters of Cacophony
+True Brujah
+Second City
+Antediluvian
+Methuselah
+Neonate
+Childe
+Embrace
+Ghoul
+Blood Bond
+Final Death
+Paths of Enlightenment
+Path of Caine
+Path of Night
+Haven
+Domain
+Herd
+Coterie
+Chronicle
+Storyteller
+Seneschal
+Harpy
+Keeper of Elysium
+Scourge
+Justicar
+Inner Circle
+Anarch Baron
+Anarch Free States
+Anarch Revolt
+Convention of Thorns
+Six Traditions
+Blood Hunt
+Boons
+Lick
+Licks
+Kine
+Bishop
+Archbishop
+Cardinal
+Black Hand
+Second Inquisition
+Society of Leopold
+Book of Nod
+Animalism
+Dominate
+Obfuscate
+Potence
+Presence
+Blood Sorcery
+Thaumaturgy
+Necromancy
+Thin-Blood Alchemy
+Kindred of the East
+Werewolf: The Apocalypse
+Weaver
+Lupine
+Mage: The Ascension
+Technocracy
+Hunter: The Reckoning
+Chicago by Night
+Berlin by Night
+Loresheet
+Feral Whispers
+Sense the Beast
+Heightened Senses
+Scry the Soul
+Spirit's Touch
+Cat's Grace
+Cloud Memory
+Mesmerize
+Forgetful Mind
+Submerged Directive
+Terminal Decree
+Unswayable Mind
+Defy Bane
+Cloak of Shadows
+Silence of Death
+Unseen Passage
+Mask of a Thousand Faces
+Lethal Body
+Brutal Feed
+Spark of Rage
+Uncanny Grip
+Fist of Caine
+Entrancement
+Dread Gaze
+Eyes of the Beast
+Feral Weapons
+Earth Meld
+Mist Form
+Corrosive Vitae
+Theft of Vitae
+Shadow Cloak
+Arms of the Abyss
+Shadow Step
+Ward against Ghouls
+Blood Walk
+Wake with Evening's Freshness
+Defense of the Sacred Haven
+Path of Blood
+Lure of Flames
+Movement of the Mind
+Rego Vitae
+Shovelhead
+Shovelheads
+War Party
+Wild Hunt
+Monomacy
+Sword of Caine
+Ivory Tower
+Conclave
+Red List
+Blood Doll
+Bloodline
+Chantry
+Imbued
+Revenants
+Anarch Movement
+House Tremere
+Smiling Jack
+Bloodlines
+Vampire: Requiem
+Circle of the Crone
+Carthian Movement
+Chronicles of Darkness
+# Regelbegriffe (de)
+Hunger Dice
+Hungerwürfel
+Rouse Check
+Blutmacht
+Menschlichkeit
+Humanity
+Rötschreck
+Raserei
+Messy Critical
+Willenskraft
+Resonanz
+Dyskrasie
+Würfelpool
+Schwierigkeit
+Erfolge
+Initiative
+Blood Potency
+Humanity Roll
+Frenzy
+Bestial Failure
+Willpower
+Touchstones
+Convictions
+Predator Type
+Resonance
+Dyscrasia
+Blood Surge
+Bane Severity
+Clan Bane
+Compulsion
+Stains
+Remorse
+Aggravated Damage
+Superficial Damage
+Dice Pool
+Difficulty
+Successes
+# Regelbegriffe (en)
+Blood Potency
+Humanity Roll
+Frenzy
+Bestial Failure
+Willpower
+Touchstones
+Convictions
+Predator Type
+Resonance
+Dyscrasia
+Blood Surge
+Bane Severity
+Clan Bane
+Compulsion
+Stains
+Remorse
+Aggravated Damage
+Superficial Damage
+Dice Pool
+Difficulty
+Successes
+# Verhörer
+Malkavianner => Malkavianer
+Tsimisce => Tzimisce
+Tzimisze => Tzimisce
+Rautschreck => Rötschreck
+Diablery => Diablerie
+Brucha => Brujah

@@ -1,0 +1,216 @@
+# Symbaroum – Begriffe für die Transkription
+# Erkennungsnamen: symbaroum, davokar, ambria, ruins of symbaroum
+# Stufe A (höchstens 40, häufigste zuerst)
+Symbaroum
+Ambria
+Davokar
+Yndaros
+Distelfeste
+Karvosti
+Prios
+Korinthia
+Königin Korinthia
+Ambrier
+Barbarenklans
+Verderbnis
+Sonnenkirche
+Symbar
+Titanen
+Ravenia
+Templewall
+Alberetor
+Lindaros
+Huldra
+Ordo Magica
+# Stufe A (en)
+Thistle Hold
+Queen Korinthia
+Ambrians
+Barbarian Clans
+Iron Pact
+Arch Troll
+Blight Beasts
+# Stufe B
+Schatzsucher
+Lasifor Nightpitch
+Ynedar
+Thron der Dornen
+Kastor
+Prios-Pass
+Odaiova
+Baiaga
+Vajvod
+Saar-Kahn
+Karohar
+Gaoia
+Jezora
+Enoai
+Godinja
+Zarek
+Varaka
+Kadizar
+Haloban
+Haus Kohinoor
+Kohinoor
+Fenya
+Magdala
+Kvarek
+Elgalo
+Tharaban
+Yeleta
+Losadra
+Abesina
+Barbar
+Elf
+Troll
+Erztrolle
+Abomination
+Scheusal
+Scheusale
+Nekromant
+Zauberer
+Mystiker
+Krieger
+Schurke
+Duellant
+Waldläufer
+Hexenjäger
+Ritter
+Söldner
+Kundschafter
+Tempelritter
+Prios-Priester
+Magister
+Troubadour
+Beschwörer
+Gelehrter
+Dieb
+Totenbeschwörer
+Thaler
+Schilling
+Ortegs
+# Stufe B (en)
+Witches
+Theurgs
+Black Cloaks
+Sun Church
+High Chieftain
+Church of Prios
+Throne of Thorns
+Prios Pass
+Grey Wade
+Grey Wade Crossing
+Blight
+Blight Marked
+Abominations
+Undead
+Elder Gods
+Young Gods
+Sun God
+Giver of Laws
+Lawgiver
+Firstfather
+House Kohinoor
+Grand Duchy
+Ambrian
+Clan
+Clan Warrior
+Witch Warrior
+Summer Elf
+Autumn Elf
+Winter Elf
+Wardens
+Iron Pact Wardens
+Sorcerer
+Sorcery
+Mystic
+Warrior
+Rogue
+Duelist
+Ranger
+Witch Hunter
+Knight
+Mercenary
+Templar
+Priest
+Scout
+Troubadour
+Necromancer
+Thief
+Treasure Hunter
+Treasure Hunters
+Warlord
+Tattooed Fighter
+Wizard
+Confessor
+Artifact Crafter
+Monster Hunter
+Beast Master
+Executioner
+Thaler
+Shilling
+Orteg
+Ortegs
+Davokar Awakens
+Mark of the Beast
+Tomb of Dying Dreams
+Wrath of the Warden
+Darkest Star
+# Regelbegriffe (de)
+Verderbnis
+Korruption
+Zähigkeit
+Verteidigung
+Ritual
+Rituale
+Attribute
+Stärke
+Erfahrungspunkte
+Meister
+Archetyp
+Initiative
+# Regelbegriffe (en)
+Corruption
+Permanent Corruption
+Temporary Corruption
+Corruption Threshold
+Toughness
+Pain Threshold
+Defense
+Ability
+Abilities
+Mystical Power
+Mystical Powers
+Ritual
+Rituals
+Attributes
+Accurate
+Quick
+Cunning
+Persuasive
+Discreet
+Resolute
+Strong
+Vigilant
+Experience
+Novice
+Adept
+Master
+Race
+Archetype
+Occupation
+Test
+Roll
+Initiative
+Boon
+Burden
+Trait
+Monstrous Trait
+Shadow
+Thoroughly Corrupt
+# Verhörer
+Symbaroom => Symbaroum
+Simbaroum => Symbaroum
+Ambrien => Ambria
+Davocar => Davokar
+Indaros => Yndaros

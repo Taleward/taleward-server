@@ -1,50 +1,471 @@
-# Pathfinder – häufige Eigennamen und Begriffe (Schreibhilfe für die Transkription)
+# Pathfinder – Begriffe für die Transkription
+# Erkennungsnamen: pathfinder, pathfinder 2e, pathfinder 1e, pf2e, pf1e, golarion, lost omens
+# Stufe A (höchstens 40, häufigste zuerst)
 Golarion
 Absalom
 Varisia
-Sandpoint
+Sandspitze
 Magnimar
 Korvosa
-Riddleport
 Cheliax
 Andoran
 Taldor
 Osirion
-Irrisen
-Numeria
-Ustalav
-Sarkoris
-Thassilon
-Runenherrscher
+Katapesh
+Iomedae
 Desna
 Sarenrae
-Iomedae
-Asmodeus
 Pharasma
-Gorum
 Cayden Cailean
+Abadar
+Asmodeus
 Lamashtu
 Rovagug
 Aroden
-Abadar
 Erastil
+Gozreh
 Torag
+Nethys
+Shelyn
 Calistria
-Zon-Kuthon
+Pathfinder-Gesellschaft
+Thassilon
+Runenherrscher
+Höllenritter
+Ustalav
+Numeria
+Irrisen
+# Stufe A (en)
+Sandpoint
+Pathfinder Society
+Runelords
+Hellknights
+Aspis Consortium
+Worldwound
+# Stufe B
+Avistan
+Garund
+Tian Xia
+Casmaron
+Arcadia
+Sekamina
+Nar-Voth
+Orv
+Sternenstein
+Azlant
+Shory
+Kaer Maga
+Janderhoff
+Thuvia
+Oppara
+Qadira
+Katheer
+Sothis
+Geb
+Nex
+Alkenstar
+Rahadoum
+Sargava
+Mwangi Expanse
+Vidrian
+Caliphas
+Brevoy
+Flusskönigreiche
+Galt
+Weltenwunde
+Mendev
+Belkzen
+Nidal
+Molthune
+Nirmathas
+Isger
+Druma
+Lastwall
+Ravounel
+Kyonin
+Iadara
+Egorian
+Almas
+Kortos
+Jalmeray
+Vudra
+Minkai
+Goka
+Abadius
+Calistril
+Pharast
+Gozran
+Desnus
+Sarenith
+Erastus
+Arodus
+Rova
+Lamashan
+Neth
+Kuthona
+Gorum
+Irori
 Norgorber
 Urgathoa
-Goblin
-Hobgoblin
+Zon-Kuthon
+Besmara
+Arazni
+Groetus
+Achaekek
+Razmir
+Milani
+Brigh
+Casandalee
+Ghlaunder
+Hanspur
+Kurgess
+Sivanah
+Dahak
+Apsu
+Tar-Baphon
+Karzoug
+Alaznist
+Sorshen
+Xanderghul
+Krune
+Belimarius
+Zutha
+Ezren
+Amiri
+Seoni
+Valeros
+Kyra
+Merisiel
+Harsk
+Lem
+Seelah
+Lini
+Rote Mantis
+Sczarni
+Mwangi
+Tian
+Orakel
+Kleriker
+Hexenmeister
+Waldläufer
+Schurke
+Kämpfer
+Leshy
+Ysoki
+Tengu
+Kitsune
+Iruxi
+Gnoll
+Nephilim
 Aasimar
 Tiefling
-Kineticist
+Ifrit
+Oread
+Sylph
+Undine
+Dhampir
+Azarketi
+Strix
+Anadi
+Conrasu
+Halbling
+Halbork
+Halbelf
+Grippli
+Xulgath
+Vrock
+Hezrou
+Glabrezu
+Marilith
+Balor
+Nalfeshnee
+# Stufe B (en)
+Inner Sea
+Darklands
+Starstone
+Earthfall
+Riddleport
+Turtleback Ferry
+Hook Mountain
+Storval Plateau
+Cinderlands
+Mushfens
+Whitethrone
+Starfall
+River Kingdoms
+Stolen Lands
+Sarkoris Scar
+Lands of the Linnorm Kings
+Linnorm Kingdoms
+Realm of the Mammoth Lords
+Hold of Belkzen
+Gravelands
+Five Kings Mountains
+Highhelm
+Westcrown
+Lost Omens
+Age of Lost Omens
+Absalom Reckoning
+Moonday
+Toilday
+Wealday
+Oathday
+Fireday
+Starday
+Whispering Tyrant
+Red Mantis
+Eagle Knights
+Bellflower Network
+Knights of Lastwall
+Gray Maidens
+Varisians
+Shoanti
+Kellids
+Ulfen
+Chelaxians
+Taldans
+Garundi
+Keleshites
+Vudrani
+Azlanti
+Thassilonian
+Venture-Captain
 Alchemist
+Champion
+Investigator
 Inquisitor
 Magus
 Oracle
-Orakel
 Summoner
-Beschwörer
-Hexe
-Waldläufer
+Swashbuckler
+Thaumaturge
+Psychic
+Kineticist
+Gunslinger
+Inventor
+Witch
+Cavalier
+Barbarian
+Bard
+Cleric
+Druid
+Fighter
+Monk
+Ranger
+Rogue
+Sorcerer
+Wizard
+Ratfolk
+Catfolk
+Lizardfolk
+Fetchling
+Sprite
+Poppet
+Automaton
+Android
+Fleshwarp
+Changeling
+Duskwalker
+Halfling
+Half-Orc
+Half-Elf
+Gnome
+Goblin
+Kobold
+Hobgoblin
+Boggard
+Linnorm
+Succubus
+Rise of the Runelords
+Curse of the Crimson Throne
+Kingmaker
+Abomination Vaults
+Age of Ashes
+Extinction Curse
+Agents of Edgewatch
+Strength of Thousands
+Wrath of the Righteous
+Skull & Shackles
+Carrion Crown
+Jade Regent
+Hell's Rebels
+Iron Gods
+Gold Pieces
+Silver Pieces
+Copper Pieces
+Platinum Pieces
+# Regelbegriffe (de)
 Heldenpunkte
+Initiative
+Hero Points
+Multiple Attack Penalty
+Strike
+Stride
+Flat-footed
+Off-Guard
+Focus Points
+Focus Spell
+Ancestry
+Heritage
+Critical Success
+Critical Failure
+Degree of Success
+Attack of Opportunity
+Saving Throw
+Fortitude
+Reflex
+Will Save
+Spell Slot
+Cantrip
+Hit Points
+Armor Class
+Raise a Shield
+Shield Block
+Trained
+Expert
+Master
+Legendary
+Proficiency
+Frightened
+Dying
+Wounded
+Doomed
+Drained
+Clumsy
+Enfeebled
+Stupefied
+Sickened
+Persistent Damage
+Reaction
+Free Action
+Full-Round Action
+Swift Action
+Standard Action
+Move Action
+Five-Foot Step
+Base Attack Bonus
+Combat Maneuver Bonus
+Combat Maneuver Defense
+Touch AC
+Spell Resistance
+Damage Reduction
+Channel Energy
+Hit Dice
+Natural 20
+Nat 20
+Skill Feat
+Class Feat
+General Feat
+Ancestry Feat
+Archetype
+Dedication
+Treat Wounds
+Battle Medicine
+Recall Knowledge
+Demoralize
+Grapple
+Trip
+Shove
+Feint
+Bon Mot
+Exploration Mode
+Encounter Mode
+Downtime
+Bulk
+Hardness
+Hunt Prey
+Sneak Attack
+Rage
+Panache
+Finisher
+Spellstrike
+Mutagen
+# Regelbegriffe (en)
+Hero Points
+Multiple Attack Penalty
+Strike
+Stride
+Flat-footed
+Off-Guard
+Focus Points
+Focus Spell
+Ancestry
+Heritage
+Critical Success
+Critical Failure
+Degree of Success
+Attack of Opportunity
+Saving Throw
+Fortitude
+Reflex
+Will Save
+Spell Slot
+Cantrip
+Hit Points
+Armor Class
+Raise a Shield
+Shield Block
+Trained
+Expert
+Master
+Legendary
+Proficiency
+Frightened
+Dying
+Wounded
+Doomed
+Drained
+Clumsy
+Enfeebled
+Stupefied
+Sickened
+Persistent Damage
+Reaction
+Free Action
+Full-Round Action
+Swift Action
+Standard Action
+Move Action
+Five-Foot Step
+Base Attack Bonus
+Combat Maneuver Bonus
+Combat Maneuver Defense
+Touch AC
+Spell Resistance
+Damage Reduction
+Channel Energy
+Hit Dice
+Natural 20
+Nat 20
+Skill Feat
+Class Feat
+General Feat
+Ancestry Feat
+Archetype
+Dedication
+Treat Wounds
+Battle Medicine
+Recall Knowledge
+Demoralize
+Grapple
+Trip
+Shove
+Feint
+Bon Mot
+Exploration Mode
+Encounter Mode
+Downtime
+Bulk
+Hardness
+Hunt Prey
+Sneak Attack
+Rage
+Panache
+Finisher
+Spellstrike
+Mutagen
+# Verhörer
+Golarium => Golarion
+Pathfinder Societi => Pathfinder Society
+Iomedeh => Iomedae
+Sarenray => Sarenrae
