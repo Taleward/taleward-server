@@ -580,8 +580,8 @@ def _korrigieren(p: Probe, k, ein: dict, hinweise: dict[int, str], fehlt: str) -
             frisch = lesen(p.id) or p  # die Seite kann inzwischen nichts geändert haben, aber sicher ist sicher
             frisch.korrekturen = [*frisch.korrekturen, runde]
             frisch.korrektur_laeuft = False
+            _korrektur_dateien(frisch)  # erst die Dateien, dann der Stand: wer „fertig“ liest, findet sie schon vor
             _speichern(frisch)
-            _korrektur_dateien(frisch)
 
 
 def _korrektur_dateien(p: Probe) -> None:
