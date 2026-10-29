@@ -409,7 +409,7 @@ def test_worker_achtet_auf_stoppdatei(tmp_path):
                          stdout=subprocess.PIPE, text=True, cwd=os.getcwd())
     assert p.stdout.readline().strip() == "bereit"  # erst dann die Datei – das Laden kann unter Last dauern
     datei.touch()
-    out, _ = p.communicate(timeout=20)
+    out, _ = p.communicate(timeout=60)  # 0.4.141: unter Last (volle Testreihe) reichten 20 s nicht immer
     assert "angehalten" in out
 
 
