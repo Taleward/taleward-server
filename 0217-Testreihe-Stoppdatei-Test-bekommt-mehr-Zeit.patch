@@ -1,0 +1,25 @@
+From bcdd757768de28ca03f403a124f3166a0af5f42a Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 16:12:38 +0100
+Subject: [PATCH] Testreihe: Stoppdatei-Test bekommt mehr Zeit
+
+Der Lauf von Patch 0216 brach im Schritt Tests ab. Unter Last (volle Testreihe) reichten 20 Sekunden fuer das
+Laden des Workers im Unterprozess nicht immer; jetzt 60 Sekunden. Keine Aenderung am Server selbst.
+---
+ tests/test_server_0484.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tests/test_server_0484.py b/tests/test_server_0484.py
+index 84ffa4e..5bb67fe 100644
+--- a/tests/test_server_0484.py
++++ b/tests/test_server_0484.py
+@@ -410,5 +410,5 @@ def test_worker_achtet_auf_stoppdatei(tmp_path):
+     assert p.stdout.readline().strip() == "bereit"  # erst dann die Datei – das Laden kann unter Last dauern
+     datei.touch()
+-    out, _ = p.communicate(timeout=20)
++    out, _ = p.communicate(timeout=60)  # 0.4.141: unter Last (volle Testreihe) reichten 20 s nicht immer
+     assert "angehalten" in out
+ 
+-- 
+2.43.0
