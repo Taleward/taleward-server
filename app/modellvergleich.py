@@ -193,10 +193,18 @@ class Ergebnis:
     pruefliste: list[dict] = field(default_factory=list)  # Vorkommen der Prüfpunkte je Stufe (--pruefliste)
     warnungen: list[dict] = field(default_factory=list)  # übersprungene Schritte: {schritt, fehler, antwort}
     ollama: str = ""  # Adresse und Fassung des Ollama, das gerechnet hat
+    szenen: str = ""  # 0.4.142: Absatz je Szene (Datei szenen.txt), nur bei --kapitel szenen|vorbereitet
 
     @property
     def token_s(self) -> float:
         return self.tokens_aus / self.dauer_s if self.dauer_s else 0.0
+
+
+def szenen_text(szenen: list[dict]) -> str:
+    """0.4.142: Die Szenenabsätze mit ihrem Zeitraum, lesbar für die Bewertung von Hand."""
+    from app.sprachmodell import _zeit
+
+    return "\n\n".join(f"– Szene {i + 1} ({_zeit(s['von'])}–{_zeit(s['bis'])}) –\n\n{s['text']}" for i, s in enumerate(szenen))
 
 
 def zaehlen(absaetze: list[dict]) -> dict:
@@ -250,9 +258,12 @@ class Einstellungen:
     strafe: float | None = None  # Wiederholungsstrafe aller Profile (1.0 = aus)
     grammatik: str = "profil"  # profil | immer | nie
     weg: str = "abschrift"  # abschrift | notizen (wie der Worker nach der Einstellung in der Verwaltung)
+    kapitel: str = "standard"  # 0.4.142: standard | szenen | vorbereitet (Kapitel je Szene; nur im Weg „notizen“)
 
     def beschreibung(self) -> str:
         teile = [f"Profil {self.profil}", f"Weg {self.weg}"]
+        if self.kapitel != "standard":
+            teile.append(f"Kapitel {self.kapitel}")
         if self.temperatur_kapitel is not None:
             teile.append(f"Temperatur Kapitel {self.temperatur_kapitel:g}")
         if self.strafe is not None:
@@ -310,6 +321,7 @@ def modell_laufen(url: str, modell: str, kontext: int, recap_ein: dict, vorschla
                               notiz_stueck=notiz_stueck_fuer(kontext) if notizen_weg else 15_000)
     ablauf.nachbesserung = einst.nachbesserung and not notizen_weg  # wie der Worker
     ablauf.notizen_vorgabe = einst.notizen
+    ablauf.kapitelweg = einst.kapitel  # 0.4.142
     erg.ollama = ollama_fassung(url, client)
     t0 = time.monotonic()
     try:
@@ -340,6 +352,7 @@ def modell_laufen(url: str, modell: str, kontext: int, recap_ein: dict, vorschla
         erg.pruefung_vorher = list(getattr(ablauf, "letzte_pruefung_vorher", []) or [])
         erg.pruefung_nachher = list(getattr(ablauf, "letzte_pruefung_nachher", []) or [])
         erg.warnungen = list(getattr(ablauf, "warnungen", []) or [])
+        erg.szenen = szenen_text(getattr(ablauf, "letzte_szenen", []) or [])
         if einst.pruefliste:
             erg.pruefliste = pruefliste_anwenden(einst.pruefliste, recap_ein, erg)
         k.entladen()
@@ -593,11 +606,11 @@ def speichern(ordner: Path, info: dict, richter: str, ergebnisse: list[Ergebnis]
                                                                  ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
         (d / "recap.txt").write_text(f"{e.titel}\n\n{e.text}\n" if e.ok else f"Fehler: {e.fehler}\n", encoding="utf-8", newline="\n")
         for name, inhalt in (("letzte-antwort.txt", e.letzte_antwort), ("notizen.txt", e.notizen),
-                             ("verlauf.txt", e.verlauf)):
+                             ("verlauf.txt", e.verlauf), ("szenen.txt", e.szenen)):
             if inhalt:
                 (d / name).write_text(inhalt, encoding="utf-8", newline="\n")
         (d / "vorschlaege.json").write_text(json.dumps(e.vorschlaege, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
-        (d / "ergebnis.json").write_text(json.dumps({**asdict(e), "letzte_antwort": None, "notizen": None, "verlauf": None,
+        (d / "ergebnis.json").write_text(json.dumps({**asdict(e), "letzte_antwort": None, "notizen": None, "verlauf": None, "szenen": None,
                                                      "pruefliste": None, "kapitel1": None, "kapitel2": None,
                                                      "fehlend": len(e.fehlend),
                                                      "ergaenzt": sum(1 for f in e.fehlend if f.get("ergaenzt")),

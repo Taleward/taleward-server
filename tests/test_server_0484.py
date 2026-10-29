@@ -406,11 +406,11 @@ def test_worker_achtet_auf_stoppdatei(tmp_path):
             "try:\n    _auf_stoppdatei_achten()\n    print('bereit', flush=True)\n    time.sleep(30)\n"
             "except KeyboardInterrupt:\n    print('angehalten', flush=True)\n")
     p = subprocess.Popen([sys.executable, "-c", code], env={**os.environ, "WORKER_STOP_DATEI": str(datei)},
-                         stdout=subprocess.PIPE, text=True, cwd=os.getcwd())
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=os.getcwd())
     assert p.stdout.readline().strip() == "bereit"  # erst dann die Datei – das Laden kann unter Last dauern
     datei.touch()
-    out, _ = p.communicate(timeout=60)  # 0.4.141: unter Last (volle Testreihe) reichten 20 s nicht immer
-    assert "angehalten" in out
+    out, err = p.communicate(timeout=60)  # 0.4.141: unter Last (volle Testreihe) reichten 20 s nicht immer
+    assert "angehalten" in out, f"Ausgabe {out!r}, Fehlerausgabe {err[-800:]!r}, Rückgabe {p.returncode}"  # 0.4.142: Fehlersuche
 
 
 def test_lokaler_worker_stoppt_ohne_signal(client, dbs, admin, monkeypatch):  # noqa: F811

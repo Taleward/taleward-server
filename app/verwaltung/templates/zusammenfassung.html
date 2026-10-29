@@ -172,6 +172,11 @@
       <label class="haken"><input type="radio" name="stil" value="bisher" checked> {{ _("Wie bisher (eingesetzt)") }}</label>
       <label class="haken"><input type="radio" name="stil" value="biograf"> {{ _("Bericht eines Biografen (zum Vergleich)") }}</label>
       <span class="hilfe">{{ _("Der Biograf fasst zusammen und gewichtet, statt Szene für Szene nachzuerzählen.") }}</span></fieldset>
+    <fieldset><legend>{{ _("Kapitel schreiben (nur beim Weg über Notizen)") }}</legend>
+      <label class="haken"><input type="radio" name="kapitelweg" value="standard" checked> {{ _("In einem Durchgang aus allen Notizen (eingesetzt)") }}</label>
+      <label class="haken"><input type="radio" name="kapitelweg" value="szenen"> {{ _("Je Szene ein Absatz, zusammengesetzt (zum Vergleich)") }}</label>
+      <label class="haken"><input type="radio" name="kapitelweg" value="vorbereitet"> {{ _("Szenenabsätze als Entwurf, dann ein Durchgang (zum Vergleich)") }}</label>
+      <span class="hilfe">{{ _("Szenen sind Abschnitte von etwa zwölf Minuten, geschnitten an der größten Pause zwischen zwei Notizen. Die Absätze je Szene liegen danach in der ZIP-Datei (szenen.txt).") }}</span></fieldset>
     {% if probe_modelle %}
     <label>{{ _("Modell nur für diesen Lauf") }}
       <select name="modell">
@@ -194,7 +199,7 @@
       <tr>
         <td data-label="{{ _('Gestartet') }}"><a href="/verwaltung/probelauf/{{ p.id }}">{{ p.gestartet[:16]|replace("T", " ") }}</a></td>
         <td data-label="{{ _('Runde') }}">{{ p.kampagne }} · {{ _("Kapitel {n}", n=p.kapitel) }}{% if p.quelle != "Runde" %}<br><span class="leise">{{ p.quelle }}</span>{% endif %}</td>
-        <td data-label="{{ _('Modell') }}" class="leise">{{ p.modell }}{% if p.stil == "biograf" %} · {{ _("Biograf") }}{% endif %}{% if p.vorn %} · {{ _("Grundlage vorn") }}{% endif %}</td>
+        <td data-label="{{ _('Modell') }}" class="leise">{{ p.modell }}{% if p.stil == "biograf" %} · {{ _("Biograf") }}{% endif %}{% if p.vorn %} · {{ _("Grundlage vorn") }}{% endif %}{% if p.kapitelweg == "szenen" %} · {{ _("je Szene") }}{% elif p.kapitelweg == "vorbereitet" %} · {{ _("Szenen als Entwurf") }}{% endif %}</td>
         <td data-label="{{ _('Zustand') }}">{% if p.zustand == "fertig" %}<span class="marke-status marke-status--gut">{{ _("fertig") }}</span>{% elif p.zustand == "läuft" %}<span class="marke-status marke-status--warten">{{ _("läuft") }}</span>{% else %}<span class="marke-status marke-status--fehler">{{ _("fehlgeschlagen") }}</span>{% endif %}</td>
         <td data-label="{{ _('Kosten') }}" class="leise">{{ _("{cent} Cent", cent=p.kosten_cent) if p.zustand == "fertig" else "–" }}</td>
       </tr>

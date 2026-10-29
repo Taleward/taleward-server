@@ -84,6 +84,9 @@ class Probe:
     vorn: bool = False
     modell_probe: str = ""
     tokens_zwischengespeichert: int = 0
+    # 0.4.142: Kapitel je Szene (Testoption): standard | szenen | vorbereitet; die Szenenabsätze (Datei szenen.txt)
+    kapitelweg: str = "standard"
+    szenen: list[dict] = field(default_factory=list)
 
 
 def text_mit_teilen(text: str, teile: list[dict]) -> str:
@@ -217,7 +220,7 @@ def datei(probe_id: str, name: str) -> Path | None:
 
 
 DATEIEN = ("recap.txt", "vorschlaege.json", "pruefung.json", "notizen.txt", "stand.txt", "auswahl.txt", "pflicht.json",
-           "entwurf.txt", "lang.txt", "korrektur.json", "recap-korrigiert.txt", "unklar.json", "zweiter-blick.json",
+           "entwurf.txt", "lang.txt", "korrektur.json", "recap-korrigiert.txt", "unklar.json", "zweiter-blick.json", "szenen.txt",
            "transkript.txt", "ergebnis.json", "einschnitte.json", "rohantwort.txt")
 
 
@@ -256,6 +259,7 @@ def abschrift_lesen(text: str) -> list[dict]:
 
 
 WEGE = ("abschrift", "notizen")
+KAPITELWEGE = ("standard", "szenen", "vorbereitet")  # 0.4.142
 
 
 def probe_konfig(k, p: Probe):
@@ -270,7 +274,7 @@ def probe_konfig(k, p: Probe):
 
 def starten(db: Session, s: GameSession, abschrift: str | None = None, dateiname: str | None = None,
             user_id: str = "", weg: str = "abschrift", stil: str = "bisher", vorn: bool = False,
-            modell: str = "") -> Probe:
+            modell: str = "", kapitelweg: str = "standard") -> Probe:
     """Legt die Probe an und rechnet im Hintergrund. Wirft ValueError mit verständlicher Meldung, wenn nichts zu tun ist."""
     from app.einstellungen import llm_konfig
     from app.models import Campaign
@@ -310,7 +314,8 @@ def starten(db: Session, s: GameSession, abschrift: str | None = None, dateiname
               zeilen=len(recap_ein["transkript"]), modell=_modellname(k),
               gestartet=utcnow().isoformat().replace("+00:00", "Z"), campaign_id=s.campaign_id, besitzer=user_id,
               weg=weg if weg in WEGE else "abschrift", stil=stil if stil in STILE else "bisher", vorn=bool(vorn),
-              modell_probe=modell)
+              modell_probe=modell,
+              kapitelweg=kapitelweg if kapitelweg in KAPITELWEGE and weg == "notizen" else "standard")
     if modell:
         p.modell = _modellname(probe_konfig(k, p))
     _aufraeumen()
@@ -399,7 +404,8 @@ def _rechnen_jetzt(p: Probe, k, recap_ein: dict, vorschlag_ein: dict, campaign_i
                             nachbesserung=k.art != "api",  # 0.4.62: wie im echten Ablauf
                             notizen_zuerst=p.weg == "notizen",  # 0.4.63: hier je Probelauf wählbar
                             notiz_klient=api_klient_notizen(k), zweiter_blick_an=blick, pruefansicht=ansicht,
-                            stil=p.stil, grundlage_vorn=p.vorn)  # 0.4.129
+                            stil=p.stil, grundlage_vorn=p.vorn,  # 0.4.129
+                            kapitelweg=p.kapitelweg)  # 0.4.142
             d = ablauf.ausfuehren(recap_ein, vorschlag_ein, lambda _p: None, gegenpruefen=gegen)
             p.titel, p.text, p.offene_faeden = d["title"], d["text"], list(d["openThreads"])
             p.vorschlaege = d["proposals"]
@@ -418,6 +424,7 @@ def _rechnen_jetzt(p: Probe, k, recap_ein: dict, vorschlag_ein: dict, campaign_i
             p.unklar = list(ablauf.letzte_unklar)
             p.zweiter_blick = list(ablauf.letzter_zweiter_blick)
             p.teile = list(ablauf.letzte_teile)
+            p.szenen = [dict(s) for s in ablauf.letzte_szenen]
             p.einschnitte = _json_sicher(ablauf.letzte_einschnitte)
             p.kurzer_entwurf = list(ablauf.letzter_kurzer_entwurf)
             with session_factory()() as db:
@@ -478,8 +485,12 @@ def _dateien_schreiben(p: Probe) -> None:
             if p.zweiter_blick:
                 (o / "zweiter-blick.json").write_text(json.dumps(p.zweiter_blick, ensure_ascii=False, indent=2),
                                                       encoding="utf-8", newline="\n")
+            if p.szenen:
+                from app.modellvergleich import szenen_text
+
+                (o / "szenen.txt").write_text(szenen_text(p.szenen) + "\n", encoding="utf-8", newline="\n")
         (o / "ergebnis.json").write_text(json.dumps({k: v for k, v in p.__dict__.items()
-                                                      if k not in ("text", "vorschlaege", "pruefung", "besitzer", "notizen", "auswahl",
+                                                      if k not in ("text", "vorschlaege", "pruefung", "besitzer", "notizen", "auswahl", "szenen",
                                                                   "pflicht", "entwurf", "lang", "korrekturen", "unklar",
                                                                   "zweiter_blick", "einschnitte", "kurzer_entwurf")},
                                                      ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")

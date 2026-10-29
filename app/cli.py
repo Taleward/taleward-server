@@ -862,6 +862,7 @@ def modellvergleich(
     ohne_nachbesserung: bool = typer.Option(False, "--ohne-nachbesserung", help="Testoption: Faktenprüfung läuft, aber das Kapitel wird nicht umgeschrieben"),
     profil: str = typer.Option("neu", "--profil", help="Abtastung des Modells: neu (seit 0.4.134) | alt (bis 0.4.133)"),
     weg: str = typer.Option("abschrift", "--weg", help="Weg zum Kapitel: abschrift (bisher) | notizen (erst Notizen je Abschnitt)"),
+    kapitel: str = typer.Option("standard", "--kapitel", help="Testoption (nur mit --weg notizen): standard | szenen (je Szene ein Absatz, zusammengesetzt) | vorbereitet (Szenenabsätze als Entwurf für das Kapitel)"),
     temperatur_kapitel: float = typer.Option(None, "--temperatur-kapitel", min=0.0, max=1.0, help="Testoption: Temperatur nur für das Kapitel"),
     strafe: float = typer.Option(None, "--strafe", min=1.0, max=2.0, help="Testoption: Wiederholungsstrafe (1.0 = aus)"),
     grammatik: str = typer.Option("profil", "--grammatik", help="Testoption: JSON-Grammatik profil | immer | nie"),
@@ -871,6 +872,8 @@ def modellvergleich(
     from app import modellvergleich as mv
 
     try:
+        if kapitel not in ("standard", "szenen", "vorbereitet") or (kapitel != "standard" and weg != "notizen"):
+            raise mv.VergleichFehler("--kapitel standard|szenen|vorbereitet, die letzten beiden nur mit --weg notizen")
         s = mv.Server(server)
         s.anmelden(benutzer, passwort)
         if not session:
@@ -891,7 +894,7 @@ def modellvergleich(
         einst = mv.Einstellungen(laeufe=laeufe, gliederung=grundlage, temperatur=temperatur,
                                  pruefliste=mv.pruefliste_lesen(pruefliste.read_text(encoding="utf-8")) if pruefliste else [],
                                  notizen=notizen.read_text(encoding="utf-8") if notizen else "",
-                                 nachbesserung=not ohne_nachbesserung, profil=profil, weg=weg,
+                                 nachbesserung=not ohne_nachbesserung, profil=profil, weg=weg, kapitel=kapitel,
                                  temperatur_kapitel=temperatur_kapitel, strafe=strafe, grammatik=grammatik)
         typer.echo(f"Einstellung: {einst.beschreibung()}")
         if ohne_nachbesserung:

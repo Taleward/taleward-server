@@ -1078,6 +1078,68 @@ def teil_hoechstens(teil: dict, dauer_s: float) -> int:
     return max(TEIL_MIN_PFLICHT, round(auswahl_hoechstens_fuer(dauer_s / 60) * anteil))
 
 
+# 0.4.142: Kapitel je Szene (Testoption „kapitelweg“, Benjamin 29.10. nach dem Vergleich mit Besprechungsnotizen):
+# „standard“ wie bisher; „szenen“ = je Szene ein Absatz nur aus ihren Notizen und Pflichtereignissen, deterministisch
+# zusammengesetzt (keine zweite Modellstufe); „vorbereitet“ = diese Szenenabsätze als Entwurf zusätzlich an den Standardweg.
+KAPITELWEGE = ("standard", "szenen", "vorbereitet")
+SZENE_MINUTEN = 12  # Zielgröße einer Szene
+SZENE_SUCHE_S = 240.0  # so weit um die Zielgrenze wird die größte Lücke zwischen zwei Notizen gesucht
+SZENE_MIN_WOERTER = 60
+SZENEN_VORSPANN = ("\n\nEntwurf je Szene (schon ausformuliert, jeder nur aus den Notizen seiner Szene). Nimm ihn als "
+                   "Grundlage: kein Ereignis daraus weglassen, nur gewichten, verbinden, Wiederholungen streichen und "
+                   "das Ganze auf die vorgegebene Länge bringen:\n")
+SZENE_ANFANG = """
+- Dies ist Szene {k} von {n} eines Kapitels; die übrigen Szenen schreibt jemand anders. Erzähle nur diese Szene, \
+ohne Vorgriff auf Späteres, ohne Einleitung zur Welt."""
+SZENE_FORTSETZUNG = """
+- Dies ist Szene {k} von {n} desselben Kapitels und setzt die Szene davor nahtlos fort: keine Einleitung, keine \
+Vorstellung der Figuren, kein Rückblick auf früher Erzähltes. „title“ gibst du trotzdem an."""
+
+
+def szenen_schneiden(notizen: str, dauer_s: float, minuten: int = SZENE_MINUTEN) -> list[dict]:
+    """0.4.142: Notizen deterministisch in Szenen von etwa `minuten` Minuten teilen. Jede Grenze liegt an der größten
+    Lücke zwischen zwei Notizen im Fenster ± SZENE_SUCHE_S um die Zielgrenze (dort wechselt am ehesten die Szene),
+    sonst an der Zielgrenze. Leere Szenen werden mit der davor verschmolzen. Unter zwei Szenen Länge: []."""
+    zeiten = sorted({t for z in (notizen or "").splitlines() if (t := _zeit_vorn(z)) is not None})
+    if dauer_s <= 0 or len(zeiten) < 4:
+        return []
+    n = int(round(dauer_s / (minuten * 60)))
+    if n < 2:
+        return []
+    abstaende = sorted(b - a for a, b in zip(zeiten, zeiten[1:]))
+    mindestens = max(2 * abstaende[len(abstaende) // 2], 90.0)  # eine Lücke zählt erst ab dem Doppelten des Üblichen
+    grenzen: list[float] = []
+    for k in range(1, n):
+        ziel = dauer_s * k / n
+        beste, lueckengroesse = None, mindestens
+        for a, b in zip(zeiten, zeiten[1:]):
+            mitte = (a + b) / 2
+            if abs(mitte - ziel) <= SZENE_SUCHE_S and b - a >= lueckengroesse:
+                beste, lueckengroesse = b, b - a
+        g = beste if beste is not None else ziel
+        if grenzen and g <= grenzen[-1]:
+            continue
+        grenzen.append(g)
+    kanten = [0.0, *grenzen, float(dauer_s)]
+    szenen = [{"von": a, "bis": b, "titel": ""} for a, b in zip(kanten, kanten[1:]) if b > a]
+    aus: list[dict] = []
+    for s in szenen:
+        if aus and not any(s["von"] <= z < s["bis"] for z in zeiten):
+            aus[-1]["bis"] = s["bis"]  # ohne eigene Notiz: zur Szene davor
+        else:
+            aus.append(s)
+    return aus if len(aus) >= 2 else []
+
+
+def szene_grenzen(szene: dict, dauer_s: float, lang: bool = True) -> tuple[int, int]:
+    """0.4.142: Die Szenen teilen sich den Platz des ganzen Kapitels nach ihrer Dauer (wie teil_grenzen, nur ohne das
+    Minimum von 300 Wörtern – eine Szene von zwölf Minuten ist ein Absatz, kein Teil)."""
+    w = woerter_fuer(dauer_s / 60, lang).split("–")
+    anteil = (szene["bis"] - szene["von"]) / dauer_s if dauer_s > 0 else 1.0
+    unten = max(SZENE_MIN_WOERTER, round(int(w[0]) * anteil / 10) * 10)
+    return unten, max(unten + 60, round(int(w[-1]) * anteil / 10) * 10)
+
+
 def _ueberschrift(t) -> str:
     t = regelreste(klartext(t if isinstance(t, str) else ""))
     t = re.sub(r"^(?:Teil|Part|Kapitel|Chapter)\s+\d+\s*[:.–-]\s*", "", t, flags=re.I).strip(" „“\"'.")
@@ -2318,6 +2380,8 @@ class Ablauf:
     letzter_kurzer_entwurf: list = field(default_factory=list)  # 0.4.78: zu kurze Entwürfe mit Rohantwort (Fehlersuche)
     letzte_grenzen: tuple | None = None  # 0.4.78: Längenvorgabe des Kapitels, wenn es aus Teilen besteht
     letzte_teile: list = field(default_factory=list)  # 0.4.78: Teile im Kapitel [{title, firstParagraph}] (leer: keine)
+    kapitelweg: str = "standard"  # 0.4.142: standard | szenen | vorbereitet (Testoption, siehe KAPITELWEGE)
+    letzte_szenen: list = field(default_factory=list)  # 0.4.142: [{von, bis, text}] – Absatz je Szene
     letzte_einschnitte: dict = field(default_factory=dict)  # 0.4.78: Antwort der Suche nach Einschnitten (Probelauf)
     _teile_anfang: tuple = ((), ())  # 0.4.78: erster Absatz und Überschrift je Teil, zum Wiederfinden am Ende
     stil: str = "bisher"  # 0.4.129: „biograf“ = Bericht eines Biografen (vorerst nur im Probelauf, siehe STILE)
@@ -2527,14 +2591,16 @@ class Ablauf:
         return untergrenze(ein, self.notizen_zuerst), obergrenze(ein, self.notizen_zuerst)
 
     def recap(self, ein: dict, titel: str, grundlage: str, grenzen: tuple[int, int] | None = None,
-              zusatz: str = "") -> dict:
+              zusatz: str = "", szene: bool = False) -> dict:
         bibel = "\n".join(f"- [{e['typ']}] {_namenszeile(e)}" + (f": {e['zusammenfassung'][:500]}"
                                                                  if _vorkommen(e, grundlage) else "")
                           for e in ein["bibel"])
         nutzer = (f"{_kopf(ein)}\n\nBekannt aus früheren Sessions (Spielerwissen):\n{bibel or '(noch nichts)'}"
                   f"\n\n{titel}:\n{grundlage}")
         unten, oben = grenzen or (untergrenze(ein, self.notizen_zuerst), obergrenze(ein, self.notizen_zuerst))
-        if self.notizen_zuerst:  # 0.4.73: Länge vorab planen statt hinterher kürzen – Absatzzahl hält das Modell besser ein
+        if szene:  # 0.4.142: eine Szene ist ein Absatz, höchstens zwei
+            laenge = f"Ein Absatz, höchstens zwei, mit zusammen {unten} bis {oben} Wörtern – nicht mehr als {oben}"
+        elif self.notizen_zuerst:  # 0.4.73: Länge vorab planen statt hinterher kürzen – Absatzzahl hält das Modell besser ein
             # 0.4.80: Die Absatzzahl ergibt die Länge – „Obergrenze / 130“ Absätze zu je ≈ 170 Wörtern ergaben ein Viertel
             # mehr als erlaubt (7 h: 18 Absätze, ≈ 3.000 statt höchstens 2.400 Wörter). Jetzt: Mitte der Vorgabe / 150.
             laenge = (f"Etwa {absatzzahl(unten, oben)} Absätze mit zusammen {unten} bis {oben} Wörtern – nicht mehr als "
@@ -3085,7 +3151,7 @@ class Ablauf:
             self.warnungen.append({"schritt": "teile", "fehler": f"Notizen nach Platz in {len(aus)} Teile gegliedert"})
         return aus if len(aus) > 1 else []
 
-    def _recap_in_teilen(self, ein: dict, notizen: str, teile: list[dict]) -> dict:
+    def _recap_in_teilen(self, ein: dict, notizen: str, teile: list[dict], szenen: bool = False) -> dict:
         """0.4.78: Ein Kapitel aus Teilen. Jeder Teil wird für sich geschrieben – mit seinen Notizen, dem Stand bis zu
         seinem Ende, seinen Pflichtereignissen und eigenem Platz; ab Teil 2 als Fortsetzung mit dem letzten Absatz davor
         zum Anknüpfen. Titel des Kapitels aus Teil 1, offene Fäden aus dem letzten Teil."""
@@ -3093,7 +3159,7 @@ class Ablauf:
         summe = [0, 0]
         n = len(teile)
         for i, t in enumerate(teile):
-            unten, oben = teil_grenzen(t, _minuten(ein) * 60, self.notizen_zuerst)
+            unten, oben = ((szene_grenzen if szenen else teil_grenzen)(t, _minuten(ein) * 60, self.notizen_zuerst))
             summe[0] += unten
             summe[1] += oben
             letzter = i == n - 1
@@ -3104,21 +3170,28 @@ class Ablauf:
             pflicht = (PFLICHT_VORSPANN + auswahl_text(t["auswahl"])) if t.get("auswahl") else ""
             davor = (f"\n\nSo endet der Teil davor (nur zum Anknüpfen, nicht wiederholen):\n{absaetze(stuecke[-1])[-1]}"
                      if stuecke else "")
-            zusatz = (TEIL_ANFANG if i == 0 else TEIL_FORTSETZUNG).replace("{k}", str(i + 1)).replace("{n}", str(n))
+            if szenen:
+                zusatz = (SZENE_ANFANG if i == 0 else SZENE_FORTSETZUNG).replace("{k}", str(i + 1)).replace("{n}", str(n))
+                was = f"Szenennotizen von Szene {i + 1} von {n} ({_zeit(t['von'])}–{_zeit(t['bis'])})"
+            else:
+                zusatz = (TEIL_ANFANG if i == 0 else TEIL_FORTSETZUNG).replace("{k}", str(i + 1)).replace("{n}", str(n))
+                was = (f"Szenennotizen von Teil {i + 1} von {n} ({_zeit(t['von'])}–{_zeit(t['bis'])}) in "
+                       "Zeitabschnitten (jeder Abschnitt gehört in diesen Teil, in dieser Reihenfolge, mit etwa "
+                       "gleich viel Raum; lieber knapper erzählen als ein Ereignis weglassen)")
             if not letzter:
                 zusatz += TEIL_OHNE_SCHLUSS
-            r = self.recap(ein, f"Szenennotizen von Teil {i + 1} von {n} ({_zeit(t['von'])}–{_zeit(t['bis'])}) in "
-                                "Zeitabschnitten (jeder Abschnitt gehört in diesen Teil, in dieser Reihenfolge, mit etwa "
-                                "gleich viel Raum; lieber knapper erzählen als ein Ereignis weglassen)",
-                           self.gegliedert(teil_notizen(notizen, t["von"], t["bis"])) + stand + pflicht + davor,
-                           grenzen=(unten, oben), zusatz=zusatz)
+            r = self.recap(ein, was, self.gegliedert(teil_notizen(notizen, t["von"], t["bis"])) + stand + pflicht + davor,
+                           grenzen=(unten, oben), zusatz=zusatz, szene=szenen)
             if i == 0:
                 titel = r["title"]
             faeden = r["openThreads"]
             stuecke.append(r["text"])
             anfaenge.append(absaetze(r["text"])[0] if absaetze(r["text"]) else "")
         self.letzte_grenzen = (summe[0], summe[1])
-        self._teile_anfang = (anfaenge, [t["titel"] for t in teile])
+        if szenen:  # 0.4.142: keine Überschriften im Kapitel, aber die Absätze je Szene merken
+            self.letzte_szenen = [{"von": t["von"], "bis": t["bis"], "text": s} for t, s in zip(teile, stuecke)]
+        else:
+            self._teile_anfang = (anfaenge, [t["titel"] for t in teile])
         return {"title": titel, "text": "\n\n".join(stuecke), "openThreads": faeden}
 
     def ausfuehren(self, recap_ein: dict, vorschlag_ein: dict,
@@ -3135,7 +3208,7 @@ class Ablauf:
                 if k is not None and not isinstance(k, GrundlageVorn):
                     setattr(self, name, GrundlageVorn(k, lambda: bekannt))
         self.letzte_grenzen, self.letzte_teile, self._teile_anfang = None, [], ((), ())
-        self.letzter_kurzer_entwurf, self.letzte_einschnitte = [], {}
+        self.letzter_kurzer_entwurf, self.letzte_einschnitte, self.letzte_szenen = [], {}, []
         verlauf = ""
         if titel.startswith("Szenennotizen"):
             # Die Notizen passen fast immer in den Kontext (grundlage() verdichtet so lange). Dann bekommt der Recap
@@ -3184,12 +3257,27 @@ class Ablauf:
                                                "antwort": (self.zaehler.letzte_antwort or "")[:3000]})
                 if self.letzte_auswahl:
                     pflicht = PFLICHT_VORSPANN + auswahl_text(self.letzte_auswahl)
+            szenen: list[dict] = []
+            if self.notizen_zuerst and not teile and self.kapitelweg in ("szenen", "vorbereitet"):
+                # 0.4.142: Kapitel je Szene – jede Szene bekommt die Pflichtereignisse aus ihrem Zeitraum
+                szenen = szenen_schneiden(grundlage, _minuten(recap_ein) * 60)
+                for sz in szenen:
+                    sz["auswahl"] = [e for e in self.letzte_auswahl
+                                     if e.get("zeit") is not None and sz["von"] <= e["zeit"] < sz["bis"]]
+            ganz = ("Szenennotizen der Runde in Zeitabschnitten (jeder Abschnitt gehört in den Recap, in dieser "
+                    "Reihenfolge, mit etwa gleich viel Raum; lieber knapper erzählen als ein Ereignis weglassen)")
             if teile:
                 r = self._recap_in_teilen(recap_ein, grundlage, teile)
+            elif szenen:
+                entwurf = self._recap_in_teilen(recap_ein, grundlage, szenen, szenen=True)
+                if self.kapitelweg == "szenen":
+                    r = entwurf  # zusammengesetzt, ohne zweite Modellstufe; Längengrenze = Summe der Szenen
+                else:
+                    self.letzte_grenzen = None  # das Kapitel bekommt seine normale Länge
+                    r = self.recap(recap_ein, ganz, self.gegliedert(grundlage) + stand + pflicht + SZENEN_VORSPANN
+                                   + entwurf["text"])
             else:
-                r = self.recap(recap_ein, "Szenennotizen der Runde in Zeitabschnitten (jeder Abschnitt gehört in den "
-                                          "Recap, in dieser Reihenfolge, mit etwa gleich viel Raum; lieber knapper "
-                                          "erzählen als ein Ereignis weglassen)", self.gegliedert(grundlage) + stand + pflicht)
+                r = self.recap(recap_ein, ganz, self.gegliedert(grundlage) + stand + pflicht)
         else:
             r = self.recap(recap_ein, titel, grundlage)
         self.letztes_kapitel1 = r["text"]

@@ -1,11 +1,6 @@
-Fassung 0.4.141
+Fassung 0.4.142
 
 ## Was ist neu
 
-- E-Mails des Servers tragen jetzt den Servernamen als Absender. So landen sie seltener im Spam.
-- Uhrzeiten in den Hinweis-Mails zum Konto stehen in der Ortszeit des Servers (Verwaltung → Einstellungen → Benachrichtigungen → Zeitzone).
-- Die Hinweis-Mail zur Anmeldung in der Verwaltung und auf der Guthaben-Seite kommt nur noch, wenn ein Browser zum ersten Mal auftaucht. Nach einem neuen Passwort gelten alle Browser wieder als neu.
-- Eine schon bestätigte E-Mail-Adresse lässt sich nicht noch einmal eintragen. Die App sagt stattdessen, dass sie schon bestätigt ist.
-- Die Zähler auf der Übersicht der Verwaltung führen jetzt direkt zur passenden Liste. Die Warteschlange lässt sich danach filtern.
-- Ein Worker zeigt in der Verwaltung „arbeitet“, solange er einen Auftrag bearbeitet.
-- Für Das Schwarze Auge bleiben die Segnungen (Heilungssegen, Glückssegen und andere) jetzt als Regelbegriff aus dem Kapitel draußen.
+- Probelauf zum Vergleichen: Das Kapitel lässt sich je Szene schreiben lassen – entweder Absatz für Absatz zusammengesetzt oder als Entwurf, aus dem der gewohnte Durchgang das Kapitel baut. Beides nur zum Messen (Verwaltung → Zusammenfassung → Probelauf, Befehlszeile `chronik modellvergleich --kapitel`), am gewohnten Weg ändert sich nichts.
+- Seit 0.4.141: E-Mails des Servers tragen den Servernamen als Absender; Uhrzeiten in Hinweis-Mails in der Ortszeit des Servers; die Hinweis-Mail zur Anmeldung kommt nur noch bei einem neuen Browser; eine schon bestätigte E-Mail-Adresse lässt sich nicht noch einmal eintragen; die Zähler der Übersicht führen zur passenden Liste; Worker zeigen „arbeitet“; Segnungen bei Das Schwarze Auge gelten als Regelbegriff.
