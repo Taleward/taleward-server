@@ -1,0 +1,9353 @@
+From f44e400fa09bed682ab0f5ffcb08613173184fb1 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 01:33:57 +0100
+Subject: [PATCH] Server 0.4.140
+
+---
+ NEU.md                          |   5 +-
+ app/artefakte.py                |  25 +-
+ app/begriffe.py                 | 176 ++++++++++
+ app/begriffe/cthulhu.txt        | 433 +++++++++++++++++++++--
+ app/begriffe/cyberpunk.txt      | 386 +++++++++++++++++++++
+ app/begriffe/degenesis.txt      | 303 +++++++++++++++++
+ app/begriffe/dnd.txt            | 585 ++++++++++++++++++++++++++++++--
+ app/begriffe/dsa.txt            | 486 ++++++++++++++++++++++++--
+ app/begriffe/earthdawn.txt      | 337 ++++++++++++++++++
+ app/begriffe/herrderringe.txt   | 380 +++++++++++++++++++++
+ app/begriffe/hexxen.txt         | 121 +++++++
+ app/begriffe/l5r.txt            | 386 +++++++++++++++++++++
+ app/begriffe/midgard.txt        | 374 ++++++++++++++++++++
+ app/begriffe/mutantjahrnull.txt | 155 +++++++++
+ app/begriffe/pathfinder.txt     | 463 +++++++++++++++++++++++--
+ app/begriffe/shadowrun.txt      | 406 +++++++++++++++++++---
+ app/begriffe/splittermond.txt   | 357 +++++++++++++++++--
+ app/begriffe/starfinder.txt     | 282 +++++++++++++++
+ app/begriffe/starwars.txt       | 397 ++++++++++++++++++++++
+ app/begriffe/symbaroum.txt      | 216 ++++++++++++
+ app/begriffe/torg.txt           | 168 +++++++++
+ app/begriffe/vampire.txt        | 388 +++++++++++++++++++++
+ app/begriffe/warhammer.txt      | 377 ++++++++++++++++++++
+ app/begriffe/warhammer40k.txt   | 557 ++++++++++++++++++++++++++++++
+ app/begriffe/witcher.txt        | 343 +++++++++++++++++++
+ app/cli.py                      |  11 +-
+ app/modellablage.py             | 130 ++++++-
+ app/modelle.py                  |   1 +
+ app/namenshilfe.py              |  48 +--
+ app/routers/worker.py           |   3 +
+ app/sprachmodell.py             |  29 +-
+ app/transkription.py            |  31 ++
+ app/unsicher.py                 |   7 +-
+ app/verwaltung/router.py        |   2 +
+ app/woerterbuch.py              |  16 +-
+ app/zusammenfassung.py          |   9 +-
+ pyproject.toml                  |   2 +-
+ tests/test_aktualisierung.py    |   2 +-
+ tests/test_assistent.py         |   2 +-
+ tests/test_feinschliff_0479.py  |   8 +-
+ tests/test_modellablage.py      |   2 +-
+ tests/test_server_04140.py      | 301 ++++++++++++++++
+ tests/test_worker_app.py        |   2 +-
+ uv.lock                         |   2 +-
+ 44 files changed, 8464 insertions(+), 250 deletions(-)
+ create mode 100644 app/begriffe.py
+ create mode 100644 app/begriffe/cyberpunk.txt
+ create mode 100644 app/begriffe/degenesis.txt
+ create mode 100644 app/begriffe/earthdawn.txt
+ create mode 100644 app/begriffe/herrderringe.txt
+ create mode 100644 app/begriffe/hexxen.txt
+ create mode 100644 app/begriffe/l5r.txt
+ create mode 100644 app/begriffe/midgard.txt
+ create mode 100644 app/begriffe/mutantjahrnull.txt
+ create mode 100644 app/begriffe/starfinder.txt
+ create mode 100644 app/begriffe/starwars.txt
+ create mode 100644 app/begriffe/symbaroum.txt
+ create mode 100644 app/begriffe/torg.txt
+ create mode 100644 app/begriffe/vampire.txt
+ create mode 100644 app/begriffe/warhammer.txt
+ create mode 100644 app/begriffe/warhammer40k.txt
+ create mode 100644 app/begriffe/witcher.txt
+ create mode 100644 tests/test_server_04140.py
+
+diff --git a/NEU.md b/NEU.md
+index 67907dc..88eed80 100644
+--- a/NEU.md
++++ b/NEU.md
+@@ -1,6 +1,9 @@
+-Fassung 0.4.139
++Fassung 0.4.140
+ 
+ ## Was ist neu
+ 
++- Namen und Begriffe für 22 Rollenspielsysteme helfen der Abschrift, die Schreibweisen der Welt zu treffen. Das System wird auch am Namen erkannt, den die Spielleitung einträgt. Typische Verhörer erscheinen beim Prüfen als Vorschlag, nie still geändert.
++- Regelbegriffe wie Schmerz oder Wunden fliegen nur noch mit einer Zahl daneben aus dem Kapitel. Ohne Zahl bleiben sie Erzählung.
++- Die Satzmodelle für die Abschrift holt der Server jetzt selbst und gibt sie an die Worker weiter. Das hilft hinter einem Proxy und in Netzen ohne freien Internetzugang.
+ - Bei Beute aus einer Runde schlägt der Server vor, welche Figur den Gegenstand jetzt hat. Die Spielleitung bestätigt oder ändert das beim Prüfen, beim Veröffentlichen steht es in der Bibel.
+ - Private Kommentare gehen jetzt auch an mehrere Personen. Wer einen bekommt, sieht, an wen er sonst noch ging.
+diff --git a/app/artefakte.py b/app/artefakte.py
+index 724c881..c600d64 100644
+--- a/app/artefakte.py
++++ b/app/artefakte.py
+@@ -221,4 +221,17 @@ def regelwoerter_muster(woerter) -> re.Pattern | None:
+ 
+ 
++_ZAHL = r"(?:\d+|plus|minus|[+" + chr(0x2212) + chr(0xB1) + "])"  # Ziffern, plus/minus, +, −, ±
++
++
++def alltagswoerter_muster(woerter) -> re.Pattern | None:
++    """0.4.140: Regelbegriffe, die auch Alltagswörter sind („Schmerz“, „Wunden“), zählen nur mit einer Zahl oder
++    „plus/minus“ höchstens drei Wörter daneben als Regelrest („Schmerz plus eins“, „Belastung 2“)."""
++    w = sorted({x.strip() for x in woerter or () if x and x.strip()}, key=len, reverse=True)
++    if not w:
++        return None
++    a = "(?:" + "|".join(re.escape(x) for x in w) + ")"
++    return re.compile(rf"(?:{_ZAHL}\W+(?:\w+\W+){{0,2}}\b{a}\b|\b{a}(?:\W+\w+){{0,2}}\W+{_ZAHL})")
++
++
+ def regelwort_entfernen(satz: str, muster: re.Pattern) -> str:
+     """0.4.79: Einen Regelbegriff des Systems aus dem Satz nehmen, möglichst ohne den Satz zu zerbrechen: erst als kurze
+@@ -237,5 +250,5 @@ def regelwort_entfernen(satz: str, muster: re.Pattern) -> str:
+ 
+ def kapitel(text: str, personen: list[dict] | None = None, geschuetzte_namen: list[str] | None = None,
+-            regelwoerter=()) -> tuple[str, list[dict]]:
++            regelwoerter=(), alltagswoerter=()) -> tuple[str, list[dict]]:
+     """Kapiteltext säubern. Liefert (Text, Befunde).
+ 
+@@ -243,9 +256,10 @@ def kapitel(text: str, personen: list[dict] | None = None, geschuetzte_namen: li
+     halbe Kapitel kosten. Die Sätze bleiben, es gibt einen Hinweis (Art „erzaehlstimme“)."""
+     muster = regelwoerter_muster(regelwoerter)
+-    aus, befunde = _kapitel(text, personen, geschuetzte_namen, du_weg=True, regelmuster=muster)
++    alltag = (alltagswoerter_muster(alltagswoerter), regelwoerter_muster(alltagswoerter))
++    aus, befunde = _kapitel(text, personen, geschuetzte_namen, du_weg=True, regelmuster=muster, alltag=alltag)
+     du = sum(1 for b in befunde if b["art"] == "du_form")
+     saetze = sum(len(_saetze(a.strip())) for a in re.split(r"\n\s*\n", text or ""))
+     if du > max(3, ERZAEHLSTIMME_ANTEIL * saetze):
+-        aus, befunde = _kapitel(text, personen, geschuetzte_namen, du_weg=False, regelmuster=muster)
++        aus, befunde = _kapitel(text, personen, geschuetzte_namen, du_weg=False, regelmuster=muster, alltag=alltag)
+         befunde.insert(0, {"art": "erzaehlstimme", "text": f"{du} von {saetze}"})
+     return aus, befunde
+@@ -253,5 +267,5 @@ def kapitel(text: str, personen: list[dict] | None = None, geschuetzte_namen: li
+ 
+ def _kapitel(text: str, personen: list[dict] | None, geschuetzte_namen: list[str] | None, du_weg: bool,
+-             regelmuster: re.Pattern | None = None) -> tuple[str, list[dict]]:
++             regelmuster: re.Pattern | None = None, alltag: tuple = (None, None)) -> tuple[str, list[dict]]:
+     personen = personen or []
+     geschuetzt = {n.casefold() for n in (geschuetzte_namen or []) if n}
+@@ -283,4 +297,7 @@ def _kapitel(text: str, personen: list[dict] | None, geschuetzte_namen: list[str
+                 befunde.append({"art": "regel", "text": satz[:200]})
+                 satz = regelwort_entfernen(satz, regelmuster)
++            if satz and alltag[0] is not None and alltag[0].search(satz):  # 0.4.140: Alltagswort nur mit Zahl
++                befunde.append({"art": "regel", "text": satz[:200]})
++                satz = regelwort_entfernen(satz, alltag[1])
+             if satz and _TISCHMETA.search(satz):  # ein Satz über die Runde selbst: ganz weg
+                 befunde.append({"art": "tischmeta", "text": satz[:200]})
+diff --git a/app/begriffe.py b/app/begriffe.py
+new file mode 100644
+index 0000000..c91e091
+--- /dev/null
++++ b/app/begriffe.py
+@@ -0,0 +1,176 @@
++"""Begriffslisten je Rollenspielsystem (app/begriffe/<schlüssel>.txt, 0.4.140).
++
++Aufbau einer Datei (Abschnitte mit „# “, Abschnitte ohne Sprachangabe gelten für beide Sprachen):
++
++    # <Systemname> – Begriffe für die Transkription
++    # Erkennungsnamen: name eins, name zwei, …
++    # Stufe A (höchstens 40, häufigste zuerst)      – Schreibhilfe für die Abschrift (deutsch bzw. gleich)
++    # Stufe A (en)                                    – abweichende englische Schreibweisen
++    # Stufe B / # Stufe B (en)                        – nur Wörterbuch (bekannte Schreibweisen nach der Abschrift)
++    # Regelbegriffe (de) / # Regelbegriffe (en)       – helfen der Abschrift, kommen im Kapitel nicht vor
++    # Verhörer                                        – „Falsch => Richtig“, nur als Vorschlag für die SL
++
++Wohin was geht:
++- An die Abschrift (Worker bzw. Cloud, als Schreibhilfe) nur Stufe A in der Sprache der Kampagne und, wenn Platz ist,
++  die ersten Regelbegriffe – Whisper nutzt ohnehin nur einen kurzen Vorspann (app/namenshilfe.py).
++- Ins Wörterbuch der Prüfung unsicherer Wörter (app/woerterbuch.py) alle Namen und Begriffe.
++- In den Regelfilter des Kapitels (app/artefakte.py) die Regelbegriffe beider Sprachen. Ein Regelbegriff, der auch ein
++  Alltagswort ist („Schmerz“, „Edge“, „Wunden“), zählt nur mit einer Zahl oder „plus/minus“ dicht daneben als
++  Regelrest; ohne Zahl bleibt er Erzähltext. Alltagswort = steht in der allgemeinen Wortliste der Sprache.
++
++Welches System: Campaign.system, wenn es eine Liste dafür gibt; sonst wird Campaign.system_name mit den
++Erkennungsnamen verglichen (nur ganze Wörter, der längste passende Name gewinnt, bei Gleichstand keiner).
++"""
++from __future__ import annotations
++
++import re
++from dataclasses import dataclass, field
++from functools import lru_cache
++from pathlib import Path
++
++ORDNER = Path(__file__).resolve().parent / "begriffe"
++SCHREIBHILFE_REGEL = 5  # so viele Regelbegriffe höchstens hinter Stufe A
++ZUSATZ_WOERTERBUCH = {"starfinder": ("pathfinder",)}  # gleiche Götter und Orte
++
++
++@dataclass(frozen=True)
++class Liste:
++    schluessel: str
++    name: str
++    erkennung: tuple[str, ...]
++    stufe_a: dict[str, tuple[str, ...]] = field(default_factory=dict)  # "" | "en"
++    stufe_b: dict[str, tuple[str, ...]] = field(default_factory=dict)
++    regel: dict[str, tuple[str, ...]] = field(default_factory=dict)  # "de" | "en"
++    verhoerer: tuple[tuple[str, str], ...] = ()
++
++
++def norm(text: str) -> str:
++    t = (text or "").casefold()
++    t = re.sub(r"[^\w&]+", " ", t)
++    return " ".join(t.split())
++
++
++def _lesen(datei: Path) -> Liste:
++    name, erkennung = "", ()
++    abschnitte: dict[str, list[str]] = {}
++    aktuell: str | None = None
++    for zeile in datei.read_text(encoding="utf-8").splitlines():
++        z = zeile.strip()
++        if not z:
++            continue
++        if z.startswith("#"):
++            kopf = z[1:].strip()
++            klein = kopf.casefold()
++            if klein.startswith("erkennungsnamen:"):
++                erkennung = tuple(n for n in (norm(x) for x in kopf.split(":", 1)[1].split(",")) if n)
++                aktuell = None
++            elif klein.startswith("stufe a"):
++                aktuell = "a:en" if "(en)" in klein else "a:"
++            elif klein.startswith("stufe b"):
++                aktuell = "b:en" if "(en)" in klein else "b:"
++            elif klein.startswith("regelbegriffe"):
++                aktuell = "r:en" if "(en)" in klein else "r:de"
++            elif klein.startswith("verhörer"):
++                aktuell = "v"
++            elif not name:
++                name = kopf.split(" – ")[0].strip()
++                aktuell = None
++            else:
++                aktuell = None
++            continue
++        if aktuell:
++            abschnitte.setdefault(aktuell, []).append(z)
++    verh = []
++    for z in abschnitte.get("v", []):
++        if "=>" in z:
++            falsch, richtig = (t.strip() for t in z.split("=>", 1))
++            if falsch and richtig:
++                verh.append((falsch, richtig))
++
++    def teil(prefix: str, sprachen) -> dict[str, tuple[str, ...]]:
++        return {s: tuple(dict.fromkeys(abschnitte.get(f"{prefix}:{s}", []))) for s in sprachen}
++
++    return Liste(schluessel=datei.stem, name=name or datei.stem, erkennung=erkennung, stufe_a=teil("a", ("", "en")),
++                 stufe_b=teil("b", ("", "en")), regel=teil("r", ("de", "en")), verhoerer=tuple(verh))
++
++
++@lru_cache
++def alle() -> dict[str, Liste]:
++    return {d.stem: _lesen(d) for d in sorted(ORDNER.glob("*.txt"))}
++
++
++def liste(schluessel: str | None) -> Liste | None:
++    return alle().get(schluessel or "")
++
++
++def system_fuer(system: str | None, system_name: str | None = None) -> str | None:
++    """Schlüssel der passenden Liste oder None."""
++    if system and system != "other" and system in alle():
++        return system
++    name = f" {norm(system_name or '')} "
++    if not name.strip():
++        return None
++    treffer: dict[str, int] = {}
++    for s, eintrag in alle().items():
++        laenge = max((len(e) for e in eintrag.erkennung if f" {e} " in name), default=0)
++        if laenge:
++            treffer[s] = laenge
++    if not treffer:
++        return None
++    best = max(treffer.values())
++    gewinner = [s for s, n in treffer.items() if n == best]
++    return gewinner[0] if len(gewinner) == 1 else None
++
++
++def _sprache(sprache: str | None) -> str:
++    return "en" if sprache == "en" else "de"
++
++
++def schreibhilfe(schluessel: str | None, sprache: str | None) -> list[str]:
++    """Für die Abschrift: Stufe A der Sprache (das Häufigste zuerst), danach die ersten Regelbegriffe."""
++    eintrag = liste(schluessel)
++    if eintrag is None:
++        return []
++    sp = _sprache(sprache)
++    a = (list(eintrag.stufe_a.get("en", ())) + list(eintrag.stufe_a.get("", ()))) if sp == "en" else list(eintrag.stufe_a.get("", ()))
++    return list(dict.fromkeys(a + list(eintrag.regel.get(sp, ())[:SCHREIBHILFE_REGEL])))
++
++
++def woerterbuch(schluessel: str | None) -> list[str]:
++    """Alle Namen und Begriffe (beide Sprachen, auch Stufe B und die richtigen Formen der Verhörer)."""
++    aus: list[str] = []
++    for s in (schluessel, *ZUSATZ_WOERTERBUCH.get(schluessel or "", ())):
++        eintrag = liste(s)
++        if eintrag is None:
++            continue
++        for teil in (eintrag.stufe_a, eintrag.stufe_b, eintrag.regel):
++            for eintraege in teil.values():
++                aus += eintraege
++        aus += [richtig for _, richtig in eintrag.verhoerer]
++    return list(dict.fromkeys(aus))
++
++
++def verhoerer(schluessel: str | None) -> dict[str, str]:
++    """Falsch (klein, normalisiert) → Richtig. Nur als Vorschlag, nie still."""
++    eintrag = liste(schluessel)
++    return {norm(f): r for f, r in eintrag.verhoerer} if eintrag else {}
++
++
++def regelwoerter(schluessel: str | None, allgemein: frozenset[str] | set[str] = frozenset()
++                 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
++    """(Fachwörter, Alltagswörter) aus den Regelbegriffen beider Sprachen. Alltagswort: jedes Wort steht in der
++    allgemeinen Wortliste. Ohne Wortliste gelten einzelne Wörter vorsichtshalber als Alltagswörter (nur mit Zahl)."""
++    eintrag = liste(schluessel)
++    if eintrag is None:
++        return (), ()
++    fach, alltag = [], []
++    for w in dict.fromkeys(eintrag.regel.get("de", ()) + eintrag.regel.get("en", ())):
++        teile = [t.casefold() for t in re.findall(r"[^\W\d_]+", w)]
++        if not teile:
++            continue  # nur Zahlen wie „Nat 20“ allein: nichts zu filtern
++        if allgemein:
++            ist_alltag = all(t in allgemein for t in teile)
++        else:
++            ist_alltag = len(teile) == 1
++        (alltag if ist_alltag else fach).append(w)
++    return tuple(fach), tuple(alltag)
+diff --git a/app/begriffe/cthulhu.txt b/app/begriffe/cthulhu.txt
+index 261eb58..9da7cdb 100644
+--- a/app/begriffe/cthulhu.txt
++++ b/app/begriffe/cthulhu.txt
+@@ -1,45 +1,422 @@
+-# Cthulhu – häufige Eigennamen und Begriffe (Schreibhilfe für die Transkription)
+-Arkham
+-Innsmouth
+-Dunwich
+-Kingsport
+-Miskatonic
+-Necronomicon
++# Cthulhu / Call of Cthulhu – Begriffe für die Transkription
++# Erkennungsnamen: cthulhu, call of cthulhu, cthulhu 7, pulp cthulhu, delta green, cthulhu now, lovecraft
++# Stufe A (höchstens 40, häufigste zuerst)
+ Cthulhu
++Investigatoren
++Cthulhu-Mythos
++Yog-Sothoth
+ Nyarlathotep
+ Azathoth
+-Yog-Sothoth
+ Shub-Niggurath
+ Hastur
+ Dagon
+-Hydra
++Arkham
++Innsmouth
++Dunwich
++Kingsport
++Miskatonic
++Necronomicon
+ R'lyeh
+-Leng
+-Kadath
+-Yuggoth
++Tiefe Wesen
+ Mi-Go
+ Shoggoth
+-Tiefe Wesen
+-Ghule
+ Byakhee
+-Dhole
+-Elder Sign
++Yuggoth
++Abdul Alhazred
+ Älteres Zeichen
+-Mythos
+-Cthulhu-Mythos
++Große Alte
++Äußere Götter
++Ghule
++Tsathoggua
++Ithaqua
++Cthugha
++Nodens
++Yig
++Leng
++Kadath
++Carcosa
++# Stufe A (en)
+ Investigator
+-Investigatorin
+-Spielleiter
++Miskatonic University
++Deep Ones
+ Keeper
++Elder Sign
++# Stufe B
++Lovecraft
++Yithianer
++Große Rasse von Yith
++Ältere Wesen
++Dürre Nachtgestalten
++Gugs
++Ghasts
++Dholes
++Hunde von Tindalos
++Mondbestien
++Schlangenmenschen
++Dunkle Junge
++Tcho-Tcho
++Voormis
++Gnoph-Keh
++Lloigor
++Die Farbe aus dem All
++Ältere Götter
++Y'golonac
++Glaaki
++Shudde M'ell
++Chaugnar Faugn
++Rhan-Tegoth
++Ghatanothoa
++Zhar
++Bokrug
++Abhoth
++Atlach-Nacha
++Yibb-Tstll
++Daoloth
++Nug
++Yeb
++Zoth-Ommog
++Gol-goroth
++Ubbo-Sathla
++Bast
++Nephren-Ka
++Schwarzer Pharao
++Kriechendes Chaos
++Schwarze Ziege der Wälder
++Der König in Gelb
++Gelbes Zeichen
++Hochebene von Leng
++Hali
++Celaeno
++Ulthar
++Dylath-Leen
++Celephaïs
++Sarnath
++Irem
++Pnakotus
++Aylesbury
++Providence
++Berge des Wahnsinns
++Traumlande
++Teufelsriff
++Al Azif
++De Vermis Mysteriis
++Unaussprechliche Kulte
++Cultes des Goules
++Pnakotische Manuskripte
++Buch Eibon
++Liber Ivonis
++Eibon
++Randolph Carter
++Herbert West
++Henry Armitage
++Wilbur Whateley
++Lavinia Whateley
++Whateley
++Joseph Curwen
++Charles Dexter Ward
++Keziah Mason
++Brown Jenkin
++Asenath Waite
++Ephraim Waite
++Obed Marsh
++Zadok Allen
++Nahum Gardner
++Erich Zann
++Francis Wayland Thurston
++Gustaf Johansen
++Legrasse
++Richard Upton Pickman
++Pickman
++Nathaniel Peaslee
++William Dyer
++Danforth
++Walter Gilman
++Esoterischer Orden des Dagon
++Orden des Silbernen Zwielichts
++Sternenweisheit
++Cthulhu Fhtagn
++Iä
++Pulver des Ibn-Ghazi
++Cthulhu Now
++1920er
++Shantak
++Zoog
++Nyogtha
++Yidhra
++Ponape
++Lomar
++Hyperborea
++Mu
++Commoriom
++Uzuldaroum
++K'n-yan
++N'kai
++Yoth
++Ib
++Schatten über Innsmouth
++Das Grauen von Dunwich
++Der Flüsterer im Dunkeln
++Weltraummet
++Liao
++# Stufe B (en)
++Great Old Ones
++Yithian
++Great Race of Yith
++Elder Things
++Nightgaunts
++Ghoul
++Hounds of Tindalos
++Dimensional Shambler
++Star Vampire
++Flying Polyps
++Moon-Beasts
++Fire Vampires
++Formless Spawn
++Serpent People
++Dark Young
++Chthonians
++Hunting Horror
++Colour out of Space
++Outer Gods
++Elder Gods
++Old Ones
++Mother Hydra
++Black Pharaoh
++Crawling Chaos
++Haunter of the Dark
++Black Goat of the Woods
++King in Yellow
++Yellow Sign
++Plateau of Leng
++Lake of Hali
++Mountains of Madness
++Dreamlands
++Devil Reef
++Pnakotic Manuscripts
++Book of Eibon
++R'lyeh Text
++Eltdown Shards
++Revelations of Glaaki
++Seven Cryptical Books of Hsan
++Book of Dzyan
++Esoteric Order of Dagon
++Silver Twilight
++Starry Wisdom
++Voorish Sign
++Powder of Ibn-Ghazi
++Dust of Suleiman
++Shrivelling
++Cthulhu by Gaslight
++Gaslight
++Delta Green
++Pulp Cthulhu
++Masks of Nyarlathotep
++Horror on the Orient Express
++Beyond the Mountains of Madness
++Prohibition
++Star-spawn of Cthulhu
++Cats of Ulthar
++Bloated Woman
++Exham Priory
++Unknown Kadath
++The Call of Cthulhu
++The Shadow over Innsmouth
++At the Mountains of Madness
++The Dunwich Horror
++The Whisperer in Darkness
++The Dreams in the Witch House
++Majestic-12
++Handler
++Zanthu Tablets
++G'harne Fragments
++Ponape Scripture
++People of the Monolith
++Contact Ghoul
++Cloud Memory
++Wither Limb
++Mindblast
++Space Mead
++Plutonian Drug
++# Regelbegriffe (de)
+ Stabilität
+-Geistige Stabilität
++Stabilitätswurf
++Stabilitätspunkte
+ Glückswurf
++Mythoswissen
++Cthulhu Mythos
++Finanzkraft
++Verborgenes erkennen
+ Bibliotheksnutzung
++Bonuswürfel
++Maluswürfel
+ Okkultismus
+-Lovecraft
+-Pnakotische Manuskripte
+-Unaussprechliche Kulte
+-De Vermis Mysteriis
+-Celaeno-Fragmente
+-Großer Alter
+-Äußerer Gott
++Horchen
++Psychologie
++Erste Hilfe
++Überreden
++Überzeugen
++Einschüchtern
++Ausweichen
++Magiepunkte
++Trefferpunkte
++Schadensbonus
++Statur
++Schwere Wunde
++Buchführung
++Anthropologie
++Archäologie
++Verkleiden
++Elektrische Reparaturen
++Handgemenge
++Rechtswesen
++Mechanische Reparaturen
++Naturkunde
++Orientierung
++Psychoanalyse
++Spurensuche
++Erscheinung
++Bildung
++Verfolgungsjagd
++Sanity
++Sanity Roll
++Sanity Points
++Luck
++Luck Points
++Bout of Madness
++Temporary Insanity
++Indefinite Insanity
++Hard Success
++Extreme Success
++Fumble
++Credit Rating
++Spot Hidden
++Library Use
++Bonus Die
++Penalty Die
++Pushed Roll
++Occult
++Listen
++First Aid
++Persuade
++Fast Talk
++Intimidate
++Charm
++Dodge
++Idea Roll
++Know Roll
++Magic Points
++Hit Points
++Damage Bonus
++Build
++Major Wound
++Accounting
++Anthropology
++Appraise
++Archaeology
++Climb
++Disguise
++Drive Auto
++Electrical Repair
++Fighting Brawl
++Firearms
++Handgun
++Rifle
++Shotgun
++Jump
++Law
++Locksmith
++Mechanical Repair
++Natural World
++Navigate
++Operate Heavy Machinery
++Psychoanalysis
++Ride
++Stealth
++Swim
++Throw
++Track
++Appearance
++Education
++Power
++Chase
++Insane Insight
++Phobia
++Mania
++Breaking Point
++Pulp Talents
++# Regelbegriffe (en)
++Sanity
++Sanity Roll
++Sanity Points
++Luck
++Luck Points
++Bout of Madness
++Temporary Insanity
++Indefinite Insanity
++Hard Success
++Extreme Success
++Fumble
++Credit Rating
++Spot Hidden
++Library Use
++Bonus Die
++Penalty Die
++Pushed Roll
++Occult
++Listen
++First Aid
++Persuade
++Fast Talk
++Intimidate
++Charm
++Dodge
++Idea Roll
++Know Roll
++Magic Points
++Hit Points
++Damage Bonus
++Build
++Major Wound
++Accounting
++Anthropology
++Appraise
++Archaeology
++Climb
++Disguise
++Drive Auto
++Electrical Repair
++Fighting Brawl
++Firearms
++Handgun
++Rifle
++Shotgun
++Jump
++Law
++Locksmith
++Mechanical Repair
++Natural World
++Navigate
++Operate Heavy Machinery
++Psychoanalysis
++Ride
++Stealth
++Swim
++Throw
++Track
++Appearance
++Education
++Power
++Chase
++Insane Insight
++Phobia
++Mania
++Breaking Point
++Pulp Talents
++# Verhörer
++Kutulu => Cthulhu
++Ktulu => Cthulhu
++Nyarlatotep => Nyarlathotep
++Shub Nigurath => Shub-Niggurath
++Yog Sototh => Yog-Sothoth
++Miskatonik => Miskatonic
++Nekronomikon => Necronomicon
+diff --git a/app/begriffe/cyberpunk.txt b/app/begriffe/cyberpunk.txt
+new file mode 100644
+index 0000000..b6a9d53
+--- /dev/null
++++ b/app/begriffe/cyberpunk.txt
+@@ -0,0 +1,386 @@
++# Cyberpunk RED / 2020 – Begriffe für die Transkription
++# Erkennungsnamen: cyberpunk, cyberpunk red, cyberpunk 2020, cyberpunk 2077, cp2020, cpred, night city
++# Stufe A (höchstens 40, häufigste zuerst)
++Night City
++Choom
++Preem
++Nova
++Gonk
++Eddies
++Eurodollar
++Netrunner
++Solo
++Fixer
++Rockerboy
++Techie
++Medtech
++Nomad
++Exec
++Lawman
++Media
++Edgerunner
++Ripperdoc
++Arasaka
++Militech
++Trauma Team
++NetWatch
++Cyberdeck
++Cyberware
++Chrome
++Cyberpsycho
++Braindance
++Combat Zone
++Maelstrom
++Tyger Claws
++Valentinos
++Johnny Silverhand
++Corpo
++Sandevistan
++Kerenzikov
++Mantis Blades
++Flatline
++Badlands
++Afterlife
++# Stufe B
++Chooms
++Eurobucks
++Edgerunners
++Corpos
++Flatlined
++Chromed
++Borg
++Full Borg
++Wetware
++Meatspace
++Zeroed
++Gato
++Scav
++Scavs
++Boostergang
++Booster
++Max-Tac
++Psycho Squad
++Time of the Red
++Fourth Corporate War
++Vierter Konzernkrieg
++DataKrash
++Old Net
++Blackwall
++Hot Zone
++Reclaimers
++Night Market
++Watson
++Heywood
++Pacifica
++Westbrook
++City Center
++Corporate Center
++Little Europe
++Upper Marina
++Old Japantown
++Japantown
++Rancho Coronado
++Santo Domingo
++South Night City
++Northside
++Charter Hill
++Kabuki
++Animals
++Voodoo Boys
++Sixth Street
++Mox
++Bozos
++Iron Sights
++Philharmonic Vampyres
++Aldecaldos
++Raffen Shiv
++Wraiths
++Biotechnica
++Petrochem
++SovOil
++Zetatech
++Kang Tao
++Continental Brands
++Danger Gal
++Network 54
++WorldSat
++Ziggurat
++Raven Microcybernetics
++Dynalar
++Rocklin Augmentics
++Kiroshi
++Orbital Air
++Tsunami Defense Systems
++Malorian Arms
++Budget Arms
++Federated Arms
++Constitutional Arms
++Militech Avenger
++Malorian Arms 3516
++NET Architecture
++Daemon
++Hellhound
++Kraken
++Wisp
++Raven
++Asp
++Scorpion
++Liche
++Sabertooth
++Skunk
++Giant
++Jack In
++Jack Out
++Backdoor
++Cloak
++Pathfinder
++Rache Bartmoss
++Alt Cunningham
++Saburo Arasaka
++Yorinobu Arasaka
++Hanako Arasaka
++Rogue Amendiares
++Morgan Blackhand
++Spider Murphy
++Santiago
++Kerry Eurodyne
++Adam Smasher
++Lucius Rhyne
++Panam Palmer
++Jackie Welles
++Viktor Vektor
++Takemura
++Goro Takemura
++Dexter DeShawn
++Evelyn Parker
++Judy Alvarez
++Samurai
++Neural Processor
++Neuralware
++Cyberoptics
++Cyberaudio
++Cyberarm
++Cyberlegs
++Interface Plugs
++Biomonitor
++Skinweave
++Subdermal Armor
++Wolvers
++Big Knucks
++Rippers
++Scratchers
++Slice 'n Dice
++Monowire
++Gorilla Arms
++Projectile Launch System
++Popup Gun
++Smartgun
++Smartgun Link
++Chipware
++Skill Chip
++Datapool
++Cyberpunk RED
++Cyberpunk 2020
++Cyberpunk 2077
++Netrunning
++Netrun
++Gig
++Fixers
++Solos
++Nomads
++Netrunners
++Medtechs
++Techies
++Rockerboys
++Execs
++Eurodollars
++Kiroshi Optics
++Arasaka Tower
++Combat Cab
++Delamain
++Nekomata
++Sandy
++NCPD
++Night City Police Department
++C-SWAT
++CHOOH2
++Kibble
++Synthcoffee
++Pacifica Combat Zone
++Nomad Families
++Arasaka Security
++Militech International Armaments
++Infocomp
++Euro Business Machines
++EBM
++Microtech
++International Electric Corporation
++IEC
++Kendachi
++Sternmeyer
++Towa Manufacturing
++Militech Ronin
++Armalite 44
++Sternmeyer Type 35
++Arasaka Rapid Assault 12
++Kendachi Monoknife
++Kendachi Mono-Three
++Federated Arms X-22
++Dai Lung
++Speedware
++Boosterware
++Reflex Boost
++Cyberoptic
++Times Square Marquee
++Teleoptics
++Low Light
++Image Enhancement
++Anti-Dazzle
++Targeting Scope
++Chipware Socket
++Toxin Binders
++Nasal Filters
++Grafted Muscle
++Bone Lace
++Pain Editor
++Tactile Boost
++Olfactory Boost
++Voice Stress Analyzer
++Kill Display
++Cyberfinger
++Hidden Holster
++Techhair
++Light Tattoo
++Shift Tacts
++Linear Frame
++Full Body Conversion
++Alpha Class
++Dragoon
++Executive Zone
++The Glen
++Free State of Northern California
++NorCal
++SoCal
++Free States
++New United States
++NUSA
++EuroTheater
++Crystal Palace
++Highrider
++Highriders
++Night City Holocaust
++Unification War
++Metal Wars
++Ripperjack
++Bes Isis
++Inquisitors
++Red Chrome Legion
++Piranhas
++NightCorp
++Soulkiller
++Relic
++Mikoshi
++Engram
++Dogtown
++Phantom Liberty
++Kurt Hansen
++Mr. Hands
++Regina Jones
++Wakako Okada
++Dino Dinovic
++Padre
++Claire Russell
++River Ward
++Misty
++Brigitte
++Placide
++Lizzie's Bar
++Lizzie Wizzy
++Us Cracks
++Clouds
++Totentanz
++Konpeki Plaza
++Embers
++Jig-Jig Street
++Arroyo
++Vista del Rey
++Little China
++Coastview
++Wellsprings
++Arasaka Waterfront
++Biotechnica Flats
++# Regelbegriffe (de)
++Humanity
++Empathy
++Humanity Loss
++Cyberpsychosis
++Cyberpsychose
++Black ICE
++Combat Awareness
++Charismatic Impact
++Interface
++Maker
++Credibility
++Teamwork
++Backup
++Operator
++Moto
++Reflexes
++Cool
++Luck Points
++Hit Points
++Death Save
++Critical Injury
++Stopping Power
++Armor SP
++Lifepath
++Friday Night Firefight
++Autofire
++Suppressive Fire
++Aimed Shot
++Very Heavy Pistol
++Slide
++Zap
++Eye-Dee
++Initiative
++Skill Check
++# Regelbegriffe (en)
++Humanity
++Empathy
++Humanity Loss
++Cyberpsychosis
++Cyberpsychose
++Black ICE
++Combat Awareness
++Charismatic Impact
++Interface
++Maker
++Credibility
++Teamwork
++Backup
++Operator
++Moto
++Reflexes
++Cool
++Luck Points
++Hit Points
++Death Save
++Critical Injury
++Stopping Power
++Armor SP
++Lifepath
++Friday Night Firefight
++Autofire
++Suppressive Fire
++Aimed Shot
++Very Heavy Pistol
++Slide
++Zap
++Eye-Dee
++Initiative
++Skill Check
++# Verhörer
++Tschum => Choom
++Chum => Choom
++Priem => Preem
++Edgerunna => Edgerunner
+diff --git a/app/begriffe/degenesis.txt b/app/begriffe/degenesis.txt
+new file mode 100644
+index 0000000..65d8268
+--- /dev/null
++++ b/app/begriffe/degenesis.txt
+@@ -0,0 +1,303 @@
++# Degenesis – Begriffe für die Transkription
++# Erkennungsnamen: degenesis, degenesis rebirth, primal punk
++# Stufe A (höchstens 40, häufigste zuerst)
++Primer
++Eshaton
++Burn
++Spitalier
++Chronisten
++Hellvetiker
++Richter
++Jehammedaner
++Apokalyptiker
++Schrotter
++Neolibyer
++Anubier
++Sipplinge
++Geißler
++Wiedertäufer
++Bleicher
++Urvolk
++Borca
++Franka
++Pollen
++Balkhan
++Hybrispania
++Purgare
++Africa
++Justitian
++Protektorat
++Sichelschlag
++Fäulnis
++Sporenfeld
++Psychonauten
++Psychovoren
++Pheromanten
++Biokineten
++Psychokineten
++Dushani
++Prägnoktiker
++Homo Degenesis
++Leperos
++Fraktalwald
++Hellvetika
++# Stufe B
++Chroniker
++Spital
++Das Spital
++Eisbarriere
++Zonenbrand
++Pandora
++Pandora-Krater
++Wupperkrater
++Janus-Krater
++Nox
++Mirar
++Usud
++Dhoruba
++Souffrance
++Colossus
++Muttersporenfeld
++Muttersporenfelder
++Sporenfelder
++Fäulnissporen
++Sporenwand
++Burnfelder
++Burnernte
++Burnhandel
++Fraktalwälder
++Ziggurath
++Ziggurathe
++Psychonaut
++Prägnoktik
++Psychokinetik
++Biokinetik
++Pheromantik
++Dushan
++Leviathanik
++Chakra
++Chakren
++Erdchakra
++Argus
++Glorie
++Bion
++Eintracht
++Muse
++Diskordanz
++Diskordanz-Zone
++Nanit
++Asselspinnen
++Gürtelskolopender
++Echein-Spinnen
++Markierkäfer
++Drangpanzer
++Marduk-Öl
++Sternenfeuer
++Schwarm
++Schläfer
++Kälteschlaf
++Stream
++Recombination Group
++Zentraler Cluster
++Cluster
++Chronistenwechsel
++Anubis-Syndikat
++Voivodat
++Voivoden
++Consuln
++Leoparden
++Preservisten
++Enemoi
++Phosphoriten
++Kakerlaken
++Ernährer
++Hijos del Sol
++Guerreros
++Renegado
++Vigilantes
++Flagellanten
++Demiurgen
++Schwarze Schar
++Das Schwarze Nest
++Callisto
++Corpse
++Bedain
++Der Schlund
++Hygienik
++Spreizer
++Tarots
++Ankläger
++Henker
++Einbalsamierer
++Totenhüter
++Westborca
++Ostborca
++Ramein-Region
++Domstadt
++Liqua
++Exalt
++Nullpellia
++Ferropol
++Gesseln
++Hundsloch
++Ignatz
++Kalkbruch
++Last Exit
++Mobilis
++Sinder
++Tumbler
++Vektor
++Severnius
++Noret
++Osman
++Praha
++Praha Republika
++Cremant
++Der gefallene Stern
++Nadeltürme
++Alpenfeste
++Alpenfestung
++Berner Passage
++Parasite
++Aquitaine
++Britain
++Briton
++Gaelik
++Stukov-Wüste
++Karnag
++Ährenfeld
++Bassham
++Camp Fierté
++Ducal
++Nordpassage
++Südpassage
++Rhône-Sümpfe
++Brandweg
++Route de la Résistance
++Ammenwald
++Wabenstadt
++Schlote des Machiawen
++Sentier du Chasseur
++Ushant
++Nephraim
++Hamza
++Machiawen
++Cardial
++Gian d'Ecur
++Voivodat Beograd
++Voivodat Bukarest
++Voivodat Dalmazia
++Voivodat Ionnus
++Voivodat Sofia
++Beograd
++Dalmazia
++Ionnus
++Laibach
++Pest
++Tripol
++Chernobog
++Djuric
++Karakhan
++Buzdovan
++Zuberi
++Projekt Tannhäuser
++Al-Andalus
++Atlas
++Embaye
++Anubien
++Qabis
++Aribat
++Marrakush
++Murquz
++Agadesh
++Psychovoren-Gürtel
++Psychovorengürtel
++Westdarfür-Gebirge
++Madame Dayo
++Ukmena
++Warui
++HIVE
++Ahmahdee
++AMSUMOs
++Hybrispanier
++Kastilien
++Kastilisches Hochplateau
++Campeadora
++Jaafar
++Frau vom Berg
++Verwerfung
++Node
++Ewige Oasen
++Trümmerhexe
++Zeckenkinder
++Piast von Breslau
++Pollner
++Roma
++Lucatore
++Apenninen
++Mistral
++Vivaco
++Absonderlicher
++Africaner
++Balkhani
++Purger
++Iberer
++Jehammed
++Norman Thorn
++Gerome Getrell
++Primal Punk
++Degenesis Rebirth
++Schwarzer Atlantik
++Golfstrom
++Adriatische Tiefebene
++Hot Spots
++UEO
++Archot
++Chromium
++Iridium
++Impuls
++Kranzler
++Wakili
++Staubreiter
++Ostwindschar
++Splitterschwingen
++Leichenvögel
++Destillat
++Strandgut
++Ödland
++Nadelöhr der Alpen
++Hagra
++Vulco
++Eikonid von Osman
++Zugvögel
++Hackordnung
++Demiurg
++Promethium
++Kobald
++Metatag
++Eject
++Naike
++Nullereignis
++Nanitenblut
++Memetische Streamfeeds
++# Regelbegriffe (de)
++Egopunkte
++Traumapunkte
++Aktionswürfel
++Ego
++Trauma
++Sporenbefall
++Raptus
++Katharsys
++Fleischwunden
++Potenziale
++Trigger
++Erfolge
++Initiative
++# Regelbegriffe (en)
++Ego
++Trauma
++Trigger
++Initiative
++# Verhörer
++Eschaton => Eshaton
+diff --git a/app/begriffe/dnd.txt b/app/begriffe/dnd.txt
+index 4e2c6ce..01efe7e 100644
+--- a/app/begriffe/dnd.txt
++++ b/app/begriffe/dnd.txt
+@@ -1,50 +1,567 @@
+-# Dungeons & Dragons – häufige Eigennamen und Begriffe (Schreibhilfe für die Transkription)
++# Dungeons & Dragons 5e – Begriffe für die Transkription
++# Erkennungsnamen: dungeons & dragons, dungeons and dragons, d&d, dnd, d und d, fünfte edition, forgotten realms, vergessene reiche, faerûn, faerun
++# Stufe A (höchstens 40, häufigste zuerst)
+ Faerûn
+-Schwertküste
+-Waterdeep
+ Tiefwasser
+-Baldur's Gate
+-Neverwinter
+ Niewinter
+-Underdark
+-Unterreich
+-Feywild
+-Shadowfell
+-Barovia
+-Strahd
+-Elminster
+-Mordenkainen
++Schwertküste
++Vergessene Reiche
++Tiefling
++Drachenblütiger
++Drow
++Gedankenschinder
+ Tiamat
++Unterreich
++Lathander
++Mystra
++Tymora
++Selûne
+ Bahamut
++Asmodeus
+ Lolth
+-Drow
+-Tiefling
++Zhentarim
++Harfner
++Elminster
++Strahd
++Barovia
++Phandalin
++Eberron
++# Stufe A (en)
++Dungeon Master
++Waterdeep
++Baldur's Gate
++Neverwinter
++Sword Coast
+ Dragonborn
+-Drachenblütiger
+-Halbling
+-Githyanki
+ Illithid
+-Gedankenschinder
++Underdark
++Feywild
++Shadowfell
+ Beholder
++Owlbear
++Harpers
++Candlekeep
++Icewind Dale
++# Stufe B
++Toril
++Abeir-Toril
++Amn
++Calimshan
++Calimport
++Cormyr
++Sembia
++Thay
++Rashemen
++Chult
++Bryn Shander
++Luskan
++Mirabar
++Silbrigmond
++Mithral Hall
++Menzoberranzan
++Gauntlgrym
++Phandelver
++Triboar
++Daggerford
++Elturel
++Kerzenburg
++Evermeet
++Myth Drannor
++Netheril
++Anauroch
++Mulhorand
++Unther
++Halruaa
++Mondsee
++Schattental
++Undermountain
++Skullport
++Saltmarsh
++Vallaki
++Ravenloft
++Feenwildnis
++Astralebene
++Ätherebene
++Neun Höllen
++Abyss
++Avernus
++Elysium
++Mechanus
++Limbo
++Sigil
++Planescape
++Spelljammer
++Sharn
++Khorvaire
++Greyhawk
++Oerth
++Dragonlance
++Krynn
++Dark Sun
++Athas
++Exandria
++Wildemount
++Tal'Dorei
++Theros
++Ravnica
++Strixhaven
++Rote Magier
++Kult des Drachen
++Tyr
++Shar
++Tempus
++Torm
++Bane
++Bhaal
++Myrkul
++Cyric
++Kelemvor
++Oghma
++Ilmater
++Umberlee
++Talos
++Chauntea
++Mielikki
++Silvanus
++Sune
++Moradin
++Gruumsh
++Orcus
++Demogorgon
++Graz'zt
++Juiblex
++Baphomet
++Yeenoghu
++Zuggtmoy
++Fraz-Urb'luu
++Vecna
++Acererak
++Strahd von Zarovich
++Drizzt Do'Urden
++Volo
++Mordenkainen
++Tasha
++Xanathar
++Jarlaxle
++Khelben Arunsun
++Manshoon
++Szass Tam
++Raistlin
+ Betrachter
++Eulenbär
++Tarrasque
++Kuo-toa
++Duergar
++Svirfneblin
++Githyanki
++Githzerai
++Yuan-ti
++Bugbear
++Grottenschrat
++Hobgoblin
++Gnoll
++Gallertwürfel
++Rostmonster
++Aboleth
++Chuul
++Ettercap
++Ettin
++Vettel
++Dracolich
++Banshee
++Wight
++Wraith
++Bulette
++Cockatrice
++Manticore
++Nothic
++Flumph
++Modron
++Slaad
++Lich
+ Paladin
+-Warlock
+-Hexenmeister
+-Sorcerer
+-Zauberer
+-Kleriker
+-Druide
+ Barde
++Kleriker
++Hexenmeister
+ Waldläufer
+ Schurke
+-Barbar
+-Cantrip
+-Zaubertrick
+-Zauberplatz
++Kämpfer
++Halbling
++Halbork
++Halbelf
++Aasimar
++Dunkelelf
++Hochelf
++Eladrin
++Shadar-kai
++Genasi
++Firbolg
++Goliath
++Tabaxi
++Kenku
++Aarakocra
++Tortle
++Warforged
++Changeling
++Schauerlicher Strahl
++Heilendes Wort
++Feuerball
++Magisches Geschoss
++Nebelschritt
++Gegenzauber
++Magierhand
++Magie entdecken
++Magie bannen
++Feenfeuer
++Nimmervoller Beutel
++Goldstücke
++Silberstücke
++Kupferstücke
++Platinstücke
++Elektrum
++Alturiak
++Ches
++Tarsakh
++Mirtul
++Kythorn
++Flamerule
++Eleasis
++Eleint
++Marpenoth
++Uktar
++Nightal
++Shieldmeet
++Greengrass
++Spielerhandbuch
++Spielleiterhandbuch
++Monsterhandbuch
++# Stufe B (en)
++Forgotten Realms
++Port Nyanzaru
++Ten Towns
++Silverymoon
++Wave Echo Cave
++Neverwinter Wood
++Moonshae Isles
++Moonsea
++Dalelands
++Shadowdale
++Zhentil Keep
++Yawning Portal
++Astral Plane
++Ethereal Plane
++Nine Hells
++Lords' Alliance
++Emerald Enclave
++Order of the Gauntlet
++Red Wizards
++Cult of the Dragon
++Flaming Fist
++Corellon Larethian
++Volothamp Geddarm
++Laeral Silverhand
++Halaster Blackcloak
++Lord Soth
++Displacer Beast
++Gelatinous Cube
++Mimic
++Rust Monster
++Umber Hulk
++Death Knight
++Will-o'-Wisp
++Intellect Devourer
++Shambling Mound
++Mind Flayer
++Barbarian
++Bard
++Cleric
++Druid
++Fighter
++Monk
++Ranger
++Rogue
++Sorcerer
++Warlock
++Wizard
++Artificer
++Halfling
++Gnome
++Half-Orc
++Half-Elf
++High Elf
++Wood Elf
++Hill Dwarf
++Mountain Dwarf
++Eldritch Blast
++Healing Word
++Divine Smite
++Wild Shape
++Fireball
++Magic Missile
++Cure Wounds
++Mage Armor
++Misty Step
++Counterspell
++Hold Person
++Spiritual Weapon
++Spirit Guardians
++Guidance
++Thaumaturgy
++Prestidigitation
++Mage Hand
++Minor Illusion
++Fire Bolt
++Toll the Dead
++Sacred Flame
++Vicious Mockery
++Thunderwave
++Detect Magic
++Find Familiar
++Dispel Magic
++Polymorph
++Banishment
++Wall of Force
++Revivify
++Power Word Kill
++Meteor Swarm
++Faerie Fire
++Hellish Rebuke
++Hunger of Hadar
++Armor of Agathys
++Lightning Bolt
++Cone of Cold
++Animate Dead
++Speak with Dead
++Raise Dead
++Resurrection
++Tasha's Hideous Laughter
++Bigby's Hand
++Leomund's Tiny Hut
++Otiluke's Resilient Sphere
++Mordenkainen's Magnificent Mansion
++Melf's Acid Arrow
++Evard's Black Tentacles
++Bag of Holding
++Potion of Healing
++Spell Scroll
++Copper Pieces
++Silver Pieces
++Gold Pieces
++Electrum Pieces
++Platinum Pieces
++Calendar of Harptos
++Dale Reckoning
++Player's Handbook
++Dungeon Master's Guide
++Monster Manual
++Homebrew
++Session Zero
++# Regelbegriffe (de)
+ Rettungswurf
+-Initiative
+-Rüstungsklasse
++Zauberplatz
++Zaubertrick
+ Trefferpunkte
+-Vorteil
+-Nachteil
+-Konzentration
++Rüstungsklasse
++Bonusaktion
++Kurze Rast
++Lange Rast
++Inspiration
++Übungsbonus
++Gelegenheitsangriff
++Trefferwürfel
++Todesrettungswurf
++Hinterhältiger Angriff
++Arkane Kunde
++Initiative
++Advantage
++Disadvantage
++Saving Throw
++Spell Slot
++Cantrip
++Hit Points
++Armor Class
++Bonus Action
++Short Rest
++Long Rest
++Ability Check
++Proficiency Bonus
++Concentration
++Opportunity Attack
++Hit Dice
++Death Saving Throw
++Death Save
++Sneak Attack
++Attack Roll
++Damage Roll
++Ability Score
++Ability Score Improvement
++Strength
++Dexterity
++Constitution
++Intelligence
++Wisdom
++Charisma
++Athletics
++Acrobatics
++Sleight of Hand
++Stealth
++Arcana
++Investigation
++Animal Handling
++Insight
++Perception
++Passive Perception
++Survival
++Deception
++Intimidation
++Performance
++Persuasion
++Blinded
++Charmed
++Frightened
++Grappled
++Incapacitated
++Paralyzed
++Petrified
++Poisoned
++Prone
++Restrained
++Stunned
++Unconscious
++Exhaustion
++Temporary Hit Points
++Spell Save DC
++Difficulty Class
++Spell Attack
++Spellcasting Modifier
++Ritual Casting
++Multiclassing
++Feat
++Subclass
++Natural 20
++Nat 20
++Natural One
++Critical Hit
++Attunement
++Action Surge
++Second Wind
++Cunning Action
++Extra Attack
++Lay on Hands
++Channel Divinity
++Metamagic
++Sorcery Points
++Ki Points
++Flurry of Blows
++Stunning Strike
++Uncanny Dodge
++Evasion
++Hunter's Mark
++Favored Enemy
++Bardic Inspiration
++Pact Magic
++Eldritch Invocation
++Pact Boon
++Wild Magic
++Reckless Attack
++# Regelbegriffe (en)
++Advantage
++Disadvantage
++Saving Throw
++Spell Slot
++Cantrip
++Hit Points
++Armor Class
++Bonus Action
++Short Rest
++Long Rest
++Ability Check
++Proficiency Bonus
++Concentration
++Opportunity Attack
++Hit Dice
++Death Saving Throw
++Death Save
++Sneak Attack
++Attack Roll
++Damage Roll
++Ability Score
++Ability Score Improvement
++Strength
++Dexterity
++Constitution
++Intelligence
++Wisdom
++Charisma
++Athletics
++Acrobatics
++Sleight of Hand
++Stealth
++Arcana
++Investigation
++Animal Handling
++Insight
++Perception
++Passive Perception
++Survival
++Deception
++Intimidation
++Performance
++Persuasion
++Blinded
++Charmed
++Frightened
++Grappled
++Incapacitated
++Paralyzed
++Petrified
++Poisoned
++Prone
++Restrained
++Stunned
++Unconscious
++Exhaustion
++Temporary Hit Points
++Spell Save DC
++Difficulty Class
++Spell Attack
++Spellcasting Modifier
++Ritual Casting
++Multiclassing
++Feat
++Subclass
++Natural 20
++Nat 20
++Natural One
++Critical Hit
++Attunement
++Action Surge
++Second Wind
++Cunning Action
++Extra Attack
++Lay on Hands
++Channel Divinity
++Metamagic
++Sorcery Points
++Ki Points
++Flurry of Blows
++Stunning Strike
++Uncanny Dodge
++Evasion
++Hunter's Mark
++Favored Enemy
++Bardic Inspiration
++Pact Magic
++Eldritch Invocation
++Pact Boon
++Wild Magic
++Reckless Attack
++# Verhörer
++Sehving Srou => Saving Throw
++Seving Throw => Saving Throw
++Spellslot => Spell Slot
++Kantrip => Cantrip
++Baldurs Gate => Baldur's Gate
++Faerun => Faerûn
++Eldrich Blast => Eldritch Blast
++Ilitid => Illithid
+diff --git a/app/begriffe/dsa.txt b/app/begriffe/dsa.txt
+index 34d5c7c..eea87f3 100644
+--- a/app/begriffe/dsa.txt
++++ b/app/begriffe/dsa.txt
+@@ -1,54 +1,468 @@
+-# Das Schwarze Auge – häufige Eigennamen und Begriffe (Schreibhilfe für die Transkription)
++# Das Schwarze Auge – Begriffe für die Transkription
++# Erkennungsnamen: das schwarze auge, dsa, dsa4, dsa5, aventurien, schwarzes auge
++# Stufe A (höchstens 40, häufigste zuerst)
+ Aventurien
+-Gareth
+-Mittelreich
+-Horasreich
+-Thorwal
+-Al'Anfa
+-Tobrien
+-Weiden
+-Almada
+-Andergast
+-Nostria
+-Bornland
+-Festum
+-Vinsalt
+-Punin
+-Havena
+-Kosch
+-Maraskan
+-Aranien
+-Rashdul
+-Khunchom
+ Praios
+ Rondra
+-Efferd
+-Travia
+ Boron
++Phex
++Travia
++Efferd
+ Hesinde
++Peraine
+ Firun
+ Tsa
+-Phex
+-Peraine
+ Ingerimm
+ Rahja
+-Borbarad
+-Rohal
+-Hal
++Zwölfgötter
+ Dukaten
+ Silbertaler
+ Heller
+ Kreuzer
+-Astralpunkte
+-Karmapunkte
+-Lebenspunkte
+-Novadi
+-Tulamiden
++Praioslauf
++Gareth
++Mittelreich
++Thorwal
+ Thorwaler
++Horasreich
++Al'Anfa
++Bornland
++Almada
++Nostria
++Andergast
++Namenloser
++Borbarad
++Tulamiden
++Novadi
++Angroschim
++Achaz
++Dere
++Alveran
++Satuaria
++Swafnir
++Rastullah
++# Stufe B
++Zwölfgöttlich
++Nostrier
++Andergaster
++Salzerhaven
++Kendrar
++Lyckmoor
++Seenland
++Ilsur
++Albenhus
++Winhall
++Joborn
++Teshkal
++Thuranien
++Ingval
++Ingvaltal
++Steineichenwald
++Salza
++Streitende Königreiche
++Altvater
++Sumu
++Druidenzirkel
++Töchter Satuarias
++Hexenzirkel
++Limbus
++Niederhöllen
++Güldenland
++Myranor
++Uthuria
++Riesland
++Bosparan
++Bosparans Fall
++Garetien
++Darpatien
++Greifenfurt
++Nordmarken
++Albernia
++Tobrien
++Kosch
++Aranien
++Maraskan
++Mhanadistan
++Svellttal
++Orkland
++Gjalskerland
++Schwarze Lande
++Transysilien
++Warunk
++Mendena
++Ysilia
++Beilunk
++Perricum
++Rommilys
++Gallys
++Wehrheim
++Ragath
++Punin
++Elenvina
++Angbar
++Ferdok
++Gratenfels
++Havena
++Honingen
++Trallop
++Baliho
++Bjaldorn
++Festum
++Norburg
++Neersand
++Vallusa
++Riva
++Paavi
++Lowangen
++Gashok
++Phexcaer
++Donnerbach
++Gerasim
++Notmark
++Xorlosch
++Vinsalt
++Kuslik
++Grangor
++Methumis
++Belhanka
++Arivor
++Bethana
++Neetha
++Drôl
++Chorhop
++Zorgan
++Baburin
++Elburum
++Anchopal
++Khunchom
++Rashdul
++Fasar
++Mherwed
++Unau
++Keft
++Thalusa
++Mirham
++Brabak
++Mengbilla
++Charypso
++Sylla
++Hôt-Alem
++Port Corrad
++H'Rabaal
++Altoum
++Olport
++Prem
++Hjaldingard
++Waskir
++Selem
++Tuzak
++Sinoda
++Boran
++Enqui
++Yaquir
++Yaquirbruch
++Großer Fluss
++Svellt
++Tommel
++Radrom
++Barun-Ulah
++Mhanadi
++Gadang
++Darpat
++Neunaugensee
++Blautann
++Reichsforst
++Raschtulswall
++Ehernes Schwert
++Finsterkamm
++Salamandersteine
++Rote Sichel
++Schwarze Sichel
++Koschberge
++Trollzacken
++Walberge
++Khôm
++Gorische Wüste
++Echsensümpfe
++Regengebirge
++Hohe Eternen
++Blutige See
++Meer der Sieben Winde
++Perlenmeer
++Ifirns Ozean
++Satinav
++Mada
++Madamal
++Levthan
++Ifirn
++Aves
++Kor
++Nandus
++Marbo
++Simia
++Angrosch
++Zsahh
++H'Szint
++Kamaluq
++Tairach
++Brazoragh
++Gravesh
++Namenlose Tage
++Pyrdacor
++Fuldigor
++Famerlor
++Rhazzazor
++Blakharaz
++Belhalhar
++Charyptoroth
++Lolgramoth
++Thargunitoth
++Amazeroth
++Belshirash
++Asfaloth
++Tasfarelel
++Belzhorash
++Agrimoth
++Belkelel
++Heshthot
++Karmanath
++Dämonenkrone
++Borbaradianer
++Rohal
++Rohaja
++Hal
++Brin
++Reto
++Emer
++Phileasson
++Beorn der Blender
++Pardona
++Fran-Horas
++Amene-Horas
+ Firnelfen
+ Auelfen
+ Waldelfen
++Halbelfen
++Brillantzwerge
++Erzzwerge
++Hügelzwerge
++Ambosszwerge
++Echsenmenschen
++Grolme
+ Ferkina
+-Balsaminde
+-Namenlose
+-Siebenstreich
++Gjalskerländer
++Nivesen
++Norbarden
++Moha
++Utulu
++Waldmenschen
++Tocamuyac
++Fjarninger
++Zahori
++Maraskaner
++Aranier
++Mittelländer
++Horasier
++Bornländer
++Almadaner
++Svellttaler
++Albernier
++Morfu
++Tatzelwurm
++Krakenmolch
++Höhlendrache
++Kaiserdrache
++Purpurwurm
++Baumdrache
++Riesenlindwurm
++Westwinddrache
++Perldrache
++Mantikor
++Harpyie
++Schrat
++Spektabilität
++Magus
++Magister
++Adeptus
++Akoluth
++Geode
++Scharlatan
++Schelm
++Reichsbehüter
++Reichsbehüterin
++Euer Gnaden
++Euer Hochgeboren
++Euer Hochwohlgeboren
++Euer Wohlgeboren
++Euer Erlaucht
++Euer Hochwürden
++Weiße Gilde
++Graue Gilde
++Schwarze Gilde
++Bannstrahler
++Golgariten
++Ardariten
++Draconiter
++Noioniten
++Theaterritter
++Sonnenlegion
++Praios-Kirche
++Rondra-Kirche
++Boron-Kirche
++Travia-Kirche
++Hesinde-Kirche
++Phex-Kirche
++Rahja-Kirche
++Peraine-Kirche
++Hand Borons
++Windstag
++Erdstag
++Markttag
++Praiostag
++Rohalstag
++Feuertag
++Wassertag
++Götterlauf
++Tsatag
++Batzen
++Groschen
++Oreal
++Dublone
++Marawedi
++Zechine
++Muwlat
++Horasdor
++Armatrutz
++Axxeleratus
++Balsam Salabunde
++Bannbaladin
++Blick in die Gedanken
++Blitz dich find
++Corpofesso
++Duplicatus
++Eisenrost
++Exposami
++Flim Flam
++Flim Flam Funkel
++Foramen
++Fulminictus
++Fulminictus Donnerkeil
++Ignifaxius
++Ignifaxius Flammenstrahl
++Gardianum
++Große Gier
++Horriphobus
++Ignisphaero
++Invocatio minor
++Invocatio maior
++Klarum Purum
++Motoricus
++Odem Arcanum
++Paralysis
++Penetrizzel
++Plumbumbarum
++Psychostabilis
++Respondami
++Silentium
++Somnigravis
++Spinnenlauf
++Visibili
++Analys Arcanstruktur
++Applicatus
++Arcanovi
++Attributo
++Chamaelioni
++Claudibus
++Destructibo
++Ecliptifactus
++Fortifex
++Ignorantia
++Pentagramma
++Reversalis
++Salander
++Salander Mutanderer
++Transversalis
++Krähenruf
++Hexenknoten
++Hexenblick
++Krötensprung
++Katzenaugen
++Hexenspeichel
++Unitatio
++Adlerauge
++Abvenenum
++Höllenpein
++Rondrakamm
++Khunchomer
++Doppelkhunchomer
++Amazonensäbel
++Felsspalter
++Lindwurmschläger
++Orknase
++Tuzakmesser
++Wolfsmesser
++Waqqif
++Sklaventod
++Robbentöter
++# Regelbegriffe (de)
++Astralpunkte
++Karmapunkte
++Lebenspunkte
++Schicksalspunkte
++Abenteuerpunkte
++Fertigkeitspunkte
++Qualitätsstufe
++Zähigkeit
++Wundschwelle
++Sonderfertigkeit
++Rüstungsschutz
++Trefferpunkte
++Talentprobe
++Eigenschaftsprobe
++Zauberprobe
++Belastung
++Betäubung
++Verwirrung
++Astralenergie
++Karmaenergie
++Lebensenergie
++Seelenkraft
++Talentwert
++Liturgie
++Zeremonie
++Attacke
++Parade
++Ausweichen
++Initiative
++Kampfrunde
++Patzer
++Furcht
++Paralyse
++Schmerz
++Trefferzone
++# Regelbegriffe (en)
++Adventure Points
++Life Points
++Arcane Energy
++Karma Points
++Fate Points
++Quality Level
++Skill Points
++Spirit
++Toughness
++Wound Threshold
++Special Ability
++Protection
++Attack
++Parry
++Dodge
++Initiative
++Skill Check
++Spell Check
++# Verhörer
++Praeuslauf => Praioslauf
++Preuslauf => Praioslauf
++Al Anfa => Al'Anfa
++Ignifaxus => Ignifaxius
++Aventurin => Aventurien
++Fex => Phex
+diff --git a/app/begriffe/earthdawn.txt b/app/begriffe/earthdawn.txt
+new file mode 100644
+index 0000000..48b9fc8
+--- /dev/null
++++ b/app/begriffe/earthdawn.txt
+@@ -0,0 +1,337 @@
++# Earthdawn – Begriffe für die Transkription
++# Erkennungsnamen: earthdawn, barsaive, zeitalter der legenden, age of legend
++# Stufe A (höchstens 40, häufigste zuerst)
++Barsaive
++Throal
++Thera
++Theraner
++Theranisches Reich
++Kaer
++Kaers
++Namensgeber
++Adept
++Adepten
++Dämonen
++Plage
++Passionen
++Obsidianer
++T'skrang
++Windlinge
++Blutwald
++Blutelfen
++Bartertown
++Kratas
++Travar
++Iopos
++Parlainth
++Vivane
++Sky Point
++Schlangenfluss
++# Stufe A (en)
++Therans
++Theran Empire
++Name-giver
++Name-givers
++Horrors
++Scourge
++Passions
++Obsidimen
++Windlings
++Blood Wood
++Blood Elves
++Serpent River
++# Stufe B
++Mountainshadow
++Fadenweben
++Haven
++Urupa
++Jerris
++Kaer Tardim
++Cara Fahd
++Scythia
++Landis
++Sosanopa
++Ustrect
++Darranis
++Marrek
++Ardanyan
++Tylon
++Twilight Peaks
++Thunder Mountains
++Caucavic Mountains
++Tylon Mountains
++König Varulus
++Varulus
++Neden
++Thom Edrull
++Denairastas
++Iopaner
++Vasgothia
++Wyrm Wood
++Elven Court
++Alachia
++Königin Alachia
++Kaer Eidolon
++Verjigorm
++Vestrial
++Ysrthgrathe
++Aardelea
++Icewing
++Earthroot
++Vasdenjas
++Usun
++Dvilgaynon
++Großdrache
++Great Dragon
++Astor
++Chorrolis
++Floranuus
++Garlen
++Jaspree
++Lochost
++Mynbruje
++Thystonius
++Upandal
++Dis
++Raggok
++Questor
++Questoren
++Mad Passion
++Krieger
++Warrior
++Schwertmeister
++Swordmaster
++Dieb
++Thief
++Troubadour
++Elementarist
++Elementalist
++Illusionist
++Nethermancer
++Magier
++Wizard
++Sky Raider
++Bogenschütze
++Archer
++Tiermeister
++Beastmaster
++Kavallerist
++Cavalryman
++Waffenschmied
++Weaponsmith
++Schamane
++Scout
++Kundschafter
++Thread Magic
++True Pattern
++Pattern Item
++Thread Item
++Elemental Air
++Living Crystal
++Crystal Raiders
++Luftschiff
++Airship
++Drakkar
++Riverboat
++Horror Construct
++Horror Mark
++Cadaver Man
++Spirits
++Ally Spirit
++Elemental Spirit
++City of Thieves
++Merchant City
++Grand Bazaar
++Ork Nation
++Ork Scorcher
++Crystal Raiders of Barsaive
++Legenden von Barsaive
++Legends of Barsaive
++# Stufe B (en)
++Haven
++Kaer Tardim
++Twilight Peaks
++Thunder Mountains
++King Varulus
++Elven Court
++Queen Alachia
++Blood Warder
++Great Dragons
++Horror
++Horror Stalker
++Horror Mark
++Horror Construct
++Cadaver Men
++Thread
++Threads
++Thread Weaving
++Pattern Item
++Thread Item
++Legend Points
++Legend Point
++Karma Point
++Karma Points
++Namegiver
++Namegivers
++Obsidiman
++Windling
++Troubadour
++Illusionist
++Wizard
++Nethermancer
++Elementalist
++Beastmaster
++Archer
++Cavalryman
++Scout
++Sky Raider
++Swordmaster
++Thief
++Warrior
++Weaponsmith
++Shaman
++Journeyman
++Warden
++Master
++Novice
++Circle
++Circles
++Discipline
++Disciplines
++Talent
++Talents
++Talent Knack
++Knack
++Half-Magic
++Elemental Spirit
++Ally Spirit
++Blood Magic
++Blood Charm
++Blood Oath
++Blood Peace
++Living Crystal
++Airship
++Riverboat
++Crystal Raiders
++City of Thieves
++Merchant City
++Grand Bazaar
++Ork Nation
++Ork Scorchers
++Theran
++# Regelbegriffe (de)
++Kreis
++Kreise
++Disziplin
++Disziplinen
++Talent
++Talente
++Karma
++Karmapunkte
++Legendenpunkte
++Stufe
++Stufen
++Mindestwurf
++Probe
++Blutmagie
++Spruchmatrix
++Matrix
++Zauberspruch
++Zaubersprüche
++Faden
++Fäden
++Fadenweben
++Mystische Verteidigung
++Todesschwelle
++Wunde
++Wunden
++Erholungsprobe
++Erholungsproben
++Eiserner Wille
++Initiative
++Geschicklichkeit
++Stärke
++Zähigkeit
++Wahrnehmung
++Willenskraft
++Charisma
++Novize
++Geselle
++Wächter
++Meister
++# Regelbegriffe (en)
++Circle
++Circles
++Discipline
++Disciplines
++Talent
++Talents
++Talent Knack
++Knack
++Karma
++Karma Points
++Legend Points
++Step
++Steps
++Step Number
++Action Dice
++Difficulty Number
++Target Number
++Test
++Result Level
++Success Level
++Extraordinary Success
++Blood Magic
++Blood Charm
++Blood Oath
++Blood Peace
++Spell Matrix
++Matrix
++Spell
++Spells
++Thread
++Threads
++Thread Weaving
++Weave Threads
++Thread Rank
++Mystic Defense
++Social Defense
++Physical Defense
++Mystic Armor
++Physical Armor
++Death Rating
++Unconsciousness Rating
++Wound Threshold
++Wound
++Wounds
++Recovery Test
++Recovery Tests
++Iron Will
++Initiative
++Dexterity
++Strength
++Toughness
++Perception
++Willpower
++Charisma
++Damage Step
++Armor Rating
++Half-Magic
++Novice
++Journeyman
++Warden
++Master
++Legend
++Naming
++Spirit Summoning
++Astral Space
++Astral Sight
++Astral Sensing
++Raw Casting
++Warping
++# Verhörer
++Barsaiv => Barsaive
++Troal => Throal
++Teraner => Theraner
++Käer => Kaer
++Tskrang => T'skrang
+diff --git a/app/begriffe/herrderringe.txt b/app/begriffe/herrderringe.txt
+new file mode 100644
+index 0000000..7777065
+--- /dev/null
++++ b/app/begriffe/herrderringe.txt
+@@ -0,0 +1,380 @@
++# Der Eine Ring / Herr der Ringe – Begriffe für die Transkription
++# Erkennungsnamen: der eine ring, the one ring, herr der ringe, lord of the rings, mittelerde, middle-earth, tor2e, lotr, abenteuer in mittelerde
++# Stufe A (höchstens 40, häufigste zuerst)
++Mittelerde
++Auenland
++Bruchtal
++Bree
++Eriador
++Gandalf
++Hobbits
++Dúnedain
++Elben
++Moria
++Gondor
++Rohan
++Mordor
++Sauron
++Saruman
++Isengard
++Düsterwald
++Lothlórien
++Nebelgebirge
++Arnor
++Angmar
++Wetterspitze
++Hügelgräberhöhen
++Nazgûl
++Ringgeister
++Aragorn
++Streicher
++Elrond
++Galadriel
++Frodo
++Bilbo
++Beorninger
++Waldläufer
++Orks
++Uruk-hai
++Warge
++# Stufe A (en)
++Rivendell
++Shire
++Mirkwood
++Wilderland
++# Stufe B
++Der Eine Ring
++Herr der Ringe
++Ringgeist
++Freie Völker
++Frodo Beutlin
++Bilbo Beutlin
++Legolas
++Gimli
++Boromir
++Faramir
++Samweis Gamdschie
++Meriadoc Brandybock
++Merry
++Peregrin Tuk
++Pippin
++Celeborn
++Gollum
++Sméagol
++Thorin Eichenschild
++Balin
++Dáin
++Dáin Eisenfuß
++Beorn
++Radagast
++Tom Bombadil
++Goldbeere
++Théoden
++Éowyn
++Éomer
++Denethor
++Glorfindel
++Arwen
++Thranduil
++Bard
++Smaug
++Hexenkönig
++Balrog
++Kankra
++Huorns
++Ents
++Baumbart
++Gríma Schlangenzunge
++Gríma
++Butterblume
++Gerstenmann Butterblume
++Tänzelndes Pony
++Hobbingen
++Beutelsend
++Bockland
++Alter Wald
++Graue Anfurten
++Mithlond
++Fornost
++Annúminas
++Tharbad
++Bruinen
++Lautwasser
++Brandywein
++Fangorn
++Helms Klamm
++Edoras
++Osgiliath
++Minas Tirith
++Minas Morgul
++Cirith Ungol
++Barad-dûr
++Schicksalsberg
++Orodruin
++Dol Guldur
++Carrock
++Langer See
++Seestadt
++Esgaroth
++Erebor
++Einsamer Berg
++Thal
++Eisenberge
++Graue Berge
++Rhûn
++Harad
++Umbar
++Dunland
++Lindon
++Ered Luin
++Blaue Berge
++Trollhöhen
++Ettenöden
++Eregion
++Hollin
++Anduin
++Großer Strom
++Schwertelfelder
++Rhovanion
++Tal des Anduin
++Breeland
++Chetwald
++Archet
++Staddel
++Combe
++Nordhöhen
++Südhöhen
++Wetterberge
++Rhudaur
++Cardolan
++Arthedain
++Carn Dûm
++Khazad-dûm
++Zwergenbinge
++Dunharg
++Isen
++Gondolin
++Valinor
++Beleriand
++Númenor
++Westernis
++Noldor
++Sindar
++Waldelben
++Durins Volk
++Waldmenschen
++Bardinger
++Rohirrim
++Dunländer
++Ostlinge
++Haradrim
++Breeländer
++Waldläufer des Nordens
++Westron
++Sindarin
++Quenya
++Khuzdul
++Schwarze Sprache
++Drittes Zeitalter
++Auenland-Zeitrechnung
++Mithril
++Palantír
++Palantíri
++Lembas
++Athelas
++Königskraut
++Pfeifenkraut
++Morgulklinge
++Anduril
++Andúril
++Narsil
++Stich
++Glamdring
++Orcrist
++Ringe der Macht
++Weißer Rat
++Istari
++Maiar
++Valar
++Elbereth
++Gilthoniel
++Varda
++Eru Ilúvatar
++Ilúvatar
++Morgoth
++Melkor
++Thingol
++Celebrimbor
++Isildur
++Elendil
++Gil-galad
++Círdan
++Halbarad
++Gilraen
++Erkenbrand
++Gamling
++Háma
++Imrahil
++Beregond
++Bergil
++Lobelia Sackheim-Beutlin
++Sackheim-Beutlin
++Bauer Maggot
++Bill Ferny
++Bombadil
++Alter Weidenmann
++Grabunhold
++Grabunholde
++Azog
++Bolg
++Gundabad
++Nekromant
++Dol Amroth
++Belfalas
++Lebennin
++Pelargir
++Ithilien
++Henneth Annûn
++Morannon
++Schwarzes Tor
++Gorgoroth
++Udûn
++Nurn
++Mithrandir
++Olórin
++Tharkûn
++Elessar
++Estel
++Undómiel
++Abendstern
++Elbenstein
++Caras Galadhon
++Nimrodel
++Silberlauf
++Celebrant
++Kheled-zâram
++Spiegelsee
++Caradhras
++Rothorn
++Bundushathûr
++Zirakzigil
++Celebdil
++Schattenbachtal
++Azanulbizar
++# Stufe B (en)
++Middle-earth
++The One Ring
++Free Peoples
++Samwise Gamgee
++Thorin Oakenshield
++Goldberry
++Witch-king
++Ringwraiths
++Shelob
++Wargs
++Treebeard
++Barliman Butterbur
++Prancing Pony
++Hobbiton
++Bag End
++Buckland
++Weathertop
++Barrow-downs
++Old Forest
++Misty Mountains
++Grey Havens
++Brandywine
++Helm's Deep
++Mount Doom
++Long Lake
++Lake-town
++Lonely Mountain
++Dale
++Iron Hills
++Grey Mountains
++Blue Mountains
++Trollshaws
++Ettenmoors
++Gladden Fields
++Vales of Anduin
++North Downs
++South Downs
++Weather Hills
++Lone-lands
++Silvan Elves
++Durin's Folk
++Beornings
++Woodmen
++Bardings
++Dunlendings
++Easterlings
++Bree-folk
++Rangers of the North
++Black Speech
++Third Age
++Shire Reckoning
++Pipe-weed
++Morgul-blade
++Sting
++Rings of Power
++White Council
++Fredegar Bolger
++Farmer Maggot
++Old Man Willow
++Barrow-wight
++Necromancer
++Black Gate
++Evenstar
++Mirrormere
++Redhorn
++Dimrill Dale
++# Regelbegriffe (de)
++Schattenpunkte
++Gandalf-Rune
++Auge Saurons
++Feat Die
++Erfolgswürfel
++Gemeinschaftsphase
++Hope
++Hoffnungspunkte
++Erschöpft
++Ausdauer
++Tapferkeit
++Weisheit
++Initiative
++Shadow Points
++Gandalf Rune
++Eye of Sauron
++Success Dice
++Fellowship Phase
++Adventuring Phase
++Eye Awareness
++Weary
++Miserable
++Endurance
++Valour
++Wisdom
++Safe Haven
++Shadow Path
++# Regelbegriffe (en)
++Shadow Points
++Gandalf Rune
++Eye of Sauron
++Success Dice
++Fellowship Phase
++Adventuring Phase
++Eye Awareness
++Weary
++Miserable
++Endurance
++Valour
++Wisdom
++Safe Haven
++Shadow Path
++# Verhörer
++Mittel Erde => Mittelerde
++Nasgul => Nazgûl
++Lothlorien => Lothlórien
++Dunedain => Dúnedain
++Galadrjel => Galadriel
++Saurons Auge => Auge Saurons
+diff --git a/app/begriffe/hexxen.txt b/app/begriffe/hexxen.txt
+new file mode 100644
+index 0000000..32a0f11
+--- /dev/null
++++ b/app/begriffe/hexxen.txt
+@@ -0,0 +1,121 @@
++# HeXXen 1733 – Begriffe für die Transkription
++# Erkennungsnamen: hexxen 1733, hexxen, hexxen1733, savage hexxen
++# Stufe A (höchstens 40, häufigste zuerst)
++HeXXen
++Jäger
++Jägerin
++Hexen
++Alben
++Dämonen
++Erzdämon
++Asmodäus
++Inquisition
++Inquisitor
++Johanneus-Bruder
++Johanneus-Orden
++Hexenjäger
++Gulden
++Dreißigjähriger Krieg
++Schwarzwald
++Erzgebirge
++Rosenkönigin
++Dornenmauer
++# Stufe B
++HeXXenmeister
++Hexenkunst
++Bandenfreunde
++Erzfeind
++Freischaffender Hexenjäger
++Gelehrtenkleidung
++Reisekleidung
++Kultrobe
++Kleidungsset
++Laboratorium
++Waffengifte
++Mystische Rituale
++Ritual der Macht
++Blutheilung
++Kreaturenwissen
++Hammerkunde
++Grimmiger Ruf
++Heimtücke
++Abtauchen
++Heimtückischer Angriff
++Ambitionierter Schaden
++Duellant
++Erzdämonen
++Regionalia
++Ritter, Fürst und Bischofslande
++Königreich der Dornen
++Der Herr der Fliegen
++Schaurige Stätten
++Buch der Regeln
++Grundregeln der Jagd
++Ausbauregeln
++Bestiarium
++# Regelbegriffe (de)
++Coups
++Coup
++Ideen
++Idee
++Segnungen
++Segnung
++Verderbnis
++Ambition
++Ambitionen
++Rage
++Esprit
++Espritsterne
++Espritstern
++HeXXenwürfel
++Elixierwürfel
++Jägerkräfte
++Jägerkraft
++Ausbaukräfte
++Ausbaukraft
++Jägerstufe
++Profession
++Motivation
++Lebenspunkte
++Puffer-Lep
++Basis-Lep
++Minus-Lep
++Lep
++Panzerung
++Initiative
++Körperkraft
++Athletik
++Geschick
++Sinnesschärfe
++Wissen
++Willenskraft
++Unempfindlichkeit
++Wissensgebiete
++Akrobatik
++Aufmerksamkeit
++Erkennen
++Erste Hilfe
++Fingerfertigkeit
++Geistesstärke
++Muskelspiel
++Reflexe
++Reiten
++Unterhalt
++Vermögen
++Hex-Punkte
++Malusschaden
++Freie Reaktion
++Bandengegner
++Kleidungssets
++# Regelbegriffe (en)
++Coups
++Ambition
++Rage
++Esprit
++Profession
++Motivation
++Initiative
++# Verhörer
++Hexen 1733 => HeXXen 1733
++Hexxen Würfel => HeXXenwürfel
++Esprit Sterne => Espritsterne
+diff --git a/app/begriffe/l5r.txt b/app/begriffe/l5r.txt
+new file mode 100644
+index 0000000..54bfe7b
+--- /dev/null
++++ b/app/begriffe/l5r.txt
+@@ -0,0 +1,386 @@
++# Legend of the Five Rings – Begriffe für die Transkription
++# Erkennungsnamen: legend of the five rings, l5r, rokugan, legende der fünf ringe, fünf ringe, five rings
++# Stufe A (höchstens 40, häufigste zuerst)
++Rokugan
++Smaragdreich
++Hantei
++Crab
++Crane
++Dragon
++Lion
++Phoenix
++Scorpion
++Unicorn
++Mantis
++Samurai
++Shugenja
++Bushi
++Courtier
++Daimyo
++Shadowlands
++Schattenlande
++Fu Leng
++Kami
++Bushido
++Koku
++Bu
++Zeni
++Katana
++Wakizashi
++Otosan Uchi
++Toshi Ranbo
++# Stufe A (en)
++Emerald Empire
++Emperor
++Empress
++# Stufe B
++Hida
++Hiruma
++Kaiu
++Kuni
++Yasuki
++Doji
++Kakita
++Asahina
++Daidoji
++Togashi
++Mirumoto
++Kitsuki
++Agasha
++Tamori
++Akodo
++Matsu
++Kitsu
++Ikoma
++Isawa
++Shiba
++Asako
++Bayushi
++Shosuro
++Soshi
++Yogo
++Moto
++Shinjo
++Utaku
++Iuchi
++Ide
++Yoritomo
++Tsuruchi
++Kitsune
++Moshi
++Yoshitsune
++Shinsei
++Tao des Shinsei
++Tao of Shinsei
++Fortunen
++Fortunes
++Sieben Fortunen
++Seven Fortunes
++Benten
++Bishamon
++Daikoku
++Ebisu
++Fukurokujin
++Hotei
++Jurojin
++Amaterasu
++Lady Sun
++Onnotangu
++Lord Moon
++Jigoku
++Yomi
++Meido
++Tengoku
++Ningen-do
++Chikushudo
++Toshigoku
++Gaki-do
++Sakkaku
++Spirit Realms
++Kolat
++Lying Darkness
++Oni
++Oni-Lord
++Oni no Akuma
++Akuma
++Kuni Oni
++Tsuno
++Bakemono
++Gaki
++Shadowlands Taint
++Taint
++Jade
++Jade Champion
++Emerald Champion
++Emerald Magistrate
++Jade Magistrate
++Imperial Heir
++Imperial Families
++Seppun
++Otomo
++Miya
++Imperial Chancellor
++Imperial Advisor
++Imperial Legions
++Imperial Court
++Winter Court
++Kyuden
++Shiro
++Mura
++Toshi
++Kyuden Doji
++Kyuden Bayushi
++Kyuden Hida
++Kyuden Isawa
++Shiro Matsu
++Shiro Akodo
++Shiro Mirumoto
++Shiro Shinjo
++Shiro Shiba
++Shiro Kitsuki
++Kyuden Togashi
++Kyuden Ikoma
++Kyuden Kakita
++Mura Sabishii Toshi
++Ryoko Owari
++Ryoko Owari Toshi
++City of Lies
++Imperial City
++Kyuden Seppun
++Dragon's Teeth
++Great Wall
++Carpenter Wall
++Kaiu Wall
++Burning Sands
++Ivory Kingdoms
++Day of Thunder
++Seven Thunders
++Clan War
++Scorpion Clan Coup
++Steel Chrysanthemum
++Gozoku
++Ronin
++Rōnin
++Ashigaru
++Heimin
++Hinin
++Eta
++Bonge
++Buke
++Kuge
++Geisha
++Sensei
++Shireikan
++Gunso
++Taisa
++Chui
++Nikutai
++Hatamoto
++Karo
++Yojimbo
++Kensai
++Duellant
++Duelist
++Iaijutsu
++Kenjutsu
++Kyujutsu
++Jiujutsu
++Kiho
++Mahō
++Maho
++Maho-tsukai
++Bloodspeaker
++Iuchiban
++Daisho
++Tanto
++Naginata
++Yumi
++Tetsubo
++Nodachi
++Kanabo
++Yari
++Dai-tsuchi
++Kimono
++Mon
++Mempo
++Sashimono
++Netsuke
++Inro
++Sake
++Tea Ceremony
++Chado
++Ikebana
++Origami
++Haiku
++Shogi
++Kemari
++Sadane
++Nemuranai
++Mujina
++Kenku
++Naga
++Nezumi
++Ratlings
++Zokujin
++Kappa
++Tengu
++Yobanjin
++Gaijin
++Unicorn Clan
++Mantis Clan
++Spider Clan
++Daigotsu
++Hantei XXXVIII
++Toturi
++Toturi I
++Iweko
++Hida Kisada
++Doji Hotaru
++Doji Satsume
++Bayushi Shoju
++Bayushi Kachiko
++Kachiko
++Akodo Toturi
++Akodo Arasou
++Matsu Tsuko
++Shiba Tsukune
++Isawa Tadaka
++Togashi Yokuni
++Mirumoto Hitomi
++Shinjo Altansarnai
++Kakita Toshimoko
++Hida Yakamo
++Hida Sukune
++Kuni Yori
++Shosuro Furuyari
++# Stufe B (en)
++Crab Clan
++Crane Clan
++Dragon Clan
++Lion Clan
++Phoenix Clan
++Scorpion Clan
++Great Clans
++Minor Clans
++Hare Clan
++Fox Clan
++Badger Clan
++Sparrow Clan
++Tortoise Clan
++Bat Clan
++Falcon Clan
++Dragonfly Clan
++Great Wall of Kaiu
++Celestial Heavens
++Celestial Order
++Celestial Wedding
++Jade Throne
++Emerald Throne
++Imperial Throne
++Imperial Palace
++Forbidden City
++Shadowlands Horde
++Dark Oracle
++Elemental Dragons
++Elemental Terror
++Elemental Terrors
++Oracle of Thunder
++Oracle of Fire
++Thunder Dragon
++Celestial Dragon
++Dragon of Air
++Dragon of Earth
++Dragon of Fire
++Dragon of Water
++Dragon of Void
++Honor
++Glory
++Status
++Infamy
++# Regelbegriffe (de)
++Ehre
++Ruhm
++Status
++Ringe
++Ring
++Luftring
++Erdring
++Feuerring
++Wasserring
++Leerering
++Leerepunkte
++Haltungen
++Kata
++Kiho
++Schulrang
++Streben
++Erfolge
++Explosive Erfolge
++Gelegenheit
++Gelegenheiten
++Initiative
++Iaijutsu-Duell
++Roll and Keep
++Honor
++Glory
++Strife
++Opportunity
++Composure
++# Regelbegriffe (en)
++Honor
++Glory
++Status
++Infamy
++Rings
++Ring
++Air Ring
++Earth Ring
++Fire Ring
++Water Ring
++Void Ring
++Void Points
++Stances
++Approaches
++Distinction
++Distinctions
++Adversity
++Adversities
++Kata
++Kiho
++Shuji
++Invocation
++Invocations
++Mahō
++School Rank
++Giri
++Ninjō
++Ninjo
++Strife
++Composure
++Unmasking
++Critical Strike
++Critical Strikes
++Explosive Success
++Explosive Successes
++Opportunity
++Opportunities
++TN
++Ring Dice
++Skill Dice
++Roll and Keep
++Raises
++Free Raise
++Initiative
++Iaijutsu Duel
++Staredown
++Finishing Blow
++Insight Rank
++Taint
++Shadowlands Taint
++Taint Rank
++# Verhörer
++Rokugahn => Rokugan
++Shugendscha => Shugenja
++Buschi => Bushi
++Daimio => Daimyo
++Hantai => Hantei
+diff --git a/app/begriffe/midgard.txt b/app/begriffe/midgard.txt
+new file mode 100644
+index 0000000..81e7bed
+--- /dev/null
++++ b/app/begriffe/midgard.txt
+@@ -0,0 +1,374 @@
++# Midgard – Begriffe für die Transkription
++# Erkennungsnamen: midgard, midgard 5, midgard rollenspiel, midgard m5
++# Stufe A (höchstens 40, häufigste zuerst)
++Midgard
++Alba
++Erainn
++Clanngadarn
++Chryseia
++Valian
++Küstenstaaten
++Aran
++Eschar
++KanThaiPan
++Moravod
++Waeland
++Ywerddon
++Fuardain
++Rawindra
++Nahuatlan
++Medjis
++Tegarische Steppe
++Vesternesse
++Beornanburgh
++Corrinis
++Haelgarde
++Xan
++Vana
++Dwyllan
++Irindar
++Ylathor
++Thurion
++Vraidos
++Alaman
++Dheis Albi
++Seemeister
++MacBeorn
++MacRathgar
++Twyneddin
++Albai
++Waelinger
++Fian
++Valianisches Imperium
++Zweiheitsglaube
++# Stufe B
++Baales Valianis
++Psedjet
++Buluga
++Feuerinseln
++Ikengabecken
++Inseln unter dem Westwind
++Minangpahit
++Urruti
++Huaxal
++Lamaran
++Sirao
++Meer der Fünf Winde
++Regenbogensee
++Tuomela
++Bad Gawr
++Fenn
++Gond
++TsaiChen-Tal
++KuroKegaTi
++Mokattam
++Ta-meket
++Fiorinde
++Crossing
++Deorstead
++Tidford
++Thame
++Twineward
++Elrodstor
++MacCeata
++MacAelfin
++MacConuilh
++NiRathgar
++NiBeorn
++Weald
++Meald
++Broceliande
++Halfdal
++Hjalta-Inseln
++Tuarisc
++Loch Morne
++Loch Keal
++Loch Gorm
++Loch Beagh
++Waelingsee
++Bucht der Bäume
++Gwinel
++Offa
++Pengannion
++Artross
++Melgar
++Tureliand
++Aelvenes
++Ogresse
++Escavalon
++Aettrick
++Brocendias
++Vanasfarne
++Sonnenorden
++Oring
++Syling
++Pening
++Tacht
++Tamun
++Derham
++Paschis
++Nathrod
++Areínnrod
++Seamar
++Dinnur
++Dirhem
++Danik
++Goldschuh
++Drachenschuppe
++Sonnenmünze
++Mondmünze
++Sihr
++Chittak
++Tular
++Mascha
++Kakina
++Orobor
++Aguar
++Pher
++Hackgold
++Ljosdag
++Myrkdag
++Ceaddag
++Daradag
++Triudag
++Catrudag
++Cuindag
++Sedag
++Seachdag
++Oachdag
++Naondag
++Deachdag
++Aonadag
++Dosandag
++Criochdag
++Abenteurertyp
++Barde
++Bänkelsänger
++Pibrochain
++Skalde
++Druide
++Dûnathischer Druide
++Fakir
++Fionnacórach
++Kopolika
++Netzbewahrer
++Saddhu
++Waldhüter
++Wycca
++Chaospriester
++Derwisch
++Deuter
++Inquisitor
++Jurusin
++Kabir
++Khalidan
++Ordenskrieger
++Priester Beschützer
++Priester Streiter
++Runenmeister
++Runenschneider
++Schattenritter
++Sanjasin
++Srikumara
++Vadratha
++Winasin
++Medizinmann
++Schamane
++Dewadasi
++Tiermeister
++Wildläufer
++Consuilher
++Karawanenmeister
++Magister
++Orcmann
++XuéDsche
++Zauberkrämer
++Assassine
++Glücksritter
++NinYa
++Raitya-Agent
++Schattenweber
++Todeswirker
++Trickser
++Hirtenkrieger
++Königlich-Albischer Waldläufer
++Wüstengänger
++Beschwörer
++Dakini
++Finstermagier
++Gildenzauberer
++Klingenmagier
++Meermagier
++Nekromant
++Thaumaturg
++Aíllach
++Asad-Krieger
++Clankrieger
++Hanchain
++KiDoka
++Mahamluk
++Paktkrieger
++Wolibana
++Sritra
++Additi
++Æd
++Æar-Xan
++Adrogena
++Ahuatl
++AhúrAmüd
++Alialpanu
++Alpanu
++Amaschida
++Arinna
++Aschammeli
++Asvargr
++Atunis
++Baith
++Baidd
++Balur
++Belili
++Bress
++Camara
++Camasotz
++Camunda
++Chambal
++Chantico
++Chepru
++Chocaciutl
++Coyolxauquih
++Culsu
++Der Große Ho
++Drais
++Dwiannon
++Eedschamdra
++ErLang
++Fflamyen
++Fjörgynn
++Fraxolaqui
++Ganadewa
++Garmen
++Ghnurgh
++Ghrash
++Halab
++Hanumat
++Heket
++Helja
++Henwen
++Hruindh
++Huehueteotl
++Huitlicue
++Hutociatl
++Imgher
++Ipet
++Iquibalam
++Irindarios
++Ischkur
++Ixtantzutuh
++Jakchos
++Janla
++Jellama
++Jurugu
++Kalaratri
++Kaouri
++Katampane
++Kebechet
++Kjull
++KuanTi
++KuTuh
++Kuluala
++Lalita Tripurasundari
++Laran
++Laturadane
++Leomi
++Lishadi
++Lowalane
++Maat
++Mahal
++Molko
++Mam-Môn
++Nachtyr
++Nahuahauquih
++Nathir
++Nea Dea
++Nebthut
++Nothuns
++NianTuFa
++NüFeiPai
++NuKua
++Ogunu
++Omecihuatl
++Ometecuhtli
++Ometeotl
++Ormut
++Pachet
++PadKu
++Padakrurakrch
++Palfangeir
++Patecoatl
++Peleandrin
++Pemba
++Plenydd
++Poyautepec
++Rahee
++Rehotep
++Sabor
++Satara
++Satis
++Schauschka
++SchiTe
++Seidengöttin
++Serkef
++Shuyrghad
++Sigrun
++Sikanda
++Suryatha
++Sutech
++Tegalgirran
++Telipinu
++Teschub
++Tin
++Tlicholic
++Tolucan
++Torkin
++Toyantzin
++Trynn
++TsaiChen
++TschihNü
++Turan
++Unkulunkulu
++Vainno
++Vidar
++WenCheng
++WeTo
++Wredelin
++WuKung
++Wyrd
++Xochitzal
++Yun
++Zennia
++Zhash
++Zornal
++# Regelbegriffe (de)
++Ausdauerpunkte
++Lebenspunkte
++Göttliche Gnade
++Praxispunkte
++Erfahrungspunkte
++Gewandtheit
++Kampf in Vollrüstung
++Erfolgswert
++Schicksalsgunst
++Grad
++Zaubertalent
++Resistenz
++Abwehr
++Angriffsbonus
++Schadensbonus
++Zaubern
++Konstitution
++Kritischer Erfolg
++Kritischer Fehler
++# Regelbegriffe (en)
++# Verhörer
++Kan Thai Pan => KanThaiPan
++Clangadarn => Clanngadarn
+diff --git a/app/begriffe/mutantjahrnull.txt b/app/begriffe/mutantjahrnull.txt
+new file mode 100644
+index 0000000..864546e
+--- /dev/null
++++ b/app/begriffe/mutantjahrnull.txt
+@@ -0,0 +1,155 @@
++# Mutant: Jahr Null – Begriffe für die Transkription
++# Erkennungsnamen: mutant jahr null, mutant: jahr null, mutant year zero, jahr null, year zero, genlabor alpha, genlab alpha, mechatron, elysium
++# Stufe A (höchstens 40, häufigste zuerst)
++Arche
++Zone
++Fäule
++Zonenghule
++Zonenghul
++Mutanten
++Pirscher
++Chronist
++Boss
++Der Älteste
++Das Volk
++Eden
++Alte Welt
++Zonensektor
++Säureregen
++Zonenmonster
++Paradiestal
++Tiermutanten
++Kollektiv
++# Stufe A (en)
++Ark
++Rot
++Zone Ghouls
++Zone Ghoul
++Stalker
++Enforcer
++Gearhead
++Fixer
++Dog Handler
++Chronicler
++Grunt
++The People
++Old World
++Zone Sector
++Artifact
++Artifacts
++Acid Rain
++Zone Monster
++Automatons
++Paradise Valley
++# Stufe B
++Vollstrecker
++Schrauber
++Hundeführer
++Sklave
++Spezielle Zonensektoren
++Spezieller Zonensektor
++Zonenkarte
++Zonenkompendium
++Zonenkompendien
++Pelzogene
++Pelzogen
++Mechatron-7
++Mechatron 7
++Eden Dome
++Dux
++Bormin
++Selma
++Iridia
++Freie Liga
++# Stufe B (en)
++Special Zone Sectors
++Special Zone Sector
++Zone Map
++Zone Compendium
++Zone Compendia
++Zone Riders
++Nova Cult
++Rot Suit
++Development Levels
++Mechatron-7
++Elysium
++Genlab Alpha
++Mechatron
++Mutant Year Zero
++Road to Eden
++Seed of Evil
++Die, Meat Eaters, Die
++Garbage Masters
++Blackhand's Bar
++Lair of the Saurians
++# Regelbegriffe (de)
++Mutationspunkte
++MP
++Grundwürfel
++Fertigkeitswürfel
++Ausrüstungswürfel
++Erfolg
++Erfolge
++Pressen
++Stärke
++Geschicklichkeit
++Verstand
++Empathie
++Spezialfertigkeit
++Spezialfertigkeiten
++Talente
++Erfahrungspunkte
++Hungrig
++Durstig
++Erschöpft
++Unterkühlt
++Kritische Verletzung
++Gebrochen
++Fäulepunkte
++Großer Traum
++Initiative
++Panzerung
++Reichweite
++# Regelbegriffe (en)
++Mutation Points
++MP
++Base Dice
++Skill Dice
++Gear Dice
++Pushing the Roll
++Confusion
++Doubt
++Wits
++Specialist Skill
++Specialist Skills
++Experience Points
++Endure
++Comprehend
++Know the Zone
++Sense Emotion
++Manipulate
++Starving
++Dehydrated
++Sleepless
++Hypothermic
++Critical Injury
++Critical Injuries
++Rot Points
++Rot Point
++Rot Level
++Gear Bonus
++Relationships
++Big Dream
++Initiative
++Armor Rating
++Arm's Length
++Zone Rot
++Rot Suit
++Rot Eater
++Threat Level
++# Verhörer
++Zonenguhl => Zonenghul
++Zonen Ghul => Zonenghul
++Jahr 0 => Jahr Null
++Year 0 => Year Zero
++Pierscher => Pirscher
+diff --git a/app/begriffe/pathfinder.txt b/app/begriffe/pathfinder.txt
+index d6555c2..f160d61 100644
+--- a/app/begriffe/pathfinder.txt
++++ b/app/begriffe/pathfinder.txt
+@@ -1,50 +1,471 @@
+-# Pathfinder – häufige Eigennamen und Begriffe (Schreibhilfe für die Transkription)
++# Pathfinder – Begriffe für die Transkription
++# Erkennungsnamen: pathfinder, pathfinder 2e, pathfinder 1e, pf2e, pf1e, golarion, lost omens
++# Stufe A (höchstens 40, häufigste zuerst)
+ Golarion
+ Absalom
+ Varisia
+-Sandpoint
++Sandspitze
+ Magnimar
+ Korvosa
+-Riddleport
+ Cheliax
+ Andoran
+ Taldor
+ Osirion
+-Irrisen
+-Numeria
+-Ustalav
+-Sarkoris
+-Thassilon
+-Runenherrscher
++Katapesh
++Iomedae
+ Desna
+ Sarenrae
+-Iomedae
+-Asmodeus
+ Pharasma
+-Gorum
+ Cayden Cailean
++Abadar
++Asmodeus
+ Lamashtu
+ Rovagug
+ Aroden
+-Abadar
+ Erastil
++Gozreh
+ Torag
++Nethys
++Shelyn
+ Calistria
+-Zon-Kuthon
++Pathfinder-Gesellschaft
++Thassilon
++Runenherrscher
++Höllenritter
++Ustalav
++Numeria
++Irrisen
++# Stufe A (en)
++Sandpoint
++Pathfinder Society
++Runelords
++Hellknights
++Aspis Consortium
++Worldwound
++# Stufe B
++Avistan
++Garund
++Tian Xia
++Casmaron
++Arcadia
++Sekamina
++Nar-Voth
++Orv
++Sternenstein
++Azlant
++Shory
++Kaer Maga
++Janderhoff
++Thuvia
++Oppara
++Qadira
++Katheer
++Sothis
++Geb
++Nex
++Alkenstar
++Rahadoum
++Sargava
++Mwangi Expanse
++Vidrian
++Caliphas
++Brevoy
++Flusskönigreiche
++Galt
++Weltenwunde
++Mendev
++Belkzen
++Nidal
++Molthune
++Nirmathas
++Isger
++Druma
++Lastwall
++Ravounel
++Kyonin
++Iadara
++Egorian
++Almas
++Kortos
++Jalmeray
++Vudra
++Minkai
++Goka
++Abadius
++Calistril
++Pharast
++Gozran
++Desnus
++Sarenith
++Erastus
++Arodus
++Rova
++Lamashan
++Neth
++Kuthona
++Gorum
++Irori
+ Norgorber
+ Urgathoa
+-Goblin
+-Hobgoblin
++Zon-Kuthon
++Besmara
++Arazni
++Groetus
++Achaekek
++Razmir
++Milani
++Brigh
++Casandalee
++Ghlaunder
++Hanspur
++Kurgess
++Sivanah
++Dahak
++Apsu
++Tar-Baphon
++Karzoug
++Alaznist
++Sorshen
++Xanderghul
++Krune
++Belimarius
++Zutha
++Ezren
++Amiri
++Seoni
++Valeros
++Kyra
++Merisiel
++Harsk
++Lem
++Seelah
++Lini
++Rote Mantis
++Sczarni
++Mwangi
++Tian
++Orakel
++Kleriker
++Hexenmeister
++Waldläufer
++Schurke
++Kämpfer
++Leshy
++Ysoki
++Tengu
++Kitsune
++Iruxi
++Gnoll
++Nephilim
+ Aasimar
+ Tiefling
+-Kineticist
++Ifrit
++Oread
++Sylph
++Undine
++Dhampir
++Azarketi
++Strix
++Anadi
++Conrasu
++Halbling
++Halbork
++Halbelf
++Grippli
++Xulgath
++Vrock
++Hezrou
++Glabrezu
++Marilith
++Balor
++Nalfeshnee
++# Stufe B (en)
++Inner Sea
++Darklands
++Starstone
++Earthfall
++Riddleport
++Turtleback Ferry
++Hook Mountain
++Storval Plateau
++Cinderlands
++Mushfens
++Whitethrone
++Starfall
++River Kingdoms
++Stolen Lands
++Sarkoris Scar
++Lands of the Linnorm Kings
++Linnorm Kingdoms
++Realm of the Mammoth Lords
++Hold of Belkzen
++Gravelands
++Five Kings Mountains
++Highhelm
++Westcrown
++Lost Omens
++Age of Lost Omens
++Absalom Reckoning
++Moonday
++Toilday
++Wealday
++Oathday
++Fireday
++Starday
++Whispering Tyrant
++Red Mantis
++Eagle Knights
++Bellflower Network
++Knights of Lastwall
++Gray Maidens
++Varisians
++Shoanti
++Kellids
++Ulfen
++Chelaxians
++Taldans
++Garundi
++Keleshites
++Vudrani
++Azlanti
++Thassilonian
++Venture-Captain
+ Alchemist
++Champion
++Investigator
+ Inquisitor
+ Magus
+ Oracle
+-Orakel
+ Summoner
+-Beschwörer
+-Hexe
+-Waldläufer
++Swashbuckler
++Thaumaturge
++Psychic
++Kineticist
++Gunslinger
++Inventor
++Witch
++Cavalier
++Barbarian
++Bard
++Cleric
++Druid
++Fighter
++Monk
++Ranger
++Rogue
++Sorcerer
++Wizard
++Ratfolk
++Catfolk
++Lizardfolk
++Fetchling
++Sprite
++Poppet
++Automaton
++Android
++Fleshwarp
++Changeling
++Duskwalker
++Halfling
++Half-Orc
++Half-Elf
++Gnome
++Goblin
++Kobold
++Hobgoblin
++Boggard
++Linnorm
++Succubus
++Rise of the Runelords
++Curse of the Crimson Throne
++Kingmaker
++Abomination Vaults
++Age of Ashes
++Extinction Curse
++Agents of Edgewatch
++Strength of Thousands
++Wrath of the Righteous
++Skull & Shackles
++Carrion Crown
++Jade Regent
++Hell's Rebels
++Iron Gods
++Gold Pieces
++Silver Pieces
++Copper Pieces
++Platinum Pieces
++# Regelbegriffe (de)
+ Heldenpunkte
++Initiative
++Hero Points
++Multiple Attack Penalty
++Strike
++Stride
++Flat-footed
++Off-Guard
++Focus Points
++Focus Spell
++Ancestry
++Heritage
++Critical Success
++Critical Failure
++Degree of Success
++Attack of Opportunity
++Saving Throw
++Fortitude
++Reflex
++Will Save
++Spell Slot
++Cantrip
++Hit Points
++Armor Class
++Raise a Shield
++Shield Block
++Trained
++Expert
++Master
++Legendary
++Proficiency
++Frightened
++Dying
++Wounded
++Doomed
++Drained
++Clumsy
++Enfeebled
++Stupefied
++Sickened
++Persistent Damage
++Reaction
++Free Action
++Full-Round Action
++Swift Action
++Standard Action
++Move Action
++Five-Foot Step
++Base Attack Bonus
++Combat Maneuver Bonus
++Combat Maneuver Defense
++Touch AC
++Spell Resistance
++Damage Reduction
++Channel Energy
++Hit Dice
++Natural 20
++Nat 20
++Skill Feat
++Class Feat
++General Feat
++Ancestry Feat
++Archetype
++Dedication
++Treat Wounds
++Battle Medicine
++Recall Knowledge
++Demoralize
++Grapple
++Trip
++Shove
++Feint
++Bon Mot
++Exploration Mode
++Encounter Mode
++Downtime
++Bulk
++Hardness
++Hunt Prey
++Sneak Attack
++Rage
++Panache
++Finisher
++Spellstrike
++Mutagen
++# Regelbegriffe (en)
++Hero Points
++Multiple Attack Penalty
++Strike
++Stride
++Flat-footed
++Off-Guard
++Focus Points
++Focus Spell
++Ancestry
++Heritage
++Critical Success
++Critical Failure
++Degree of Success
++Attack of Opportunity
++Saving Throw
++Fortitude
++Reflex
++Will Save
++Spell Slot
++Cantrip
++Hit Points
++Armor Class
++Raise a Shield
++Shield Block
++Trained
++Expert
++Master
++Legendary
++Proficiency
++Frightened
++Dying
++Wounded
++Doomed
++Drained
++Clumsy
++Enfeebled
++Stupefied
++Sickened
++Persistent Damage
++Reaction
++Free Action
++Full-Round Action
++Swift Action
++Standard Action
++Move Action
++Five-Foot Step
++Base Attack Bonus
++Combat Maneuver Bonus
++Combat Maneuver Defense
++Touch AC
++Spell Resistance
++Damage Reduction
++Channel Energy
++Hit Dice
++Natural 20
++Nat 20
++Skill Feat
++Class Feat
++General Feat
++Ancestry Feat
++Archetype
++Dedication
++Treat Wounds
++Battle Medicine
++Recall Knowledge
++Demoralize
++Grapple
++Trip
++Shove
++Feint
++Bon Mot
++Exploration Mode
++Encounter Mode
++Downtime
++Bulk
++Hardness
++Hunt Prey
++Sneak Attack
++Rage
++Panache
++Finisher
++Spellstrike
++Mutagen
++# Verhörer
++Golarium => Golarion
++Pathfinder Societi => Pathfinder Society
++Iomedeh => Iomedae
++Sarenray => Sarenrae
+diff --git a/app/begriffe/shadowrun.txt b/app/begriffe/shadowrun.txt
+index 402e50c..bcdf206 100644
+--- a/app/begriffe/shadowrun.txt
++++ b/app/begriffe/shadowrun.txt
+@@ -1,51 +1,379 @@
+-# Shadowrun – häufige Eigennamen und Begriffe (Schreibhilfe für die Transkription)
+-Seattle
+-ADL
+-Allianz Deutscher Länder
+-Hamburg
+-Berlin
+-Frankfurt
+-Megakon
+-Renraku
+-Ares
+-Saeder-Krupp
+-Aztechnology
+-Mitsuhama
+-Shiawase
+-Evo
+-Horizon
+-Wuxing
+-NeoNET
+-Lofwyr
+-Dunkelzahn
+-Knight Errant
+-Lone Star
+-Matrix
++# Shadowrun – Begriffe für die Transkription
++# Erkennungsnamen: shadowrun, sr6, sr5, sr4, sechste welt, sixth world
++# Stufe A (höchstens 40, häufigste zuerst)
++Chummer
++Nuyen
++Johnson
++Mr. Johnson
+ Decker
+ Rigger
+ Straßensamurai
+ Schieber
+-Nuyen
++Matrix
++Commlink
+ Cyberdeck
+-Kommlink
+-Essenz
+-Chummer
++Cyberware
++Shadowrunner
++Seattle
++Redmond Barrens
++Renraku
++Ares
++Aztechnology
++Saeder-Krupp
++Lofwyr
++Astralebene
+ Drek
++Omae
++Astralraum
++Metamenschen
+ Ork
+ Troll
++Konzern
++Megakon
++Yakuza
++Dunkelzahn
++Erwachen
++DocWagon
++# Stufe A (en)
++Street Samurai
++Fixer
++Lone Star
++Knight Errant
++Technomancer
+ Adept
+-Schamane
+-Magier
+-Astralraum
+-Initiationsgrad
+-Hexer
++Smartlink
++# Stufe B
++Shadowrun
++SIN
++Cyberaugen
++Datenbuchse
++Resonanz
++IC
++PAN
++RCC
++Spinne
++Magieradept
++Hermetiker
++Mentorgeist
++Fokus
++Kraftfokus
++Metamagie
++Astralprojektion
++Astrale Wahrnehmung
++Hintergrundstrahlung
++Mana
++Manablitz
++Hellsicht
++Freier Geist
++Shedim
++Insektengeister
++HMHVV
++Teufelsratte
++Sasquatch
++Piasma
++Wendigo
++Trolle
++Oni
++Hobgoblin
++Satyr
++Fomori
++Koborokuru
++Menehune
++Dryade
++Goblinisierung
++Sechste Welt
++Jahr des Kometen
++Crash 2.0
++VITAS
++Evo
++Horizon
++Mitsuhama
++NeoNET
++Shiawase
++Wuxing
++Proteus
++Yamatetsu
++Kon
++AAA-Kon
++Konzerngerichtshof
++Zurich-Orbital
++Ghostwalker
++Alamais
++Celedyr
++Hestaby
++Feuerschwinge
++Lung
++Arleesh
++Masaru
++Redmond
++Puyallup
++Tacoma
++Everett
++Bellevue
++Renton
++Tír Tairngire
++Tír na nÓg
++Tsimshian
++UCAS
++CAS
++NAN
++Aztlan
++Amazonien
++ADL
++Allianz Deutscher Länder
++Rhein-Ruhr-Megaplex
++Ruhrplex
++Neo-Tokyo
++Triaden
++Vory
++Seoulpa-Ringe
++Tamanous
++HK-227
++FN HAR
++AK-97
++BTL
++Lohnsklave
++Tarislar
++Snohomish
++Auburn
++# Stufe B (en)
+ Runner
+-Johnson
+-Mr. Johnson
+-Cyberware
++Street Cred
++Notoriety
++Public Awareness
++Lifestyle
++Fake-SIN
+ Bioware
+-Seele
+-Geist
+-Hauerwerk
+-# Regelbegriffe (helfen der Transkription, kommen im Kapitel nicht vor)
++Cybereyes
++Reflexbooster
++Muscle Replacement
++Dermal Plating
++Move-by-Wire
++Bone Lacing
++Cyberjack
++Datajack
++Cyberarm
++Cyberlimb
++Spurs
++Talentsoft
++Skillwire
++Augmented Reality
++Virtual Reality
++Hot Sim
++Cold Sim
++Host
++Grid
++Persona
++Sprite
++Living Persona
++Resonance
++Black IC
++Patrol IC
++Killer IC
++Grid Overwatch Division
++Data Spike
++Brute Force
++Spoof
++Cybercombat
++Dumpshock
++Biofeedback
++Rigger Command Console
++Jumped In
++Rigging
++Spider
++Face
++Mage
++Shaman
++Mystic Adept
++Physical Adept
++Hermetic
++Mentor Spirit
++Totem
++Tradition
++Foci
++Power Focus
++Initiation
++Metamagic
++Astral Projection
++Astral Perception
++Assensing
++Background Count
++Manaball
++Stunbolt
++Stunball
++Powerbolt
++Flamethrower
++Lightning Bolt
++Invisibility
++Improved Invisibility
++Levitate
++Physical Barrier
++Mana Barrier
++Clairvoyance
++Mind Probe
++Control Thoughts
++Detect Life
++Combat Sense
++Increase Reflexes
++Physical Mask
++Killing Hands
++Improved Reflexes
++Critical Strike
++Mystic Armor
++Fire Spirit
++Air Spirit
++Water Spirit
++Earth Spirit
++Beast Spirit
++Spirit of Man
++Watcher
++Free Spirit
++Insect Spirits
++Toxic Shaman
++Ghoul
++Hellhound
++Barghest
++Devil Rat
++Paracritter
++Critter
++Metahumans
++Orks
++Ogre
++Minotaur
++Cyclops
++Goblinization
++Awakening
++Sixth World
++Matrix Crash
++Bug City
++Ares Macrotechnology
++Mitsuhama Computer Technologies
++Renraku Computer Systems
++Spinrad Industries
++Telestrian Industries
++Corporate Court
++Draco Foundation
++Humanis Policlub
++Ork Underground
++Salish-Shidhe Council
++Pueblo Corporate Council
++Confederated American States
++Native American Nations
++Japanese Imperial State
++Front Range Free Zone
++Ancients
++Halloweeners
++Ares Predator
++Predator
++Ares Alpha
++Colt Manhunter
++Fichetti Security
++Remington Roomsweeper
++Ingram Smartgun
++Panther XXL
++Yamaha Raiden
++GMC Bulldog
++Ford Americar
++Eurocar Westwind
++Roto-Drone
++Doberman
++Steel Lynx
++Fly-Spy
++Smartgun
++Frag
++Slot
++Wiz
++Chiphead
++Better Than Life
++Squatter
++Wageslave
++Sarariman
++Corp
++Exec
++Razorboy
++Razorgirl
++Ganger
++Go-Ganger
++Shadowland
++Jackpoint
++Trideo
++Simsense
++Simrig
++Stuffer Shack
++Soykaf
++Arcology
++Renraku Arcology
++Council Island
++Fort Lewis
++Metroplex
++Seattle Metroplex
++Sprawl
++Crimson Crush
++Ares Arms
++Wired Reflexes
++# Regelbegriffe (de)
+ Edge
++Entzug
++Essenz
++Overwatch-Wert
++Glitch
++Kritischer Patzer
++Würfelpool
++Karma
++Angriffswert
++Verteidigungswert
++Zustandsmonitor
++Geistiger Schaden
++Körperlicher Schaden
++Schwund
++Marken
++Rauschen
++Initiative
++Drain
++Essence
++Overwatch
++Critical Glitch
++Dice Pool
++Hits
++Threshold
++Edge Boost
++Edge Action
++Attack Rating
++Defense Rating
++Initiative Score
++Major Action
++Minor Action
++Condition Monitor
++Stun Damage
++Physical Damage
++Fading
++Marks
++# Regelbegriffe (en)
++Drain
++Essence
++Overwatch
++Critical Glitch
++Dice Pool
++Hits
++Threshold
++Edge Boost
++Edge Action
++Attack Rating
++Defense Rating
++Initiative Score
++Major Action
++Minor Action
++Condition Monitor
++Stun Damage
++Physical Damage
++Fading
++Marks
++# Verhörer
++Tschummer => Chummer
++Chammer => Chummer
++Nujen => Nuyen
++Neujen => Nuyen
++Comlink => Commlink
++Lofwir => Lofwyr
++Saeder Krupp => Saeder-Krupp
++Aztek Technology => Aztechnology
+diff --git a/app/begriffe/splittermond.txt b/app/begriffe/splittermond.txt
+index 1cdff31..4c08b8c 100644
+--- a/app/begriffe/splittermond.txt
++++ b/app/begriffe/splittermond.txt
+@@ -1,41 +1,338 @@
+-# Splittermond – häufige Eigennamen und Begriffe (Schreibhilfe für die Transkription)
++# Splittermond – Begriffe für die Transkription
++# Erkennungsnamen: splittermond, lorakis, splitter mond
++# Stufe A (höchstens 40, häufigste zuerst)
+ Lorakis
+-Selenia
++Splitterträger
++Mondzeichen
++Lunare
++Telare
++Solare
+ Dragorea
++Selenia
++Zwingard
++Wintholt
++Patalis
+ Farukan
++Mertalischer Städtebund
+ Takasadu
+-Arakea
+ Pash Anar
+-Zwingard
+-Mertalischer Städtebund
+-Wintholt
+-Midstad
+-Sadu
++Arakea
++Frostlande
++Sarnburg
++Feenwelt
++Mondfall
++Mondpfade
++Alben
++Varge
++Drachlinge
++Unreich
++Dalmarisches Reich
++Schwertalben
++Zhoujiang
+ Kintai
+-Surmakar
+-Jagodien
+-Splitterträger
+ Splittermond
+-Mondzeichen
+-Mondpfad
+-Feenwelten
+-Varg
+-Alb
+-Gnom
+-Zwerg
+-Ticks
+-Tickleiste
++Kristallsee
++Smaragdküste
++Galonea
++Mahaluu
++Surmakar
++Verheerte Lande
++Ioria
++Termark
++Lamassu
++Rattlinge
++# Stufe B
++Splitter
++Mondsteinkriege
++Dracurische Herrschaft
++Drachlingsherrschaft
++Bund der Bewahrer
++Wächterbund
++Seealben
++Dämmeralben
++Raugarr
++Frynjord
++Taigavarge
++Keshabid
++Tarr
++Länder am Binnenmeer
++Exotenküste
++Blutgrasweite
++Magura-Archipel
++Reich des himmlischen Kranichs
++Gotor
++Immersommerwald
++Westergroms
++Sadu
++Kungaitan
++Jaguardschungel
++Herzogtum Calten
++Calten
++Arwinger Mark
++Gondalis
++Shahandir
++Badashan
++Pashtar
++Demerai
++Aitushar
++Inani
++Teleshai
++Auge von Telwari
++Randmeer
++Tiefdunkel
++Schattenwand
++Himmelsraum
++Anderswelten
++Mond-Trias
++Farukanisches Pantheon
++Titanen der Elemente
++Himmlische Familie
++Göttliches Rudel
++Himmlisches Rudel
++Pantheon der See
++Pilzpantheon
++Töchter der Götter
++Fünf Tugenden der Kintarai
++Kintarai
++Fasnirr der Wanderer
++Aand
++Adalu
++Aewynna
++Agomai
++Ahas
++Akahara
++Alwodin
++Amantia
++Anding
++Anios
++Asha-Vera
++Atlatoto
++Avyn
++Balang
++Baowayara
++Baruo
++Bawalin
++Cabrid
++Cashu
++Cictlapactona
++Cuapochtli
++Dagener
++Darunwal
++Dernwan
++Din-Loh
++Dornius
++Drugon
++Durbash
++Egaris
++Errezid
++Eughos
++Fatargon
++Firrgin
++Fiure
++Fleadyne
++Furbrom
++Gagamba
++Gasharika
++Gol Gara
++Gorri
++Grimman
++Gunwar
++Hamion
++Valtara
++Hanib
++Hapzhab
++Hekaria
++Helarianakarathaa
++Herilie
++Hüeng
++Iosaris
++Iruka
++Isageir
++Isgar
++Itztochitl
++Jaga-Mersaj
++Jarakah
++Jasane
++Jausei
++Jesavis
++Jivon
++Kanatauna
++Karzadai
++Kashrok
++Katiar
++Krarach
++Kronar
++Kunmai
++Liabar
++Lukton
++Luseria
++Lyxa
++Lyxerion
++Maddad
++Mairir
++Mak-Manuu
++Mama Wawilla
++Manigong
++Manildan
++Mersiela
++Monbo Gara
++Morkai
++Moroun
++Morri
++Morwano
++Myuriko
++Nahid
++Naraka
++Niangur
++Niantaui
++Nigali
++Nunogoumbawatahang
++Nurghon
++Oma Barka
++Onkel Swentu
++Padraik
++Pajur
++Papa Drugo
++Porukalaos
++Prllklegutr
++Pudjari
++Pudschu
++Quatikul
++Rahidi
++Rim Gara
++Ronash
++Ronay
++Rraika
++Ruchorr
++Shalenki
++Shandirr
++Shanezi
++Shar Anar
++Shasandiri
++Sheiniu
++Siala
++Sinbara
++Skalangor
++Starrekyng
++Sunja
++Swibalga
++Tamtamkamara
++Tanglang
++Tante Kanja
++Taomai
++Tayru
++Thatarr
++Tomi Gara
++Turagorr
++Ulmon
++Unggoy
++Unjurai
++Urgano
++Uryat
++Valkyrji
++Vangara
++Vanusuri
++Varnu
++Vi'Ela
++Vordan
++Wesantia
++Wesinta
++Wugei
++Yayu Shai
++Yelat
++Yonnus
++Ysgarr
++Zarusz
++Zeshid
++Zul Gara
++Zurasi
++Zuru
++Wyrmbann-Orden
++Dakardsmyr
++Zirkel der Zinne
++Flimmerfee
++Feenblut
++Feenwesen
++Lorakier
++Blutiges Antlitz des Mondes
++Das zweite Gesicht
++Freundschaft der Trabanten
++Geist der Gedanken
++Gunst des reichen Mannes
++Omen des schwarzen Mondes
++Segen der Mondkraft
++Bannmagie
++Beherrschungsmagie
++Bewegungsmagie
++Erkenntnismagie
++Felsmagie
++Feuermagie
++Heilungsmagie
++Illusionsmagie
++Kampfmagie
++Lichtmagie
++Naturmagie
++Schattenmagie
++Schicksalsmagie
++Schutzmagie
++Stärkungsmagie
++Todesmagie
++Verwandlungsmagie
++Wassermagie
++Windmagie
++Absolute Stille
++Allerweltsgesicht
++Altersgespür
++Asche zu Asche
++Atemkontrolle
++Befehlswort
++Betäubungsschlag
++Blitzschild
++Böses Omen
++Brennender Zorn
++Dahinsiechen
++Dämonenaugen
++Donnerschlag
++Dornenranken
++Druckwelle
++Antimagischer Wall
++Arkaner Bogenschütze
++# Regelbegriffe (de)
+ Splitterpunkte
+-Fokus
++Sicherheitswurf
++Risikowurf
++Standardwurf
++Körperlicher Widerstand
++Verteidigung
++Erschöpfter Fokus
++Stärken
++Wundabzüge
+ Lebenspunkte
++Erfahrungspunkte
++Ausstrahlung
++Beweglichkeit
++Splitterpunkt
++Tickleiste
++Ticks
+ Heldengrad
++Erfolgsgrade
++Erfolgsgrad
++Triumph
++Patzer
++Geistiger Widerstand
++Fokus
++Kanalisierter Fokus
++Verzehrter Fokus
+ Meisterschaft
+-Magieschule
+-Stärke
+-Fertigkeit
+-Lunare
+-Drachlinge
+-Vargen
+-Albenhain
+-Lichtalben
+-Nachtalben
++Meisterschaften
++Schwerpunkt
++Ressourcen
++Gefolge
++Gesundheitsstufen
++Steigerungskosten
++Mystik
++Willenskraft
++Initiative
++# Regelbegriffe (en)
++# Verhörer
++Splitter Mond => Splittermond
+diff --git a/app/begriffe/starfinder.txt b/app/begriffe/starfinder.txt
+new file mode 100644
+index 0000000..8caa504
+--- /dev/null
++++ b/app/begriffe/starfinder.txt
+@@ -0,0 +1,282 @@
++# Starfinder – Begriffe für die Transkription
++# Erkennungsnamen: starfinder, starfinder 2e, sf2e, sfrpg, paktwelten, pact worlds
++# Stufe A (höchstens 40, häufigste zuerst)
++Starfinder
++Paktwelten
++Absalom-Station
++Drift
++Die Lücke
++Eox
++Akiton
++Castrovel
++Verces
++Triaxus
++Aballon
++Vesk
++Veskarium
++Kasatha
++Lashunta
++Shirren
++Ysoki
++Android
++Schwarm
++Starfinder-Gesellschaft
++Solarier
++Technomant
++Triune
++Weydan
++Hylax
++Pharasma
++Abadar
++Desna
++Iomedae
++Sarenrae
++Lamashtu
++# Stufe A (en)
++Pact Worlds
++Absalom Station
++The Gap
++Swarm
++Starfinder Society
++Solarian
++Envoy
++Operative
++Mechanic
++Mystic
++Technomancer
++Hellknights
++# Stufe B
++Asmodeus
++Besmara
++Zon-Kuthon
++Urgathoa
++Golarion
++Idari
++Diaspora
++Höllenritter
++Sternenstein
++Absalom
++Kortos
++Apostae
++Liavara
++Bretheda
++Aucturn
++Vesk Prime
++AbadarCorp
++Arcanamirium
++Casandalee
++Epoch
++Ibra
++Talavet
++Oras
++Yaraesa
++Eloritu
++Damoritosh
++Lao Shu Po
++Nyarlathotep
++Rovagug
++Skittermander
++Barathu
++Kalo
++Pahtra
++Vlaka
++Khizar
++Shobhad
++Nuar
++Haan
++Borai
++Bantrid
++Brenneri
++Draelik
++Gnoll
++Hobgoblin
++Ikeshti
++Ghibrani
++Sro
++Embri
++Osharu
++Quorlu
++Dessamar
++Stelliferas
++Kish
++Dirindi
++Drow
++Chiskisk
++Ehu Hadif
++Luwazi Elsebo
++Iseph
++Keskodai
++Navasi
++Obozaya
++Altronus
++Quig
++Raia
++Damaya
++Korasha
++Qabarat
++Elytrioi
++Bolida
++Brightside
++Darkside
++Dataphiles
++Second Seekers
++Scoured Stars
++Witchwyrd
++Akata
++Ellicoth
++Ksarik
++Hanakan
++Dromada
++Ferran
++Morlamaw
++Tashtari
++# Stufe B (en)
++Energy Armor Class
++Kinetic Armor Class
++Universal Polymer Base
++Credstick
++Drift Beacon
++Driftnet
++Drift Rock
++Near Space
++The Vast
++Azlanti Star Empire
++Corpse Fleet
++Stewards
++Free Captains
++Eoxian
++Bone Sages
++Aspis Consortium
++Pact Council
++Xenowardens
++Starstone
++Ryphorian
++Contemplative
++Dragonkin
++Formian
++Sarcesian
++Uplifted Bear
++Astrazoan
++Reptoid
++Reptoids
++Elebrian
++Pact Worlds Guide
++Armory
++Character Operations Manual
++Alien Archive
++Starfinder Core Rulebook
++Dead Suns
++Against the Aeon Throne
++Signal of Screams
++Dawn of Flame
++Attack of the Swarm
++Fly Free or Die
++Sunrise Maiden
++Ring of Fates
++Armada
++Lorespire Complex
++Lorespire
++Raxilites
++Exo-Guardians
++Acquisitives
++Wayfinders
++First Seeker
++The Devourer
++Space Goblin
++Space Goblins
++Bone Trooper
++Necrovite
++Contemplatives
++Biohacker
++Vanguard
++Witchwarper
++Nanocyte
++Evolutionist
++Precog
++Laser Pistol
++Azimuth Laser Pistol
++Tactical Pistol
++Pulsecaster Pistol
++Static Arc Pistol
++Tactical Dueling Sword
++Second Skin
++Freebooter Armor
++Personal Comm Unit
++Comm Unit
++Datapad
++Serum of Healing
++Spell Gem
++Fusion Seal
++Weapon Fusion
++Armor Upgrade
++Jetpack
++Holoskin
++# Regelbegriffe (de)
++Ausdauerpunkte
++Trefferpunkte
++Heldenpunkte
++Rettungswurf
++Zauberplatz
++Zaubertrick
++Reflex
++Willen
++Zähigkeit
++Initiative
++EAC
++KAC
++UPB
++Stamina Points
++Resolve Points
++# Regelbegriffe (en)
++Stamina Points
++Resolve Points
++Hit Points
++Saving Throw
++Fortitude
++Reflex
++Will Save
++Spell Slot
++Cantrip
++Hero Points
++EAC
++KAC
++UPB
++Augmentations
++Hybrid Item
++Solar Weapon
++Solar Flare
++Solar Armor
++Stellar Mode
++Graviton
++Photon
++Stellar Revelation
++Zenith Revelation
++Envoy Improvisation
++Mechanic Trick
++Exocortex
++Custom Rig
++Operative Exploit
++Trick Attack
++Starship Combat
++Science Officer
++Build Points
++Hull Points
++Critical Threshold
++Mystic Cure
++Magic Missile
++Energy Ray
++Psychokinetic Hand
++Token Spell
++Telekinetic Projectile
++Mind Thrust
++Supercharge Weapon
++Jolting Surge
++Overheat
++Holographic Image
++Initiative
++# Verhörer
++Absolom => Absalom
++Kasata => Kasatha
++Lashuntha => Lashunta
++Eoks => Eox
++Solarien => Solarian
+diff --git a/app/begriffe/starwars.txt b/app/begriffe/starwars.txt
+new file mode 100644
+index 0000000..84e9931
+--- /dev/null
++++ b/app/begriffe/starwars.txt
+@@ -0,0 +1,397 @@
++# Star Wars – Begriffe für die Transkription
++# Erkennungsnamen: star wars, starwars, edge of the empire, age of rebellion, force and destiny, am rande des imperiums, zeitalter der rebellion, macht und schicksal, krieg der sterne, swrpg
++# Stufe A (höchstens 40, häufigste zuerst)
++Jedi
++Sith
++Macht
++Lichtschwert
++Imperium
++Rebellen
++Sturmtruppen
++Credits
++Blaster
++Hyperraum
++Droide
++Wookiee
++Hutten
++Twi'lek
++Coruscant
++Tatooine
++Mos Eisley
++Äußerer Rand
++Corellia
++Nar Shaddaa
++Mandalorianer
++Beskar
++Sternzerstörer
++Darth Vader
++Palpatine
++Imperator
++Rodianer
++Trandoshaner
++Bothaner
++Mon Calamari
++Zabrak
++Togruta
++Jawas
++Tusken
++Bacta
++Holonetz
++Kyberkristall
++# Stufe A (en)
++Lightsaber
++Outer Rim
++X-Wing
++# Stufe B
++Am Rande des Imperiums
++Zeitalter der Rebellion
++Macht und Schicksal
++Die Macht
++Dunkle Seite
++Helle Seite
++Machtsinn
++Darth Sidious
++Luke Skywalker
++Leia Organa
++Han Solo
++Chewbacca
++Obi-Wan Kenobi
++Yoda
++Boba Fett
++Jango Fett
++Jabba
++Jabba der Hutte
++Lando Calrissian
++R2-D2
++C-3PO
++Anakin Skywalker
++Tarkin
++Thrawn
++Ahsoka Tano
++Din Djarin
++Grogu
++Mace Windu
++Qui-Gon Jinn
++Padmé Amidala
++Graf Dooku
++General Grievous
++Darth Maul
++Kylo Ren
++Poe Dameron
++Snoke
++Cassian Andor
++Jyn Erso
++Saw Gerrera
++Mon Mothma
++Bail Organa
++Hera Syndulla
++Ezra Bridger
++Kanan Jarrus
++Sabine Wren
++Bo-Katan Kryze
++Cad Bane
++Bossk
++IG-88
++Dengar
++Greedo
++Wedge Antilles
++Admiral Ackbar
++Jar Jar Binks
++Duros
++Sullustaner
++Ithorianer
++Gamorreaner
++Sandleute
++Gungan
++Chiss
++Gand
++Kel Dor
++Nautolaner
++Weequay
++Toydarianer
++Mirialan
++Cerean
++Aqualish
++Ugnaught
++Geonosianer
++Kaminoaner
++Neimoidianer
++Astromechdroide
++Protokolldroide
++Kampfdroide
++Sondendroide
++Y-Wing
++A-Wing
++B-Wing
++X-Flügler
++TIE-Jäger
++TIE-Abfangjäger
++Supersternzerstörer
++Millennium Falke
++YT-1300
++Slave I
++Razor Crest
++Corellianische Korvette
++Blockadebrecher
++Lambda-Fähre
++AT-AT
++AT-ST
++Todesstern
++Yavin
++Yavin 4
++Dantooine
++Jakku
++Lothal
++Ryloth
++Mustafar
++Kamino
++Geonosis
++Utapau
++Scarif
++Jedha
++Ord Mantell
++Bespin
++Wolkenstadt
++Dathomir
++Felucia
++Mygeeto
++Kessel
++Kessel-Flug
++Hoth
++Endor
++Naboo
++Alderaan
++Dagobah
++Kashyyyk
++Mandalore
++Kernwelten
++Mittlerer Rand
++Unbekannte Regionen
++Hutten-Raum
++Galaktisches Imperium
++Rebellen-Allianz
++Galaktische Republik
++Separatisten
++Handelsföderation
++Jedi-Orden
++Jedi-Rat
++Inquisitoren
++ISB
++Klontruppen
++Klonkriege
++Schwarze Sonne
++Kopfgeldjägergilde
++Erste Ordnung
++Widerstand
++Neue Republik
++DL-44
++E-11
++Thermaldetonator
++Carbonit
++Hyperantrieb
++Midichlorianer
++Wupiupi
++Peggat
++Truguts
++Glitzerstim
++Sabacc
++Pazaak
++Huttisch
++Shyriiwook
++Mando'a
++Binär
++Padawan
++Jedi-Meister
++Jedi-Ritter
++Darth
++Sith-Lord
++Moff
++Großmoff
++Sternenjäger
++Darth Bane
++Darth Plagueis
++Darth Revan
++Revan
++Darth Malak
++Exar Kun
++Darth Nihilus
++Kit Fisto
++Plo Koon
++Ki-Adi-Mundi
++Aayla Secura
++Luminara Unduli
++Barriss Offee
++Quinlan Vos
++Cal Kestis
++Cere Junda
++Kreia
++Chopper
++Zeb Orrelios
++Agent Kallus
++Großinquisitor
++Moff Gideon
++Orson Krennic
++Captain Phasma
++General Hux
++Fennec Shand
++Cobb Vanth
++Greef Karga
++Cara Dune
++IG-11
++Kuiil
++Maz Kanata
++Taris
++Dromund Kaas
++Korriban
++Moraband
++Tython
++Ilum
++Ahch-To
++Exegol
++Crait
++Canto Bight
++Batuu
++Ferrix
++Nevarro
++Kuat
++Fondor
++Sullust
++Rodia
++Tantive IV
++Ebon Hawk
++Outrider
++Galaktischer Senat
++Oberster Kanzler
++# Stufe B (en)
++Edge of the Empire
++Age of Rebellion
++Force and Destiny
++Genesys
++Dark Side
++Light Side
++Battle Meditation
++Imperator Palpatine
++Grand Moff Tarkin
++Count Dooku
++Rodian
++Trandoshan
++Bothan
++Jawa
++Ewoks
++Hutte
++Wookiees
++Droiden
++Astromech
++Droideka
++TIE Fighter
++TIE Interceptor
++TIE Bomber
++Star Destroyer
++Millennium Falcon
++Speeder Bike
++Landspeeder
++Podracer
++Death Star
++Cloud City
++Kessel Run
++Inner Rim
++Core Worlds
++Mid Rim
++Wild Space
++Unknown Regions
++Hutt Space
++Corporate Sector
++Corellian Run
++Hydian Way
++Perlemian Trade Route
++Galactic Empire
++Rebel Alliance
++Trade Federation
++Imperial Security Bureau
++Stormtroopers
++Clone Wars
++Black Sun
++Crimson Dawn
++Pyke Syndicate
++Hutt Cartel
++Bounty Hunters' Guild
++First Order
++New Republic
++Death Watch
++Kyber Crystal
++HoloNet
++Holocron
++Imperial Credits
++Huttese
++Grand Moff
++Grand Inquisitor
++Black Spire Outpost
++Executor
++Home One
++# Regelbegriffe (de)
++Advantage
++Threat
++Despair
++Triumph
++Vorteil
++Bedrohung
++Verzweiflung
++Destiny Points
++Schicksalspunkte
++Obligation
++Verpflichtung
++Pflicht
++Moral
++Strain
++Belastung
++Soak
++Spezialisierung
++Fähigkeitswürfel
++Leistungswürfel
++Schwierigkeitswürfel
++Herausforderungswürfel
++Verstärkungswürfel
++Komplikationswürfel
++Machtwürfel
++Initiative
++Duty
++Morality
++Wound Threshold
++Strain Threshold
++Critical Injury
++Talent Tree
++Specialization
++Force Rating
++Force Power
++Boost Die
++Setback Die
++Ability Die
++Proficiency Die
++Difficulty Die
++Challenge Die
++Force Die
++Narrative Dice
++# Regelbegriffe (en)
++Duty
++Morality
++Wound Threshold
++Strain Threshold
++Critical Injury
++Talent Tree
++Specialization
++Force Rating
++Force Power
++Boost Die
++Setback Die
++Ability Die
++Proficiency Die
++Difficulty Die
++Challenge Die
++Force Die
++Narrative Dice
++# Verhörer
++Tatuin => Tatooine
++Wooki => Wookiee
++Corusant => Coruscant
++Twilek => Twi'lek
++Nar Schadda => Nar Shaddaa
+diff --git a/app/begriffe/symbaroum.txt b/app/begriffe/symbaroum.txt
+new file mode 100644
+index 0000000..55e98a8
+--- /dev/null
++++ b/app/begriffe/symbaroum.txt
+@@ -0,0 +1,216 @@
++# Symbaroum – Begriffe für die Transkription
++# Erkennungsnamen: symbaroum, davokar, ambria, ruins of symbaroum
++# Stufe A (höchstens 40, häufigste zuerst)
++Symbaroum
++Ambria
++Davokar
++Yndaros
++Distelfeste
++Karvosti
++Prios
++Korinthia
++Königin Korinthia
++Ambrier
++Barbarenklans
++Verderbnis
++Sonnenkirche
++Symbar
++Titanen
++Ravenia
++Templewall
++Alberetor
++Lindaros
++Huldra
++Ordo Magica
++# Stufe A (en)
++Thistle Hold
++Queen Korinthia
++Ambrians
++Barbarian Clans
++Iron Pact
++Arch Troll
++Blight Beasts
++# Stufe B
++Schatzsucher
++Lasifor Nightpitch
++Ynedar
++Thron der Dornen
++Kastor
++Prios-Pass
++Odaiova
++Baiaga
++Vajvod
++Saar-Kahn
++Karohar
++Gaoia
++Jezora
++Enoai
++Godinja
++Zarek
++Varaka
++Kadizar
++Haloban
++Haus Kohinoor
++Kohinoor
++Fenya
++Magdala
++Kvarek
++Elgalo
++Tharaban
++Yeleta
++Losadra
++Abesina
++Barbar
++Elf
++Troll
++Erztrolle
++Abomination
++Scheusal
++Scheusale
++Nekromant
++Zauberer
++Mystiker
++Krieger
++Schurke
++Duellant
++Waldläufer
++Hexenjäger
++Ritter
++Söldner
++Kundschafter
++Tempelritter
++Prios-Priester
++Magister
++Troubadour
++Beschwörer
++Gelehrter
++Dieb
++Totenbeschwörer
++Thaler
++Schilling
++Ortegs
++# Stufe B (en)
++Witches
++Theurgs
++Black Cloaks
++Sun Church
++High Chieftain
++Church of Prios
++Throne of Thorns
++Prios Pass
++Grey Wade
++Grey Wade Crossing
++Blight
++Blight Marked
++Abominations
++Undead
++Elder Gods
++Young Gods
++Sun God
++Giver of Laws
++Lawgiver
++Firstfather
++House Kohinoor
++Grand Duchy
++Ambrian
++Clan
++Clan Warrior
++Witch Warrior
++Summer Elf
++Autumn Elf
++Winter Elf
++Wardens
++Iron Pact Wardens
++Sorcerer
++Sorcery
++Mystic
++Warrior
++Rogue
++Duelist
++Ranger
++Witch Hunter
++Knight
++Mercenary
++Templar
++Priest
++Scout
++Troubadour
++Necromancer
++Thief
++Treasure Hunter
++Treasure Hunters
++Warlord
++Tattooed Fighter
++Wizard
++Confessor
++Artifact Crafter
++Monster Hunter
++Beast Master
++Executioner
++Thaler
++Shilling
++Orteg
++Ortegs
++Davokar Awakens
++Mark of the Beast
++Tomb of Dying Dreams
++Wrath of the Warden
++Darkest Star
++# Regelbegriffe (de)
++Verderbnis
++Korruption
++Zähigkeit
++Verteidigung
++Ritual
++Rituale
++Attribute
++Stärke
++Erfahrungspunkte
++Meister
++Archetyp
++Initiative
++# Regelbegriffe (en)
++Corruption
++Permanent Corruption
++Temporary Corruption
++Corruption Threshold
++Toughness
++Pain Threshold
++Defense
++Ability
++Abilities
++Mystical Power
++Mystical Powers
++Ritual
++Rituals
++Attributes
++Accurate
++Quick
++Cunning
++Persuasive
++Discreet
++Resolute
++Strong
++Vigilant
++Experience
++Novice
++Adept
++Master
++Race
++Archetype
++Occupation
++Test
++Roll
++Initiative
++Boon
++Burden
++Trait
++Monstrous Trait
++Shadow
++Thoroughly Corrupt
++# Verhörer
++Symbaroom => Symbaroum
++Simbaroum => Symbaroum
++Ambrien => Ambria
++Davocar => Davokar
++Indaros => Yndaros
+diff --git a/app/begriffe/torg.txt b/app/begriffe/torg.txt
+new file mode 100644
+index 0000000..51fc682
+--- /dev/null
++++ b/app/begriffe/torg.txt
+@@ -0,0 +1,168 @@
++# Torg Eternity – Begriffe für die Transkription
++# Erkennungsnamen: torg eternity, torg, possibility wars, möglichkeitskriege, sturmritter, storm knights
++# Stufe A (höchstens 40, häufigste zuerst)
++Torg
++Sturmritter
++Kosmos
++Kosmen
++Core Earth
++Aysle
++Cyberpapacy
++Living Land
++Nile Empire
++Orrorsh
++Pan-Pacifica
++Tharkold
++Hohe Lords
++Gaunt Man
++Mobius
++Baruk Kaah
++Uthorion
++Malraux
++Kanawa
++Jean Malraux
++Delphi-Rat
++Axiome
++Axiom
++Edeinos
++Gospog
++Nippon Tech
++GodNet
++Ravagon
++Ravagons
++# Stufe A (en)
++Storm Knights
++Storm Knight
++Cosm
++Cosms
++High Lords
++High Lord
++Delphi Council
++Possibility Wars
++Pharaoh Mobius
++Reality
++Realities
++# Stufe B
++Möglichkeitskriege
++Möglichkeiten
++Stormers
++Realitätssturm
++Rec Stalek
++Ardinay
++Kanawa Corporation
++Ryuchi Kanawa
++Jiangshi
++Infiniverse
++# Stufe B (en)
++Possibility Energy
++Reality Storm
++Reality Storms
++Maelstrom Bridge
++Gospog of the First Planting
++Possibility-rated
++Ords
++Ord
++Eternity Shard
++Eternity Shards
++Darkness Device
++Pure Zone
++Dominant Zone
++Mixed Zone
++Hardpoint
++Hardpoints
++Pella Ardinay
++Lady Ardinay
++Tolwyn
++Thratchen
++Jakatts
++Optants
++Gotaks
++Deep Mist
++Land Below
++Electric Samurai
++Ion Gusoko
++Techno-Demons
++Techno-Demon
++Tharkoldu
++Blasted Lands
++Cyberpope
++Church Police
++Hospitallers
++Cyberpriest
++Cyberpriests
++Spirit Chip
++Pulp Powers
++Weird Science
++Mystery Men
++Victorians
++Sacellum
++Nightmares
++Horrors
++Day One
++Delphi Missions
++Infiniverse Exchange
++First Planting
++# Regelbegriffe (de)
++Möglichkeitspunkte
++Dramakarten
++Schicksalskarten
++Kosmoskarten
++Initiative
++Weltgesetze
++# Regelbegriffe (en)
++Possibility Points
++Possibility Point
++Reality Test
++Reality Shock
++Reality Rank
++Connected
++Disconnected
++Drama Cards
++Destiny Cards
++Conflict Line
++Dramatic Skill Resolution
++Shock
++Stymied
++Very Stymied
++Vulnerable
++Very Vulnerable
++Multi-Action
++Tech Axiom
++Magic Axiom
++Social Axiom
++Spiritual Axiom
++World Laws
++Contradiction
++Glory
++Cosm Cards
++Cosm Deck
++Law of Savagery
++Law of Drama
++Law of Action
++Law of Heroism
++Law of Fear
++Law of Pain
++Law of Intrigue
++Transformed
++Reality Bubble
++Setback
++Player's Call
++Hero Card
++Combat Card
++Multi-Targeting
++Approved Actions
++Good Success
++Outstanding Success
++Mishap
++Toughness
++Skill Adds
++Transcendence
++Disconnection
++# Verhörer
++Torck => Torg
++Torg Eternitie => Torg Eternity
++Eisle => Aysle
++Aisle => Aysle
++Orosh => Orrorsh
++Tarkold => Tharkold
++Zyberpapacy => Cyberpapacy
+diff --git a/app/begriffe/vampire.txt b/app/begriffe/vampire.txt
+new file mode 100644
+index 0000000..10b10c0
+--- /dev/null
++++ b/app/begriffe/vampire.txt
+@@ -0,0 +1,388 @@
++# Vampire: Die Maskerade / World of Darkness – Begriffe für die Transkription
++# Erkennungsnamen: vampire, vampir, maskerade, masquerade, world of darkness, welt der dunkelheit, vampire die maskerade, vampire the masquerade, vtm, werwolf die apokalypse, werewolf the apocalypse
++# Stufe A (höchstens 40, häufigste zuerst)
++Kainiten
++Camarilla
++Sabbat
++Anarchen
++Brujah
++Gangrel
++Malkavianer
++Nosferatu
++Toreador
++Tremere
++Ventrue
++Lasombra
++Tzimisce
++Ravnos
++Banu Haqim
++Hecata
++Caitiff
++Dünnblütige
++Maskerade
++Elysium
++Prinz
++Primogen
++Disziplinen
++Ghul
++Blutsband
++Vitae
++Diablerie
++Erzeuger
++Kain
++Gehenna
++Jyhad
++Antediluvianer
++Methusalem
++Zweite Inquisition
++# Stufe A (en)
++Kindred
++Anarchs
++Malkavian
++Masquerade
++Sire
++Caine
++# Stufe B
++Kainit
++Setiten
++Salubri
++Giovanni
++Assamiten
++Baali
++Kappadozianer
++Lamia
++Kiasyd
++Lilith
++Abel
++Enoch
++Zillah
++Irad
++Zweite Stadt
++Ältester
++Ahn
++Ancilla
++Neonat
++Kuss
++Domitor
++Torpor
++Endgültiger Tod
++Golconda
++Pfade der Erleuchtung
++Zuflucht
++Domäne
++Herde
++Koterie
++Chronik
++Erzähler
++Seneschall
++Harpie
++Hüter des Elysiums
++Geißel
++Justikar
++Archon
++Innerer Zirkel
++Anarchenrevolte
++Konvention von Thorns
++Sechs Traditionen
++Lex Talionis
++Blutjagd
++Prestation
++Vaulderie
++Ritae
++Bischof
++Erzbischof
++Kardinal
++Priscus
++Schwarze Hand
++Inconnu
++FIRSTLIGHT
++Arcanum
++Buch von Nod
++Animalismus
++Auspex
++Celerity
++Geschwindigkeit
++Beherrschung
++Fortitude
++Seelenstärke
++Verdunkelung
++Stärke
++Präsenz
++Protean
++Gestaltwandel
++Blutzauberei
++Thaumaturgie
++Oblivion
++Chimerstry
++Dementation
++Vicissitude
++Obtenebration
++Quietus
++Serpentis
++Nekromantie
++Malkav
++Haqim
++Saulot
++Absimiliard
++Ennoia
++Arikel
++Cappadocius
++Augustus Giovanni
++Etrius
++Goratrix
++Hardestadt
++Jan Pieterzoon
++Theo Bell
++Lucita
++Beckett
++Anatole
++Kuei-jin
++Werwolf: Die Apokalypse
++Garou
++Wyrm
++Wyld
++Gaia
++Umbra
++Pentex
++Lupinen
++Magus: Die Erleuchtung
++Technokratie
++Traditionen
++Changeling
++Wraith
++Auctoritas Ritae
++Ignoblis Ritae
++Elfenbeinturm
++Konklave
++Rote Liste
++Alastor
++Blutlinie
++Bratovitch
++Grimaldi
++Zantosa
++Obertus
++Ducheski
++Dünnblütiger
++Kainskinder
++Antitribu
++Nictuku
++Haus Tremere
++Hesha Ruhadze
++Fatima al-Faqadi
++Ur-Shulgi
++Mithras
++Helena
++Victoria Ash
++Nines Rodriguez
++Sebastian LaCroix
++Invictus
++Lancea Sanctum
++Ordo Dracul
++Daeva
++Mekhet
++Ankh
++# Stufe B (en)
++Cainite
++Anarch
++Thin-Blood
++Thin-Blooded
++Duskborn
++Ministry
++Ministry of Set
++Followers of Set
++Assamite
++Cappadocian
++Gargoyles
++Harbingers of Skulls
++Daughters of Cacophony
++True Brujah
++Second City
++Antediluvian
++Methuselah
++Neonate
++Childe
++Embrace
++Ghoul
++Blood Bond
++Final Death
++Paths of Enlightenment
++Path of Caine
++Path of Night
++Haven
++Domain
++Herd
++Coterie
++Chronicle
++Storyteller
++Seneschal
++Harpy
++Keeper of Elysium
++Scourge
++Justicar
++Inner Circle
++Anarch Baron
++Anarch Free States
++Anarch Revolt
++Convention of Thorns
++Six Traditions
++Blood Hunt
++Boons
++Lick
++Licks
++Kine
++Bishop
++Archbishop
++Cardinal
++Black Hand
++Second Inquisition
++Society of Leopold
++Book of Nod
++Animalism
++Dominate
++Obfuscate
++Potence
++Presence
++Blood Sorcery
++Thaumaturgy
++Necromancy
++Thin-Blood Alchemy
++Kindred of the East
++Werewolf: The Apocalypse
++Weaver
++Lupine
++Mage: The Ascension
++Technocracy
++Hunter: The Reckoning
++Chicago by Night
++Berlin by Night
++Loresheet
++Feral Whispers
++Sense the Beast
++Heightened Senses
++Scry the Soul
++Spirit's Touch
++Cat's Grace
++Cloud Memory
++Mesmerize
++Forgetful Mind
++Submerged Directive
++Terminal Decree
++Unswayable Mind
++Defy Bane
++Cloak of Shadows
++Silence of Death
++Unseen Passage
++Mask of a Thousand Faces
++Lethal Body
++Brutal Feed
++Spark of Rage
++Uncanny Grip
++Fist of Caine
++Entrancement
++Dread Gaze
++Eyes of the Beast
++Feral Weapons
++Earth Meld
++Mist Form
++Corrosive Vitae
++Theft of Vitae
++Shadow Cloak
++Arms of the Abyss
++Shadow Step
++Ward against Ghouls
++Blood Walk
++Wake with Evening's Freshness
++Defense of the Sacred Haven
++Path of Blood
++Lure of Flames
++Movement of the Mind
++Rego Vitae
++Shovelhead
++Shovelheads
++War Party
++Wild Hunt
++Monomacy
++Sword of Caine
++Ivory Tower
++Conclave
++Red List
++Blood Doll
++Bloodline
++Chantry
++Imbued
++Revenants
++Anarch Movement
++House Tremere
++Smiling Jack
++Bloodlines
++Vampire: Requiem
++Circle of the Crone
++Carthian Movement
++Chronicles of Darkness
++# Regelbegriffe (de)
++Hunger Dice
++Hungerwürfel
++Rouse Check
++Blutmacht
++Menschlichkeit
++Humanity
++Rötschreck
++Raserei
++Messy Critical
++Willenskraft
++Resonanz
++Dyskrasie
++Würfelpool
++Schwierigkeit
++Erfolge
++Initiative
++Blood Potency
++Humanity Roll
++Frenzy
++Bestial Failure
++Willpower
++Touchstones
++Convictions
++Predator Type
++Resonance
++Dyscrasia
++Blood Surge
++Bane Severity
++Clan Bane
++Compulsion
++Stains
++Remorse
++Aggravated Damage
++Superficial Damage
++Dice Pool
++Difficulty
++Successes
++# Regelbegriffe (en)
++Blood Potency
++Humanity Roll
++Frenzy
++Bestial Failure
++Willpower
++Touchstones
++Convictions
++Predator Type
++Resonance
++Dyscrasia
++Blood Surge
++Bane Severity
++Clan Bane
++Compulsion
++Stains
++Remorse
++Aggravated Damage
++Superficial Damage
++Dice Pool
++Difficulty
++Successes
++# Verhörer
++Malkavianner => Malkavianer
++Tsimisce => Tzimisce
++Tzimisze => Tzimisce
++Rautschreck => Rötschreck
++Diablery => Diablerie
++Brucha => Brujah
+diff --git a/app/begriffe/warhammer.txt b/app/begriffe/warhammer.txt
+new file mode 100644
+index 0000000..2d250e3
+--- /dev/null
++++ b/app/begriffe/warhammer.txt
+@@ -0,0 +1,377 @@
++# Warhammer Fantasy Rollenspiel – Begriffe für die Transkription
++# Erkennungsnamen: warhammer fantasy, warhammer fantasy rollenspiel, warhammer fantasy roleplay, wfrp, wfrsp, alte welt, old world, reikland
++# Stufe A (höchstens 40, häufigste zuerst)
++Imperium
++Sigmar
++Altdorf
++Reikland
++Middenheim
++Nuln
++Ubersreik
++Bögenhafen
++Marienburg
++Ulric
++Morr
++Shallya
++Ranald
++Taal
++Myrmidia
++Verena
++Manann
++Khorne
++Nurgle
++Tzeentch
++Slaanesh
++Skaven
++Warpstein
++Morrslieb
++Mannslieb
++Goldkronen
++Silberschillinge
++Messingpfennige
++Hexenjäger
++Tiermenschen
++Grünhäute
++Kislev
++Bretonia
++Sylvania
++Talabheim
++Averheim
++Karl Franz
++Kurfürsten
++Chaos
++Alte Welt
++# Stufe B
++Wissenburg
++Kemperbad
++Carroburg
++Grünburg
++Middenland
++Nordland
++Ostland
++Hochland
++Talabecland
++Stirland
++Averland
++Wissenland
++Ostermark
++Mootland
++Drakwald
++Reik
++Talabec
++Stir
++Aver
++Graue Berge
++Schwarze Berge
++Weltrandgebirge
++Mittelberge
++Tilea
++Estalia
++Grenzgrafschaften
++Norsca
++Arabia
++Lustria
++Ulthuan
++Naggaroth
++Albion
++Cathay
++Nippon
++Khemri
++Nehekhara
++Karaz-a-Karak
++Karak Kadrin
++Karak Acht Gipfel
++Karak Eight Peaks
++Zhufbar
++Barak Varr
++Karak Izor
++Karak Hirn
++Karak Norn
++Karak Azgal
++Praag
++Erengrad
++Couronne
++Miragliano
++Magritta
++Mousillon
++Chaoswüste
++Handrich
++Rhya
++Khaine
++Grungni
++Valaya
++Grimnir
++Isha
++Asuryan
++Lileath
++Hashut
++Ungeteiltes Chaos
++Gehörnte Ratte
++Hochelfen
++Waldelfen
++Dunkelelfen
++Halblinge
++Oger
++Orks
++Goblins
++Snotlinge
++Zwerge
++Slayer
++Trollslayer
++Chaoskrieger
++Chaosbarbaren
++Chaosbrut
++Gor
++Ungor
++Bestigor
++Minotauren
++Mutanten
++Mutation
++Ghul
++Vampirfürsten
++Grabkönige
++Vlad von Carstein
++Mannfred von Carstein
++Konrad von Carstein
++Von Carstein
++Nagash
++Heinrich Kemmler
++Kaiser Karl Franz
++Magnus der Fromme
++Teclis
++Volkmar
++Großtheogonist
++Ar-Ulric
++Boris Todbringer
++Emmanuelle von Liebwitz
++Archaon
++Be'lakor
++Gotrek
++Winde der Magie
++Aethyr
++Ghur
++Ghyran
++Chamon
++Aqshy
++Hysh
++Azyr
++Ulgu
++Shyish
++Dhar
++Qhaysh
++Kollegien der Magie
++Hexer
++Heckenhexe
++Sigmarpriester
++Sigmarit
++Templer
++Reiksgarde
++Ritter des Weißen Wolfs
++Pantherritter
++Orden des Silbernen Hammers
++Purpurne Hand
++Rote Krone
++Kaiserlicher Kalender
++Nachexen
++Jahrdrung
++Pflugzeit
++Sigmarzeit
++Sommerzeit
++Vorgeheim
++Nachgeheim
++Erntezeit
++Brauzeit
++Kaldezeit
++Ulriczeit
++Vorhexen
++Wellentag
++Aubentag
++Marktag
++Backertag
++Bezahltag
++Konistag
++Angestag
++Festag
++Hexensnacht
++Geheimnisnacht
++Mondstille
++Sonnstill
++Mittherbst
++Mitterfruhl
++Goldkrone
++Silberschilling
++Messingpfennig
++Rattenfänger
++Gralsritter
++Herrin des Sees
++Feenzauberin
++Rattenoger
++Clan Eshin
++Clan Moulder
++Clan Pestilens
++Clan Skryre
++Clan Mors
++Clan Rictus
++Grauer Seher
++Skavenblight
++Schwarzorks
++Wolfsreiter
++Buch des Grolls
++Dawi
++Grobi
++Umgi
++Elgi
++Asur
++Druchii
++Asrai
++Athel Loren
++Laurëlorn
++Drachenfels
++Konstantin Drachenfels
++Der Feind im Innern
++Sturm des Chaos
++Sigmars Hammer
++Ghal Maraz
++Reiksmarschall
++Hochkönig
++Altdorfer
++Middenheimer
++Reikländer
++Kislevit
++Bretone
++Norse
++Kurgan
++Ulthuaner
++Lahmia
++Blutdrachen
++Necrarch
++Strigoi
++Neferata
++Settra
++Grimgor Ironhide
++Stromfels
++Dazh
++Ursun
++Eiskönigin
++Katarin
++Kossars
++Burgomeister
++Teutogen
++Unberogen
++Sigmar Heldenhammer
++Heldenhammer
++Schwarzfeuerpass
++Solkan
++Mordheim
++Hergig
++Wolfenburg
++Salzenmund
++Bechafen
++Pfeildorf
++Streissen
++Grissenwald
++Weissbruck
++# Stufe B (en)
++Old World
++Empire
++Worlds Edge Mountains
++Bretonnia
++Border Princes
++Chaos Wastes
++Chaos Undivided
++Horned Rat
++Snotlings
++Chaos Spawn
++Tomb Kings
++Grand Theogonist
++Elector Counts
++Gotrek Gurnisson
++Felix Jaeger
++Winds of Magic
++Colleges of Magic
++Amber College
++Bright College
++Celestial College
++Gold College
++Grey College
++Jade College
++Light College
++Amethyst College
++Hedge Witch
++Reiksguard
++Knights of the White Wolf
++Knights Panther
++Order of the Silver Hammer
++Purple Hand
++Red Crown
++Imperial Calendar
++Gold Crown
++Silver Shilling
++Brass Penny
++Rat Catcher
++Witch Hunter
++Grail Knight
++Lady of the Lake
++Fay Enchantress
++Warpstone
++Warplightning
++Rat Ogre
++Grey Seer
++Black Orcs
++Orc Boyz
++Ungrim Ironfist
++Thorgrim Grudgebearer
++Book of Grudges
++The Enemy Within
++Storm of Chaos
++Blood Dragons
++Ice Queen
++Black Fire Pass
++# Regelbegriffe (de)
++Schicksalspunkte
++Glückspunkte
++Fate Points
++Korruption
++Erfolgsgrade
++Advantage
++Vorteil
++Kampfgeschick
++Ballistische Fertigkeit
++Karriere
++Talent
++Initiative
++Wunden
++Kritischer Treffer
++Fortune Points
++Resilience
++Resolve
++Corruption
++Success Levels
++Critical Wounds
++Weapon Skill
++Ballistic Skill
++Willpower
++Fellowship
++Careers
++Wounds
++Critical Hit
++# Regelbegriffe (en)
++Fortune Points
++Resilience
++Resolve
++Corruption
++Success Levels
++Critical Wounds
++Weapon Skill
++Ballistic Skill
++Willpower
++Fellowship
++Careers
++Wounds
++Critical Hit
++# Verhörer
++Bögen Hafen => Bögenhafen
++Überreik => Ubersreik
++Ubersreich => Ubersreik
++Zentsch => Tzeentch
++Slanesh => Slaanesh
+diff --git a/app/begriffe/warhammer40k.txt b/app/begriffe/warhammer40k.txt
+new file mode 100644
+index 0000000..d16bc87
+--- /dev/null
++++ b/app/begriffe/warhammer40k.txt
+@@ -0,0 +1,557 @@
++# Warhammer 40.000 Rollenspiel – Begriffe für die Transkription
++# Erkennungsnamen: warhammer 40k, warhammer 40000, warhammer 40.000, 40k, wrath & glory, wrath and glory, dark heresy, rogue trader, deathwatch, black crusade, only war, imperium maledictum
++# Stufe A (höchstens 40, häufigste zuerst)
++Imperium
++Imperator
++Space Marines
++Astartes
++Adeptus Astartes
++Adeptus Mechanicus
++Inquisition
++Inquisitor
++Psioniker
++Warp
++Chaos
++Khorne
++Nurgle
++Tzeentch
++Slaanesh
++Orks
++Aeldari
++Eldar
++Drukhari
++Tyraniden
++Necrons
++Tau
++Genestealer
++Terra
++Holy Terra
++Cadia
++Makropole
++Bolter
++Boltpistole
++Lasgewehr
++Kettenschwert
++Servorüstung
++# Stufe A (en)
++Emperor
++God-Emperor
++Psyker
++Tyranids
++Lasgun
++Chainsword
++Power Armour
++Tech-Priest
++Commissar
++Imperial Guard
++# Stufe B
++Servitor
++Techpriester
++Kommissar
++Astra Militarum
++Imperiale Armee
++Adeptus Sororitas
++Sororitas
++Primaris
++Gilead-System
++Gilead
++Varonius
++Jakel Varonius
++Großer Riss
++Imperium Nihilus
++Imperium Sanctus
++Cicatrix Maledictum
++Macragge
++Ultramar
++Fenris
++Baal
++Nocturne
++Mars
++Holy Mars
++Agripinaa
++Armageddon
++Calixis-Sektor
++Koronus-Weite
++Jericho-Weite
++Askellon-Sektor
++Scintilla
++Hive Sibellus
++Makropolwelt
++Todeswelt
++Agrarwelt
++Schmiedewelt
++Schreinwelt
++Totenwelt
++Paradieswelt
++Segmentum
++Segmentum Solar
++Segmentum Obscurus
++Auge des Schreckens
++Maelstrom
++Warpsturm
++Immaterium
++Empyreum
++Astronomican
++Navigator
++Navis Nobilite
++Freihändler
++Handelspatent
++Adeptus Administratum
++Adeptus Arbites
++Arbitrator
++Adeptus Astra Telepathica
++Astropath
++Adeptus Custodes
++Custodes
++Adeptus Ministorum
++Ekklesiarchie
++Officio Assassinorum
++Ordo Malleus
++Ordo Hereticus
++Ordo Xenos
++Grey Knights
++Graue Ritter
++Deathwatch
++Ultramarines
++Blood Angels
++Dark Angels
++Space Wolves
++Imperial Fists
++Salamanders
++Raven Guard
++Iron Hands
++White Scars
++Black Templars
++Roboute Guilliman
++Guilliman
++Sanguinius
++Lion El'Jonson
++Leman Russ
++Rogal Dorn
++Vulkan
++Corvus Corax
++Ferrus Manus
++Jaghatai Khan
++Horus
++Horus-Häresie
++Chaos Space Marines
++Black Legion
++Abaddon
++Death Guard
++Mortarion
++Thousand Sons
++Magnus
++World Eaters
++Angron
++Emperor's Children
++Fulgrim
++Word Bearers
++Lorgar
++Night Lords
++Konrad Curze
++Iron Warriors
++Perturabo
++Alpha Legion
++Dämonenprinz
++Blutdämon
++Seuchenhüter
++Nurglinge
++Horror
++Pink Horror
++Dämonette
++Dämonetten
++Herold
++Unteilbares Chaos
++Chaoskultist
++Kultist
++Häretiker
++Mutant
++Scavvy
++Underhive
++Unterwelt
++Hive City
++Necromunda
++Goliath
++Escher
++Orlock
++Van Saar
++Delaque
++Cawdor
++Waaagh
++Boss
++Warboss
++Mek
++Gretchin
++Grotz
++Nobz
++Boyz
++Craftworld
++Weltenschiff
++Ulthwé
++Biel-Tan
++Iyanden
++Saim-Hann
++Alaitoc
++Harlequin
++Harlequins
++Commorragh
++Ynnari
++Avatar des Khaine
++Farseer
++Runenprophet
++Warlock
++Hexer
++Warp Spider
++Phantomlord
++Wraithlord
++Tyraniden-Schwarm
++Hive Mind
++Schwarmbewusstsein
++Hive Fleet
++Schwarmflotte
++Leviathan
++Kraken
++Behemoth
++Hormagant
++Termagant
++Carnifex
++Genestealer Cult
++Genestealer-Kult
++Patriarch
++Magus
++Lictor
++Necron Lord
++Necron-Lord
++Overlord
++Phaeron
++Szarekh
++Silent King
++Schweigender König
++C'tan
++Trazyn
++T'au
++Tau-Imperium
++Ethereals
++Ätherische
++Fire Warrior
++Feuerkrieger
++Kroot
++Vespid
++Farsight
++Shadowsun
++Aun'Va
++Votann
++Leagues of Votann
++Squats
++Ogryn
++Ratling
++Beastman
++Abhuman
++Abmensch
++Catachan
++Cadianer
++Cadian
++Krieg
++Death Korps
++Mordian
++Tallarn
++Valhalla
++Vostroya
++Steel Legion
++Leman Russ Panzer
++Chimäre
++Chimera
++Baneblade
++Rhino
++Land Raider
++Predator
++Dreadnought
++Cybot
++Thunderhawk
++Valkyrie
++Titan
++Warlord-Titan
++Collegia Titanica
++Skitarii
++Magos
++Omnissiah
++Maschinengott
++Mechanicus
++Dark Mechanicum
++Belisarius Cawl
++Cawl
++Lebender Heiliger
++Living Saint
++Celestine
++Sankt Celestine
++Canoness
++Kanonisse
++Repentia
++Seraphim
++Imperiales Credo
++Imperial Creed
++Lectitio Divinitatus
++Ministorum
++Confessor
++Prediger
++Preacher
++Missionar
++Assassine
++Vindicare
++Callidus
++Eversor
++Culexus
++Cherub
++Servoschädel
++Servo-Skull
++Auspex
++Vox
++Vox-Caster
++Cogitator
++Datenschiefer
++Dataslate
++Melter
++Meltagun
++Plasmawerfer
++Plasma Gun
++Flammenwerfer
++Flamer
++Schwerer Bolter
++Heavy Bolter
++Bolt Pistol
++Sturmbolter
++Storm Bolter
++Energieschwert
++Power Sword
++Energiefaust
++Power Fist
++Donnerhammer
++Thunder Hammer
++Sturmschild
++Storm Shield
++Lasrifle
++Hellgun
++Autogewehr
++Autogun
++Stubber
++Schrotflinte
++Shotgun
++Needle Rifle
++Carapace Armour
++Flak-Rüstung
++Flak Armour
++Terminator-Rüstung
++Terminator Armour
++Sprungmodul
++Jump Pack
++Refractor Field
++Stimm
++Obscura
++Lho-Stick
++Amasec
++Recaf
++Throne Gelt
++Thrones
++Thronen
++Aquila
++Imperialer Adler
++Gothic
++Low Gothic
++High Gothic
++Hochgotisch
++Niedergotisch
++# Stufe B (en)
++Sisters of Battle
++Gilead System
++Great Rift
++Eye of Terror
++Warp Storm
++Hive World
++Death World
++Agri World
++Forge World
++Shrine World
++Rogue Trader
++Warrant of Trade
++Calixis Sector
++Koronus Expanse
++Jericho Reach
++Askellon Sector
++Hive
++Horus Heresy
++Daemon Prince
++Bloodletter
++Plaguebearer
++Nurglings
++Daemonette
++Daemonettes
++Chaos Undivided
++Chaos Cultist
++Heretic
++Tyranid Swarm
++Hive Fleet Leviathan
++Kraken
++Avatar of Khaine
++Wraithguard
++Ethereal
++Tau Empire
++Fire Caste
++Water Caste
++Earth Caste
++Air Caste
++Cadians
++Living Saint
++Saint Celestine
++Imperial Eagle
++Machine God
++Servo-skull
++Servitors
++Preacher
++Missionary
++Assassin
++Power Armor
++Laspistol
++Autopistol
++Hand Flamer
++Melta
++Plasma Pistol
++Grav Gun
++Volkite
++Krak Grenade
++Frag Grenade
++Chainaxe
++Lightning Claw
++Force Sword
++Force Staff
++Psychic Hood
++Rosarius
++Iron Halo
++Imperial Navy
++Battlefleet
++Imperial Knight
++Knight World
++Questor Imperialis
++Adeptus Terra
++High Lords of Terra
++Golden Throne
++Goldener Thron
++Throne World
++Terran
++Scholam
++Schola Progenium
++Storm Trooper
++Tempestus Scion
++Militarum Tempestus
++Kasrkin
++Ratlings
++Ogryns
++Bullgryn
++Underhive Scum
++Hive Ganger
++Ganger
++Chaos Marine
++Traitor Legion
++Traitor Marine
++Possessed
++Obliterator
++Warp Talon
++Sorcerer
++Dark Apostle
++Lord of Change
++Great Unclean One
++Bloodthirster
++Keeper of Secrets
++Daemon World
++# Regelbegriffe (de)
++Wrath
++Glory
++Ruin
++Zorn
++Ruhm
++Verderben
++Stufe
++Tier
++Framework
++Erfolge
++Wunden
++Schock
++Shock
++Rüstung
++Korruption
++Mutation
++Wahnsinn
++Wahnsinnspunkte
++Schicksalspunkte
++Fate Points
++Initiative
++Talent
++Archetyp
++Fraktion
++Psionische Kraft
++Verderbnis
++# Regelbegriffe (en)
++Wrath
++Glory
++Ruin
++Wrath Dice
++Wrath Die
++Wrath Points
++Glory Points
++Ruin Points
++Tier
++Framework
++Icons
++Exalted Icons
++Shifting
++Shift
++Wounds
++Shock
++Resilience
++Armour Rating
++Determination
++Soak
++Corruption
++Mutation
++Insanity
++Insanity Points
++Fate Points
++Fate
++Initiative
++Talent
++Archetype
++Faction
++Keyword
++Psychic Power
++Perils of the Warp
++Psychic Phenomena
++Warp Charge
++Defiance
++Complication
++Multi-Action
++Full Defence
++All-Out Attack
++Salvo
++Spread
++Toughness
++Agility
++Willpower
++Fellowship
++Influence
++Wealth
++Rank
++Build Points
++Subtlety
++Combat Tests
++Skill Test
++Characteristic Test
++Degrees of Success
++Righteous Fury
++Critical Damage
++Fatigue
++# Verhörer
++Astartis => Astartes
++Tiraniden => Tyraniden
++Neckrons => Necrons
++Elda => Eldar
++Zentsch => Tzeentch
++Slanesh => Slaanesh
+diff --git a/app/begriffe/witcher.txt b/app/begriffe/witcher.txt
+new file mode 100644
+index 0000000..9d777a4
+--- /dev/null
++++ b/app/begriffe/witcher.txt
+@@ -0,0 +1,343 @@
++# The Witcher – Begriffe für die Transkription
++# Erkennungsnamen: the witcher, witcher, der hexer, hexer rollenspiel, witcher trpg, witcher rollenspiel, kontinent
++# Stufe A (höchstens 40, häufigste zuerst)
++Hexer
++Witcher
++Kontinent
++Nilfgaard
++Nilfgaarder
++Redanien
++Temerien
++Kaedwen
++Aedirn
++Skellige
++Cintra
++Novigrad
++Oxenfurt
++Wyzima
++Kaer Morhen
++Toussaint
++Velen
++Scoia'tael
++Aard
++Igni
++Quen
++Yrden
++Axii
++Gwint
++Weiße Flamme
++Emhyr
++Geralt
++Yennefer
++Triss
++Ciri
++Rittersporn
++# Stufe A (en)
++Redania
++Temeria
++Vizima
++Gwent
++White Flame
++Dandelion
++Jaskier
++# Stufe B
++Mahakam
++Brokilon
++Lyrien
++Rivien
++Rivia
++Verden
++Brugge
++Sodden
++Kovir
++Poviss
++Hengfors
++Zerrikanien
++Ofir
++Blaviken
++Ard Carraigh
++Vengerberg
++Tretogor
++Pontar
++Jaruga
++Blauberge
++Drachenberge
++Beauclair
++Ard Skellig
++An Skellig
++Spikeroog
++Undvik
++Hindarsfjall
++Kaer Trolde
++Dol Blathanna
++Tal der Blumen
++Thanedd
++Aretusa
++Ban Ard
++Gors Velen
++Ellander
++Maribor
++Dillingen
++Crinfrid
++Hagge
++Vergen
++Loc Muinne
++Flotsam
++Rosrog
++Nilfgaardisches Imperium
++Kaiserreich Nilfgaard
++Schwarze
++Die Schwarzen
++Kaiser Emhyr
++Emhyr var Emreis
++Foltest
++Radovid
++Henselt
++Demawend
++Meve
++Calanthe
++Pavetta
++Vesemir
++Eskel
++Lambert
++Coën
++Letho
++Regis
++Zoltan Chivay
++Zoltan
++Milva
++Cahir
++Angoulême
++Philippa Eilhart
++Fringilla Vigo
++Keira Metz
++Sheala de Tancarville
++Francesca Findabair
++Vilgefortz
++Sigismund Dijkstra
++Dijkstra
++Vernon Roche
++Iorweth
++Saskia
++Stregobor
++Renfri
++Vivienne
++Anna Henrietta
++Olgierd
++Gaunter O'Dim
++Avallac'h
++Eredin
++Wilde Jagd
++Wild Hunt
++Aen Elle
++Aen Seidhe
++Aen Saevherne
++Ältere Blut
++Älteres Blut
++Hen Ichaer
++Elder Blood
++Lara Dorren
++Ithlinne
++Prophezeiung Ithlinnes
++Sphärenkonjunktion
++Conjunction of the Spheres
++Hexerschulen
++Wolfsschule
++Schule des Wolfes
++Katzenschule
++Schule der Katze
++Greifenschule
++Schule des Greifen
++Bärenschule
++Schule des Bären
++Vipernschule
++Schule der Viper
++Mantikorschule
++School of the Wolf
++School of the Cat
++School of the Griffin
++School of the Bear
++School of the Viper
++Kräuterprobe
++Trial of the Grasses
++Hexermedaillon
++Witcher Medallion
++Silberschwert
++Silver Sword
++Stahlschwert
++Steel Sword
++Weißer Honig
++White Honey
++Goldener Pirol
++Golden Oriole
++Schwarzes Blut
++Black Blood
++Kikimora
++Kikimore
++Griffin
++Greif
++Leshen
++Waldschrat
++Alghoul
++Nekker
++Drowner
++Ertrunkener
++Ertrunkene
++Wasserweib
++Water Hag
++Nachtmahr
++Noonwraith
++Mittagserscheinung
++Nightwraith
++Nachterscheinung
++Striga
++Strige
++Wyvern
++Kokatrix
++Cockatrice
++Ekimmara
++Katakan
++Bruxa
++Höhere Vampire
++Higher Vampire
++Fiend
++Chort
++Doppler
++Godling
++Botchling
++Rock Troll
++Sylvan
++Endrega
++Archespore
++Echinops
++Zeugl
++Zeugel
++Villentretenmerth
++Borkh
++Saskia von Aedirn
++Hexenjäger
++Witch Hunters
++Ewiges Feuer
++Eternal Fire
++Kirche des Ewigen Feuers
++Church of the Eternal Fire
++Melitele
++Freya
++Lebioda
++Kreve
++Große Sonne
++Great Sun
++Ermion
++Mäusesack
++Mousesack
++Zauberinnenloge
++Lodge of Sorceresses
++Kapitel der Magier
++Brüderschaft der Zauberer
++Brotherhood of Sorcerers
++Crach an Craite
++Cerys
++Hjalmar
++Birna Bran
++Bran Tuirseach
++Ciaran
++Blut und Wein
++Blood and Wine
++Hearts of Stone
++Herz aus Stein
++Der letzte Wunsch
++Das Schwert der Vorsehung
++Das Erbe der Elfen
++Die Zeit der Verachtung
++Feuertaufe
++Der Schwalbenturm
++Die Dame vom See
++Zeit des Sturms
++# Stufe B (en)
++Lyria
++Rivia
++Zerrikania
++Ofier
++Blue Mountains
++Dragon Mountains
++Valley of Flowers
++Nilfgaardian Empire
++Empire of Nilfgaard
++The Black Ones
++Emperor Emhyr
++Elder Blood
++Ithlinne's Prophecy
++Witcher Schools
++Griffin
++Leshen
++Noonwraith
++Nightwraith
++Rock Troll
++Forest Troll
++Trollwife
++Higher Vampire
++Cat School
++Wolf School
++Bear School
++Viper School
++Griffin School
++Manticore School
++Witcher Medallion
++Silver Sword
++Steel Sword
++Decoction
++Decoctions
++Mutagens
++Place of Power
++Ort der Macht
++Eternal Fire
++Great Sun
++Lodge of Sorceresses
++Brotherhood of Sorcerers
++Chapter of Sorcerers
++Witch Hunter
++Lesser Evil
++The Last Wish
++Sword of Destiny
++Blood of Elves
++Time of Contempt
++Baptism of Fire
++The Tower of the Swallow
++The Lady of the Lake
++Season of Storms
++Clan an Craite
++Clan Tuirseach
++Clan Brokvar
++Clan Drummond
++Clan Dimun
++Clan Heymaey
++# Regelbegriffe (de)
++Trefferpunkte
++Stamina
++Vigor
++Stopping Power
++Kritischer Treffer
++Verifikation
++Reputation
++Lebenspfad
++Lifepath
++Initiative
++# Regelbegriffe (en)
++Hit Points
++Stamina
++Vigor
++Stopping Power
++Skill Check
++Critical Hit
++Critical Wound
++Verification
++Reputation
++Lifepath
++Initiative
++# Verhörer
++Nilfgard => Nilfgaard
++Kaer Moren => Kaer Morhen
++Skellig => Skellige
++Jenefer => Yennefer
++Geralt von Riva => Geralt von Rivia
++Scoiatael => Scoia'tael
+diff --git a/app/cli.py b/app/cli.py
+index a8a79ca..7abd60b 100644
+--- a/app/cli.py
++++ b/app/cli.py
+@@ -740,16 +740,21 @@ def modell_holen():
+ 
+ @app.command("modell-spiegel")
+-def modell_spiegel(ziel: Path = typer.Argument(..., help="Ordner, der später auf einem Webserver liegt")):
++def modell_spiegel(ziel: Path = typer.Argument(..., help="Ordner, der später auf einem Webserver liegt"),
++                   sprachbaustein: bool = typer.Option(False, "--sprachbaustein",
++                                                       help="Statt des Sprechermodells die Satzmodelle (punkt_tab)")):
+     """Für das Taleward-Projekt: Spiegel des Sprechermodells erstellen (mit Namensnennung nach CC-BY-4.0).
+     Die ausgegebene Prüfsumme gehört in SPIEGEL in app/modellablage.py."""
+     from app import modellablage
+ 
++    repo = modellablage.SPRACHBAUSTEIN if sprachbaustein else modellablage.SPRECHERMODELL
+     with _db() as db:
+         try:
+-            ordner, summe = modellablage.spiegel_erstellen(db, ziel.expanduser().resolve())
++            if sprachbaustein:
++                modellablage.holen(db, repo)
++            ordner, summe = modellablage.spiegel_erstellen(db, ziel.expanduser().resolve(), repo)
+         except modellablage.AblageFehler as e:
+             typer.echo(str(e), err=True)
+             raise typer.Exit(1)
+-        stand = modellablage.vorhanden(db)
++        stand = modellablage.vorhanden(db, repo)
+     typer.echo(f"Spiegel liegt in {ordner}")
+     typer.echo(f'In app/modellablage.py eintragen:  SPIEGEL = {{"{stand.repo}": ("{stand.fassung}", "{summe}")}}')
+diff --git a/app/modellablage.py b/app/modellablage.py
+index e1f3569..665cd77 100644
+--- a/app/modellablage.py
++++ b/app/modellablage.py
+@@ -19,4 +19,10 @@ Namensnennung (CC-BY-4.0): Jede Ablage enthält NOTICE.txt mit Urheber, Lizenz,
+ Ablage: data/modellablage/<repo mit __>/<fassung>/{manifest.json, NOTICE.txt, Dateien…}; gemerkte Fassung in
+ server_meta modell.<repo>.
++
++Sprachbaustein (0.4.140): Die Ausrichtung von WhisperX teilt den Text mit den Punkt-Satzmodellen von NLTK
++(punkt_tab, reine Textdateien, kein Code). Fehlen sie, lädt nltk sie beim ersten Auftrag selbst nach – hinter einem
++Proxy oder ohne freies Internet scheitert das. Darum holt der Server sie einmal (Taleward-Spiegel, sonst die
++NLTK-Daten auf GitHub in fester Fassung mit fester Prüfsumme) und gibt sie wie das Sprechermodell an die Worker.
++Fehlt der Baustein, arbeitet der Worker wie bisher.
+ """
+ from __future__ import annotations
+@@ -26,4 +32,5 @@ import json
+ import logging
+ import shutil
++import zipfile
+ from dataclasses import dataclass
+ from pathlib import Path, PurePosixPath
+@@ -33,5 +40,5 @@ from sqlalchemy.orm import Session
+ 
+ from app.einstellungen import meta_lesen, meta_schreiben
+-from app.modelle import FASSUNGEN, SPRECHERMODELL
++from app.modelle import FASSUNGEN, SPRACHBAUSTEIN, SPRECHERMODELL
+ 
+ log = logging.getLogger("modellablage")
+@@ -43,4 +50,7 @@ SPIEGEL: dict[str, tuple[str, str]] = {
+     SPRECHERMODELL: ("3533c8cf8e369892e6b79ff1bf80f7b0286a54ee",
+                      "2fe7b7a72d42157e97c610316645698c3d7bb65f5d36da5840afdc42da51de4a"),
++    # Satzmodelle: wird erst benutzt, wenn der Ordner auf dem Spiegel liegt; bis dahin die feste Quelle (DIREKT)
++    SPRACHBAUSTEIN: ("550b6625bcef1f2abff2ff770a5a0d272c9c6b2a",
++                     "46f267fc228b1c2d5e85b5759f6ed14c120d32976916424bb1f21e56a6cbf894"),
+ }
+ NOTICE = {
+@@ -53,4 +63,21 @@ NOTICE = {
+ 
+ 
++# Feste Quelle des Sprachbausteins: Commit der NLTK-Daten, Adresse, SHA-256 der ZIP-Datei (wie im nltk-Verzeichnis)
++DIREKT: dict[str, tuple[str, str, str]] = {
++    SPRACHBAUSTEIN: ("550b6625bcef1f2abff2ff770a5a0d272c9c6b2a",
++                     "https://raw.githubusercontent.com/nltk/nltk_data/{fassung}/packages/tokenizers/punkt_tab.zip",
++                     "e57f64187974277726a3417ca6f181ec5403676c717672eef6a748a7b20e0106"),
++}
++NOTICE[SPRACHBAUSTEIN] = ("Punkt sentence tokenizer models (punkt_tab) – Jan Strunk / Tibor Kiss and contributors, see "
++                          "tokenizers/punkt_tab/README.\n"
++                          "Source: NLTK Data, https://github.com/nltk/nltk_data (revision {fassung}), "
++                          "packages/tokenizers/punkt_tab.zip\n"
++                          "Kiss, Tibor and Strunk, Jan (2006): Unsupervised Multilingual Sentence Boundary Detection. "
++                          "Computational Linguistics 32: 485-525.\n"
++                          "Redistributed unchanged by Taleward for use by its workers.\n")
++MAX_ENTPACKT = 64 * 1024 ** 2  # punkt_tab hat entpackt etwa 11 MB
++MAX_EINTRAEGE = 400
++
++
+ class AblageFehler(Exception):
+     """Verständliche Meldung für Verwaltung und Kommandozeile."""
+@@ -153,4 +180,9 @@ def holen(db: Session, repo: str = SPRECHERMODELL, klient: httpx.Client | None =
+                                     headers={"User-Agent": kennung()})
+     try:
++        if repo in DIREKT:
++            stand = _baustein_holen(klient, repo)
++            meta_schreiben(db, f"modell.{repo}", stand.fassung)
++            db.commit()
++            return stand
+         token = hf_token(db)
+         stand = None
+@@ -248,4 +280,64 @@ def _von_hf(klient: httpx.Client, repo: str, fassung: str | None, token: str) ->
+ 
+ 
++def _baustein_holen(klient: httpx.Client, repo: str) -> Stand:
++    """Sprachbaustein: Spiegel, wenn dort eingetragen, sonst die feste Quelle (ZIP mit fester Prüfsumme)."""
++    fassung, url, zip_sha = DIREKT[repo]
++    if spiegel_nutzbar(repo) and SPIEGEL[repo][0] == fassung:
++        try:
++            return _vom_spiegel(klient, repo)
++        except AblageFehler as e:
++            log.warning("Taleward-Spiegel nicht nutzbar (%s) – lade %s aus der festen Quelle.", e, repo)
++
++    def arbeiten(tmp: Path) -> list[dict]:
++        archiv = tmp.parent / (tmp.name + ".zip")
++        try:
++            try:
++                _laden(klient, url.format(fassung=fassung), archiv, {}, zip_sha)
++            except httpx.HTTPError as e:
++                raise AblageFehler(f"Sprachbaustein nicht erreichbar ({e.__class__.__name__}).") from None
++            except AblageFehler as e:
++                if "Prüfsumme" in str(e):
++                    raise AblageFehler("Der Sprachbaustein passt nicht zur erwarteten Prüfsumme.") from None
++                raise AblageFehler("Sprachbaustein nicht ladbar (Adresse nicht erreichbar oder gesperrt).") from None
++            return _entpacken(archiv, tmp)
++        finally:
++            archiv.unlink(missing_ok=True)
++
++    return _ablegen(repo, fassung, "direkt", arbeiten)
++
++
++def _entpacken(archiv: Path, ziel: Path) -> list[dict]:
++    """Nur Dateien unter punkt_tab/ mit sicherem Pfad, abgelegt unter tokenizers/punkt_tab/ (Ordnerform von nltk)."""
++    dateien, gesamt = [], 0
++    try:
++        with zipfile.ZipFile(archiv) as z:
++            eintraege = [i for i in z.infolist() if not i.is_dir()]
++            if len(eintraege) > MAX_EINTRAEGE:
++                raise AblageFehler("Der Sprachbaustein enthält unerwartet viele Dateien.")
++            for i in eintraege:
++                if not _sicherer_pfad(i.filename) or PurePosixPath(i.filename).parts[0] != "punkt_tab":
++                    raise AblageFehler(f"Unerwarteter Pfad im Sprachbaustein: {i.filename[:100]}")
++                gesamt += i.file_size
++                if gesamt > MAX_ENTPACKT:
++                    raise AblageFehler("Der Sprachbaustein ist entpackt unerwartet groß.")
++                pfad = f"tokenizers/{i.filename}"
++                aus = ziel / pfad
++                aus.parent.mkdir(parents=True, exist_ok=True)
++                h, n = hashlib.sha256(), 0
++                with z.open(i) as quelle, aus.open("wb") as f:
++                    for block in iter(lambda: quelle.read(1024 * 1024), b""):
++                        n += len(block)
++                        if n > i.file_size or n > MAX_ENTPACKT:
++                            raise AblageFehler("Der Sprachbaustein ist entpackt unerwartet groß.")
++                        h.update(block)
++                        f.write(block)
++                dateien.append({"pfad": pfad, "groesse": n, "sha256": h.hexdigest()})
++    except (zipfile.BadZipFile, OSError) as e:
++        raise AblageFehler(f"Sprachbaustein nicht lesbar ({e.__class__.__name__}).") from None
++    if not any(d["pfad"].startswith("tokenizers/punkt_tab/german/") for d in dateien):
++        raise AblageFehler("Im Sprachbaustein fehlt das deutsche Satzmodell.")
++    return dateien
++
++
+ def _vom_spiegel(klient: httpx.Client, repo: str) -> Stand:
+     fassung, manifest_sha = SPIEGEL[repo]
+@@ -309,4 +401,9 @@ def automatisch(db: Session, klient: httpx.Client | None = None) -> Stand | None
+     from datetime import datetime, timedelta, timezone
+ 
++    if gebraucht(db):
++        try:
++            baustein_automatisch(db, klient)
++        except Exception:  # noqa: BLE001 – der Baustein darf das Sprechermodell nie aufhalten
++            log.exception("Sprachbaustein nicht geladen")
+     if vorhanden(db) is not None or not gebraucht(db) or not (hf_token(db) or spiegel_nutzbar()):
+         return None
+@@ -334,2 +431,33 @@ def versuchen(db: Session, klient: httpx.Client | None = None) -> Stand | None:
+     db.commit()
+     return stand
++
++
++def baustein_automatisch(db: Session, klient: httpx.Client | None = None) -> Stand | None:
++    """Sprachbaustein holen, wenn er fehlt; nach einem Fehlschlag frühestens nach einer Stunde erneut."""
++    from datetime import datetime, timedelta, timezone
++
++    if vorhanden(db, SPRACHBAUSTEIN) is not None:
++        return None
++    letzter = meta_lesen(db, "sprachbaustein.versuch")
++    if letzter:
++        z = datetime.fromisoformat(letzter)
++        if datetime.now(timezone.utc) - (z if z.tzinfo else z.replace(tzinfo=timezone.utc)) < timedelta(hours=1):
++            return None
++    return baustein_versuchen(db, klient)
++
++
++def baustein_versuchen(db: Session, klient: httpx.Client | None = None) -> Stand | None:
++    from datetime import datetime, timezone
++
++    meta_schreiben(db, "sprachbaustein.versuch", datetime.now(timezone.utc).isoformat())
++    db.commit()
++    try:
++        stand = holen(db, SPRACHBAUSTEIN, klient=klient)
++    except AblageFehler as e:
++        meta_schreiben(db, "sprachbaustein.fehler", str(e)[:500])
++        db.commit()
++        log.warning("Sprachbaustein nicht geladen: %s", e)
++        return None
++    meta_schreiben(db, "sprachbaustein.fehler", "")
++    db.commit()
++    return stand
+diff --git a/app/modelle.py b/app/modelle.py
+index 759758e..eb99ace 100644
+--- a/app/modelle.py
++++ b/app/modelle.py
+@@ -30,4 +30,5 @@ log = logging.getLogger(__name__)
+ 
+ SPRECHERMODELL = "pyannote/speaker-diarization-community-1"
++SPRACHBAUSTEIN = "nltk/punkt_tab"  # Satzmodelle für die Ausrichtung (0.4.140, app/modellablage.py)
+ 
+ # Hugging-Face-Kennung → Commit. Eingetragen wird nur, was auf echter Hardware geprüft ist.
+diff --git a/app/namenshilfe.py b/app/namenshilfe.py
+index b7c2430..286b07a 100644
+--- a/app/namenshilfe.py
++++ b/app/namenshilfe.py
+@@ -5,6 +5,4 @@ Nie enthalten: Charakter-Hintergründe, SL-Notizen, gmNotes, Kommentare (nur Nam
+ """
+ import json
+-from functools import lru_cache
+-from pathlib import Path
+ 
+ from sqlalchemy import func, select
+@@ -16,34 +14,18 @@ MAX_BEGRIFFE = 80
+ MAX_ZEICHEN = 700  # grob 200 Token – mehr schneidet Whisper ohnehin ab
+ 
+-_ORDNER = Path(__file__).resolve().parent / "begriffe"
+-
+-
+-@lru_cache
+-def systembegriffe(system: str | None) -> tuple[str, ...]:
+-    if not system or system == "other":
+-        return ()
+-    datei = _ORDNER / f"{system}.txt"
+-    if not datei.exists():
+-        return ()
+-    zeilen = datei.read_text(encoding="utf-8").splitlines()
+-    return tuple(z.strip() for z in zeilen if z.strip() and not z.startswith("#"))
+-
+-
+-@lru_cache
+-def regelbegriffe(system: str | None) -> tuple[str, ...]:
+-    """0.4.79: Begriffe, die nur zu den Regeln gehören (Abschnitt „# Regelbegriffe“ der Begriffsliste). Sie helfen der
+-    Transkription wie alle anderen, im Kapitel haben sie nichts zu suchen."""
+-    if not system or system == "other":
+-        return ()
+-    datei = _ORDNER / f"{system}.txt"
+-    if not datei.exists():
+-        return ()
+-    aus, drin = [], False
+-    for z in datei.read_text(encoding="utf-8").splitlines():
+-        if z.startswith("#"):
+-            drin = z[1:].strip().casefold().startswith("regelbegriffe")
+-        elif drin and z.strip():
+-            aus.append(z.strip())
+-    return tuple(aus)
++
++def systembegriffe(system: str | None, sprache: str = "de", system_name: str | None = None) -> tuple[str, ...]:
++    """Schreibhilfe des Systems (app/begriffe.py): Stufe A der Sprache, danach die ersten Regelbegriffe."""
++    from app import begriffe
++
++    return tuple(begriffe.schreibhilfe(begriffe.system_fuer(system, system_name), sprache))
++
++
++def regelbegriffe(system: str | None, system_name: str | None = None) -> tuple[str, ...]:
++    """Alle Regelbegriffe des Systems (beide Sprachen) – Fach- und Alltagswörter zusammen."""
++    from app import begriffe
++
++    fach, alltag = begriffe.regelwoerter(begriffe.system_fuer(system, system_name))
++    return fach + alltag
+ 
+ 
+@@ -144,5 +126,5 @@ def fuer_kampagne(db: Session, campaign: Campaign, kapitel: int | None = None) -
+ 
+     namen = _eindeutig(namen_fuer(db, campaign.id, kapitel) + anzeige(db, campaign)
+-                       + list(systembegriffe(campaign.system)))
++                       + list(systembegriffe(campaign.system, campaign.language, campaign.system_name)))
+     ergebnis, laenge = [], 0
+     for n in namen[:MAX_BEGRIFFE]:
+diff --git a/app/routers/worker.py b/app/routers/worker.py
+index e431042..e66e299 100644
+--- a/app/routers/worker.py
++++ b/app/routers/worker.py
+@@ -664,4 +664,7 @@ def config(worker: Worker = Depends(current_worker), db: Session = Depends(get_d
+     else:
+         antwort = {"hfToken": meta_lesen(db, "hf.token") or None, "models": {}, "serverVersion": server_fassung()}
++    baustein = modellablage.vorhanden(db, modellablage.SPRACHBAUSTEIN)
++    if baustein is not None:  # 0.4.140: Satzmodelle für die Ausrichtung
++        antwort["models"][baustein.repo] = baustein.fassung
+     if worker.local:  # eingebauter Worker: Einstellungen aus der Verwaltung
+         from app import eingebaut
+diff --git a/app/sprachmodell.py b/app/sprachmodell.py
+index 9d3f374..7cf885c 100644
+--- a/app/sprachmodell.py
++++ b/app/sprachmodell.py
+@@ -688,11 +688,25 @@ def woerter_fuer(minuten: float, lang: bool = False) -> str:
+ 
+ def _regelwoerter(ein: dict) -> tuple[str, ...]:
+-    """0.4.79: Regelbegriffe des Systems der Kampagne (fallen im Kapitel weg)."""
+-    from app.namenshilfe import regelbegriffe
++    """0.4.79: Regelbegriffe des Systems der Kampagne, die als ganzes Wort wegfallen (Fachwörter). 0.4.140: Der Server
++    gibt sie mit (`regel_fach`, aufgeteilt mit seiner Wortliste); fehlt das (ältere Server), aus den Listen hier."""
++    if "regel_fach" in ein:
++        return tuple(ein.get("regel_fach") or ())
++    return _regel_aus_liste(ein)[0]
++
++
++def _alltagswoerter(ein: dict) -> tuple[str, ...]:
++    """0.4.140: Regelbegriffe, die auch Alltagswörter sind – nur mit Zahl dicht daneben ein Regelrest."""
++    if "regel_alltag" in ein:
++        return tuple(ein.get("regel_alltag") or ())
++    return _regel_aus_liste(ein)[1]
++
++
++def _regel_aus_liste(ein: dict) -> tuple[tuple[str, ...], tuple[str, ...]]:
++    from app import begriffe
+ 
+     try:
+-        return regelbegriffe(ein.get("system"))
++        return begriffe.regelwoerter(begriffe.system_fuer(ein.get("system"), ein.get("system_name")))
+     except (OSError, ValueError):
+-        return ()
++        return (), ()
+ 
+ 
+@@ -2875,5 +2889,6 @@ class Ablauf:
+         geschuetzt = [e["name"] for e in ein.get("bibel") or []]
+         for i, t in list(neu.items()):
+-            sauber, _befunde = artefakte.kapitel(t, ein.get("personen") or [], geschuetzt, _regelwoerter(ein))
++            sauber, _befunde = artefakte.kapitel(t, ein.get("personen") or [], geschuetzt, _regelwoerter(ein),
++                                                _alltagswoerter(ein))
+             sauber = " ".join(sauber.split())
+             if not sauber:
+@@ -3207,5 +3222,5 @@ class Ablauf:
+         geschuetzt = [e["name"] for e in recap_ein.get("bibel") or []]
+         r["text"], self.bereinigt = artefakte.kapitel(r["text"], recap_ein.get("personen") or [], geschuetzt,
+-                                                      _regelwoerter(recap_ein))
++                                                      _regelwoerter(recap_ein), _alltagswoerter(recap_ein))
+         r["title"] = artefakte.feinschliff(r.get("title") or "")
+         r["openThreads"] = [artefakte.feinschliff(f) for f in r.get("openThreads") or []]
+@@ -3222,5 +3237,5 @@ class Ablauf:
+         if pruefung is not None and pruefung.get("revised"):  # Nachbesserung kann Artefakte wieder hineinbringen
+             r["text"], nachher = artefakte.kapitel(r["text"], recap_ein.get("personen") or [], geschuetzt,
+-                                                   _regelwoerter(recap_ein))
++                                                   _regelwoerter(recap_ein), _alltagswoerter(recap_ein))
+             self.bereinigt += [b for b in nachher if b["art"] not in ("tischgespraech", "erzaehlstimme")]
+         if pruefung is not None:
+diff --git a/app/transkription.py b/app/transkription.py
+index 0ca9f16..9cd7181 100644
+--- a/app/transkription.py
++++ b/app/transkription.py
+@@ -370,4 +370,16 @@ def _uebersetzen(e: Exception) -> AudioFehler:
+ 
+ 
++def satz_pfad_eintragen(ordner) -> bool:
++    """Ordner mit tokenizers/punkt_tab/… vorn in den Suchpfad von nltk (für whisperx.align)."""
++    try:
++        import nltk.data
++    except ImportError:
++        return False
++    p = str(ordner)
++    if p not in nltk.data.path:
++        nltk.data.path.insert(0, p)
++    return True
++
++
+ # ---------------------------------------------------------------- WhisperX (nur mit Grafikkarte)
+ class EinrichtungsFehler(Exception):
+@@ -459,4 +471,7 @@ class WhisperXMotor:
+         except modelle.ModellFehler as e:
+             raise EinrichtungsFehler(str(e)) from None
++        baustein = self._sprachbaustein()
++        if baustein is not None:
++            self.bereit["sprachbaustein"] = baustein
+         return {"gpu": torch.cuda.get_device_name(0) if braucht_gpu else "CPU",
+                 "vramMb": VramMesser.gesamt_mb() if braucht_gpu else None, "modell": self.modell,
+@@ -464,4 +479,20 @@ class WhisperXMotor:
+                 "modelle": {b.repo: (b.fassung or "")[:12] for b in self.bereit.values()}}
+ 
++    def _sprachbaustein(self):
++        """0.4.140: Satzmodelle (punkt_tab) vom Server, damit nltk sie nicht selbst aus dem Internet holen muss.
++        Fehlt der Baustein (älterer Server, kein Netz), bleibt alles wie bisher."""
++        from app import modelle
++
++        if not self.quelle:
++            return None
++        try:
++            b = modelle.vom_server(modelle.SPRACHBAUSTEIN, self.quelle)
++        except Exception as e:  # noqa: BLE001 – nie ein Grund, den Auftrag abzubrechen
++            log.info("Sprachbaustein nicht vom Server (%s) – nltk sucht selbst", e)
++            return None
++        if b is not None:
++            satz_pfad_eintragen(b.pfad)
++        return b
++
+     def sparsamer(self) -> bool:
+         """Nach „Grafikspeicher voll“: eine Stufe zurück (halber Stapel, Ausrichtung und Sprecher auf dem Prozessor).
+diff --git a/app/unsicher.py b/app/unsicher.py
+index 666e8e7..42a6184 100644
+--- a/app/unsicher.py
++++ b/app/unsicher.py
+@@ -126,4 +126,7 @@ def begriffe(db: Session, s: GameSession) -> list[dict]:
+             if len(g["beispiele"]) < 3 and all(b["start"] != seg.start for b in g["beispiele"]):
+                 g["beispiele"].append({"start": round(seg.start, 2), "quote": seg.text.strip()[:200]})
++    from app import begriffe
++
++    bekannte_verhoerer = begriffe.verhoerer(begriffe.system_fuer(c.system, c.system_name))
+     aus = []
+     for g in gruppen.values():
+@@ -132,5 +135,7 @@ def begriffe(db: Session, s: GameSession) -> list[dict]:
+         passend = [v for v in vorschlaege if v[0] >= AEHNLICH]
+         andere = [k for k in sorted(g["schreibweisen"], key=lambda k: -g["schreibweisen"][k]) if k != heard]
+-        alternativen = list(dict.fromkeys([v[1] for v in passend[:2]] + andere))[:4]
++        # 0.4.140: bekannter Verhörer des Systems („Tschummer“ → „Chummer“) als erster Vorschlag – nie still ersetzt
++        verhoert = [bekannte_verhoerer[n] for n in (begriffe.norm(k) for k in g["schreibweisen"]) if n in bekannte_verhoerer]
++        alternativen = list(dict.fromkeys(verhoert + [v[1] for v in passend[:2]] + andere))[:4]
+         vorkommen = sum(g["schreibweisen"].values())
+         sicherheit = round(sum(g["werte"]) / len(g["werte"]), 3)
+diff --git a/app/verwaltung/router.py b/app/verwaltung/router.py
+index 720945e..b9249bf 100644
+--- a/app/verwaltung/router.py
++++ b/app/verwaltung/router.py
+@@ -840,4 +840,6 @@ def modell_holen(request: Request, user: User = Depends(verwalter), db: Session
+     from app import modellablage
+ 
++    if modellablage.vorhanden(db, modellablage.SPRACHBAUSTEIN) is None:
++        modellablage.baustein_versuchen(db)  # 0.4.140: klappt das nicht, arbeiten die Worker wie bisher
+     if modellablage.versuchen(db) is None:
+         from app.einstellungen import meta_lesen
+diff --git a/app/woerterbuch.py b/app/woerterbuch.py
+index 55eb230..1387743 100644
+--- a/app/woerterbuch.py
++++ b/app/woerterbuch.py
+@@ -1,5 +1,5 @@
+ """Wörterbücher für die Prüfung unsicher erkannter Namen (app/unsicher.py).
+ 
+-Drei Quellen sagen, ob ein Wort „bekannt“ ist und deshalb nicht als unsicherer Name gemeldet wird:
++Vier Quellen sagen, ob ein Wort „bekannt“ ist und deshalb nicht als unsicherer Name gemeldet wird:
+ 
+ 1. **Allgemeine Wortliste** je Sprache (de, en): Häufigkeitslisten gesprochener Sprache aus Filmuntertiteln
+@@ -18,5 +18,6 @@ Drei Quellen sagen, ob ein Wort „bekannt“ ist und deshalb nicht als unsicher
+    Schreibweise. Großgeschriebene Wörter daraus, die kein allgemeines Wort sind, dienen außerdem als Vorschläge
+    („Meintest du …“). Das Ergebnis sieht nur die SL; in Recaps oder Vorschläge fließt davon nichts.
+-3. **Was die Runde schon gesagt hat:** Wörter, die in anderen Kapiteln der Kampagne mehrfach sicher erkannt wurden
++3. **Begriffsliste des Systems** (0.4.140, app/begriffe.py): alle Namen und Begriffe beider Sprachen.
++4. **Was die Runde schon gesagt hat:** Wörter, die in anderen Kapiteln der Kampagne mehrfach sicher erkannt wurden
+    (nicht in der Liste der unsicheren Wörter standen).
+ """
+@@ -49,4 +50,5 @@ FUGEN = ("", "s", "es", "n", "en", "e", "er")
+ MIN_TEIL = 3
+ MIN_SICHER_GEHOERT = 3   # so oft in anderen Kapiteln sicher erkannt → bekannt
++MIN_VORSCHLAG_SYSTEM = 5  # 0.4.140: Namen aus der Begriffsliste des Systems erst ab dieser Länge als Vorschlag
+ 
+ _TOKEN = re.compile(r"[^\W\d_][\w'’-]*", re.UNICODE)
+@@ -232,4 +234,14 @@ def kampagne(db: Session, campaign, ausser_session_id: str | None = None) -> Bek
+             if w[0].isupper() and len(w) >= 3 and k not in b.allgemein:
+                 b.namen.setdefault(k, w)
++    # 0.4.140: Begriffsliste des Systems – bekannte Schreibweisen; als Vorschlag nur längere Namen (sonst zu viele
++    # falsche „Meintest du …“)
++    from app import begriffe
++
++    for t in begriffe.woerterbuch(begriffe.system_fuer(campaign.system, campaign.system_name)):
++        for w in woerter(t):
++            k = w.casefold()
++            b.kampagne.add(k)
++            if w[0].isupper() and len(w) >= MIN_VORSCHLAG_SYSTEM and k not in b.allgemein:
++                b.namen.setdefault(k, w)
+     b.kampagne |= gesagt(db, [s for s in sitzungen if s != ausser_session_id])
+     return b
+diff --git a/app/zusammenfassung.py b/app/zusammenfassung.py
+index 78a698f..9de061f 100644
+--- a/app/zusammenfassung.py
++++ b/app/zusammenfassung.py
+@@ -93,4 +93,7 @@ class Eingabe:
+     bibel: list[BekannterEintrag]
+     geheim: list[GeheimerEintrag]
++    # 0.4.140: Regelbegriffe des Systems, aufgeteilt mit der Wortliste des Servers (Fachwort / Alltagswort)
++    regel_fach: list[str] = field(default_factory=list)
++    regel_alltag: list[str] = field(default_factory=list)
+ 
+     def als_json(self) -> str:
+@@ -138,8 +141,12 @@ def eingabe_bauen(db: Session, s: GameSession) -> Eingabe:
+         else:
+             geheim.append(GeheimerEintrag(e.id, e.type, e.name, e.aliases))
++    from app import begriffe, woerterbuch
++
++    fach, alltag = begriffe.regelwoerter(begriffe.system_fuer(c.system, c.system_name),
++                                         woerterbuch.liste(c.language if c.language in ("de", "en") else "de"))
+     return Eingabe(
+         sprache=c.language, kampagne=c.title, system=c.system, system_name=c.system_name, welt=c.world_info,
+         session_nummer=s.number, session_titel=s.title, personen=personen, gaeste=gaeste,
+-        transkript=zeilen, bibel=bibel, geheim=geheim,
++        transkript=zeilen, bibel=bibel, geheim=geheim, regel_fach=list(fach), regel_alltag=list(alltag),
+     )
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index c8c59b8..39a0fdb 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.139"
++version = "0.4.140"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index b29366c..650a82e 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -154,5 +154,5 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.139"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.140"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index d972e65..47bcfb1 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -135,5 +135,5 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.139"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.140"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+diff --git a/tests/test_feinschliff_0479.py b/tests/test_feinschliff_0479.py
+index 7296ca3..812dabd 100644
+--- a/tests/test_feinschliff_0479.py
++++ b/tests/test_feinschliff_0479.py
+@@ -46,14 +46,16 @@ def test_geruechte_in_allen_anweisungen():
+ 
+ def test_regelbegriffe_des_systems():
+-    assert regelbegriffe("shadowrun") == ("Edge",) and "Edge" in systembegriffe("shadowrun")
++    # 0.4.140: Listen mit Sprachabschnitten; „Edge“ ist ein einzelnes Wort – ohne Wortliste zählt es als Alltagswort
++    assert "Edge" in regelbegriffe("shadowrun") and "Chummer" in systembegriffe("shadowrun")
+     assert regelbegriffe("other") == () and regelbegriffe(None) == () and regelbegriffe("gibt-es-nicht") == ()
+     text = ("Mit einem Lächeln und einem Hauch von Edge überredete Ana den Fahrer, die Fahrt zu schenken. Bo nickte, "
+             "während Ana überlegte, Edge für den ersten Eindruck einzusetzen. Der Rand der Klinge war scharf.")
+-    aus, befunde = artefakte.kapitel(text, [], [], regelbegriffe("shadowrun"))
++    aus, befunde = artefakte.kapitel(text, [], [], ("Edge",))  # als Fachwort: weg, wo es steht
+     assert aus == "Mit einem Lächeln überredete Ana den Fahrer, die Fahrt zu schenken. Bo nickte. Der Rand der Klinge war scharf."
+     assert [b["art"] for b in befunde] == ["regel", "regel"]
+     # ohne System bleibt der Text, wie er war (der Rand heißt nicht Edge)
+     assert artefakte.kapitel(text, [], [])[0] == text
+-    assert sm._regelwoerter({"system": "shadowrun"}) == ("Edge",) and sm._regelwoerter({}) == ()
++    assert "Edge" in sm._alltagswoerter({"system": "shadowrun"}) and sm._regelwoerter({}) == ()
++    assert sm._regelwoerter({"regel_fach": ["Edge"], "regel_alltag": []}) == ("Edge",)
+ 
+ 
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index 9d3d935..b95c72d 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -84,5 +84,5 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.139"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.140"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+diff --git a/tests/test_server_04140.py b/tests/test_server_04140.py
+new file mode 100644
+index 0000000..c74f4c8
+--- /dev/null
++++ b/tests/test_server_04140.py
+@@ -0,0 +1,301 @@
++"""Server 0.4.140: Begriffslisten für 22 Systeme mit Sprachabschnitten (app/begriffe.py) – Schreibhilfe nur Stufe A,
++System auch über den Namen, Wörterbuch, Verhörer als Vorschlag, Regelfilter mit Zahl-Regel."""
++import pytest
++
++from app import artefakte, begriffe
++
++from tests.test_step2a import API
++from tests.test_step4 import _kleine_teile  # noqa: F401 (Fixture)
++
++
++def test_alle_listen_lesbar_und_im_rahmen():
++    alle = begriffe.alle()
++    assert len(alle) == 22
++    for k, li in alle.items():
++        assert li.erkennung, k
++        for sp in ("", "en"):
++            assert len(li.stufe_a.get(sp, ())) <= 40, k
++        assert all(len(e.split()) <= 2 for sp in ("", "en") for e in li.stufe_a.get(sp, ())), k
++        for sp in ("de", "en"):
++            hilfe = ", ".join(begriffe.schreibhilfe(k, sp))
++            assert len(hilfe) <= 600, (k, sp, len(hilfe))
++        for falsch, richtig in li.verhoerer:
++            assert falsch and richtig and falsch != richtig
++
++
++def test_keine_verlage_oder_autoren():
++    for k in begriffe.alle():
++        text = (begriffe.ORDNER / f"{k}.txt").read_text(encoding="utf-8")
++        for verboten in ("Ulisses Spiele", "Pegasus Spiele", "Uhrwerk Verlag",
++                         "Mike Pondsmith", "Sapkowski"):
++            assert verboten not in text, (k, verboten)
++
++
++def test_system_ueber_den_namen():
++    f = begriffe.system_fuer
++    assert f("dsa") == "dsa" and f("other", "The Witcher") == "witcher" and f(None, "Warhammer 40k") == "warhammer40k"
++    assert f("other", "Warhammer Fantasy 4. Edition") == "warhammer" and f("other", "Warhammer") is None
++    assert f("other", "Mutant: Jahr Null") == "mutantjahrnull" and f("other", "D&D 5e") == "dnd"
++    assert f("other", "Torgau") is None and f("other", "Fate Core") is None and f(None, None) is None
++
++
++def test_schreibhilfe_je_sprache():
++    de, en = begriffe.schreibhilfe("dnd", "de"), begriffe.schreibhilfe("dnd", "en")
++    assert de[0] == "Faerûn" and "Waterdeep" not in de and "Rettungswurf" in de
++    assert en[0] == "Dungeon Master" and "Waterdeep" in en and "Advantage" in en
++    assert "Spielerhandbuch" not in de  # Stufe B nie in der Schreibhilfe
++
++
++def test_namenshilfe_nimmt_die_liste_aus_dem_systemnamen(client, world, dbs):
++    from app import namenshilfe
++    from app.models import Campaign
++
++    c = dbs.get(Campaign, world["cid"])
++    c.system, c.system_name, c.language = "other", "The Witcher", "de"
++    dbs.commit()
++    hilfe = namenshilfe.fuer_kampagne(dbs, c)
++    assert "Nilfgaard" in hilfe and "Wyzima" in hilfe and "Vizima" not in hilfe
++    assert len(", ".join(hilfe)) <= namenshilfe.MAX_ZEICHEN
++
++
++def test_zahlregel_fuer_alltagswoerter():
++    text = ("Mira biss die Zähne zusammen, der Schmerz plus eins machte ihr zu schaffen. Der Schmerz in ihrer Brust "
++            "blieb. Ihre Belastung 2 war hoch. Sie hatte zwei tiefe Wunden am Arm.")
++    aus, befunde = artefakte.kapitel(text, [], [], (), ("Schmerz", "Belastung", "Wunden"))
++    assert "plus eins" not in aus and "Belastung 2" not in aus
++    assert "Der Schmerz in ihrer Brust blieb." in aus and "zwei tiefe Wunden am Arm" in aus
++    assert [b["art"] for b in befunde].count("regel") == 2
++
++
++def test_fach_und_alltag_mit_wortliste():
++    fach, alltag = begriffe.regelwoerter("dsa", frozenset({"schmerz", "furcht", "attacke", "parade", "initiative"}))
++    assert "Astralpunkte" in fach and "Schmerz" in alltag and "Furcht" in alltag and "Astralpunkte" not in alltag
++
++
++def test_woerterbuch_und_verhoerer_als_vorschlag(client, world, dbs, tmp_path):
++    import json
++
++    from app import unsicher, woerterbuch
++    from app.models import Campaign, TranscriptSegment
++    from tests.test_step2b import transkribiert
++
++    c = dbs.get(Campaign, world["cid"])
++    c.system, c.system_name = "shadowrun", None
++    dbs.commit()
++    b = woerterbuch.kampagne(dbs, c)
++    assert b.enthaelt("Saeder-Krupp") and b.enthaelt("Renraku") and b.enthaelt("Tamanous")  # auch Stufe B
++    s = transkribiert(client, world, dbs, tmp_path)
++    dbs.add(TranscriptSegment(session_id=s["id"], position=98, start=10.0, end=12.0, speaker_id=None,
++                              text="Ruf den Tschummer an, sagte sie.",
++                              unsicher=json.dumps([{"word": "Tschummer", "score": 0.2}])))
++    dbs.commit()
++    from app.models import GameSession
++
++    alle = unsicher.begriffe(dbs, dbs.get(GameSession, s["id"]))
++    t = {x["heard"]: x for x in alle}
++    assert t["Tschummer"]["alternatives"][0] == "Chummer"
++    seg = dbs.query(TranscriptSegment).filter_by(session_id=s["id"], position=98).one()
++    assert "Tschummer" in seg.text  # nie still ersetzt
++    assert client.get(f"{API}/sessions/{s['id']}", headers=world["gm"]).status_code == 200
++
++
++def test_eingabe_traegt_die_aufteilung(world, dbs):
++    from datetime import datetime, timezone
++
++    from app.models import Campaign, GameSession
++    from app.zusammenfassung import eingabe_bauen
++
++    c = dbs.get(Campaign, world["cid"])
++    c.system = "dsa"
++    s = GameSession(campaign_id=c.id, number=1, state="awaiting_review", played_at=datetime(2026, 10, 1, tzinfo=timezone.utc))
++    dbs.add(s)
++    dbs.commit()
++    e = eingabe_bauen(dbs, s).als_dict()
++    assert "Astralpunkte" in e["regel_fach"] + e["regel_alltag"] and "Schmerz" in e["regel_alltag"]
++
++
++# ---------------------------------------------------------------- Sprachbaustein (punkt_tab) über den Server
++def _zip(dateien: dict[str, bytes]) -> bytes:
++    import io
++    import zipfile
++
++    puffer = io.BytesIO()
++    with zipfile.ZipFile(puffer, "w") as z:
++        z.writestr("punkt_tab/", b"")
++        for pfad, inhalt in dateien.items():
++            z.writestr(pfad, inhalt)
++    return puffer.getvalue()
++
++
++PUNKT = {"punkt_tab/README": b"Pretrained Punkt Models -- Jan Strunk\n",
++         "punkt_tab/german/abbrev_types.txt": b"z.b\nusw\n", "punkt_tab/german/ortho_context.tab": b"der\t12\n",
++         "punkt_tab/english/sent_starters.txt": b"the\n"}
++
++
++@pytest.fixture()
++def baustein(monkeypatch):
++    """Feste Quelle mit einer kleinen ZIP, Spiegel aus; liefert (inhalt, protokoll)."""
++    import hashlib
++
++    from app import modellablage
++    from app.config import get_settings
++
++    inhalt = _zip(PUNKT)
++    fassung = "ab" * 20
++    monkeypatch.setitem(modellablage.DIREKT, modellablage.SPRACHBAUSTEIN,
++                        (fassung, "https://quelle.example/{fassung}/punkt_tab.zip", hashlib.sha256(inhalt).hexdigest()))
++    monkeypatch.setenv("MODEL_MIRROR_URL", "")
++    get_settings.cache_clear()
++    yield inhalt, fassung
++    get_settings.cache_clear()
++
++
++def _klient(inhalt, protokoll=None):
++    import httpx
++
++    def antwort(r):
++        if protokoll is not None:
++            protokoll.append(str(r.url))
++        return httpx.Response(200, content=inhalt) if r.url.path.endswith("/punkt_tab.zip") else httpx.Response(404)
++
++    return httpx.Client(transport=httpx.MockTransport(antwort))
++
++
++def test_sprachbaustein_auf_dem_server_und_beim_worker(client, dbs, baustein, monkeypatch):
++    from fastapi.testclient import TestClient
++
++    from app import modellablage, modelle, transkription
++    from tests.test_step2a import worker_token
++
++    inhalt, fassung = baustein
++    protokoll = []
++    stand = modellablage.holen(dbs, modellablage.SPRACHBAUSTEIN, klient=_klient(inhalt, protokoll))
++    assert protokoll == [f"https://quelle.example/{fassung}/punkt_tab.zip"]
++    assert stand.fassung == fassung and stand.quelle == "direkt"
++    assert {d["pfad"] for d in stand.dateien} == {f"tokenizers/{p}" for p in PUNKT}
++    ordner = modellablage._ordner(modellablage.SPRACHBAUSTEIN, fassung)
++    assert "Jan Strunk" in (ordner / "NOTICE.txt").read_text(encoding="utf-8")
++    assert not list(ordner.parent.glob("*.zip"))  # ZIP nicht liegen gelassen
++    # Worker: in der Liste der Modelle, Laden über das Worker-Protokoll mit Prüfsummen
++    h = {"Authorization": f"Bearer {worker_token(dbs)}"}
++    wc = TestClient(client.app)
++    assert wc.get("/worker/v1/config", headers=h).json()["models"] == {modellablage.SPRACHBAUSTEIN: fassung}
++    quelle = modelle.ServerQuelle("http://testserver", h["Authorization"].removeprefix("Bearer "), klient=wc)
++    eingetragen = []
++    monkeypatch.setattr(transkription, "satz_pfad_eintragen", lambda p: eingetragen.append(p) or True)
++    motor = transkription.WhisperXMotor.__new__(transkription.WhisperXMotor)
++    motor.quelle = quelle
++    b = motor._sprachbaustein()
++    assert (b.pfad / "tokenizers" / "punkt_tab" / "german" / "abbrev_types.txt").read_bytes() == b"z.b\nusw\n"
++    assert eingetragen == [b.pfad]
++    # älterer Server oder Fehler: kein Abbruch, alles wie bisher
++    motor.quelle = None
++    assert motor._sprachbaustein() is None
++    motor.quelle = quelle
++    monkeypatch.setattr(modelle, "vom_server", lambda *a: (_ for _ in ()).throw(modelle.ModellFehler("weg")))
++    assert motor._sprachbaustein() is None
++
++
++def test_sprachbaustein_falsche_pruefsumme_oder_pfade(client, dbs, baustein):
++    from app import modellablage
++
++    inhalt, fassung = baustein
++    with pytest.raises(modellablage.AblageFehler, match="Prüfsumme"):
++        modellablage.holen(dbs, modellablage.SPRACHBAUSTEIN, klient=_klient(inhalt + b"x"))
++    assert modellablage.vorhanden(dbs, modellablage.SPRACHBAUSTEIN) is None
++    for boese in ({**PUNKT, "punkt_tab/../../boese.py": b"x"}, {**PUNKT, "anderes/datei.txt": b"x"},
++                  {"punkt_tab/english/sent_starters.txt": b"the\n"}):
++        z = _zip(boese)
++        import hashlib
++
++        modellablage.DIREKT[modellablage.SPRACHBAUSTEIN] = (fassung, "https://quelle.example/{fassung}/punkt_tab.zip",
++                                                            hashlib.sha256(z).hexdigest())
++        with pytest.raises(modellablage.AblageFehler):
++            modellablage.holen(dbs, modellablage.SPRACHBAUSTEIN, klient=_klient(z))
++        assert modellablage.vorhanden(dbs, modellablage.SPRACHBAUSTEIN) is None
++        assert not modellablage._ordner(modellablage.SPRACHBAUSTEIN, fassung).exists()
++
++
++def test_sprachbaustein_aus_der_wartung(client, dbs, baustein):
++    import httpx
++
++    from app import modellablage
++    from app.einstellungen import meta_lesen, meta_schreiben
++
++    inhalt, fassung = baustein
++    tot = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(503)))
++    assert modellablage.automatisch(dbs, klient=tot) is None
++    assert meta_lesen(dbs, "sprachbaustein.versuch") is None  # nicht gebraucht: nichts versucht
++    meta_schreiben(dbs, "betrieb.art", "lokal")
++    dbs.commit()
++    modellablage.automatisch(dbs, klient=tot)
++    assert "nicht ladbar" in meta_lesen(dbs, "sprachbaustein.fehler")
++    modellablage.automatisch(dbs, klient=_klient(inhalt))  # frühestens nach einer Stunde
++    assert modellablage.vorhanden(dbs, modellablage.SPRACHBAUSTEIN) is None
++    meta_schreiben(dbs, "sprachbaustein.versuch", "")
++    dbs.commit()
++    modellablage.automatisch(dbs, klient=_klient(inhalt))
++    assert modellablage.vorhanden(dbs, modellablage.SPRACHBAUSTEIN).fassung == fassung
++    assert meta_lesen(dbs, "sprachbaustein.fehler") == ""
++
++
++def test_sprachbaustein_vom_spiegel(client, dbs, baustein, monkeypatch, tmp_path):
++    import hashlib
++
++    import httpx
++
++    from app import modellablage
++    from app.config import get_settings
++
++    inhalt, fassung = baustein
++    modellablage.holen(dbs, modellablage.SPRACHBAUSTEIN, klient=_klient(inhalt))
++    ordner, summe = modellablage.spiegel_erstellen(dbs, tmp_path, modellablage.SPRACHBAUSTEIN)
++    assert (ordner / "NOTICE.txt").exists() and (ordner / "tokenizers/punkt_tab/german/ortho_context.tab").exists()
++    # neuer Server: lädt vom Spiegel, die feste Quelle wird nicht gefragt
++    import shutil
++
++    shutil.rmtree(modellablage._ordner(modellablage.SPRACHBAUSTEIN, fassung))
++    monkeypatch.setitem(modellablage.SPIEGEL, modellablage.SPRACHBAUSTEIN, (fassung, summe))
++    monkeypatch.setenv("MODEL_MIRROR_URL", "https://spiegel.example/modelle")
++    get_settings.cache_clear()
++    gefragt = []
++
++    def spiegel(r):
++        gefragt.append(r.url.path)
++        pre = f"/modelle/{modellablage.SPRACHBAUSTEIN}/{fassung}/"
++        datei = ordner / r.url.path[len(pre):]
++        return httpx.Response(200, content=datei.read_bytes()) if r.url.path.startswith(pre) and datei.is_file() \
++            else httpx.Response(404)
++
++    from app.einstellungen import meta_schreiben
++
++    meta_schreiben(dbs, f"modell.{modellablage.SPRACHBAUSTEIN}", "")
++    dbs.commit()
++    stand = modellablage.holen(dbs, modellablage.SPRACHBAUSTEIN, klient=httpx.Client(transport=httpx.MockTransport(spiegel)))
++    assert stand.quelle == "spiegel" and not any(p.endswith(".zip") for p in gefragt)
++    assert hashlib.sha256((ordner / "manifest.json").read_bytes()).hexdigest() == summe
++
++
++def test_sprachbaustein_fest_eingetragen():
++    from app import modellablage
++
++    fassung, url, sha = modellablage.DIREKT[modellablage.SPRACHBAUSTEIN]
++    assert len(fassung) == 40 and len(sha) == 64 and url.startswith("https://")
++    assert modellablage.SPIEGEL[modellablage.SPRACHBAUSTEIN][0] == fassung
++
++
++def test_satz_pfad_vorn_im_suchpfad(monkeypatch, tmp_path):
++    import sys
++    import types
++
++    from app import transkription
++
++    data = types.ModuleType("nltk.data")
++    data.path = ["/usr/share/nltk_data"]
++    paket = types.ModuleType("nltk")
++    paket.data = data
++    monkeypatch.setitem(sys.modules, "nltk", paket)
++    monkeypatch.setitem(sys.modules, "nltk.data", data)
++    assert transkription.satz_pfad_eintragen(tmp_path)
++    assert transkription.satz_pfad_eintragen(tmp_path)
++    assert data.path == [str(tmp_path), "/usr/share/nltk_data"]
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index 8269877..5420248 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -113,5 +113,5 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.139"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.140"
+ 
+ 
+diff --git a/uv.lock b/uv.lock
+index 664cbda..3a96969 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -2089,5 +2089,5 @@ wheels = [
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.139"
++version = "0.4.140"
+ source = { editable = "." }
+ dependencies = [
+-- 
+2.43.0
+
