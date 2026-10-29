@@ -129,6 +129,12 @@
       </select></label>
     {% if betrieb == "cloud" %}<input type="hidden" name="stunden" value="{{ melden.stunden }}">
     {% else %}<label>{{ _("Melden, wenn Aufträge so viele Stunden ohne Worker warten") }} <input type="number" name="stunden" value="{{ melden.stunden }}" min="1" max="168"></label>{% endif %}
+    <label>{{ _("Zeitzone für Uhrzeiten in E-Mails an Mitglieder") }}
+      <select name="zeitzone">
+        {% for z in zeitzonen %}<option value="{{ z }}" {% if melden.zeitzone == z %}selected{% endif %}>{{ z }}</option>
+        {% endfor %}
+      </select>
+      <span class="hilfe">{{ _("Zum Beispiel in den Hinweisen, wann sich jemand angemeldet hat.") }}</span></label>
     <input type="hidden" name="konto_hinweise_feld" value="1">
     <label class="haken"><input type="checkbox" name="konto_hinweise" value="1" {% if melden.konto_hinweise %}checked{% endif %}> {{ _("Mitglieder mit bestätigter Adresse bekommen einen Hinweis, wenn sich jemand an ihrem Konto anmeldet oder es ändert") }}
       <span class="hilfe">{{ _("Ohne IP-Adresse und ohne Link. Höchstens eine Anmelde-Mail je Konto in 15 Minuten.") }}</span></label>

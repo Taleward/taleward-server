@@ -66,6 +66,9 @@ def passwort_setzen(db: Session, user: User, passwort: str, ort: str | None = No
     if meta_lesen(db, f"pwlink.{user.id}"):
         meta_schreiben(db, f"pwlink.{user.id}", "")
     konto_mail.vormerken(db, user, "passwort", ort=ort)
+    from app import geraete
+
+    geraete.vergessen(db, user.id)  # 0.4.141: nach neuem Passwort gelten alle Browser wieder als neu
 
 
 def einloesen(db: Session, token: str, passwort: str) -> User | None:

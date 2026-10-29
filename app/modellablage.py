@@ -49,9 +49,7 @@ MAX_DATEI = 600 * 1024 ** 2  # einzelne Datei; das Sprechermodell hat zusammen e
 SPIEGEL: dict[str, tuple[str, str]] = {
     SPRECHERMODELL: ("3533c8cf8e369892e6b79ff1bf80f7b0286a54ee",
                      "2fe7b7a72d42157e97c610316645698c3d7bb65f5d36da5840afdc42da51de4a"),
-    # Satzmodelle: wird erst benutzt, wenn der Ordner auf dem Spiegel liegt; bis dahin die feste Quelle (DIREKT)
-    SPRACHBAUSTEIN: ("550b6625bcef1f2abff2ff770a5a0d272c9c6b2a",
-                     "46f267fc228b1c2d5e85b5759f6ed14c120d32976916424bb1f21e56a6cbf894"),
+    # Satzmodelle (SPRACHBAUSTEIN) liegen bewusst nicht auf dem Spiegel: Quelle bleibt die feste Fassung (DIREKT)
 }
 NOTICE = {
     SPRECHERMODELL: ("pyannote speaker-diarization-community-1 – © pyannoteAI / Hervé Bredin and contributors.\n"

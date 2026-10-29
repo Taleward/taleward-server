@@ -52,6 +52,8 @@ MESSAGES: dict[str, tuple[str, str]] = {
     "invalid_email": ("Das sieht nicht nach einer E-Mail-Adresse aus.", "This doesn't look like an e-mail address."),
     "email_taken": ("Diese E-Mail-Adresse gehört schon zu einem anderen Konto auf diesem Server.",
                     "This e-mail address already belongs to another account on this server."),
+    "email_confirmed": ("Diese E-Mail-Adresse ist für dein Konto schon bestätigt.",
+                        "This e-mail address is already confirmed for your account."),
     "mail_unavailable": ("Dieser Server kann gerade keine E-Mails verschicken. Bitte wende dich an die Verwaltung.",
                          "This server can't send e-mails right now. Please contact the administration."),
     "ticket_invalid": ("Die Anmeldung ist abgelaufen oder wurde schon benutzt. Bitte noch einmal versuchen.",

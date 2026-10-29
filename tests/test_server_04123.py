@@ -40,7 +40,9 @@ def test_konto_mail_antwortet_an_den_betreiber(dbs, monkeypatch):
     _einrichten(dbs, monkeypatch, "info@example.org")
     mail.senden(dbs, "spielerin@example.net", "Betreff", "Text")
     n = _Postausgang.gesendet[0]
-    assert n["From"] == "noreply@example.org" and n["To"] == "spielerin@example.net"
+    from email.utils import parseaddr
+
+    assert parseaddr(n["From"])[1] == "noreply@example.org" and n["To"] == "spielerin@example.net"
     assert n["Reply-To"] == "info@example.org" and n["Auto-Submitted"] == "auto-generated"
 
 

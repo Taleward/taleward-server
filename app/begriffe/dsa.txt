@@ -440,6 +440,17 @@ Furcht
 Paralyse
 Schmerz
 Trefferzone
+Heilungssegen
+Glückssegen
+Schutzsegen
+Eidsegen
+Feuersegen
+Grabsegen
+Harmoniesegen
+Speisesegen
+Stärkungssegen
+Tranksegen
+Weisheitssegen
 # Regelbegriffe (en)
 Adventure Points
 Life Points

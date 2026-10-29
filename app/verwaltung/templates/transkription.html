@@ -129,7 +129,7 @@
     <p class="hilfe">{{ _("Protokoll auf dem Server:") }} <code>cd /opt/taleward && sudo docker compose logs -f {{ "worker-cpu" if worker_art == "cpu" else "worker" }}</code></p>
     <p class="hilfe">{{ _("Die Werte hier gehen denen aus der .env vor. Nicht gesetzt: es gilt die .env (TALEWARD_WORKER_VRAM_MB, TALEWARD_WORKER_MODELL).") }}</p>
   </details>
-  <script src="/verwaltung/static/eingebaut.js" defer></script>
+  <script src="{{ statisch('eingebaut.js') }}" defer></script>
 {% elif docker %}
   <h2>{{ _("Transkription") }}</h2>
   <p>{{ _("Auf diesem Server läuft kein Worker. Transkribiert wird auf einem PC mit der Worker-App – das darf auch der PC sein, auf dem der Server läuft – oder über die Cloud.") }}</p>
@@ -199,6 +199,7 @@
           {% if k.w.revoked_at %}<span class="marke-status marke-status--fehler">{{ _("gesperrt") }}</span>
           {% elif k.w.paused %}<span class="marke-status marke-status--warten">{{ _("pausiert") }}</span>
           {% elif k.online and k.w.app_paused_since %}<span class="marke-status marke-status--warten">{{ _("in der App pausiert") }}</span>
+          {% elif k.online and k.job %}<span class="marke-status marke-status--gut">{{ _("arbeitet") }}</span>
           {% elif k.online %}<span class="marke-status marke-status--gut">{{ _("bereit") }}</span>
           {% else %}<span class="marke-status">{{ _("nicht verbunden") }}</span>{% endif %}
           <br><span class="leise">{{ _("zuletzt {zeit}", zeit=zeit(k.w.last_seen_at)) }}</span>
@@ -246,7 +247,7 @@
       <button class="tw-btn tw-btn--quiet tw-btn--klein" type="button" data-kopieren="koppelcode" data-fertig="{{ _("Kopiert") }}" hidden>{{ _("Kopieren") }}</button></dd>
   </dl>
   <p class="hilfe">{{ _("Der Code gilt bis {zeit} und nur einmal. Schlüssel und Adresse trägt der Worker selbst ein.", zeit=zeit(koppel[1])) }}</p>
-  <script src="/verwaltung/static/kopieren.js" defer></script>
+  <script src="{{ statisch('kopieren.js') }}" defer></script>
   <details><summary>{{ _("Ohne App: Befehl für die Kommandozeile") }}</summary>
   <div class="geheim"><code>uv run chronik worker --koppeln {{ koppel[0] }} --server {{ server_url }}</code></div></details>
   {% else %}

@@ -13,7 +13,7 @@
       <p class="hilfe">{{ _("Handy nicht zur Hand? Gib einen deiner Wiederherstellungscodes ein. Jeder gilt nur einmal.") }}</p>
       <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Anmelden") }}</button></div>
     </form>
-    <script src="/verwaltung/static/code-kaesten.js" defer></script>
+    <script src="{{ statisch('code-kaesten.js') }}" defer></script>
   </div>
   <p class="zentriert"><a href="{{ zurueck or '/verwaltung/anmelden' }}">{{ _("Zurück zur Anmeldung") }}</a></p>
 </div>

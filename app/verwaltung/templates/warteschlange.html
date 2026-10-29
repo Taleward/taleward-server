@@ -2,7 +2,9 @@
 {% block titel %}{{ _("Warteschlange") }}{% endblock %}
 {% block inhalt %}
 <h1>{{ _("Warteschlange") }}</h1>
-<p class="leise">{{ _("{n} offen · die letzten 100 Aufträge", n=offen) }} · <a href="/verwaltung/warteschlange">{{ _("Aktualisieren") }}</a></p>
+{% set filter = {"wartet": _("Runden in der Warteschlange"), "arbeit": _("Runden in Verarbeitung"), "fehler": _("fehlgeschlagene Runden"), "sl": _("Runden, die auf die Spielleitung warten")} %}
+{% if zeigen %}<p class="leise">{{ _("Nur {was}", was=filter[zeigen]) }} · <a href="/verwaltung/warteschlange">{{ _("Alle Aufträge anzeigen") }}</a></p>
+{% else %}<p class="leise">{{ _("{n} offen · die letzten 100 Aufträge", n=offen) }} · <a href="/verwaltung/warteschlange">{{ _("Aktualisieren") }}</a></p>{% endif %}
 <div class="karte tabelle-huelle">
   <table>
     <thead><tr><th>{{ _("Runde") }}</th><th>{{ _("Art") }}</th><th>{{ _("Zustand") }}</th><th>{{ _("Bearbeitet von") }}</th><th>{{ _("Zeit") }}</th><th></th></tr></thead>
@@ -25,7 +27,7 @@
         <td>{% if z.neustart %}<form method="post" action="/verwaltung/sessions/{{ z.s.id }}/neustart"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit">{{ _("Erneut versuchen") }}</button></form>{% endif %}</td>
       </tr>
     {% else %}
-      <tr><td colspan="6" class="leise">{{ _("Noch keine Aufträge.") }}</td></tr>
+      <tr><td colspan="6" class="leise">{% if zeigen %}{{ _("Gerade keine.") }} <a href="/verwaltung/warteschlange">{{ _("Alle Aufträge anzeigen") }}</a>{% else %}{{ _("Noch keine Aufträge.") }}{% endif %}</td></tr>
     {% endfor %}
     </tbody>
   </table>

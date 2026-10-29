@@ -756,6 +756,20 @@ class DateVote(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+# ---------------------------------------------------------------- Bekannte Geräte (0.4.141)
+class BekanntesGeraet(Base):
+    """Browser, in dem sich ein Konto schon einmal in der Verwaltung oder auf der Guthaben-Seite angemeldet hat. Nur die
+    SHA-256 des Cookie-Werts; eine Anmeldung aus einem bekannten Browser löst keine Hinweis-Mail mehr aus. Räumt sich nach
+    GERAET_TAGE Tagen ohne Anmeldung auf (app/geraete.py)."""
+
+    __tablename__ = "bekannte_geraete"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # SHA-256 hex des Cookie-Werts
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    ort: Mapped[str] = mapped_column(String(16))  # verwaltung | guthaben (wo zuerst gesehen)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
+
+
 # ---------------------------------------------------------------- Einmal-Tokens (0.4.0)
 class EinmalToken(Base):
     """Kurzlebige Einmal-Werte: E-Mail bestätigen, Anmeldung mit Dienst (Zustand, Ticket, Registrierung, Verbinden).

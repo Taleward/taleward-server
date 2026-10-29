@@ -39,13 +39,16 @@ def senden(db: Session, an: str, betreff: str, text: str, html: str | None = Non
     from dataclasses import replace
 
     from app.benachrichtigung import VersandFehler, _email, konfig
+    from app.einstellungen import angaben
 
     k = konfig(db)
     if not k.smtp_host:
         raise MailFehler("Kein Mailserver eingerichtet.")
     # 0.4.123: Antworten an den Kontakt des Betreibers (wenn er eine E-Mail-Adresse ist), nicht an den Absender
+    # 0.4.141: Absender mit dem Servernamen als Anzeigename
     try:
-        _email(replace(k, email_an=an), betreff, text, antwort_an=kontakt(db), html=html)
+        _email(replace(k, email_an=an), betreff, text, antwort_an=kontakt(db), html=html,
+               absender=angaben(db).server_name)
     except VersandFehler as e:
         log.warning("Mail an Konto nicht zugestellt: %s", e)
         raise MailFehler(str(e)) from None

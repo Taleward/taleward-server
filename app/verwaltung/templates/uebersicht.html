@@ -20,13 +20,14 @@
       <button class="tw-btn tw-btn--quiet" type="submit">{{ _("ausblenden") }}</button></form></div>
 </div>
 {% endif %}
-<dl class="kennzahlen">
-  {% if betrieb != "cloud" or zahlen.knechte %}<div class="{{ 'achtung' if kein_worker }}"><dt>{{ _("Worker bereit") }}</dt><dd>{{ zahlen.knechte_online }}<span class="leise"> / {{ zahlen.knechte }}</span></dd></div>{% endif %}
-  <div><dt>{{ _("in der Warteschlange") }}</dt><dd>{{ zahlen.wartend }}</dd></div>
-  <div><dt>{{ _("in Verarbeitung") }}</dt><dd>{{ zahlen.in_arbeit }}</dd></div>
-  <div class="{{ 'achtung' if zahlen.fehlgeschlagen }}"><dt>{{ _("fehlgeschlagen") }}</dt><dd>{{ zahlen.fehlgeschlagen }}</dd></div>
-  <div class="{{ 'achtung' if zahlen.bei_sl }}"><dt>{{ _("wartet auf die Spielleitung") }}</dt><dd>{{ zahlen.bei_sl }}{% if zahlen.bei_sl %} <a class="kennzahlen__link" href="/verwaltung/warteschlange">{{ _("Ansehen") }}</a>{% endif %}</dd></div>
-</dl>
+{# 0.4.141: jede Kachel ist ein Link zur passenden Liste #}
+<div class="kennzahlen">
+  {% if betrieb != "cloud" or zahlen.knechte %}<a class="kennzahlen__kachel {{ 'achtung' if kein_worker }}" href="/verwaltung/transkription"><span class="kennzahlen__titel">{{ _("Worker bereit") }}</span><strong class="kennzahlen__wert">{{ zahlen.knechte_online }}<span class="leise"> / {{ zahlen.knechte }}</span></strong></a>{% endif %}
+  <a class="kennzahlen__kachel" href="/verwaltung/warteschlange?zeigen=wartet"><span class="kennzahlen__titel">{{ _("in der Warteschlange") }}</span><strong class="kennzahlen__wert">{{ zahlen.wartend }}</strong></a>
+  <a class="kennzahlen__kachel" href="/verwaltung/warteschlange?zeigen=arbeit"><span class="kennzahlen__titel">{{ _("in Verarbeitung") }}</span><strong class="kennzahlen__wert">{{ zahlen.in_arbeit }}</strong></a>
+  <a class="kennzahlen__kachel {{ 'achtung' if zahlen.fehlgeschlagen }}" href="/verwaltung/warteschlange?zeigen=fehler"><span class="kennzahlen__titel">{{ _("fehlgeschlagen") }}</span><strong class="kennzahlen__wert">{{ zahlen.fehlgeschlagen }}</strong></a>
+  <a class="kennzahlen__kachel {{ 'achtung' if zahlen.bei_sl }}" href="/verwaltung/warteschlange?zeigen=sl"><span class="kennzahlen__titel">{{ _("wartet auf die Spielleitung") }}</span><strong class="kennzahlen__wert">{{ zahlen.bei_sl }}</strong></a>
+</div>
 <p class="leise bestand">{{ _("1 Kampagne") if zahlen.kampagnen == 1 else _("{n} Kampagnen", n=zahlen.kampagnen) }} · {{ _("1 Kapitel veröffentlicht") if zahlen.veroeffentlicht == 1 else _("{n} Kapitel veröffentlicht", n=zahlen.veroeffentlicht) }} · {{ _("1 Konto") if zahlen.konten == 1 else _("{n} Konten", n=zahlen.konten) }}</p>
 {% set arten = {"cloud": _("Nur Cloud"), "lokal": _("Lokaler Server"), "beides": _("Lokaler Server, Cloud als Ausweichlösung")} %}
 <p class="leise">{% if betrieb %}{{ _("Betriebsart:") }} <strong>{{ arten[betrieb] }}</strong> · <a href="/verwaltung/einstellungen#betrieb">{{ _("ändern") }}</a>

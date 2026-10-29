@@ -109,8 +109,13 @@ def _wie(p: dict, sprache: str) -> str:
     return ort
 
 
-def _wann(p: dict, sprache: str) -> str:
-    return p["wann"].strftime("%Y-%m-%d %H:%M UTC" if sprache == "en" else "%d.%m.%Y, %H:%M UTC")
+def _wann(p: dict, sprache: str, zone=None) -> str:
+    """0.4.141: Ortszeit des Servers (Verwaltung → Einstellungen → Benachrichtigungen) statt UTC."""
+    from datetime import timezone
+
+    from app.benachrichtigung import ortszeit
+
+    return ortszeit(p["wann"], zone or timezone.utc, sprache)
 
 
 def senden_alle(posten: list[dict]) -> None:
@@ -121,13 +126,16 @@ def senden_alle(posten: list[dict]) -> None:
         with session_factory()() as db:
             if not an(db) or not mail.kann_senden(db):
                 return
+            from app.benachrichtigung import zeitzone
+
+            zone = zeitzone(db)
             for p in posten:
                 u = db.get(User, p["user_id"])
                 if u is None:
                     continue
                 sprache = mail.sprache_fuer(db, u)
                 betreff, text, html = mail.text(db, f"konto_{p['anlass']}", sprache, name=u.display_name,
-                                                benutzer=u.username, wann=_wann(p, sprache), wie=_wie(p, sprache))
+                                                benutzer=u.username, wann=_wann(p, sprache, zone), wie=_wie(p, sprache))
                 try:
                     mail.senden(db, p["an"], betreff, text, html)
                 except (mail.MailFehler, ValueError):

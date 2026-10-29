@@ -133,7 +133,7 @@
     </details>
     <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Speichern") }}</button></div>
   </form>
-  <script src="/verwaltung/static/eingebaut.js" defer></script>
+  <script src="{{ statisch('eingebaut.js') }}" defer></script>
   {% if k.art == "api" %}
   <form method="post" action="/verwaltung/zusammenfassung/pruefen" class="formular">
     <input type="hidden" name="csrf" value="{{ csrf }}">

@@ -26,7 +26,7 @@ import ssl
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
-from email.utils import formatdate, make_msgid
+from email.utils import formataddr, formatdate, make_msgid
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -58,6 +58,7 @@ class Konfig:
     sprache: str
     stunden: int
     konto_hinweise: bool = True  # 0.4.136: Hinweis-Mails bei Änderungen am Konto (app/konto_mail.py)
+    zeitzone: str = "Europe/Berlin"  # 0.4.141: Uhrzeiten in Mails an Mitglieder als Ortszeit
 
     @property
     def ntfy(self) -> bool:
@@ -70,6 +71,36 @@ class Konfig:
     @property
     def aktiv(self) -> bool:
         return self.ntfy or self.email
+
+
+# Zeitzonen zur Auswahl in der Verwaltung (IANA-Namen); andere Werte werden auf den Standard zurückgesetzt.
+ZEITZONEN = ("Europe/Berlin", "Europe/Vienna", "Europe/Zurich", "Europe/Amsterdam", "Europe/Brussels",
+             "Europe/Copenhagen", "Europe/Dublin", "Europe/Helsinki", "Europe/Lisbon", "Europe/London",
+             "Europe/Madrid", "Europe/Oslo", "Europe/Paris", "Europe/Prague", "Europe/Rome", "Europe/Stockholm",
+             "Europe/Warsaw", "UTC", "America/New_York", "America/Chicago", "America/Denver",
+             "America/Los_Angeles", "America/Toronto", "America/Sao_Paulo", "Asia/Tokyo", "Australia/Sydney",
+             "Pacific/Auckland")
+
+
+def zeitzone(db: Session):
+    """0.4.141: Zeitzone des Servers für Uhrzeiten in Mails (Verwaltung → Einstellungen → Benachrichtigungen)."""
+    from zoneinfo import ZoneInfo
+
+    name = konfig(db).zeitzone
+    try:
+        return ZoneInfo(name if name in ZEITZONEN else "Europe/Berlin")
+    except Exception:  # noqa: BLE001 – ohne Zonendaten bleibt UTC
+        return timezone.utc
+
+
+def ortszeit(wann: datetime, zone, sprache: str) -> str:
+    """Zeitpunkt (UTC) als lesbare Ortszeit mit Zonenkürzel: „29.10.2026, 09:28 Uhr (MEZ)“ / „2026-10-29 09:28 CET“."""
+    lokal = wann.astimezone(zone)
+    kuerzel = lokal.tzname() or "UTC"
+    if sprache != "en":
+        kuerzel = {"CET": "MEZ", "CEST": "MESZ"}.get(kuerzel, kuerzel)
+        return lokal.strftime("%d.%m.%Y, %H:%M Uhr") + f" ({kuerzel})"
+    return lokal.strftime("%Y-%m-%d %H:%M") + f" {kuerzel}"
 
 
 def konfig(db: Session) -> Konfig:
@@ -86,7 +117,7 @@ def konfig(db: Session) -> Konfig:
                   smtp_port=zahl("smtp_port", 587), smtp_user=m("smtp_user"), smtp_pass=m("smtp_pass"),
                   smtp_tls=m("smtp_tls", "starttls"), email_von=m("email_von"), email_an=m("email_an"),
                   sprache=m("sprache", "de"), stunden=zahl("stunden", STANDARD_STUNDEN),
-                  konto_hinweise=m("konto_hinweise", "1") == "1")
+                  konto_hinweise=m("konto_hinweise", "1") == "1", zeitzone=m("zeitzone", "Europe/Berlin"))
 
 
 # ---------------------------------------------------------------- Versand
@@ -117,21 +148,32 @@ def _zeichen_png() -> bytes:
     return (Path(__file__).parent / "verwaltung" / "static" / "marke" / "zeichen-mail.png").read_bytes()
 
 
-def _email(k: Konfig, titel: str, text: str, antwort_an: str | None = None, html: str | None = None) -> None:
+def absendername(name: str | None) -> str:
+    """0.4.141: Anzeigename des Absenders („Servername“), ohne Steuer- und Richtungszeichen, höchstens 80 Zeichen.
+    Eine nackte Adresse ohne Namen landet bei manchen Anbietern im Spam."""
+    from app.aliasse import zeichen_bereinigen
+
+    return zeichen_bereinigen(name)[:80].strip() or "Taleward"
+
+
+def _email(k: Konfig, titel: str, text: str, antwort_an: str | None = None, html: str | None = None,
+           absender: str | None = None) -> None:
     """Mail über den eingestellten Mailserver. `antwort_an`: Antworten gehen dorthin statt an den Absender
     (z. B. eine noreply-Adresse) – nur eine einzelne gültige Adresse. `html` (0.4.135): zweite Fassung im Hausstil;
-    Aufbau multipart/alternative → text/plain + multipart/related (text/html + eingebettetes Zeichen)."""
+    Aufbau multipart/alternative → text/plain + multipart/related (text/html + eingebettetes Zeichen).
+    `absender` (0.4.141): Anzeigename vor der Absenderadresse."""
     from app import mail, mailvorlage
 
+    von = k.email_von or k.smtp_user or k.email_an
     nachricht = EmailMessage()
     nachricht["Subject"] = titel
-    nachricht["From"] = k.email_von or k.smtp_user or k.email_an
+    nachricht["From"] = formataddr((absendername(absender), von))
     nachricht["To"] = k.email_an
-    if antwort_an and mail.gueltig(antwort_an) and antwort_an.lower() != (nachricht["From"] or "").lower():
+    if antwort_an and mail.gueltig(antwort_an) and antwort_an.lower() != von.lower():
         nachricht["Reply-To"] = antwort_an
     nachricht["Auto-Submitted"] = "auto-generated"  # automatische Mail: keine Abwesenheitsnotizen zurück
     nachricht["Date"] = formatdate(localtime=True)
-    nachricht["Message-ID"] = make_msgid(domain=(nachricht["From"].split("@")[-1] or None))
+    nachricht["Message-ID"] = make_msgid(domain=(von.split("@")[-1] or None))
     nachricht.set_content(text)
     if html:
         nachricht.add_alternative(html, subtype="html")
@@ -169,7 +211,7 @@ def senden(db: Session, titel: str, text: str, wichtig: bool = True) -> list[str
             fehler.append(str(e))
     if k.email:
         try:
-            _email(k, titel, text)
+            _email(k, titel, text, absender=angaben(db).server_name)
         except VersandFehler as e:
             fehler.append(str(e))
     for f in fehler:

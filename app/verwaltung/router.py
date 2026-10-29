@@ -71,6 +71,17 @@ def _icon(name: str):
 
 templates.env.globals["icon"] = _icon
 templates.env.globals["testinstanz"] = lambda: get_settings().taleward_testinstanz  # 0.4.137
+
+
+def _statisch(datei: str) -> str:
+    """0.4.141: Adresse einer statischen Datei mit der Server-Fassung als Anhang, damit Browser nach einem Update die neue
+    Stilvorlage und die neuen Skripte laden statt die zwischengespeicherte (Firefox zeigte die Kästchen mit alten Regeln)."""
+    from app.aktualisierung import eigene_fassung
+
+    return f"/verwaltung/static/{datei}?v={eigene_fassung()}"
+
+
+templates.env.globals["statisch"] = _statisch
 templates.env.filters["datenschutz_link"] = links_modul.datenschutz_link
 templates.env.filters["rein"] = zeichen_bereinigen  # 0.4.130: Namen ohne Steuer- und Richtungszeichen
 BERLIN = ZoneInfo("Europe/Berlin")
@@ -315,9 +326,9 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
                 return antwort
             antwort = _zurueck("/einrichtung" if user.setup_account else "/")
             _sitzung_setzen(antwort, request, db, user)
-            from app import konto_mail
+            from app import geraete
 
-            konto_mail.vormerken(db, user, "anmeldung", ort="verwaltung")
+            geraete.anmeldung(antwort, request, db, user, "verwaltung")  # 0.4.141: Mail nur bei neuem Gerät
             db.commit()
             return antwort
     antwort = _seite(request, "anmelden.html", None, db, kein_verwalter=False, fehler=fehler, ersteinrichtung=False)
@@ -381,13 +392,13 @@ def code_pruefen(request: Request, code: str = Form(""), db: Session = Depends(g
         fehler = tr(request)("Zu viele Fehlversuche. Bitte in ein paar Minuten erneut versuchen.")
     elif zweiter_faktor.pruefen(db, user.id, code):
         ZAEHLER.freigeben(versuch)
-        from app import konto_mail
-
-        konto_mail.vormerken(db, user, "anmeldung", ort="verwaltung")
-        db.commit()
         antwort = _zurueck("/")
         _sitzung_setzen(antwort, request, db, user)
         antwort.delete_cookie(COOKIE_CODE, path="/verwaltung")
+        from app import geraete
+
+        geraete.anmeldung(antwort, request, db, user, "verwaltung")  # 0.4.141: Mail nur bei neuem Gerät
+        db.commit()
         return antwort
     else:
         fehler = tr(request)("Der Code stimmt nicht oder wurde schon benutzt. Nimm den nächsten aus deiner App.")
@@ -1353,12 +1364,18 @@ def zusammenfassung_speichern(request: Request, art: str = Form("aus"), anbieter
 
 
 # ---------------------------------------------------------------- Warteschlange
+# 0.4.141: Filter der Warteschlange hinter den Zähler-Kacheln der Übersicht (Zustand der Runde)
+WARTESCHLANGE_FILTER = {"wartet": ("queued",), "arbeit": ("transcribing", "summarizing"), "fehler": ("failed",),
+                        "sl": ("awaiting_speakers", "awaiting_review")}
+
+
 @router.get("/warteschlange", response_class=HTMLResponse)
 def warteschlange(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db),
-                  fehler: str = ""):
+                  fehler: str = "", zeigen: str = ""):
     from app.extern import HALTER
 
     _ = tr(request)
+    zeigen = zeigen if zeigen in WARTESCHLANGE_FILTER else ""
     namen = {w.id: (_("Lokaler Worker") if w.local else w.name) for w in db.scalars(select(Worker))}
     namen |= {"zentrale": _("Server"), HALTER: _("Externer Anbieter")}
     zeilen = []
@@ -1370,13 +1387,15 @@ def warteschlange(request: Request, user: User = Depends(verwalter), db: Session
         knecht = namen.get(j.lease_worker_id or "") or (_("entfernter Worker") if j.lease_worker_id else None)
         from app import messwerte
 
+        if zeigen and not (aktuell and s.state in WARTESCHLANGE_FILTER[zeigen]):
+            continue  # nur der laufende Auftrag jeder Runde im gewählten Zustand
         zeilen.append({"j": j, "s": s, "c": c, "dok": dok, "knecht": knecht,
                        "messwerte": messwerte.zeilen(messwerte.lesen(j), _) if j.state == "done" else [],
                        "neustart": aktuell and s.state == "failed",
                        "haengt": j.state == "leased" and j.lease_expires_at is not None
                                  and j.lease_expires_at < utcnow()})
     offen = sum(1 for z in zeilen if z["j"].state in ("queued", "leased"))
-    return _seite(request, "warteschlange.html", user, db, zeilen=zeilen, offen=offen, fehler=fehler)
+    return _seite(request, "warteschlange.html", user, db, zeilen=zeilen, offen=offen, fehler=fehler, zeigen=zeigen)
 
 
 @router.post("/sessions/{session_id}/neustart", dependencies=[Depends(csrf_pruefen)])
@@ -1440,7 +1459,8 @@ def einstellungen(request: Request, user: User = Depends(verwalter), db: Session
                   aufbewahrung=aufbewahrung.lesen(db), hoechstens_tage=aufbewahrung.HOECHSTENS_TAGE,
                   zustimmungen=db.scalar(select(func.count()).select_from(Member)
                                          .where(Member.recording_consent_at.is_not(None))) or 0,
-                  melden=benachrichtigung.konfig(db), web_zentral=webapp.zentral_erlaubt(db),
+                  melden=benachrichtigung.konfig(db), zeitzonen=benachrichtigung.ZEITZONEN,
+                  web_zentral=webapp.zentral_erlaubt(db),
                   web_herkuenfte="\n".join(webapp.zusaetzliche(db)),
                   zentrale_webapp=webapp.konfigurierte_zentrale())
 
@@ -1609,7 +1629,7 @@ def benachrichtigungen_speichern(request: Request, ntfy_url: str = Form(""), ntf
                                  sprache: str = Form("de"), stunden: str = Form("6"),
                                  zugang_loeschen: str = Form(""), aktion: str = Form(""),
                                  konto_hinweise: str = Form(""), konto_hinweise_feld: str = Form(""),
-                                 user: User = Depends(verwalter),
+                                 zeitzone: str = Form(""), user: User = Depends(verwalter),
                                  db: Session = Depends(get_db)):
     """ntfy und/oder E-Mail für Meldungen an den Betreiber. Token und Passwort sind nur schreibbar."""
     _ = tr(request)
@@ -1643,6 +1663,12 @@ def benachrichtigungen_speichern(request: Request, ntfy_url: str = Form(""), ntf
         meta_schreiben(db, f"melden.{k}", v)
     if konto_hinweise_feld:  # 0.4.136: nur, wenn das Formular den Haken überhaupt zeigt
         meta_schreiben(db, "melden.konto_hinweise", "1" if konto_hinweise else "0")
+    if zeitzone:  # 0.4.141: nur bekannte Zonen, sonst bleibt der Standard
+        from app.benachrichtigung import ZEITZONEN
+
+        if zeitzone not in ZEITZONEN:
+            return fehler(_("Unbekannte Auswahl."))
+        meta_schreiben(db, "melden.zeitzone", zeitzone)
     if zugang_loeschen:
         meta_schreiben(db, "melden.ntfy_token", "")
         meta_schreiben(db, "melden.smtp_pass", "")

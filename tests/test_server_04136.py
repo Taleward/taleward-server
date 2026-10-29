@@ -105,7 +105,7 @@ def test_anmeldung_genau_eine_mail_in_15_minuten_ohne_ip(client, dbs, make_user,
     assert len(post) == 1
     m = post[0]
     assert m["an"] == "dora@example.net" and m["betreff"].startswith("Neue Anmeldung bei deinem Konto")
-    assert "mit Passwort in der App" in m["text"] and "UTC" in m["text"]
+    assert "mit Passwort in der App" in m["text"] and " Uhr (" in m["text"]  # 0.4.141: Ortszeit statt UTC
     assert "testclient" not in m["text"] + m["html"] and "127.0.0.1" not in m["text"]
     assert "http" not in m["text"] and "href" not in m["html"]  # kein Link
     assert "Ändere in der App unter Konto dein Passwort" in m["text"]

@@ -75,7 +75,7 @@ def test_kopplungscode_mit_knopf_kopieren(client, admin):  # noqa: F811
     knopf = re.search(r'<button[^>]*data-kopieren="koppelcode"[^>]*>', seite).group(0)
     assert "hidden" in knopf and 'type="button"' in knopf  # ohne JavaScript unsichtbar, Code bleibt markierbar
     assert 'data-fertig="Kopiert"' in knopf
-    assert '<script src="/verwaltung/static/kopieren.js" defer></script>' in seite
+    assert '<script src="/verwaltung/static/kopieren.js?v=' in seite  # 0.4.141: mit Fassung
     js = client.get("/verwaltung/static/kopieren.js").text
     assert "navigator.clipboard" in js and "data-kopieren" in js
 

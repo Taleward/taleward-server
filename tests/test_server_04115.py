@@ -22,8 +22,8 @@ def test_uebersicht_ohne_worker(client, dbs, admin):  # noqa: F811
     # Ohne Cloud-Abschrift braucht jede Runde einen Worker – das steht oben, rot, mit Weg zum Beheben
     assert ('<p class="lage lage--achtung"><span>Kein Worker bereit – neue Runden bleiben liegen, bis einer läuft.</span> '
             '<a href="/verwaltung/transkription">Worker einrichten</a>') in seite
-    assert re.findall(r"<dt>([^<]+)</dt>", seite) == ["Worker bereit", "in der Warteschlange", "in Verarbeitung",
-                                                     "fehlgeschlagen", "wartet auf die Spielleitung"]
+    assert re.findall(r'<span class="kennzahlen__titel">([^<]+)</span>', seite) == [
+        "Worker bereit", "in der Warteschlange", "in Verarbeitung", "fehlgeschlagen", "wartet auf die Spielleitung"]
     assert 'class="raster"' not in seite and "0 Kampagnen · 0 Kapitel veröffentlicht · 2 Konten" in seite
     _cloud_abschrift(dbs)
     assert '<p class="lage"><span>Alles läuft.</span></p>' in client.get("/verwaltung/").text
@@ -41,7 +41,8 @@ def test_uebersicht_nennt_fehlgeschlagene(client, world, dbs, admin):  # noqa: F
     seite = client.get("/verwaltung/").text
     assert '<p class="lage lage--achtung"><span>2 Runden sind fehlgeschlagen.</span>' in seite
     assert 'href="/verwaltung/warteschlange">Warteschlange ansehen' in seite
-    assert re.search(r'<div class="achtung"><dt>fehlgeschlagen</dt><dd>2</dd>', seite)
+    assert re.search(r'<a class="kennzahlen__kachel achtung" href="/verwaltung/warteschlange\?zeigen=fehler">'
+                     r'<span class="kennzahlen__titel">fehlgeschlagen</span><strong class="kennzahlen__wert">2</strong>', seite)
     en = client.get("/verwaltung/", headers={"Accept-Language": "en"}).text
     assert "2 sessions failed." in en and "1 campaign · 0 chapters published" in en
 

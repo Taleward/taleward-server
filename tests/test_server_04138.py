@@ -13,7 +13,7 @@ def test_code_seiten_mit_kaesten_und_script(client, world):
     vorlagen = STATIC.parent / "templates"
     for name, wert in (("anmelden_code.html", "1"), ("_zweiter_faktor.html", "nur-ziffern")):
         t = (vorlagen / name).read_text()
-        assert f'data-code-kaesten="{wert}"' in t and "/verwaltung/static/code-kaesten.js" in t
+        assert f'data-code-kaesten="{wert}"' in t and "code-kaesten.js" in t
         assert 'name="code"' in t and 'autocomplete="one-time-code"' in t  # ohne JavaScript: das eine Feld
     js = client.get("/verwaltung/static/code-kaesten.js")
     assert js.status_code == 200 and "paste" in js.text and "one-time-code" in js.text

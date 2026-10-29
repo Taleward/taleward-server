@@ -39,9 +39,10 @@ def _wartung_starten() -> threading.Event | None:
             try:
                 with session_factory()() as db:
                     ergebnis = sweep(db)
-                    from app import einmal
+                    from app import einmal, geraete
 
                     einmal.aufraeumen(db)
+                    geraete.aufraeumen(db)  # 0.4.141: bekannte Geräte ohne Anmeldung seit 180 Tagen
                 if any(ergebnis.values()):
                     log.info("Wartung: %s", ergebnis)
             except Exception:  # Wartung darf den Server nie stoppen

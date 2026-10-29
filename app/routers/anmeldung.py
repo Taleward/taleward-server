@@ -93,6 +93,12 @@ def email_eintragen(body: schemas.EmailRequest, request: Request, user: User = D
     anderer = db.scalar(select(User).where(User.email == adresse, User.id != user.id))
     if anderer is not None:
         raise errors.conflict("email_taken")
+    if user.email == adresse:  # 0.4.141: schon bestätigt – kein neuer Vorgang, keine zweite Zeile in der App
+        if user.email_pending:
+            user.email_pending = None
+            einmal.verwerfen(db, "email_bestaetigen", user.id)
+            db.commit()
+        raise errors.conflict("email_confirmed")
     basis = mail_adresse(db)
     if not mail.kann_senden(db) or not basis:
         raise errors.ApiError(503, "mail_unavailable")

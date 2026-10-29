@@ -158,11 +158,12 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
                            max_age=CODE_MINUTEN * 60, httponly=True, samesite="strict",
                            secure=request.url.scheme == "https", path="/guthaben")
         return antwort
-    from app import konto_mail
+    from app import geraete
 
-    konto_mail.vormerken(db, user, "anmeldung", ort="guthaben")
+    antwort = _sitzung(request, user)
+    geraete.anmeldung(antwort, request, db, user, "guthaben")  # 0.4.141: Mail nur bei neuem Gerät
     db.commit()
-    return _sitzung(request, user)
+    return antwort
 
 
 def _token(user: User, aud: str, dauer: timedelta) -> str:
@@ -210,11 +211,12 @@ def anmelden_code(request: Request, code: str = Form(""), db: Session = Depends(
         return _code_seite(request, db, tr(request)(
             "Der Code stimmt nicht oder wurde schon benutzt. Nimm den nächsten aus deiner App."), 400)
     ZAEHLER.freigeben(versuch)
-    from app import konto_mail
+    from app import geraete
 
-    konto_mail.vormerken(db, user, "anmeldung", ort="guthaben")
+    antwort = _sitzung(request, user)
+    geraete.anmeldung(antwort, request, db, user, "guthaben")  # 0.4.141: Mail nur bei neuem Gerät
     db.commit()
-    return _sitzung(request, user)
+    return antwort
 
 
 @router.post("/abmelden", dependencies=[Depends(_an), Depends(_csrf_pruefen)])

@@ -281,7 +281,8 @@ def test_sprachbaustein_fest_eingetragen():
 
     fassung, url, sha = modellablage.DIREKT[modellablage.SPRACHBAUSTEIN]
     assert len(fassung) == 40 and len(sha) == 64 and url.startswith("https://")
-    assert modellablage.SPIEGEL[modellablage.SPRACHBAUSTEIN][0] == fassung
+    # 0.4.141: nicht gespiegelt – der Server fragt vor der festen Quelle nicht erst beim Spiegel an
+    assert modellablage.SPRACHBAUSTEIN not in modellablage.SPIEGEL
 
 
 def test_satz_pfad_vorn_im_suchpfad(monkeypatch, tmp_path):
