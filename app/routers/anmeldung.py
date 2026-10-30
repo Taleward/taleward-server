@@ -415,9 +415,10 @@ def _tausch(body: schemas.OidcExchangeRequest, request: Request, db: Session) ->
         vorhanden.last_used_at = utcnow()
         _email_uebernehmen(db, u, email)
         mail.sprache_merken(u, request)
-        from app import konto_mail
+        from app import geraete, konto_mail
 
-        konto_mail.vormerken(db, u, "anmeldung", ort=konto_mail.ort_aus(request), dienst=dienst)
+        geraete.app_anmeldung(db, u, body.device_id if isinstance(body.device_id, str) else None,
+                              konto_mail.ort_aus(request), dienst=dienst)  # 0.4.27
         db.commit()
         token, bis = create_token(u.id, u.token_version, server_id())
         return schemas.OidcExchangeResponse(status="ok", access_token=token, expires_at=bis, user=user_out(u),

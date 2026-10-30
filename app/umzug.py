@@ -42,7 +42,7 @@ from app.db import utcnow
 from app.models import (
     Attendee, Campaign, CampaignDocument, ChapterPlan, CampaignExport, CampaignImport, CharacterAnalysis, Comment,
     CommentRecipient,
-    DateOption, DateVote, Entry, EntryHidden, EntryMention, GameSession, GmNote, GmNotice, Invite, Member, Proposal,
+    DateOption, DateVote, Entry, EntryHidden, EntryMention, GameSession, GmNote, GmNotice, Invite, Member, PlayerProposal, Proposal,
     Recap, SessionSeen, Speaker, User,
 )
 
@@ -251,7 +251,8 @@ def packliste(db: Session, c: Campaign, zugestimmt: set[str]) -> tuple[dict, lis
         if mit:
             p["character"] = {"version": m.character_version, "status": m.character_status,
                               "nickname": m.character_nickname, "summary": m.character_summary,
-                              "backstory": m.character_backstory, "system": m.character_system}
+                              "backstory": m.character_backstory, "system": m.character_system,
+                              "pronouns": m.character_pronouns}
             if m.portrait_updated_at:
                 for art, feld in (("full", "portrait"), ("thumb", "portraitThumb")):
                     pfad = finden(portrait_ordner(m.id), art)
@@ -307,7 +308,8 @@ def packliste(db: Session, c: Campaign, zugestimmt: set[str]) -> tuple[dict, lis
             herkunft = {"characterId": e.origin_character_id, "entryId": e.origin_entry_id,
                         "version": e.origin_version, "seat": platz.get(e.origin_member_id)}
         eintraege.append({
-            "key": f"e{i + 1}", "type": e.type, "name": e.name, "aliases": e.aliases, "summary": summary,
+            "key": f"e{i + 1}", "type": e.type, "name": e.name, "aliases": e.aliases, "pronouns": e.pronouns,
+            "summary": summary,
             "gmNotes": e.gm_notes,
             # Geheimes aus Bogen/Hintergrund geht als SL-Wissen mit (die Herkunftsmarke reist nicht mit)
             "status": e.status, "holderSeat": halter, "visibility": "gm_only" if e.origin_analysis_id else e.visibility,
@@ -487,6 +489,7 @@ class _Charakter(schemas.ApiModel):
     summary: str | None = Field(default=None, max_length=20000)
     backstory: str | None = Field(default=None, max_length=50000)
     system: str | None = Field(default=None, max_length=64)
+    pronouns: str | None = Field(default=None, max_length=200)  # 0.4.28
 
 
 class _Platz(schemas.ApiModel):
@@ -562,6 +565,7 @@ class _Eintrag(schemas.ApiModel):
     type: schemas.EntryType
     name: str = Field(min_length=1, max_length=300)
     aliases: list[str] = Field(default=[], max_length=50)  # 0.4.21; bereinigt beim Anlegen
+    pronouns: str | None = Field(default=None, max_length=200)  # 0.4.28; bereinigt und gekürzt beim Anlegen
     summary: str = Field(default="", max_length=200_000)
     gm_notes: str | None = Field(default=None, max_length=200_000)
     status: Literal["active", "done"] | None = None
@@ -834,6 +838,7 @@ def _anlegen(db: Session, user: User, z: zipfile.ZipFile, d: _Datei, angelegt: l
             m.character_summary = (ch.summary or "").strip() or None
             m.character_backstory = (ch.backstory or "").strip() or None
             m.character_system = (ch.system or "").strip() or None
+            m.character_pronouns = aliasse.zeichen_bereinigen(ch.pronouns or "")[:32].strip() or None
         db.add(m)
         db.flush()
         platz[p.key] = m
@@ -906,7 +911,8 @@ def _anlegen(db: Session, user: User, z: zipfile.ZipFile, d: _Datei, angelegt: l
                   created_at=e.created_at or jetzt, updated_at=e.updated_at or jetzt,
                   public_changed_at=e.public_changed_at,
                   links=links.schreiben(links.bereinigen(e.links, links.MAX_EINTRAG)),
-                  aliases_json=aliasse.schreiben(aliasse.bereinigen(e.name, e.aliases)))
+                  aliases_json=aliasse.schreiben(aliasse.bereinigen(e.name, e.aliases)),
+                  pronouns=aliasse.zeichen_bereinigen(e.pronouns or "")[:32].strip() or None)
         if e.origin is not None:
             x.origin_character_id = e.origin.character_id.lower()
             x.origin_entry_id = (e.origin.entry_id or "").lower() or None
@@ -1064,7 +1070,7 @@ def nehmen(db: Session, c: Campaign, ich: Member, platz: Member) -> None:
 _PRIVAT = (
     (Comment, "author_member_id"), (Comment, "recipient_member_id"), (CommentRecipient, "member_id"),
     (Proposal, "submitted_by_member_id"), (CampaignDocument, "uploaded_by_member_id"), (CharacterAnalysis, "member_id"), (Entry, "origin_member_id"),
-    (DateOption, "proposed_by_member_id"),
+    (DateOption, "proposed_by_member_id"), (PlayerProposal, "author_member_id"),  # 0.4.28
 )
 
 
@@ -1091,6 +1097,9 @@ def _privates_abloesen(db: Session, platz: Member) -> Member:
         ids = json.loads(p.hidden_member_ids_json or "[]")
         if (ids or p.analysis_id) and platz.id not in ids:
             p.hidden_member_ids_json = json.dumps(sorted(set(ids) | {platz.id}))
+    from app import spielende
+
+    spielende.mitglied_weg(db, platz.id, zaehler=False)  # 0.4.28: Zähler gehören zur Figur und bleiben am Platz
     for modell, feld in _PRIVAT:
         spalte = getattr(modell, feld)
         db.execute(update(modell).where(spalte == platz.id).values({feld: ehemalig.id}))

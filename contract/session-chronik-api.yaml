@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Taleward API
-  version: 0.4.26
+  version: 0.4.28
   description: |
     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
 
@@ -264,6 +264,22 @@ info:
     den Vorschlag ohne Halter; übernimmt die SL ihn dort, setzt der Server den vorgeschlagenen Halter trotzdem.
     Außerdem private Kommentare an mehrere Personen: POST …/comments nimmt recipientMemberIds, Comment liefert
     recipientMemberIds. recipientMemberId bleibt (erster Empfänger) für ältere Apps.
+    Änderungen in 0.4.27 (Hinweis-Mail nur bei neuem Gerät): POST /auth/login und POST /auth/oidc/exchange nehmen ein
+    freiwilliges Feld deviceId. Außerdem 409 email_confirmed bei PUT /me/email beschrieben (Server ab 0.4.141).
+    Änderungen in 0.4.28 (Spielende tragen bei; alles freiwillig, nichts davon geht an ein Sprachmodell):
+    - Vorschläge von Spielenden für die Bibel: /campaigns/{id}/player-proposals, /player-proposals/{id}. Spielende sehen
+      nur die eigenen, nie fremde und keine Anzahl; die SL entscheidet wie bei Session-Vorschlägen. Schalter
+      CampaignSettings.playerProposals (Standard an). Für die Urheberin sind „abgelehnt“ und „übernommen, aber für sie
+      nicht sichtbar“ nicht unterscheidbar (state closed). Ein Umzug nimmt Vorschläge von Spielenden nie mit.
+    - „Merken“: Stellen während einer Runde markieren, nur für die Person selbst (/sessions/{id}/bookmarks,
+      /bookmarks/{id}). Damit der Server die Zeit einer Stelle in der Aufnahme findet, schickt die aufnehmende App bei
+      POST …/uploads die Zeiten, in denen wirklich aufgenommen wurde (spans). Campaign.liveSessionId zeigt Anwesenden
+      die laufende Runde.
+    - Pronomen: Character.pronouns → Member.characterPronouns, EntryInput.pronouns für NSC. Öffentlich wie Name und
+      Kurzbeschreibung; das Kapitel nutzt sie (nur bei Einträgen, die der Recap-Pipeline ohnehin offenstehen).
+    - Zähler am Charakter (LeP, AsP …): CampaignSettings.counterKinds (leer = aus, Standard), Stände je Mitglied über
+      PUT /campaigns/{id}/members/me/counters, Member.counters nur für die Person selbst und die SL.
+    Ältere Apps sehen davon nichts; ältere Server ignorieren pronouns und spans.
 
 servers:
   - url: https://taleward.example.org/api/v1
@@ -312,6 +328,15 @@ paths:
               properties:
                 username: { type: string }
                 password: { type: string, format: password }
+                deviceId:
+                  type: string
+                  pattern: "^[A-Za-z0-9_-]{16,64}$"
+                  description: |
+                    Ab 0.4.27, freiwillig: zufällige Kennung dieser Installation (von der App einmal erzeugt und dauerhaft
+                    gespeichert, nie aus Hardware-Kennungen). Der Server speichert nur den SHA-256-Wert am Konto und
+                    schickt die Hinweis-Mail zur Anmeldung nur, wenn die Kennung für das Konto neu ist; er vergisst sie
+                    nach 180 Tagen ohne Anmeldung und nach einem neuen Passwort. Ohne Feld: höchstens eine Mail je
+                    15 Minuten. Ungültige Werte werden ignoriert (kein Fehler). Ältere Server ignorieren das Feld.
       responses:
         "200":
           description: Angemeldet
@@ -494,6 +519,10 @@ paths:
               properties:
                 ticket: { type: string }
                 verifier: { type: string }
+                deviceId:
+                  type: string
+                  pattern: "^[A-Za-z0-9_-]{16,64}$"
+                  description: Ab 0.4.27, freiwillig, wie bei POST /auth/login
       responses:
         "200":
           description: Ergebnis
@@ -584,6 +613,8 @@ paths:
       description: |
         202; der Server schickt einen Bestätigungslink (24 h) auf https://<server>/konto/email/<token>. Bis dahin steht die
         Adresse in User.emailPending. Fehler: 400 invalid_email, 409 email_taken (an anderem Konto bestätigt),
+        409 email_confirmed (Server ab 0.4.141: für dieses Konto schon bestätigt; kein neuer Vorgang, ein offener zur selben
+        Adresse wird verworfen; die App zeigt die Meldung des Servers),
         503 mail_unavailable, 429 (höchstens 5 pro Stunde).
       requestBody:
         required: true
@@ -1112,6 +1143,193 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+
+  /campaigns/{campaignId}/player-proposals:
+    parameters: [{ $ref: "#/components/parameters/campaignId" }]
+    get:
+      tags: [Vorschläge]
+      summary: Vorschläge von Spielenden (ab 0.4.28)
+      description: |
+        Spielende bekommen nur die eigenen (neueste zuerst), nie fremde und keine Anzahl, mit dem Zustand, wie sie ihn
+        sehen dürfen (siehe PlayerProposal.state: closed statt rejected bzw. statt accepted ohne sichtbares Ergebnis). Die
+        SL bekommt alle offenen und die der letzten 30 Tage mit dem echten Zustand. Ist playerProposals aus, bekommen Spielende eine leere Liste; die SL
+        sieht bestehende weiter.
+      parameters:
+        - { name: state, in: query, required: false, schema: { type: string, enum: [open, all] }, description: "Standard all" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PlayerProposal" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [Vorschläge]
+      summary: Eintrag oder Ergänzung vorschlagen (nur Spielende, ab 0.4.28)
+      description: |
+        Nur aktive Mitglieder mit Rolle player; SL → 403. Mit targetEntryId eine Ergänzung zu einem Eintrag, den die
+        Person sieht – sonst 404 (auch bei verborgenen Einträgen, kein Unterschied zu „gibt es nicht“). Ohne
+        targetEntryId ein neuer Eintrag. Der Server prüft NICHT, ob es einen verborgenen Eintrag mit diesem Namen gibt,
+        und antwortet immer gleich (kein Hinweis auf Geheimes). Höchstens 20 offene je Mitglied und 200 offene je
+        Kampagne → 409 `player_proposal_limit`; höchstens 30 je Stunde → 429. playerProposals aus → 403 `player_proposals_off`.
+        Vorschläge von Spielenden gehen nie an ein Sprachmodell und nie in Kapitel; erst eine Entscheidung der SL macht
+        daraus einen Eintrag (der danach wie jeder Eintrag behandelt wird). Kein Push. Aufbewahrung: entschiedene und
+        zurückgezogene nach 90 Tagen gelöscht; beim Austritt bzw. Löschen des Kontos werden offene gelöscht, entschiedene
+        bleiben ohne Person. Umzug: nie mitgenommen, weder offene noch entschiedene.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlayerProposalIn" }
+      responses:
+        "201":
+          description: Angelegt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlayerProposal" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /player-proposals/{proposalId}:
+    parameters:
+      - { name: proposalId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
+    delete:
+      tags: [Vorschläge]
+      summary: Eigenen offenen Vorschlag zurückziehen (ab 0.4.28)
+      description: Nur die Urheberin und nur im Zustand open (sonst 409). Fremde → 404. Wird zu state withdrawn.
+      responses:
+        "204": { description: Zurückgezogen }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /player-proposals/{proposalId}/decision:
+    parameters:
+      - { name: proposalId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
+    post:
+      tags: [Vorschläge]
+      summary: Vorschlag einer Spielerin übernehmen oder ablehnen (nur SL, ab 0.4.28)
+      description: |
+        accept legt einen Eintrag an (Felder aus dem Vorschlag, von der SL geändert) oder ergänzt mergeIntoEntryId
+        (Standard: targetEntryId) – angehängt wie bei Session-Vorschlägen, nie überschrieben. Die SL darf auch in einen
+        Eintrag ergänzen, den die Urheberin nicht sieht, oder den Text in gmNotes legen. Sichtbarkeit ohne Angabe:
+        public. reject schließt ihn ohne Eintrag. Nur im Zustand open, sonst 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlayerProposalDecision" }
+      responses:
+        "200":
+          description: Neuer Stand des Vorschlags (resultEntryId gesetzt bei accept)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlayerProposal" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /sessions/{sessionId}/bookmarks:
+    parameters: [{ $ref: "#/components/parameters/sessionId" }]
+    get:
+      tags: [Chronik]
+      summary: Eigene gemerkte Stellen einer Runde (ab 0.4.28)
+      description: |
+        Nur die eigenen. Niemand sonst sieht sie – auch die SL nicht, auch nicht als Anzahl. Spielende bekommen sie zu
+        jeder Runde, die sie sehen dürfen (vor dem Veröffentlichen nur Anwesende der Runde, sonst 404).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Bookmark" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [Chronik]
+      summary: Stelle merken (ab 0.4.28)
+      description: |
+        Nur Anwesende der Runde (Attendee.memberId) und nur bis zur Veröffentlichung (danach 409 `session_published`).
+        Ohne at nimmt der Server seine eigene Uhrzeit. at darf höchstens 12 Stunden vor playedAt bzw. 5 Minuten in der
+        Zukunft liegen (sonst 400). Höchstens 200 je Mitglied und Runde (409 `bookmark_limit`). Gemerkte Stellen gehen
+        nie an ein Sprachmodell, nie in Kapitel oder Vorschläge, nie an die SL. Beim Löschen der Runde oder des Kontos
+        werden sie mit gelöscht, ebenso beim Austritt; ein Umzug nimmt sie nicht mit. Zusätzlich höchstens 60 POST je
+        Minute und Mitglied (429). liveSessionId und Merkstellen geben keinen Zugang zur Runde: GET /sessions/{id} und
+        alles andere bleibt für Spielende vor dem Veröffentlichen 404.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                at: { type: string, format: date-time }
+                note: { type: [string, "null"], maxLength: 280 }
+      responses:
+        "201":
+          description: Angelegt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bookmark" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /bookmarks/{bookmarkId}:
+    parameters:
+      - { name: bookmarkId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
+    delete:
+      tags: [Chronik]
+      summary: Gemerkte Stelle löschen (ab 0.4.28; nur die eigene, sonst 404)
+      responses:
+        "204": { description: Gelöscht }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /campaigns/{campaignId}/members/me/counters:
+    parameters: [{ $ref: "#/components/parameters/campaignId" }]
+    put:
+      tags: [Charaktere]
+      summary: Eigene Zählerstände setzen (ab 0.4.28)
+      description: |
+        Nur das Mitglied selbst (Rolle player); die SL liest sie, ändert sie aber nicht. Ersetzt alle Stände. Nur
+        Zählerarten aus CampaignSettings.counterKinds (andere → 400 `counter_unknown`); counterKinds leer → 403
+        `counters_off`. Zähler gehen nie an ein Sprachmodell, nie in Kapitel, nie an andere Spielende und nicht in einen
+        Umzug. Wird eine Zählerart entfernt, verwirft der Server ihre Stände.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [values]
+              properties:
+                values:
+                  type: array
+                  maxItems: 12
+                  items: { $ref: "#/components/schemas/CounterValue" }
+      responses:
+        "200":
+          description: Neuer Stand
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CounterValue" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /campaigns/{campaignId}/members/me/world:
     parameters: [{ $ref: "#/components/parameters/campaignId" }]
@@ -2204,6 +2422,22 @@ paths:
                       trackMemberId:
                         type: string
                         description: Nur bei source=discord – welches Mitglied auf dieser Spur spricht
+                spans:
+                  type: array
+                  maxItems: 500
+                  description: |
+                    Ab 0.4.28, freiwillig, nur bei source=table: Zeiten (Uhr des aufnehmenden Geräts), in denen wirklich
+                    aufgenommen wurde – zwischen zwei Spannen lag eine Pause. Zusammen ergeben sie die Länge der Aufnahme.
+                    Der Server rechnet damit gemerkte Stellen (Bookmark.at) in eine Zeit der Aufnahme um. Fehlt das Feld,
+                    gilt playedAt als Beginn ohne Pausen. Der Server prüft: aufsteigend, ohne Überlappung, jede Spanne > 0,
+                    alle zwischen playedAt − 12 h und dem Ende des Hochladens, Summe passt zur Länge (± 60 s). Passt etwas
+                    nicht, verwirft er die Spannen still – nie ein Fehler, nie ein Hindernis für das Hochladen.
+                  items:
+                    type: object
+                    required: [startedAt, endedAt]
+                    properties:
+                      startedAt: { type: string, format: date-time }
+                      endedAt: { type: string, format: date-time }
       responses:
         "201":
           description: Upload angelegt
@@ -3780,6 +4014,12 @@ components:
         allowCloudSummary: { type: boolean }
         allowExternalTranscription: { type: boolean }
         allowCharacterAnalysis: { type: boolean }
+        playerProposals: { type: boolean, description: "Ab 0.4.28" }
+        counterKinds:
+          type: array
+          maxItems: 8
+          items: { $ref: "#/components/schemas/CounterKind" }
+          description: Ab 0.4.28, ersetzt die ganze Liste
 
     CampaignSettings:
       type: object
@@ -3793,6 +4033,18 @@ components:
         allowCloudSummary: { type: boolean }
         allowExternalTranscription: { type: boolean }
         allowCharacterAnalysis: { type: boolean }
+        playerProposals:
+          type: boolean
+          description: |
+            Ab 0.4.28: Spielende dürfen Einträge für die Bibel vorschlagen. Standard true. Fehlt bei älteren Servern
+            (dann gibt es die Funktion nicht).
+        counterKinds:
+          type: array
+          maxItems: 8
+          items: { $ref: "#/components/schemas/CounterKind" }
+          description: |
+            Ab 0.4.28: Zähler am Charakter (LeP, AsP …). Leer = aus (Standard). Die App schlägt Arten je Spielsystem vor;
+            die SL wählt. Fehlt bei älteren Servern.
         characterSheetLimits:
           description: Nur lesbar, wie Campaign.characterSheetLimits
           oneOf:
@@ -4128,6 +4380,17 @@ components:
           enum: [active, retired, deceased, null]
           description: Ab 0.4.7
         characterNickname: { type: [string, "null"], description: "Ab 0.4.7" }
+        characterPronouns:
+          type: [string, "null"]
+          description: |
+            Ab 0.4.28: wie über die Figur gesprochen wird (aus Character.pronouns), für alle Mitglieder sichtbar und für
+            die Recap-Pipeline erlaubt (wie characterSummary).
+        counters:
+          type: array
+          items: { $ref: "#/components/schemas/CounterValue" }
+          description: |
+            Ab 0.4.28: Zählerstände – nur für die Person selbst und die SL. Für alle anderen fehlt das Feld ganz (nicht
+            leer) in jeder Ausgabe, auch in Umzug und Datenauskunft anderer. Fehlt auch, wenn counterKinds leer ist.
         moveConsentAt:
           type: [string, "null"]
           format: date-time
@@ -4275,9 +4538,105 @@ components:
                 wurde beim Beitritt in alle nicht-leeren hiddenFromMemberIds-Listen aufgenommen; die SL gibt einzeln
                 frei (PATCH /entries/{id}) und erledigt den Hinweis mit DELETE /campaigns/{id}/gm-notices/{noticeId}.
               items: { $ref: "#/components/schemas/GmNotice" }
+            openPlayerProposals:
+              type: integer
+              description: Ab 0.4.28, nur für die SL (für Spielende weggelassen) – offene Vorschläge von Spielenden
+            liveSessionId:
+              type: [string, "null"]
+              description: |
+                Ab 0.4.28: Runde, die gerade aufgenommen wird oder auf das Hochladen wartet (state created oder uploading,
+                playedAt in den letzten 16 Stunden). Nur für die SL und für Anwesende dieser Runde, sonst null. Die App
+                zeigt Anwesenden damit „Merken“.
             members:
               type: array
               items: { $ref: "#/components/schemas/Member" }
+
+    PlayerProposalIn:
+      type: object
+      required: [entryType, title]
+      properties:
+        entryType: { type: string, enum: [npc, location, quest, item, faction, other] }
+        title: { type: string, minLength: 1, maxLength: 120 }
+        detail: { type: string, maxLength: 2000 }
+        targetEntryId:
+          type: [string, "null"]
+          description: Ergänzung zu diesem Eintrag (muss für die Person sichtbar sein, sonst 404)
+
+    PlayerProposal:
+      allOf:
+        - $ref: "#/components/schemas/PlayerProposalIn"
+        - type: object
+          required: [id, campaignId, authorMemberId, state, createdAt]
+          properties:
+            id: { type: string }
+            campaignId: { type: string }
+            authorMemberId: { type: string }
+            state:
+              type: string
+              enum: [open, accepted, rejected, withdrawn, closed]
+              description: |
+                Die SL sieht den echten Zustand (open, accepted, rejected, withdrawn). Die Urheberin sieht accepted nur, wenn
+                sie den Eintrag sieht UND ihr Text im für sie sichtbaren Teil steht (nicht nur in gmNotes, nicht verborgen
+                vor ihr). Abgelehnt, in Verborgenes oder nur in gmNotes übernommen → für sie closed („Die Spielleitung hat
+                ihn gesehen“), gleich und ununterscheidbar. Wird der Eintrag später für sie sichtbar, darf der Server auf
+                accepted wechseln. Ältere Apps zeigen closed wie einen unbekannten Zustand.
+            createdAt: { type: string, format: date-time }
+            decidedAt: { type: [string, "null"], format: date-time }
+            resultEntryId:
+              type: [string, "null"]
+              description: |
+                Eintrag, der daraus wurde bzw. ergänzt wurde. Für die Urheberin nur bei state accepted (siehe dort), sonst
+                null.
+
+    PlayerProposalDecision:
+      type: object
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [accept, reject] }
+        entryType: { type: string, enum: [npc, location, quest, item, faction, other] }
+        title: { type: string, minLength: 1, maxLength: 120 }
+        detail: { type: string, maxLength: 2000 }
+        gmNotes: { type: [string, "null"] }
+        visibility: { $ref: "#/components/schemas/Visibility" }
+        hiddenFromMemberIds: { type: array, items: { type: string } }
+        mergeIntoEntryId:
+          type: [string, "null"]
+          description: Ergänzen statt neu anlegen; Standard targetEntryId. null mit targetEntryId = doch neu anlegen
+        holderMemberId: { type: [string, "null"], description: "Nur bei item" }
+
+    Bookmark:
+      type: object
+      required: [id, sessionId, at, createdAt]
+      properties:
+        id: { type: string }
+        sessionId: { type: string }
+        at: { type: string, format: date-time, description: "Uhrzeit, zu der gemerkt wurde" }
+        note: { type: [string, "null"] }
+        offsetMs:
+          type: [integer, "null"]
+          description: Zeit in der Aufnahme (aus Upload spans); null, solange unbekannt oder außerhalb der Aufnahme
+        recapParagraph:
+          type: [integer, "null"]
+          description: |
+            Nach dem Veröffentlichen: Absatz des Kapitels (ab 0 in Recap.text), der diese Stelle erzählt – soweit der
+            Server ihn über die Belege findet; sonst null. Nur ein Hinweis, das Kapitel ändert sich dadurch nicht.
+        createdAt: { type: string, format: date-time }
+
+    CounterKind:
+      type: object
+      required: [id, label]
+      properties:
+        id: { type: string, pattern: "^[a-z0-9_-]{1,24}$" }
+        label: { type: string, minLength: 1, maxLength: 24, description: "z. B. LeP" }
+        hint: { type: [string, "null"], maxLength: 60, description: "z. B. Lebenspunkte" }
+
+    CounterValue:
+      type: object
+      required: [kindId, value]
+      properties:
+        kindId: { type: string }
+        value: { type: integer, minimum: -9999, maximum: 99999 }
+        max: { type: [integer, "null"], minimum: 0, maximum: 99999 }
 
     Attendee:
       type: object
@@ -4777,6 +5136,12 @@ components:
             die Suche der Spieler findet sie nur dort. Recap-Pipeline: nur aliases öffentlicher, nicht teilweise
             verborgener Einträge; Vorschlags-Pipeline, Dublettenprüfung (Proposal.match) und Namenshilfe: alle. Doppelte und
             der Name selbst fallen beim Speichern weg. Fehlt bei älteren Servern.
+        pronouns:
+          type: [string, "null"]
+          maxLength: 32
+          description: |
+            Ab 0.4.28, freiwillig, sinnvoll bei npc: wie über die Figur gesprochen wird. Sichtbar wie der Name. Die
+            Recap-Pipeline bekommt es nur bei Einträgen, die sie ohnehin bekommt (öffentlich, nicht teilweise verborgen).
         visibility: { $ref: "#/components/schemas/Visibility" }
         hiddenFromMemberIds:
           type: array
@@ -4843,6 +5208,12 @@ components:
         summary: { type: [string, "null"], maxLength: 2000, description: "wird zu Member.characterSummary (alle Mitglieder; darf in Recap/Vorschläge)" }
         backstory: { type: [string, "null"], maxLength: 20000, description: "wird zu Member.characterBackstory (nur Person und SL; nie in Recap/Vorschläge)" }
         system: { type: [string, "null"], maxLength: 64, description: "Regelsystem als freier Text, nur Anzeige" }
+        pronouns:
+          type: [string, "null"]
+          maxLength: 32
+          description: |
+            Ab 0.4.28, freiwillig: wie andere über die Figur sprechen („sie“, „er“ oder eigener Text). Wird zu
+            Member.characterPronouns. Ältere Server ignorieren das Feld.
         status: { type: string, enum: [active, retired, deceased] }
         statusChangedAt: { type: [string, "null"], format: date-time }
 

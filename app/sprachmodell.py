@@ -734,6 +734,8 @@ def _kopf(ein: dict) -> str:
             runde.append("- Spielleitung (leitet die Runde, keine Figur)")
         else:
             c = p.get("charakter") or "(ohne Charaktername)"
+            if p.get("pronomen"):  # 0.4.28
+                c += f" (Pronomen: {p['pronomen']})"
             kurz = f" – {p['charakter_kurz']}" if p.get("charakter_kurz") else ""
             runde.append(f"- {p['name']} spielt {c}{kurz}")
     runde += [f"- {g}: Gast" for g in ein.get("gaeste", [])]
@@ -1987,7 +1989,8 @@ def _vorkommen(e: dict, text: str) -> bool:
 def _namenszeile(e: dict) -> str:
     """„Name“ bzw. „Name (auch: Alias, Alias)“ für die Eingabe des Sprachmodells."""
     auch = [a for a in (e.get("aliases") or []) if a]
-    return str(e.get("name") or "") + (f" (auch: {', '.join(auch)})" if auch else "")
+    pronomen = f" (Pronomen: {e['pronomen']})" if e.get("pronomen") else ""  # 0.4.28
+    return str(e.get("name") or "") + (f" (auch: {', '.join(auch)})" if auch else "") + pronomen
 
 
 def klartext(text) -> str:

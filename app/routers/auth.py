@@ -14,7 +14,7 @@ from app.models import AuthMethod, Organization, OrgMember, User
 from app.security import create_token, verify_password
 from app.services import user_out
 
-API_VERSION = "0.4.26"
+API_VERSION = "0.4.28"
 
 router = APIRouter(tags=["Auth"])
 
@@ -114,9 +114,10 @@ def login(body: schemas.LoginRequest, request: Request, db: Session = Depends(ge
         raise errors.ApiError(401, "setup_account_only")
     methode.last_used_at = utcnow()
     mail.sprache_merken(user, request)
-    from app import konto_mail
+    from app import geraete, konto_mail
 
-    konto_mail.vormerken(db, user, "anmeldung", ort=konto_mail.ort_aus(request))
+    geraete.app_anmeldung(db, user, body.device_id if isinstance(body.device_id, str) else None,
+                          konto_mail.ort_aus(request))  # 0.4.27: Hinweis-Mail nur bei neuem Gerät
     db.commit()
     token, expires = create_token(user.id, user.token_version, server_id())
     return schemas.LoginResponse(access_token=token, expires_at=expires, user=user_out(user))

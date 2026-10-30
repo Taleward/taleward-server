@@ -130,6 +130,10 @@ class Campaign(Base):
     settings_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     settings_updated_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     settings_updated_by: Mapped[str | None] = mapped_column(String(36), nullable=True)  # Mitglied, None = Betreiber
+    # 0.4.28: Spielende dürfen Einträge vorschlagen (Standard an) und Zählerarten am Charakter als JSON
+    # [{id, label, hint}] (leer = aus); beides nur über app/kampagnen_einstellungen.aendern
+    player_proposals: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    counter_kinds: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     members: Mapped[list["Member"]] = relationship(back_populates="campaign", cascade="all, delete-orphan")
@@ -166,6 +170,10 @@ class Member(Base):
     # 0.4.8: „Meine Charakterdaten dürfen bei einem Umzug mit“ und offener Platz aus einem Umzug (user_id None)
     move_consent_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     open_seat: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # 0.4.28: wie über die Figur gesprochen wird (öffentlich wie die Kurzbeschreibung) und Zählerstände als JSON
+    # [{kindId, value, max}] – die Stände nur für die Person selbst und die SL (app/spielende.py)
+    character_pronouns: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    counters: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     campaign: Mapped[Campaign] = relationship(back_populates="members")
     user: Mapped[User | None] = relationship()
@@ -314,6 +322,8 @@ class Entry(Base):
     origin_analysis_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     # 0.4.21: „Auch genannt“ – weitere Namen als JSON-Liste; sichtbar wie der Name
     aliases_json: Mapped[str | None] = mapped_column("aliases", Text, nullable=True)
+    # 0.4.28: Pronomen (sinnvoll bei NSC), sichtbar wie der Name
+    pronouns: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     mentions: Mapped[list["EntryMention"]] = relationship(cascade="all, delete-orphan")
     hidden_from: Mapped[list["EntryHidden"]] = relationship(cascade="all, delete-orphan")
@@ -394,6 +404,9 @@ class Upload(Base):
     completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     # 0.4.85: vom Server selbst gemessene Länge der Aufnahme (nur bei eingeschalteter Abrechnung)
     dauer_sekunden: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # 0.4.28: Spannen der Aufnahme (nur table, nur von der SL) als JSON [[start, ende], …] in Sekunden seit 1970 –
+    # nur gespeichert, wenn sie aufsteigend und ohne Überlappung sind (app/spielende.py)
+    spans: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     files: Mapped[list["UploadFile"]] = relationship(
         cascade="all, delete-orphan", order_by="UploadFile.position"
@@ -768,6 +781,39 @@ class BekanntesGeraet(Base):
     ort: Mapped[str] = mapped_column(String(16))  # verwaltung | guthaben (wo zuerst gesehen)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
+
+
+# ---------------------------------------------------------------- Spielende tragen bei (0.4.28)
+class PlayerProposal(Base):
+    """Vorschlag einer Spielerin für die Bibel. Geht nie an ein Sprachmodell und nie ins Kapitel; erst die Entscheidung
+    der SL macht einen Eintrag. Nie im Umzug. text_sichtbar: beim Übernehmen stand der Text im öffentlichen Teil (nicht nur
+    in SL-Notizen) – Grundlage dafür, was die Urheberin sieht (S56, app/spielende.py)."""
+
+    __tablename__ = "player_proposals"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    campaign_id: Mapped[str] = mapped_column(ForeignKey("campaigns.id", ondelete="CASCADE"), index=True)
+    author_member_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    entry_type: Mapped[str] = mapped_column(String(16))
+    title: Mapped[str] = mapped_column(String(120))
+    detail: Mapped[str] = mapped_column(Text, default="")
+    target_entry_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    state: Mapped[str] = mapped_column(String(16), default="open", index=True)  # open | accepted | rejected | withdrawn
+    result_entry_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    text_sichtbar: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
+    decided_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
+
+
+class Bookmark(Base):
+    """Gemerkte Stelle einer Runde – nur für die Person selbst (auch nicht für die SL). Nie an ein Sprachmodell."""
+
+    __tablename__ = "bookmarks"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
+    member_id: Mapped[str] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"), index=True)
+    at: Mapped[datetime] = mapped_column(UTCDateTime)
+    note: Mapped[str | None] = mapped_column(String(280), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
 # ---------------------------------------------------------------- Passkeys und vertraute Geräte (0.4.143)

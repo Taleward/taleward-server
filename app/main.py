@@ -47,6 +47,9 @@ def _wartung_starten() -> threading.Event | None:
 
                     passkeys.aufraeumen(db)  # 0.4.143: abgelaufene Challenges
                     vertraut.aufraeumen(db)  # 0.4.143: vertraute Geräte nach 30 Tagen
+                    from app import spielende
+
+                    spielende.aufraeumen(db)  # 0.4.144: entschiedene Vorschläge von Spielenden nach 90 Tagen
                     db.commit()
                 if any(ergebnis.values()):
                     log.info("Wartung: %s", ergebnis)
@@ -240,7 +243,9 @@ def create_app() -> FastAPI:
 
     from app.routers import guthaben as guthaben_router
 
-    for r in (guthaben_router.router, auth.router, anmeldung.router, voice_profile.router, charaktere.router, umzug_router.router, campaigns.router, sessions.router, pruefung.router, uploads.router, entries.router, miteinander.router, unterlagen.router, plaene.router):
+    from app.routers import spielende as spielende_router
+
+    for r in (guthaben_router.router, auth.router, anmeldung.router, voice_profile.router, charaktere.router, umzug_router.router, campaigns.router, sessions.router, pruefung.router, uploads.router, entries.router, miteinander.router, unterlagen.router, plaene.router, spielende_router.router):
         api.include_router(r)
     app.include_router(api)
     app.include_router(worker.router)

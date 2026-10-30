@@ -22,7 +22,9 @@ from app.models import Campaign, EinstellungsProtokoll, Member, User
 
 # Name in der Schnittstelle → Spalte der Kampagne
 FELDER = {"allowCloudSummary": "allow_cloud_summary", "allowExternalTranscription": "allow_external_transcription",
-          "allowCharacterAnalysis": "allow_character_analysis"}
+          "allowCharacterAnalysis": "allow_character_analysis", "playerProposals": "player_proposals"}
+# Einschalten nur mit Zustimmung zu den Nutzungsbedingungen (Cloud und Auswertung)
+MIT_BEDINGUNGEN = ("allowCloudSummary", "allowExternalTranscription", "allowCharacterAnalysis")
 PROTOKOLL_HOECHSTENS = 100
 
 
@@ -41,7 +43,7 @@ def sperren(db: Session) -> dict[str, tuple[bool, str]]:
     return aus
 
 
-def aendern(db: Session, c: Campaign, me: Member, user: User, werte: dict[str, bool | None], *,
+def aendern(db: Session, c: Campaign, me: Member, user: User, werte: dict, *,
             fassung: int | None = None, neu_angelegt: bool = False) -> bool:
     """Einstellungen ändern (der einzige Weg). werte: Schnittstellen-Name → neuer Wert (None = nicht ändern).
     fassung: erwartete Fassung (PATCH …/settings), sonst ohne Prüfung. neu_angelegt: beim Anlegen – ohne Protokoll und
@@ -49,11 +51,15 @@ def aendern(db: Session, c: Campaign, me: Member, user: User, werte: dict[str, b
     from app.access import require_gm, terms_verlangen
 
     require_gm(me)
+    from app import spielende
+
+    arten = werte.get("counterKinds")
+    arten_neu = spielende.arten_pruefen(arten) if arten is not None else None  # 400 vor allem anderen
     werte = {k: v for k, v in werte.items() if k in FELDER and v is not None}
     if fassung is not None and fassung != (c.settings_version or 1):
         raise errors.ApiError(409, "settings_conflict", details={"current": lesen(db, c, me).model_dump(
             mode="json", by_alias=True)})
-    if any(werte.values()):  # Einschalten nur mit Zustimmung zu den Nutzungsbedingungen
+    if any(v for k, v in werte.items() if k in MIT_BEDINGUNGEN):  # Einschalten nur mit Zustimmung
         terms_verlangen(user, db)
     gesperrt = sperren(db)
     aenderungen = {}
@@ -65,6 +71,10 @@ def aendern(db: Session, c: Campaign, me: Member, user: User, werte: dict[str, b
             raise errors.ApiError(400, "setting_locked", details={"field": feld})
         if wert != alt:
             aenderungen[feld] = (alt, wert)
+    arten_alt = spielende.arten(c)
+    if arten_neu is not None and arten_neu != arten_alt:
+        # 0.4.28: im Protokoll als Anzahl (oldValue/newValue sind Zahl oder Wahrheitswert)
+        aenderungen["counterKinds"] = (len(arten_alt), len(arten_neu))
     if not aenderungen:
         return False
     if aenderungen.get("allowCharacterAnalysis") == (True, False):
@@ -72,7 +82,10 @@ def aendern(db: Session, c: Campaign, me: Member, user: User, werte: dict[str, b
 
         charakterauswertung.abgeschaltet(db, c)  # offene Anfragen gelten als abgelehnt
     for feld, (_alt, neu) in aenderungen.items():
-        setattr(c, FELDER[feld], neu)
+        if feld in FELDER:
+            setattr(c, FELDER[feld], neu)
+    if "counterKinds" in aenderungen:
+        spielende.arten_setzen(db, c, arten_neu)  # entfernte Arten verwerfen ihre Stände (dieselbe Transaktion)
     if neu_angelegt:
         return True
     c.settings_version = (c.settings_version or 1) + 1
@@ -90,9 +103,16 @@ def lesen(db: Session, c: Campaign, me: Member) -> schemas.CampaignSettingsOut:
         version=c.settings_version or 1, allow_cloud_summary=bool(c.allow_cloud_summary),
         allow_external_transcription=bool(c.allow_external_transcription),
         allow_character_analysis=bool(c.allow_character_analysis), character_sheet_limits=_bogen_grenzen(db, c),
+        player_proposals=c.player_proposals is not False, counter_kinds=spielende_arten(c),
         locks=[schemas.SettingLockOut(field=f, value=w, reason=g) for f, (w, g) in sperren(db).items()],
         updated_at=c.settings_updated_at or c.created_at,
         updated_by_member_id=c.settings_updated_by if me.role == "gm" else None)
+
+
+def spielende_arten(c: Campaign) -> list[schemas.CounterKind]:
+    from app import spielende
+
+    return [schemas.CounterKind(**a) for a in spielende.arten(c)]
 
 
 def _wert(roh: str | None):

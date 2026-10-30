@@ -33,11 +33,15 @@ OPTIONAL_FIELDS = {"characterBackstory", "gmNotes", "hiddenFromMemberIds", "memb
                    "formerHolderMemberId",  # 0.4.9: nur für die SL
                    "assignedMemberId",  # 0.4.10: erst nach der Bestätigung der Stimmen
                    "gmWarnings",  # 0.4.21: nur für die SL, für Spieler weggelassen
+                   "counters", "openPlayerProposals",  # 0.4.28: nur Person selbst bzw. SL, sonst weggelassen
                    "user",
                    "topUpUrl"}  # 0.4.25: fehlt ohne eingetragene öffentliche Adresse (G15)
 
 # Statuscodes, die in der YAML fehlen, aber fachlich nötig sind – für den nächsten Änderungswunsch notiert.
-BEKANNTE_LUECKEN: set[tuple[str, str, int]] = set()
+# 0.4.28: Merken (60 je Minute) und Vorschläge von Spielenden (30 je Stunde) antworten mit 429 – die YAML nennt die
+# Grenze im Text, aber nicht als Antwort (an den App-Chat gemeldet).
+BEKANNTE_LUECKEN: set[tuple[str, str, int]] = {("POST", "/sessions/{sessionId}/bookmarks", 429),
+                                               ("POST", "/campaigns/{campaignId}/player-proposals", 429)}
 
 
 def _require_all(node):

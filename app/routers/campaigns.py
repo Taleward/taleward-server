@@ -197,13 +197,17 @@ def get_campaign(campaignId: str, user: User = Depends(current_user), db: Sessio
 _NUR_AUSSCHALTEN = {"allow_external_transcription", "allow_cloud_summary", "allow_character_analysis"}
 
 
-def _einstellungen(body) -> dict[str, bool | None]:
+def _einstellungen(body) -> dict:
     """Schnittstellen-Namen → Wert (nur mitgeschickte Felder)."""
     f = body.model_fields_set
     return {"allowCloudSummary": body.allow_cloud_summary if "allow_cloud_summary" in f else None,
             "allowExternalTranscription": body.allow_external_transcription
             if "allow_external_transcription" in f else None,
-            "allowCharacterAnalysis": body.allow_character_analysis if "allow_character_analysis" in f else None}
+            "allowCharacterAnalysis": body.allow_character_analysis if "allow_character_analysis" in f else None,
+            # 0.4.28 (nur PATCH …/settings und beim Anlegen; PATCH /campaigns kennt sie nicht)
+            "playerProposals": getattr(body, "player_proposals", None) if "player_proposals" in f else None,
+            "counterKinds": [k.model_dump() for k in body.counter_kinds]
+            if "counter_kinds" in f and getattr(body, "counter_kinds", None) is not None else None}
 
 
 @router.patch("/campaigns/{campaignId}", response_model=schemas.CampaignOut, response_model_exclude_unset=True)
@@ -396,6 +400,9 @@ def remove_member(campaignId: str, memberId: str, user: User = Depends(current_u
     from app import charakterauswertung
 
     charakterauswertung.mitglied_weg(db, target.id)  # 0.4.18: Offenes entfällt samt Text
+    from app import spielende
+
+    spielende.mitglied_weg(db, target.id)  # 0.4.28: offene Vorschläge, Merkstellen, Zähler
     db.execute(SessionSeen.__table__.delete().where(SessionSeen.member_id == target.id))
     db.execute(DateVote.__table__.delete().where(DateVote.member_id == target.id))
     db.commit()

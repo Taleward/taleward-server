@@ -3,7 +3,7 @@ import hashlib
 import math
 import threading
 
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, Request, Response
 from pydantic import Field
@@ -34,6 +34,9 @@ class FileIn(schemas.ApiModel):
 class UploadStart(schemas.ApiModel):
     source: Literal["table", "discord"]
     files: list[FileIn] = Field(max_length=500)
+    # 0.4.28: Zeiten, in denen aufgenommen wurde (nur table). Bewusst ohne Schema: passt etwas nicht, verwirft der
+    # Server die Spannen still (app/spielende.spannen_pruefen) – nie ein Fehler, nie ein Hindernis für das Hochladen
+    spans: Any = None
 
 
 class UploadFileOut(schemas.ApiModel):
@@ -118,6 +121,10 @@ def start_upload(sessionId: str, body: UploadStart, user: User = Depends(current
         alt.state = "aborted"
     chunk = get_settings().chunk_size_bytes
     up = Upload(session_id=s.id, source=body.source, chunk_size=chunk)
+    if body.source == "table":
+        from app import spielende
+
+        up.spans = spielende.spannen_pruefen(body.spans, s.played_at)
     up.files = [
         UploadFile(position=i, file_name=f.file_name, size_bytes=f.size_bytes, mime_type=f.mime_type,
                    track_member_id=f.track_member_id, chunk_count=math.ceil(f.size_bytes / chunk))

@@ -202,7 +202,7 @@ def _charaktere(mitglieder: list[Member], kampagnen: dict) -> list[dict]:
 
 
 def exportieren(db: Session, u: User, basis_url: str) -> dict:
-    from app import passkeys, vertraut
+    from app import passkeys, spielende, vertraut
     from app.einstellungen import angaben
 
     a = angaben(db)
@@ -269,7 +269,10 @@ def exportieren(db: Session, u: User, basis_url: str) -> dict:
             "characterNickname": m.character_nickname, "characterStatus": m.character_status,
             "recordingConsentAt": _z(m.recording_consent_at), "moveConsentAt": _z(m.move_consent_at),
             "portrait": bilder(m),
+            "characterPronouns": m.character_pronouns,  # 0.4.28
+            "counters": [w.model_dump(mode="json", by_alias=True) for w in (spielende.staende(m, kampagnen[m.campaign_id]) or [])],
         } for m in mitglieder],
+        **spielende.export(db, member_ids),  # 0.4.28: eigene Vorschläge (wie die Person sie sieht) und Merkstellen
         "characters": _charaktere(mitglieder, kampagnen),  # 0.4.7
         "sessionsAttended": [{"campaignId": s.campaign_id, "sessionId": s.id, "number": s.number, "title": s.title,
                               "playedAt": _z(s.played_at), "consent": a_.consent, "consentSource": a_.consent_source,
@@ -353,7 +356,7 @@ def entfernen(db: Session, u: User) -> None:
         _kampagne_loeschen(db, c)
     db.flush()
     jetzt = utcnow()
-    from app import charaktere, charakterauswertung, figuren
+    from app import charaktere, charakterauswertung, figuren, spielende
 
     for m in db.scalars(select(Member).where(Member.user_id == u.id)):
         if m.left_at is None:
@@ -367,6 +370,7 @@ def entfernen(db: Session, u: User) -> None:
         m.user_id, m.deleted_at = None, jetzt
         charaktere.beitritt_vergessen(db, m.id)  # 0.4.14
         charakterauswertung.mitglied_weg(db, m.id)  # 0.4.18
+        spielende.mitglied_weg(db, m.id)  # 0.4.28: offene Vorschläge, Merkstellen, Zähler
         db.execute(SessionSeen.__table__.delete().where(SessionSeen.member_id == m.id))
         db.execute(DateVote.__table__.delete().where(DateVote.member_id == m.id))  # Kommentare bleiben stehen
     stimmprofile.loeschen(db, u.id)

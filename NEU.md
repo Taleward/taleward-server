@@ -1,8 +1,11 @@
-Fassung 0.4.143
+Fassung 0.4.144
 
 ## Was ist neu
 
-- Passkeys als zweiter Faktor: In der Verwaltung und auf der Guthaben-Seite lässt sich der Code aus der Authenticator-App durch Windows Hello, Fingerabdruck oder Gesicht am Handy oder einen Sicherheitsschlüssel ersetzen (Verwaltung → Anmeldung → Dein zweiter Faktor → Passkey hinzufügen). Das Passwort bleibt, der Code bleibt als Rückweg. Voraussetzung ist die öffentliche Adresse des Servers mit https.
-- Vertraute Geräte: Nach dem Code oder Passkey lässt sich ein Browser 30 Tage lang als vertraut eintragen; dort fragt die Anmeldung dann nur noch nach dem Passwort. Die Liste mit Entfernen steht unter Anmeldung. Ein Passwortwechsel, ein neuer zweiter Faktor oder ein entfernter Passkey machen alle vertrauten Geräte ungültig.
-- Heikle Schritte verlangen den zweiten Faktor frisch (höchstens fünf Minuten alt): Verwalter anlegen oder entfernen, Passwörter setzen, Konten löschen, Abrechnung und Preise, Gutschriften und Gutscheine, Schlüssel von Zahlungsanbietern, Cloud-Schlüssel, Anmeldedienste, Sicherungen herunterladen, neue Fassung der Nutzungsbedingungen; auf der Guthaben-Seite Aufladen, Gutscheine und Kampagnen abgeben oder übernehmen. Wer gerade mit Code oder Passkey angemeldet ist, merkt davon nichts.
-- Seit 0.4.142: Probelauf mit „Kapitel je Szene“ zum Vergleichen.
+- Spielende tragen bei (für die App ab Schnittstelle 0.4.28): Spielende können Einträge für die Bibel vorschlagen oder zu einem Eintrag etwas ergänzen. Die Spielleitung übernimmt oder lehnt ab; erst dann entsteht ein Eintrag, angehängt und nie überschrieben. Spielende sehen nur ihre eigenen Vorschläge, und ob etwas abgelehnt oder ins Geheime übernommen wurde, sieht für sie gleich aus. Abschalten in der App unter Kampagne verwalten.
+- Merken: Wer am Tisch sitzt, kann sich während der Runde Stellen merken und findet sie später im Kapitel wieder. Die gemerkten Stellen sieht nur die Person selbst, auch die Spielleitung nicht.
+- Pronomen für Figuren und NSC; die Zusammenfassung nutzt sie nur bei Einträgen, die alle kennen.
+- Zähler am Charakter (zum Beispiel Lebenspunkte), wenn die Spielleitung sie für die Kampagne einschaltet. Die Stände sehen nur die Person selbst und die Spielleitung.
+- Nichts davon geht an ein Sprachmodell oder in einen Umzug. Vorschläge werden 90 Tage nach der Entscheidung gelöscht; beim Austritt fallen offene Vorschläge und gemerkte Stellen weg.
+- Die App meldet bei der Anmeldung eine Gerätekennung; ein bekanntes Handy löst dann keine Hinweis-Mail mehr aus.
+- Seit 0.4.143: Passkeys (Windows Hello, Fingerabdruck, Sicherheitsschlüssel) als zweiter Faktor für Verwaltung und Guthaben-Seite, vertraute Geräte für 30 Tage, heikle Schritte verlangen den zweiten Faktor frisch.

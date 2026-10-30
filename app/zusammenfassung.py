@@ -51,6 +51,7 @@ class Person:
     rolle: str  # gm | player
     charakter: str | None = None
     charakter_kurz: str | None = None  # characterSummary (für alle sichtbar)
+    pronomen: str | None = None  # 0.4.28: characterPronouns (für alle sichtbar)
 
 
 @dataclass
@@ -68,6 +69,7 @@ class BekannterEintrag:
     name: str
     zusammenfassung: str  # nur öffentlicher Text
     aliases: list[str] = field(default_factory=list)  # 0.4.21: nur bei allgemein bekannten Einträgen
+    pronomen: str | None = None  # 0.4.28: nur bei allgemein bekannten Einträgen
 
 
 @dataclass
@@ -110,7 +112,8 @@ def eingabe_bauen(db: Session, s: GameSession) -> Eingabe:
     for a in s.attendees:
         if a.member_id and a.member_id in mitglieder:
             m = mitglieder[a.member_id]
-            personen.append(Person(m.id, m.anzeigename, m.role, m.character_name, m.character_summary))
+            personen.append(Person(m.id, m.anzeigename, m.role, m.character_name, m.character_summary,
+                                   m.character_pronouns))
         elif a.guest_name:
             gaeste.append(a.guest_name)
 
@@ -137,7 +140,7 @@ def eingabe_bauen(db: Session, s: GameSession) -> Eingabe:
     for e in db.scalars(select(Entry).where(Entry.campaign_id == c.id).order_by(Entry.updated_at.desc())):
         # Teilweise verborgene Einträge („Wer weiß was“) wie gm_only behandeln – den Recap lesen alle (0.3.6)
         if e.allgemein_bekannt:  # 0.4.89: auch Geheimes aus Bogen/Hintergrund nicht als bekannt
-            bibel.append(BekannterEintrag(e.id, e.type, e.name, e.summary, e.aliases))
+            bibel.append(BekannterEintrag(e.id, e.type, e.name, e.summary, e.aliases, e.pronouns))
         else:
             geheim.append(GeheimerEintrag(e.id, e.type, e.name, e.aliases))
     from app import begriffe, woerterbuch

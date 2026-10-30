@@ -6,7 +6,7 @@ response_model_exclude_unset=True, und die Ausgabe-Funktionen in services.py set
 Feld ausdrücklich.
 """
 from datetime import datetime, timezone
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.alias_generators import to_camel
@@ -106,6 +106,7 @@ class AuthProviderOut(ApiModel):
 class LoginRequest(ApiModel):
     username: str
     password: str
+    device_id: Any = None  # 0.4.27: freiwillig; ungültige Werte (auch kein Text) ignoriert der Server (app/geraete.py)
 
 
 class UserOut(ApiModel):
@@ -167,6 +168,7 @@ class PasswordChangeRequest(ApiModel):
 class OidcExchangeRequest(ApiModel):
     ticket: str = Field(max_length=200)
     verifier: str = Field(max_length=200)
+    device_id: Any = None  # 0.4.27, wie bei LoginRequest
 
 
 class OidcExchangeResponse(ApiModel):
@@ -234,6 +236,8 @@ class MemberOut(ApiModel):
     character_nickname: str | None = None
     move_consent_at: datetime | None = None  # 0.4.8
     open_seat: bool = False
+    character_pronouns: str | None = None  # 0.4.28, für alle Mitglieder
+    counters: list["CounterValue"] | None = None  # 0.4.28: nur Person selbst und SL, sonst fehlt das Feld
 
 
 class UnreadOut(ApiModel):
@@ -284,6 +288,8 @@ class CampaignOut(CampaignSummaryOut):
     gm_notices: list["GmNoticeOut"] | None = None  # 0.4.7: nur für die SL, für Spieler weggelassen
     settings_version: int | None = None  # 0.4.25, für alle Mitglieder
     billing: "CampaignBillingOut | None" = None  # 0.4.25, nur für die SL bei eingeschaltetem Guthaben
+    open_player_proposals: int | None = None  # 0.4.28, nur für die SL, für Spielende weggelassen
+    live_session_id: str | None = None  # 0.4.28, nur SL und Anwesende der Runde, sonst null
     members: list[MemberOut]
 
 
@@ -335,6 +341,7 @@ class CharacterIn(ApiModel):
     summary: str | None = Field(default=None, max_length=2000)
     backstory: str | None = Field(default=None, max_length=20000)
     system: str | None = Field(default=None, max_length=64)
+    pronouns: str | None = Field(default=None, max_length=32)  # 0.4.28 → Member.characterPronouns
     status: CharacterStatus
     status_changed_at: datetime | None = None
 
@@ -690,6 +697,7 @@ class EntryInput(ApiModel):
     links: list[Link] | None = Field(default=None, max_length=3)  # 0.4.13
     # 0.4.21: „Auch genannt“, sichtbar wie der Name; je Eintrag 1–40 Zeichen (sonst 400)
     aliases: list[Annotated[str, Field(min_length=1, max_length=40)]] | None = Field(default=None, max_length=10)
+    pronouns: str | None = Field(default=None, max_length=32)  # 0.4.28, sichtbar wie der Name
 
 
 class MentionOut(ApiModel):
@@ -707,6 +715,7 @@ class EntryOut(ApiModel):
     holder_member_id: str | None
     visibility: Visibility
     aliases: list[str] = []  # 0.4.21
+    pronouns: str | None = None  # 0.4.28
     gm_notes: str | None = None  # wird für Spieler weggelassen
     hidden_from_member_ids: list[str] | None = None  # wird für Spieler weggelassen
     first_session_number: int | None
@@ -977,10 +986,80 @@ class PayerOfferIn(ApiModel):
     member_id: str | None = Field(max_length=64)
 
 
+# ---------- Spielende tragen bei (0.4.28) ----------
+class CounterKind(ApiModel):
+    id: str = Field(pattern=r"^[a-z0-9_-]{1,24}$")
+    label: str = Field(min_length=1, max_length=24)
+    hint: str | None = Field(default=None, max_length=60)
+
+
+class CounterValue(ApiModel):
+    kind_id: str = Field(max_length=24)
+    value: int = Field(ge=-9999, le=99999)
+    max: int | None = Field(default=None, ge=0, le=99999)
+
+
+class CountersIn(ApiModel):
+    values: list[CounterValue] = Field(max_length=12)
+
+
+PlayerEntryType = Literal["npc", "location", "quest", "item", "faction", "other"]
+
+
+class PlayerProposalIn(ApiModel):
+    entry_type: PlayerEntryType
+    title: str = Field(min_length=1, max_length=120)
+    detail: str = Field(default="", max_length=2000)
+    target_entry_id: str | None = Field(default=None, max_length=64)
+
+
+class PlayerProposalOut(ApiModel):
+    id: str
+    campaign_id: str
+    author_member_id: str
+    entry_type: PlayerEntryType
+    title: str
+    detail: str
+    target_entry_id: str | None
+    state: Literal["open", "accepted", "rejected", "withdrawn", "closed"]
+    created_at: datetime
+    decided_at: datetime | None
+    result_entry_id: str | None
+
+
+class PlayerProposalDecision(ApiModel):
+    decision: Literal["accept", "reject"]
+    entry_type: PlayerEntryType | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=120)
+    detail: str | None = Field(default=None, max_length=2000)
+    gm_notes: str | None = Field(default=None, max_length=20000)
+    visibility: Visibility | None = None
+    hidden_from_member_ids: list[str] | None = Field(default=None, max_length=500)
+    merge_into_entry_id: str | None = Field(default=None, max_length=64)
+    holder_member_id: str | None = Field(default=None, max_length=64)
+
+
+class BookmarkIn(ApiModel):
+    at: datetime | None = None
+    note: str | None = Field(default=None, max_length=280)
+
+
+class BookmarkOut(ApiModel):
+    id: str
+    session_id: str
+    at: datetime
+    note: str | None
+    offset_ms: int | None
+    recap_paragraph: int | None
+    created_at: datetime
+
+
 class CampaignSettingsIn(ApiModel):
     allow_cloud_summary: bool | None = None
     allow_external_transcription: bool | None = None
     allow_character_analysis: bool | None = None
+    player_proposals: bool | None = None  # 0.4.28
+    counter_kinds: list[CounterKind] | None = Field(default=None, max_length=8)  # 0.4.28, ganze Liste
 
 
 class CampaignSettingsPatch(CampaignSettingsIn):
@@ -998,6 +1077,8 @@ class CampaignSettingsOut(ApiModel):
     allow_cloud_summary: bool
     allow_external_transcription: bool
     allow_character_analysis: bool
+    player_proposals: bool = True  # 0.4.28
+    counter_kinds: list[CounterKind] = []  # 0.4.28
     character_sheet_limits: SheetLimitsOut | None
     locks: list[SettingLockOut]
     updated_at: datetime
@@ -1014,5 +1095,5 @@ class CampaignSettingsLogOut(ApiModel):
     by_operator: bool
 
 
-for _m in (CampaignOut, CharacterAnalysisOut, CampaignCreate, ProcessingStatusOut, CampaignDocumentOut):
+for _m in (MemberOut, CampaignOut, CharacterAnalysisOut, CampaignCreate, ProcessingStatusOut, CampaignDocumentOut):
     _m.model_rebuild()

@@ -62,6 +62,33 @@ def anmeldung(antwort: Response, request: Request, db: Session, user: User, ort:
     merken(antwort, request, db, user, ort)
 
 
+_GERAET_KENNUNG = __import__("re").compile(r"^[A-Za-z0-9_-]{16,64}$")
+
+
+def app_anmeldung(db: Session, user: User, device_id: str | None, ort: str | None, dienst: str | None = None) -> None:
+    """Schnittstelle 0.4.27: Anmeldung aus der App mit freiwilliger Gerätekennung (deviceId). Gespeichert wird nur der
+    SHA-256-Wert, gebunden an das Konto. Bekannt → keine Mail; neu → Mail vormerken und merken. Ohne oder mit ungültiger
+    Kennung bleibt es beim bisherigen Weg (höchstens eine Mail je 15 Minuten, app/konto_mail.py)."""
+    from app import konto_mail
+
+    kennung = (device_id or "").strip()
+    if not _GERAET_KENNUNG.match(kennung):
+        konto_mail.vormerken(db, user, "anmeldung", ort=ort, dienst=dienst)
+        return
+    schluessel = _hash(f"app:{user.id}:{kennung}")
+    g = db.get(BekanntesGeraet, schluessel)
+    if g is not None and g.user_id == user.id:
+        g.last_seen_at = utcnow()
+        return
+    konto_mail.vormerken(db, user, "anmeldung", ort=ort, dienst=dienst)
+    db.add(BekanntesGeraet(id=schluessel, user_id=user.id, ort="app"))
+    db.flush()
+    bekannte = list(db.scalars(select(BekanntesGeraet).where(BekanntesGeraet.user_id == user.id)
+                               .order_by(BekanntesGeraet.last_seen_at.desc())))
+    for alt in bekannte[MAX_JE_KONTO:]:
+        db.delete(alt)
+
+
 def vergessen(db: Session, user_id: str) -> int:
     """Alle bekannten Geräte eines Kontos vergessen (z. B. nach einem Passwortwechsel oder auf Wunsch)."""
     return db.execute(delete(BekanntesGeraet).where(BekanntesGeraet.user_id == user_id)).rowcount

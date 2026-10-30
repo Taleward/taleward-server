@@ -94,8 +94,15 @@ def member_out(m: Member, viewer: Member | None) -> schemas.MemberOut:
         portrait_updated_at=m.portrait_updated_at, deleted_at=m.deleted_at, left_at=m.left_at,
         character_status=m.character_status, character_nickname=m.character_nickname,
         move_consent_at=m.move_consent_at, open_seat=m.open_seat,
+        character_pronouns=m.character_pronouns,  # 0.4.28, öffentlich wie die Kurzbeschreibung
     )
     if viewer is not None and may_see_backstory(viewer, m):
+        # 0.4.28: Zählerstände nur für die Person selbst und die SL – für alle anderen fehlt das Feld
+        from app import spielende
+
+        werte = spielende.staende(m, m.campaign)
+        if werte is not None:
+            daten["counters"] = werte
         daten["character_backstory"] = m.character_backstory
         # 0.4.8: die Kennung ist der Schlüssel zu einem offenen Platz – nur die Person selbst und die SL
         daten.update(character_id=m.character_id, character_version=m.character_version)
@@ -224,6 +231,9 @@ def campaign_out(db: Session, c: Campaign, me: Member) -> schemas.CampaignOut:
         links=links.lesen(c.links, nur_geteilt=me.role != "gm"),  # 0.4.13
         settings_version=c.settings_version or 1,  # 0.4.25
     )
+    from app import spielende
+
+    out.live_session_id = spielende.live_session_id(db, c, me)  # 0.4.28: nur SL und Anwesende, sonst null
     from app.routers.guthaben import billing_out
 
     out.billing = billing_out(db, c, me)  # 0.4.25: nur SL bei eingeschaltetem Guthaben, sonst null
@@ -234,6 +244,7 @@ def campaign_out(db: Session, c: Campaign, me: Member) -> schemas.CampaignOut:
         from app.charaktere import hinweise
 
         out.gm_notices = hinweise(db, c)  # 0.4.7
+        out.open_player_proposals = spielende.offene_anzahl(db, c.id)  # 0.4.28, nur für die SL
     return out
 
 
@@ -477,6 +488,7 @@ def entry_out(e: Entry, is_gm: bool, viewer_id: str | None = None) -> schemas.En
         id=e.id, campaign_id=e.campaign_id, type=e.type, name=e.name, summary=e.summary,
         status=e.status, holder_member_id=e.holder_member_id, visibility=e.visibility,
         aliases=e.aliases,  # 0.4.21: sichtbar wie der Name (Spieler sehen nur Einträge, die sie sehen dürfen)
+        pronouns=e.pronouns,  # 0.4.28: sichtbar wie der Name
         first_session_number=min(numbers) if numbers else None,
         last_session_number=max(numbers) if numbers else None,
         mentions=[schemas.MentionOut(session_number=mn.session.number, note=mn.note) for mn in mentions],
@@ -493,7 +505,7 @@ def entry_out(e: Entry, is_gm: bool, viewer_id: str | None = None) -> schemas.En
     return schemas.EntryOut(**daten)
 
 
-_PUBLIC_FIELDS = ("type", "name", "summary", "status", "holder_member_id", "visibility", "aliases_json")
+_PUBLIC_FIELDS = ("type", "name", "summary", "status", "holder_member_id", "visibility", "aliases_json", "pronouns")
 
 
 def apply_entry_input(db: Session, e: Entry, data: schemas.EntryInput, require_public_text: bool = False) -> None:
@@ -545,6 +557,8 @@ def apply_entry_input(db: Session, e: Entry, data: schemas.EntryInput, require_p
         e.aliases_json = aliasse.schreiben(aliasse.bereinigen(e.name, data.aliases))
     elif "name" in fields and e.aliases:  # neuer Name darf nicht zugleich Alias sein
         e.aliases_json = aliasse.schreiben(aliasse.bereinigen(e.name, e.aliases))
+    if "pronouns" in fields:  # 0.4.28
+        e.pronouns = aliasse.zeichen_bereinigen(data.pronouns or "")[:32].strip() or None
     if require_public_text and e.visibility == "public" and not (e.summary or "").strip():
         raise errors.bad_request("validation_error", "public_text_required")
     if e.type != "quest":

@@ -50,12 +50,13 @@ def _pc_abgleichen(db: Session, me: Member) -> None:
         e = Entry(campaign_id=me.campaign_id, type="pc", name=me.character_name or "?", summary="",
                   visibility="public", created_at=jetzt)
         db.add(e)
-    alt = (e.name, e.summary, e.holder_member_id)
+    alt = (e.name, e.summary, e.holder_member_id, e.pronouns)
     e.name = (me.character_name or e.name)[:300]
     e.summary = me.character_summary or ""
+    e.pronouns = me.character_pronouns  # 0.4.28
     e.holder_member_id = me.id
     e.pc_character_id = me.character_id
-    if (e.name, e.summary, e.holder_member_id) != alt or e.public_changed_at is None:
+    if (e.name, e.summary, e.holder_member_id, e.pronouns) != alt or e.public_changed_at is None:
         e.updated_at = jetzt
         if e.visibility == "public":
             e.public_changed_at = jetzt
@@ -70,6 +71,10 @@ def _uebernehmen(me: Member, ch: schemas.CharacterIn) -> None:
     me.character_summary = (ch.summary or "").strip() or None
     me.character_backstory = (ch.backstory or "").strip() or None
     me.character_system = (ch.system or "").strip() or None
+    if "pronouns" in ch.model_fields_set:  # 0.4.28; ältere Apps schicken das Feld nicht – dann bleibt es
+        from app import aliasse
+
+        me.character_pronouns = aliasse.zeichen_bereinigen(ch.pronouns or "")[:32].strip() or None
 
 
 def setzen(db: Session, me: Member, ch: schemas.CharacterIn, beitritt: bool = False) -> None:
@@ -102,7 +107,7 @@ def loesen(db: Session, me: Member) -> None:
         e.holder_member_id = None
         e.updated_at = utcnow()
     me.character_id = me.character_version = me.character_status = None
-    me.character_nickname = me.character_system = None
+    me.character_nickname = me.character_system = me.character_pronouns = None
 
 
 # ---------------------------------------------------------------- Neuzugang
