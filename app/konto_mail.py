@@ -21,7 +21,8 @@ from app.db import utcnow
 from app.models import User
 
 log = logging.getLogger("konto_mail")
-ANLAESSE = ("anmeldung", "passwort", "dienst_neu", "dienst_weg", "email", "faktor_an", "faktor_aus")
+ANLAESSE = ("anmeldung", "passwort", "dienst_neu", "dienst_weg", "email", "faktor_an", "faktor_aus",
+            "passkey_an", "passkey_aus", "vertraut")  # 0.4.143: Passkeys und vertraute Geräte
 ANMELDUNG_FENSTER = 15 * 60
 _SCHLUESSEL = "konto_mails"
 

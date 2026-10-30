@@ -22,7 +22,7 @@ from app.models import Organization, OrgMember, User, Worker
 from app.verwaltung.i18n import sprache_von
 from app.verwaltung.router import (
     COOKIE, MIN_PASSWORT, SITZUNG_STUNDEN, NichtAngemeldet, _cookie_wert, _versuch, _online_grenze,
-    _seite, csrf_pruefen, sitzung, tr, verwalter,
+    _seite, csrf_pruefen, faktor_frisch, sitzung, tr, verwalter,
 )
 
 router = APIRouter(prefix="/verwaltung", include_in_schema=False)
@@ -539,7 +539,7 @@ def nutzungsbedingungen_speichern(request: Request, aktion: str = Form(""), text
 
 @router.post("/nutzungsbedingungen/neue-fassung", dependencies=[Depends(csrf_pruefen)])
 def nutzungsbedingungen_neue_fassung(request: Request, bestaetigung: str = Form(""),
-                                     user: User = Depends(verwalter), db: Session = Depends(get_db)):
+                                     user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):
     """Fassung hochzählen: Alle Konten müssen in der App erneut zustimmen, bis dahin nur Lesen."""
     from app import nutzungsbedingungen
     from app.einstellungen import angaben

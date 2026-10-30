@@ -202,6 +202,7 @@ def _charaktere(mitglieder: list[Member], kampagnen: dict) -> list[dict]:
 
 
 def exportieren(db: Session, u: User, basis_url: str) -> dict:
+    from app import passkeys, vertraut
     from app.einstellungen import angaben
 
     a = angaben(db)
@@ -252,7 +253,12 @@ def exportieren(db: Session, u: User, basis_url: str) -> dict:
                     "gmPermission": u.gm_permission, "gmRequestedAt": _z(u.gm_requested_at),  # 0.4.23
                     "gmDecidedAt": _z(u.gm_decided_at),
                     "signInMethods": [{"kind": m.kind, "createdAt": _z(m.created_at), "lastUsedAt": _z(m.last_used_at)}
-                                      for m in anmeldungen]},
+                                      for m in anmeldungen],
+                    # 0.4.143: Passkeys und vertraute Geräte – nur Name und Zeiten, keine Schlüssel
+                    "passkeys": [{"name": p["name"], "createdAt": _z(p["angelegt"]), "lastUsedAt": _z(p["zuletzt"])}
+                                 for p in passkeys.anzeige(db, u.id)],
+                    "trustedDevices": [{"name": g.bezeichnung, "area": g.bereich, "createdAt": _z(g.created_at),
+                                        "expiresAt": _z(g.expires_at)} for g in vertraut.liste(db, u.id)]},
         "organizations": [{"id": o.id, "name": o.name, "role": om.role, "joinedAt": _z(om.joined_at)}
                           for o, om in orgs],
         "memberships": [{
@@ -364,6 +370,9 @@ def entfernen(db: Session, u: User) -> None:
         db.execute(SessionSeen.__table__.delete().where(SessionSeen.member_id == m.id))
         db.execute(DateVote.__table__.delete().where(DateVote.member_id == m.id))  # Kommentare bleiben stehen
     stimmprofile.loeschen(db, u.id)
+    from app.verwaltung import zweiter_faktor
+
+    zweiter_faktor.konto_entfernt(db, u.id)  # 0.4.143: Passkeys, Faktor-Fassung, frischer Faktor (Tabellen per CASCADE)
     from app import umzug
 
     umzug.konto_entfernt(db, u.id)  # hochgeladene Teile offener Importe

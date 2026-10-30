@@ -1,0 +1,30 @@
+{% extends "basis.html" %}
+{% block titel %}{{ _("Zweiten Faktor bestätigen") }}{% endblock %}
+{% block inhalt %}
+{# 0.4.143 (S44): Schritte mit Geld, Schlüsseln oder am Faktor selbst verlangen den zweiten Faktor frisch #}
+<div class="anmeldung">
+  {% if not user %}{% include "_kopf_marke.html" %}{% endif %}
+  <div class="karte">
+    <h2>{{ _("Zweiten Faktor bestätigen") }}</h2>
+    <p>{{ _("Dieser Schritt ist heikel. Bitte bestätige noch einmal mit deinem Passkey oder dem Code aus der Authenticator-App; danach gilt die Bestätigung fünf Minuten.") }}</p>
+    <form class="formular" method="post" action="{{ ziel or '/verwaltung/bestaetigen' }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="weiter" value="{{ weiter }}">
+      {% if passkey_optionen %}
+      <input type="hidden" name="passkey" value="">
+      <div><button class="tw-btn tw-btn--primary" type="button" hidden data-passkey-anmelden="{{ passkey_optionen }}" data-meldung="passkey-meldung"
+                   data-warte="{{ _('Bestätige am Gerät – mit Windows Hello, Fingerabdruck, Gesicht oder PIN.') }}"
+                   data-fehler="{{ _('Der Passkey wurde nicht bestätigt. Versuch es noch einmal oder nimm den Code.') }}">{{ _("Mit Passkey bestätigen") }}</button></div>
+      <p class="hilfe" id="passkey-meldung" role="status"></p>
+      {% endif %}
+      <label>{{ _("Code aus deiner Authenticator-App") }}
+        <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required maxlength="20"
+               data-code-kaesten="1" data-ziffer="{{ _('Ziffer {n} von 6') }}" data-gruppe="{{ _('Code mit sechs Ziffern') }}" data-umschalten="{{ _('Stattdessen einen Wiederherstellungscode eingeben') }}"></label>
+      <div><button class="tw-btn {{ 'tw-btn--secondary' if passkey_optionen else 'tw-btn--primary' }}" type="submit">{{ _("Bestätigen") }}</button></div>
+    </form>
+    <script src="{{ statisch('code-kaesten.js') }}" defer></script>
+    {% if passkey_optionen %}<script src="{{ statisch('passkey.js') }}" defer></script>{% endif %}
+  </div>
+  <p class="zentriert"><a href="{{ zurueck or ('/verwaltung' ~ weiter) }}">{{ _("Zurück") }}</a></p>
+</div>
+{% endblock %}

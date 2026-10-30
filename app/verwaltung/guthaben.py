@@ -44,6 +44,9 @@ MELDUNGEN = {
     "uebernommen": "Du zahlst jetzt für diese Kampagne.",
     "mails_an": "Du bekommst wieder Hinweise per E-Mail.",
     "mails_aus": "Hinweise per E-Mail sind abbestellt.",
+    # 0.4.143 (S44): Geld-Schritte verlangen den zweiten Faktor frisch
+    "faktor_frisch": "Dieser Schritt braucht den zweiten Faktor frisch. Bitte bestätigen und den Schritt dann noch einmal ausführen.",
+    "bestaetigt": "Bestätigt. Du kannst den Schritt jetzt ausführen.",
 }
 # 0.4.133: Die Bestätigungsseite schickt das Formular an den Zahlungsanbieter weiter – nur an diese Adressen
 FORM_ZIELE = "https://checkout.stripe.com https://www.paypal.com https://www.sandbox.paypal.com"
@@ -51,6 +54,12 @@ FORM_ZIELE = "https://checkout.stripe.com https://www.paypal.com https://www.san
 
 class _Abgemeldet(Exception):
     pass
+
+
+class _FaktorNoetig(Exception):
+    """0.4.143 (S44): Geld-Schritt ohne frischen zweiten Faktor → Bestätigungsseite."""
+
+
 
 
 def _aud() -> str:
@@ -96,6 +105,15 @@ def _angemeldet(request: Request, db: Session = Depends(get_db)) -> User:
     user = _person(request, db)
     if user is None:
         raise _Abgemeldet()
+    return user
+
+
+def _frisch(user: User = Depends(_angemeldet), db: Session = Depends(get_db)) -> User:
+    """0.4.143 (S44): Geld-Schritte nur mit frischem zweitem Faktor (höchstens 5 Minuten alt)."""
+    from app.verwaltung import zweiter_faktor
+
+    if not zweiter_faktor.frisch(db, user.id, "guthaben"):
+        raise _FaktorNoetig()
     return user
 
 
@@ -152,11 +170,14 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
     ZAEHLER.freigeben(versuch)
     from app.verwaltung import zweiter_faktor
 
-    if zweiter_faktor.aktiv(db, user.id):  # erst noch der Code
-        antwort = _code_seite(request, db)
-        antwort.set_cookie(COOKIE_CODE, _token(user, f"{server_id()}:guthaben-code", timedelta(minutes=CODE_MINUTEN)),
-                           max_age=CODE_MINUTEN * 60, httponly=True, samesite="strict",
+    from app import vertraut
+
+    if zweiter_faktor.aktiv(db, user.id) and not vertraut.pruefen(request, db, user, "guthaben"):  # erst noch der Code
+        wert = _token(user, f"{server_id()}:guthaben-code", timedelta(minutes=CODE_MINUTEN))
+        antwort = _code_seite(request, db, user=user, bindung=_jti(wert))
+        antwort.set_cookie(COOKIE_CODE, wert, max_age=CODE_MINUTEN * 60, httponly=True, samesite="strict",
                            secure=request.url.scheme == "https", path="/guthaben")
+        db.commit()
         return antwort
     from app import geraete
 
@@ -180,16 +201,30 @@ def _sitzung(request: Request, user: User) -> RedirectResponse:
     return antwort
 
 
-def _code_seite(request: Request, db: Session, fehler: str | None = None, status: int = 200) -> HTMLResponse:
+def _jti(token: str) -> str:
+    try:
+        return jwt.decode(token, options={"verify_signature": False}).get("jti") or "-"
+    except jwt.PyJWTError:
+        return "-"
+
+
+def _code_seite(request: Request, db: Session, fehler: str | None = None, status: int = 200,
+                user: User | None = None, bindung: str = "-") -> HTMLResponse:
+    """0.4.143: mit Passkey (wenn es einen gibt) und dem Haken „30 Tage vertrauen“ (S44)."""
+    from app import passkeys, vertraut
+
+    optionen = passkeys.anmeldung_beginnen(db, user, bindung) if user is not None else None
     antwort = _seite(request, "anmelden_code.html", None, db, fehler=fehler, ziel="/guthaben/anmelden/code",
-                     zurueck="/guthaben")
+                     zurueck="/guthaben", passkey_optionen=optionen, vertrauen=vertraut.angeboten(request))
     antwort.status_code = status
     return antwort
 
 
 @router.post("/anmelden/code", dependencies=[Depends(_an)])
-def anmelden_code(request: Request, code: str = Form(""), db: Session = Depends(get_db)):
+def anmelden_code(request: Request, code: str = Form(""), passkey: str = Form(""), vertrauen: str = Form(""),
+                  db: Session = Depends(get_db)):
     """Zweiter Schritt der Anmeldung: gleiche Prüfung und gleiche Fehlversuch-Grenze wie in der Verwaltung."""
+    from app import geraete, passkeys, vertraut
     from app.begrenzung import ZAEHLER
     from app.verwaltung import zweiter_faktor
     from app.verwaltung.router import _versuch
@@ -203,20 +238,73 @@ def anmelden_code(request: Request, code: str = Form(""), db: Session = Depends(
     user = db.get(User, daten.get("sub"))
     if user is None or user.token_version != daten.get("tv") or user.setup_account:
         return _zurueck()
+    bindung = daten.get("jti") or "-"
     versuch = _versuch(begrenzung.adresse(request), f"code:{user.id}")
     if versuch is None:
         return _code_seite(request, db, tr(request)("Zu viele Fehlversuche. Bitte in ein paar Minuten erneut versuchen."),
-                           429)
-    if not zweiter_faktor.pruefen(db, user.id, code):
+                           429, user, bindung)
+    if not (passkeys.anmeldung_pruefen(db, user, bindung, passkey) if passkey.strip()
+            else zweiter_faktor.pruefen(db, user.id, code)):
+        db.commit()
         return _code_seite(request, db, tr(request)(
-            "Der Code stimmt nicht oder wurde schon benutzt. Nimm den nächsten aus deiner App."), 400)
+            "Der Code stimmt nicht oder wurde schon benutzt. Nimm den nächsten aus deiner App." if not passkey.strip()
+            else "Der Passkey wurde nicht angenommen. Versuch es noch einmal oder nimm den Code."), 400, user, bindung)
     ZAEHLER.freigeben(versuch)
-    from app import geraete
-
+    zweiter_faktor.frisch_merken(db, user.id, "guthaben")
     antwort = _sitzung(request, user)
+    if vertrauen == "ja":
+        vertraut.merken(antwort, request, db, user, "guthaben")
     geraete.anmeldung(antwort, request, db, user, "guthaben")  # 0.4.141: Mail nur bei neuem Gerät
     db.commit()
     return antwort
+
+
+# ---------------------------------------------------------------- Frischer zweiter Faktor (0.4.143, S44)
+@router.get("/bestaetigen", dependencies=[Depends(_an)])
+def bestaetigen_seite(request: Request, user: User = Depends(_angemeldet), db: Session = Depends(get_db)):
+    return _bestaetigen_zeigen(request, db, user)
+
+
+def _bestaetigen_zeigen(request: Request, db: Session, user: User, fehler: str | None = None,
+                        status: int = 200) -> HTMLResponse:
+    from app import passkeys
+    from app.verwaltung import zweiter_faktor
+
+    if not zweiter_faktor.aktiv(db, user.id):
+        return _zurueck()
+    optionen = passkeys.anmeldung_beginnen(db, user, _jti(request.cookies.get(COOKIE, "")))
+    db.commit()
+    antwort = _seite(request, "bestaetigen.html", None, db, fehler=fehler, passkey_optionen=optionen,
+                     ziel="/guthaben/bestaetigen", weiter="/guthaben", zurueck="/guthaben",
+                     meldung=tr(request)(MELDUNGEN["faktor_frisch"]) if request.query_params.get("ok") == "faktor_frisch"
+                     else None)
+    antwort.status_code = status
+    return antwort
+
+
+@router.post("/bestaetigen", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
+def bestaetigen(request: Request, code: str = Form(""), passkey: str = Form(""), user: User = Depends(_angemeldet),
+                db: Session = Depends(get_db)):
+    from app import passkeys
+    from app.begrenzung import ZAEHLER
+    from app.verwaltung import zweiter_faktor
+    from app.verwaltung.router import _versuch
+
+    versuch = _versuch(begrenzung.adresse(request), f"code:{user.id}")
+    if versuch is None:
+        return _bestaetigen_zeigen(request, db, user,
+                                   tr(request)("Zu viele Fehlversuche. Bitte in ein paar Minuten erneut versuchen."), 429)
+    bindung = _jti(request.cookies.get(COOKIE, ""))
+    if (passkeys.anmeldung_pruefen(db, user, bindung, passkey) if passkey.strip()
+            else zweiter_faktor.pruefen(db, user.id, code)):
+        ZAEHLER.freigeben(versuch)
+        zweiter_faktor.frisch_merken(db, user.id, "guthaben")
+        db.commit()
+        return _zurueck("bestaetigt")
+    db.commit()
+    return _bestaetigen_zeigen(request, db, user, tr(request)(
+        "Der Code stimmt nicht oder wurde schon benutzt. Nimm den nächsten aus deiner App." if not passkey.strip()
+        else "Der Passkey wurde nicht angenommen. Versuch es noch einmal oder nimm den Code."), 400)
 
 
 @router.post("/abmelden", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
@@ -313,7 +401,7 @@ def _fehler(request: Request, db: Session, user: User, text: str, gutschein: boo
 
 
 @router.post("/gutschein", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
-def gutschein(request: Request, code: str = Form(""), guthaben_id: str = Form(""), user: User = Depends(_angemeldet),
+def gutschein(request: Request, code: str = Form(""), guthaben_id: str = Form(""), user: User = Depends(_frisch),
               db: Session = Depends(get_db)):
     from app.begrenzung import ZAEHLER
 
@@ -388,7 +476,7 @@ def _pruefen_seite(request: Request, db: Session, g, netto: int, anbieter: str, 
 
 @router.post("/aufladen", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
 def aufladen(request: Request, guthaben_id: str = Form(""), betrag: str = Form(""), anbieter: str = Form(""),
-             user: User = Depends(_angemeldet), db: Session = Depends(get_db)):
+             user: User = Depends(_frisch), db: Session = Depends(get_db)):
     """Schritt 1: Betrag und Gebühr zeigen, bevor es zum Anbieter geht."""
     g = _eigenes(db, user, guthaben_id)
     netto = _zahl_oder_none(betrag)
@@ -399,7 +487,7 @@ def aufladen(request: Request, guthaben_id: str = Form(""), betrag: str = Form("
 
 @router.post("/aufladen/weiter", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
 def aufladen_weiter(request: Request, guthaben_id: str = Form(""), betrag: str = Form(""), anbieter: str = Form(""),
-                    sofort: str = Form(""), user: User = Depends(_angemeldet), db: Session = Depends(get_db)):
+                    sofort: str = Form(""), user: User = Depends(_frisch), db: Session = Depends(get_db)):
     """Schritt 2: Vorgang anlegen und zum Anbieter weiterleiten."""
     from app.verwaltung.router import sprache_von
 
@@ -478,7 +566,7 @@ def _kampagne_als_sl(db: Session, user: User, campaign_id: str) -> Campaign:
 
 
 @router.post("/kampagnen/{campaign_id}/abgeben", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
-def abgeben(request: Request, campaign_id: str, an_user_id: str = Form(""), user: User = Depends(_angemeldet),
+def abgeben(request: Request, campaign_id: str, an_user_id: str = Form(""), user: User = Depends(_frisch),
             db: Session = Depends(get_db)):
     c = _kampagne_als_sl(db, user, campaign_id)
     try:
@@ -491,7 +579,7 @@ def abgeben(request: Request, campaign_id: str, an_user_id: str = Form(""), user
 
 
 @router.post("/kampagnen/{campaign_id}/uebernehmen", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
-def uebernehmen(request: Request, campaign_id: str, bestaetigt: str = Form(""), user: User = Depends(_angemeldet),
+def uebernehmen(request: Request, campaign_id: str, bestaetigt: str = Form(""), user: User = Depends(_frisch),
                 db: Session = Depends(get_db)):
     c = _kampagne_als_sl(db, user, campaign_id)
     if not bestaetigt:
@@ -511,6 +599,10 @@ def einbinden(app) -> None:
     @app.exception_handler(_Abgemeldet)
     async def _abgemeldet(_req: Request, _exc: _Abgemeldet):
         return RedirectResponse("/guthaben", status_code=303)
+
+    @app.exception_handler(_FaktorNoetig)
+    async def _faktor_noetig(_req: Request, _exc: _FaktorNoetig):
+        return RedirectResponse("/guthaben/bestaetigen?ok=faktor_frisch", status_code=303)
 
     @app.exception_handler(_Aus)
     async def _aus(req: Request, _exc: _Aus):

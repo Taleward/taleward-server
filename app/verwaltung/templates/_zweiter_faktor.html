@@ -15,6 +15,49 @@
   </form>
   {% elif faktor.aktiv %}
   <p><span class="marke-status marke-status--gut">{{ _("eingeschaltet") }}</span> {{ _("Noch {n} Wiederherstellungscodes übrig.", n=faktor.codes_uebrig) }}</p>
+  {# 0.4.143: Passkeys (Windows Hello, Fingerabdruck, Sicherheitsschlüssel) neben dem Code #}
+  <h3>{{ _("Passkeys") }}</h3>
+  <p class="hilfe">{{ _("Ein Passkey ersetzt beim Anmelden den Code: Windows Hello am PC, Fingerabdruck oder Gesicht am Handy, ein Sicherheitsschlüssel. Das Passwort bleibt, der Code bleibt als Rückweg.") }}</p>
+  {% if faktor.passkeys %}
+  <ul class="liste">
+    {% for p in faktor.passkeys %}
+    <li><strong>{{ p.name }}</strong><span class="leise">{{ _("angelegt") }} {{ zeit(p.angelegt) }}{% if p.zuletzt %} · {{ _("zuletzt benutzt") }} {{ zeit(p.zuletzt) }}{% endif %}</span>
+      {% if not p.passt %}<span class="marke-status marke-status--warten">{{ _("passt nicht mehr zur Adresse des Servers") }}</span>{% endif %}
+      {% if p.auffaellig %}<span class="marke-status marke-status--fehler">{{ _("Auffällig – bitte prüfen") }}</span>{% endif %}
+      <form method="post" action="/verwaltung/passkeys/{{ p.id }}/entfernen" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit">{{ _("Entfernen") }}</button></form></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if faktor.passkeys_moeglich %}
+  <form class="formular formular--zeile" method="post" action="/verwaltung/passkeys/abschliessen">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="antwort" value="">
+    <label>{{ _("Name für den Passkey (optional)") }} <input type="text" name="name" maxlength="40" placeholder="{{ _('zum Beispiel Arbeitsrechner') }}"></label>
+    <button class="tw-btn tw-btn--primary" type="button" hidden data-passkey-einrichten="/verwaltung/passkeys/beginnen" data-meldung="passkey-neu-meldung"
+            data-warte="{{ _('Bestätige am Gerät – mit Windows Hello, Fingerabdruck, Gesicht oder PIN.') }}"
+            data-fehler="{{ _('Das hat nicht geklappt. Prüfe, ob Windows Hello bzw. die Gerätesperre eingerichtet ist, und versuch es noch einmal.') }}"
+            data-zu-viele="{{ _('Zu viele Versuche. Bitte in einer Stunde noch einmal.') }}">{{ _("Passkey hinzufügen") }}</button>
+  </form>
+  <p class="hilfe" id="passkey-neu-meldung" role="status">{% if not faktor.frisch %}{{ _("Zum Hinzufügen oder Entfernen fragt der Server zuerst noch einmal nach Code oder Passkey.") }}{% endif %}</p>
+  <noscript><p class="hilfe">{{ _("Passkeys brauchen JavaScript im Browser.") }}</p></noscript>
+  <script src="{{ statisch('passkey.js') }}" defer></script>
+  {% else %}
+  <p class="hilfe">{{ _("Passkeys gibt es, sobald unter Einstellungen die öffentliche Adresse des Servers mit https eingetragen ist. Am Einzelplatz und im Heimnetz bleibt es beim Code.") }}</p>
+  {% endif %}
+  {# 0.4.143 (S44): vertraute Geräte #}
+  <h3>{{ _("Vertraute Geräte") }}</h3>
+  {% if faktor.vertraute %}
+  <p class="hilfe">{{ _("Auf diesen Browsern fragt die Anmeldung 30 Tage lang nur nach dem Passwort. Kennst du einen nicht: entfernen und das Passwort ändern.") }}</p>
+  <ul class="liste">
+    {% for g in faktor.vertraute %}
+    <li><strong>{{ g.bezeichnung }}</strong><span class="leise">{{ _("Verwaltung") if g.bereich == "verwaltung" else _("Guthaben-Seite") }} · {{ _("seit") }} {{ zeit(g.created_at) }} · {{ _("bis") }} {{ zeit(g.expires_at) }}</span>
+      <form method="post" action="/verwaltung/vertraute-geraete/entfernen" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="geraet" value="{{ g.id }}"><button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit">{{ _("Entfernen") }}</button></form></li>
+    {% endfor %}
+  </ul>
+  <form method="post" action="/verwaltung/vertraute-geraete/entfernen"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit">{{ _("Alle entfernen") }}</button></form>
+  {% else %}
+  <p class="hilfe">{{ _("Keines. Den Haken „Diesem Gerät 30 Tage vertrauen“ gibt es beim Anmelden nach dem Code oder Passkey – nur über https.") }}</p>
+  {% endif %}
   <details><summary>{{ _("Zweiten Faktor ausschalten") }}</summary>
     <form class="formular formular--zeile" method="post" action="/verwaltung/zweiter-faktor/aus">
       <input type="hidden" name="csrf" value="{{ csrf }}">

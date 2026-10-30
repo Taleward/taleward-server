@@ -410,6 +410,7 @@ def test_gutscheine_ende_zu_ende(client, world, dbs, admin):  # noqa: F811
     chef = dbs.scalar(select(User).where(User.username == "chef"))
     zf.beginnen(dbs, chef.id)
     zf.bestaetigen(dbs, chef.id, _code(dbs, chef.id))
+    zf.frisch_merken(dbs, chef.id)  # 0.4.143 (S44): Geld-Schritte verlangen den Faktor frisch
     dbs.commit()
     r = client.post("/verwaltung/abrechnung/gutscheine", data=daten)
     assert r.status_code == 200
@@ -461,6 +462,7 @@ def test_gutschrift_von_hand_mit_rueckfrage_und_storno(client, world, dbs, admin
     chef = dbs.scalar(select(User).where(User.username == "chef"))
     zf.beginnen(dbs, chef.id)
     zf.bestaetigen(dbs, chef.id, _code(dbs, chef.id))
+    zf.frisch_merken(dbs, chef.id)  # 0.4.143 (S44): Geld-Schritte verlangen den Faktor frisch
     dbs.commit()
     seite = client.get("/verwaltung/abrechnung")
     assert seite.status_code == 200 and "Gutschrift von Hand" in seite.text
@@ -498,6 +500,7 @@ def test_verwaltung_schalter_und_preise(client, dbs, admin):  # noqa: F811
     chef = dbs.scalar(select(User).where(User.username == "chef"))  # seit 0.4.87 nur mit zweitem Faktor (N3)
     zf.beginnen(dbs, chef.id)
     zf.bestaetigen(dbs, chef.id, _code(dbs, chef.id))
+    zf.frisch_merken(dbs, chef.id)  # 0.4.143 (S44): Geld-Schritte verlangen den Faktor frisch
     dbs.commit()
     r = client.post("/verwaltung/abrechnung/modus", data={"csrf": admin, "modus": "guthaben"}, follow_redirects=False)
     assert r.status_code == 303 and abrechnung.modus(dbs) == "guthaben"

@@ -1,6 +1,6 @@
 [project]
 name = "taleward-server"
-version = "0.4.142"
+version = "0.4.143"
 description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
 license = "AGPL-3.0-only"
 license-files = ["LICENSE"]
@@ -23,6 +23,7 @@ dependencies = [
     "pypdf>=6.21.1",
     "segno>=1.6",
     "tzdata>=2024.1; sys_platform == 'win32'",  # Windows hat keine eigene Zeitzonen-Datenbank (Europe/Berlin)
+    "webauthn>=3.0.1",
 ]
 
 [project.optional-dependencies]

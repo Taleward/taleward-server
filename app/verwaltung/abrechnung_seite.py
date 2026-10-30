@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app import abrechnung, errors
 from app.db import get_db
 from app.models import AbrechnungProtokoll, Buchung, Guthaben, Gutschein, Organization, User
-from app.verwaltung.router import _seite, _zurueck, csrf_pruefen, tr, verwalter
+from app.verwaltung.router import _seite, _zurueck, csrf_pruefen, faktor_frisch, tr, verwalter
 
 router = APIRouter(prefix="/verwaltung", include_in_schema=False)
 
@@ -151,6 +151,9 @@ def modus(request: Request, modus: str = Form(""), user: User = Depends(verwalte
         return _seite_abrechnung(request, user, db, 400, fehler=tr(request)("Bitte eine der Möglichkeiten wählen."))
     if modus != "aus" and not _faktor(db, user):  # 0.4.87; Ausschalten geht immer – die Notbremse
         return _ohne_faktor(request, user, db)
+    from app.verwaltung.router import _frisch_verlangen
+
+    _frisch_verlangen(request, db, user, modus != "aus")  # 0.4.143 (S44): Einschalten mit frischem Faktor
     if modus != abrechnung.modus(db):
         abrechnung.modus_schreiben(db, modus, user.id)
         db.commit()
@@ -158,7 +161,7 @@ def modus(request: Request, modus: str = Form(""), user: User = Depends(verwalte
 
 
 @router.post("/abrechnung/preise", dependencies=[Depends(csrf_pruefen)])
-async def preise(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)):
+async def preise(request: Request, user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):
     if not _faktor(db, user):  # 0.4.87: Aufschlag und Preise nur mit zweitem Faktor
         return _ohne_faktor(request, user, db)
     form = await request.form()
@@ -204,7 +207,7 @@ def _vorbedingungen(request: Request, user: User, db: Session) -> HTMLResponse |
 
 @router.post("/abrechnung/gutschrift", dependencies=[Depends(csrf_pruefen)])
 def gutschrift(request: Request, ziel_konto: str = Form(""), ziel_org: str = Form(""), betrag: str = Form(""),
-               grund: str = Form(""), bestaetigt: str = Form(""), user: User = Depends(verwalter),
+               grund: str = Form(""), bestaetigt: str = Form(""), user: User = Depends(faktor_frisch),
                db: Session = Depends(get_db)):
     sperre = _vorbedingungen(request, user, db)
     if sperre is not None:
@@ -233,7 +236,7 @@ def gutschrift(request: Request, ziel_konto: str = Form(""), ziel_org: str = For
 
 
 @router.post("/abrechnung/storno/{buchung_id}", dependencies=[Depends(csrf_pruefen)])
-def storno(request: Request, buchung_id: str, bestaetigt: str = Form(""), user: User = Depends(verwalter),
+def storno(request: Request, buchung_id: str, bestaetigt: str = Form(""), user: User = Depends(faktor_frisch),
            db: Session = Depends(get_db)):
     sperre = _vorbedingungen(request, user, db)
     if sperre is not None:
@@ -253,7 +256,7 @@ def storno(request: Request, buchung_id: str, bestaetigt: str = Form(""), user: 
 
 @router.post("/abrechnung/gutscheine", dependencies=[Depends(csrf_pruefen)])
 def gutscheine(request: Request, anzahl: str = Form(""), betrag: str = Form(""), aktion: str = Form(""),
-               gueltig_bis: str = Form(""), bestaetigt: str = Form(""), user: User = Depends(verwalter),
+               gueltig_bis: str = Form(""), bestaetigt: str = Form(""), user: User = Depends(faktor_frisch),
                db: Session = Depends(get_db)):
     sperre = _vorbedingungen(request, user, db)
     if sperre is not None:
@@ -290,7 +293,7 @@ def gutscheine(request: Request, anzahl: str = Form(""), betrag: str = Form(""),
 def zahlung_einstellen(request: Request, betraege: str = Form(""), stripe_schluessel: str = Form(""),
                        stripe_webhook: str = Form(""), stripe_prozent: str = Form(""), stripe_fest: str = Form(""),
                        paypal_id: str = Form(""), paypal_geheim: str = Form(""), paypal_webhook_id: str = Form(""),
-                       paypal_prozent: str = Form(""), paypal_fest: str = Form(""), user: User = Depends(verwalter),
+                       paypal_prozent: str = Form(""), paypal_fest: str = Form(""), user: User = Depends(faktor_frisch),
                        db: Session = Depends(get_db)):
     """Schlüssel und Gebühren der Zahlungsanbieter – nur mit zweitem Faktor; Geheimes nur schreibbar."""
     from app import zahlung

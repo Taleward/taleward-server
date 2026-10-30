@@ -256,6 +256,28 @@ KONTO_ARTEN = {
         "Für dein Verwaltungskonto „{benutzer}“ auf {server} ist seit {wann} kein zweiter Faktor mehr an.",
         "Second factor turned off ({server})", "The second factor is turned off.",
         "Since {wann}, there is no second factor on your administration account “{benutzer}” on {server}."),
+    # 0.4.143: Passkeys und vertraute Geräte
+    "konto_passkey_an": (
+        "Passkey hinzugefügt ({server})", "Ein Passkey wurde hinzugefügt.",
+        "Für dein Konto „{benutzer}“ auf {server} wurde {wann} ein Passkey (Windows Hello, Fingerabdruck oder "
+        "Sicherheitsschlüssel) als zweiter Faktor hinzugefügt.",
+        "Passkey added ({server})", "A passkey was added.",
+        "A passkey (Windows Hello, fingerprint or security key) was added as second factor to your account "
+        "“{benutzer}” on {server} at {wann}."),
+    "konto_passkey_aus": (
+        "Passkey entfernt ({server})", "Ein Passkey wurde entfernt.",
+        "Von deinem Konto „{benutzer}“ auf {server} wurde {wann} ein Passkey entfernt. Vertraute Geräte gelten "
+        "damit nicht mehr.",
+        "Passkey removed ({server})", "A passkey was removed.",
+        "A passkey was removed from your account “{benutzer}” on {server} at {wann}. Trusted devices no longer "
+        "apply."),
+    "konto_vertraut": (
+        "Neues vertrautes Gerät ({server})", "Ein Gerät wurde als vertraut eingetragen.",
+        "Für dein Konto „{benutzer}“ auf {server} wurde {wann} ein Browser als vertraut eingetragen ({wie}). Dort "
+        "entfällt 30 Tage lang der zweite Schritt beim Anmelden; das Passwort bleibt.",
+        "New trusted device ({server})", "A device was marked as trusted.",
+        "A browser was marked as trusted for your account “{benutzer}” on {server} at {wann} ({wie}). The second "
+        "sign-in step is skipped there for 30 days; the password remains."),
 }
 for _art, (_bd, _ud, _ad, _be, _ue, _ae) in KONTO_ARTEN.items():
     _alt = KONTO_HINWEIS_ALT if _art == "konto_email" else KONTO_HINWEIS

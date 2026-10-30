@@ -148,6 +148,7 @@ def test_n3_schalter_und_preise_nur_mit_zweitem_faktor(client, dbs, admin):  # n
     chef = dbs.scalar(select(User).where(User.username == "chef"))
     zf.beginnen(dbs, chef.id)
     zf.bestaetigen(dbs, chef.id, _code(dbs, chef.id))
+    zf.frisch_merken(dbs, chef.id)  # 0.4.143 (S44)
     dbs.commit()
     r = client.post("/verwaltung/abrechnung/modus", data={"csrf": admin, "modus": "guthaben"}, follow_redirects=False)
     assert r.status_code == 303 and abrechnung.modus(dbs) == "guthaben"

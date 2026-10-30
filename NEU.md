@@ -1,6 +1,8 @@
-Fassung 0.4.142
+Fassung 0.4.143
 
 ## Was ist neu
 
-- Probelauf zum Vergleichen: Das Kapitel lässt sich je Szene schreiben lassen – entweder Absatz für Absatz zusammengesetzt oder als Entwurf, aus dem der gewohnte Durchgang das Kapitel baut. Beides nur zum Messen (Verwaltung → Zusammenfassung → Probelauf, Befehlszeile `chronik modellvergleich --kapitel`), am gewohnten Weg ändert sich nichts.
-- Seit 0.4.141: E-Mails des Servers tragen den Servernamen als Absender; Uhrzeiten in Hinweis-Mails in der Ortszeit des Servers; die Hinweis-Mail zur Anmeldung kommt nur noch bei einem neuen Browser; eine schon bestätigte E-Mail-Adresse lässt sich nicht noch einmal eintragen; die Zähler der Übersicht führen zur passenden Liste; Worker zeigen „arbeitet“; Segnungen bei Das Schwarze Auge gelten als Regelbegriff.
+- Passkeys als zweiter Faktor: In der Verwaltung und auf der Guthaben-Seite lässt sich der Code aus der Authenticator-App durch Windows Hello, Fingerabdruck oder Gesicht am Handy oder einen Sicherheitsschlüssel ersetzen (Verwaltung → Anmeldung → Dein zweiter Faktor → Passkey hinzufügen). Das Passwort bleibt, der Code bleibt als Rückweg. Voraussetzung ist die öffentliche Adresse des Servers mit https.
+- Vertraute Geräte: Nach dem Code oder Passkey lässt sich ein Browser 30 Tage lang als vertraut eintragen; dort fragt die Anmeldung dann nur noch nach dem Passwort. Die Liste mit Entfernen steht unter Anmeldung. Ein Passwortwechsel, ein neuer zweiter Faktor oder ein entfernter Passkey machen alle vertrauten Geräte ungültig.
+- Heikle Schritte verlangen den zweiten Faktor frisch (höchstens fünf Minuten alt): Verwalter anlegen oder entfernen, Passwörter setzen, Konten löschen, Abrechnung und Preise, Gutschriften und Gutscheine, Schlüssel von Zahlungsanbietern, Cloud-Schlüssel, Anmeldedienste, Sicherungen herunterladen, neue Fassung der Nutzungsbedingungen; auf der Guthaben-Seite Aufladen, Gutscheine und Kampagnen abgeben oder übernehmen. Wer gerade mit Code oder Passkey angemeldet ist, merkt davon nichts.
+- Seit 0.4.142: Probelauf mit „Kapitel je Szene“ zum Vergleichen.

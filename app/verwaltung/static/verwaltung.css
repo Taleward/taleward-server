@@ -193,6 +193,10 @@ details summary::-webkit-details-marker { display:none; }
 .einladung__qr { margin:var(--space-4) auto; text-align:center; }
 .einladung__qr figcaption { margin-top:var(--space-2); }
 #benachrichtigungen .knopfzeile, #av .knopfzeile { margin-top:var(--space-4); }
+/* 0.4.143: Passkeys und vertraute Geräte – Zeile mit Knopf am Ende */
+.liste { list-style:none; padding:0; margin:0 0 var(--space-3); display:grid; gap:var(--space-2); }
+.liste li { display:flex; flex-wrap:wrap; gap:var(--space-2) var(--space-3); align-items:center; }
+form.inline { display:inline; margin:0; }
 .liste-av { list-style:none; padding:0; display:grid; gap:var(--space-4); }
 .liste-av li { display:grid; gap:var(--space-2); justify-items:start; }
 .liste-stand { padding-left:var(--space-6); display:grid; gap:var(--space-1); }

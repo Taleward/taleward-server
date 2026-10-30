@@ -7,13 +7,27 @@
   {% else %}<p class="leise zentriert">{{ _("Verwaltung von {name} · {betreiber}", name=angaben.server_name, betreiber=angaben.server_operator) }}</p>{% endif %}
   <div class="karte">
     <form class="formular" method="post" action="{{ ziel or '/verwaltung/anmelden/code' }}">
+      {% if passkey_optionen %}
+      {# 0.4.143: Passkey als Hauptknopf (nur mit JavaScript sichtbar), der Code darunter #}
+      <input type="hidden" name="passkey" value="">
+      <div><button class="tw-btn tw-btn--primary" type="button" hidden data-passkey-anmelden="{{ passkey_optionen }}" data-meldung="passkey-meldung"
+                   data-warte="{{ _('Bestätige am Gerät – mit Windows Hello, Fingerabdruck, Gesicht oder PIN.') }}"
+                   data-fehler="{{ _('Der Passkey wurde nicht bestätigt. Versuch es noch einmal oder nimm den Code.') }}">{{ _("Mit Passkey bestätigen") }}</button></div>
+      <p class="hilfe" id="passkey-meldung" role="status"></p>
+      {% endif %}
       <label>{{ _("Code aus deiner Authenticator-App") }}
-        <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus maxlength="20"
+        <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required {% if not passkey_optionen %}autofocus{% endif %} maxlength="20"
                data-code-kaesten="1" data-ziffer="{{ _('Ziffer {n} von 6') }}" data-gruppe="{{ _('Code mit sechs Ziffern') }}" data-umschalten="{{ _('Stattdessen einen Wiederherstellungscode eingeben') }}"></label>
       <p class="hilfe">{{ _("Handy nicht zur Hand? Gib einen deiner Wiederherstellungscodes ein. Jeder gilt nur einmal.") }}</p>
-      <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Anmelden") }}</button></div>
+      {% if vertrauen %}
+      {# 0.4.143 (S44): nur über https oder am PC selbst; nicht vorausgewählt #}
+      <label class="haken"><input type="checkbox" name="vertrauen" value="ja"> {{ _("Diesem Gerät 30 Tage vertrauen – hier dann nur noch das Passwort") }}</label>
+      <p class="hilfe">{{ _("Nur auf eigenen Geräten. Schritte mit Geld oder Schlüsseln fragen trotzdem nach.") }}</p>
+      {% endif %}
+      <div><button class="tw-btn {{ 'tw-btn--secondary' if passkey_optionen else 'tw-btn--primary' }}" type="submit">{{ _("Anmelden") }}</button></div>
     </form>
     <script src="{{ statisch('code-kaesten.js') }}" defer></script>
+    {% if passkey_optionen %}<script src="{{ statisch('passkey.js') }}" defer></script>{% endif %}
   </div>
   <p class="zentriert"><a href="{{ zurueck or '/verwaltung/anmelden' }}">{{ _("Zurück zur Anmeldung") }}</a></p>
 </div>

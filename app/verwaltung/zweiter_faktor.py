@@ -142,6 +142,7 @@ def bestaetigen(db: Session, user_id: str, eingabe: str) -> list[str] | None:
     meta_schreiben(db, _schluessel(user_id), json.dumps({
         "geheim": _zu(geheim), "zuletzt": fenster, "codes": [_hash(c) for c in codes], "seit": int(time.time())}))
     _loeschen(db, _neu_schluessel(user_id))
+    faktor_fassung_erhoehen(db, user_id)  # S44: neuer Faktor, neue Wiederherstellungscodes → vertraute Geräte ungültig
     from app import konto_mail
     from app.models import User
 
@@ -153,6 +154,11 @@ def ausschalten(db: Session, user_id: str) -> None:
     war_an = aktiv(db, user_id)
     _loeschen(db, _schluessel(user_id))
     _loeschen(db, _neu_schluessel(user_id))
+    from app import passkeys
+
+    passkeys.alle_entfernen(db, user_id)  # 0.4.143: ohne Code kein Passkey (TOTP ist der Rückweg)
+    faktor_fassung_erhoehen(db, user_id)  # S44: vertraute Geräte werden ungültig
+    frisch_vergessen(db, user_id)
     if war_an:
         from app import konto_mail
         from app.models import User
@@ -205,3 +211,49 @@ def pruefen(db: Session, user_id: str, eingabe: str, jetzt: float | None = None)
             del codes[i]
             return _verbrauchen(db, user_id, alt, {**s, "codes": codes})
     return False
+
+
+# ---------------------------------------------------------------- Faktor-Fassung und frischer Faktor (0.4.143, S44)
+FRISCH_SEKUNDEN = 5 * 60
+
+
+def faktor_fassung(db: Session, user_id: str) -> int:
+    """Zähler, der steigt, wenn sich am zweiten Faktor etwas ändert (Faktor aus/neu, Passkey entfernt). Vertraute
+    Geräte (app/vertraut.py) sind an ihn gebunden."""
+    wert = meta_lesen(db, f"verwaltung.faktor_fassung.{user_id}")
+    return int(wert) if wert and wert.isdigit() else 0
+
+
+def faktor_fassung_erhoehen(db: Session, user_id: str) -> int:
+    neu = faktor_fassung(db, user_id) + 1
+    meta_schreiben(db, f"verwaltung.faktor_fassung.{user_id}", str(neu))
+    return neu
+
+
+def frisch_merken(db: Session, user_id: str, bereich: str = "verwaltung") -> None:
+    """Der zweite Faktor (Code oder Passkey) wurde gerade gezeigt – Schritte, die ihn frisch verlangen, gehen jetzt
+    FRISCH_SEKUNDEN lang. Auf einem vertrauten Gerät wird das beim Anmelden nicht gesetzt."""
+    meta_schreiben(db, f"verwaltung.faktor_frisch.{bereich}.{user_id}", str(int(time.time())))
+
+
+def frisch(db: Session, user_id: str, bereich: str = "verwaltung") -> bool:
+    """Gilt der zweite Faktor als frisch? Ohne eingerichteten zweiten Faktor immer (es gibt nichts zu zeigen)."""
+    if not aktiv(db, user_id):
+        return True
+    wert = meta_lesen(db, f"verwaltung.faktor_frisch.{bereich}.{user_id}")
+    return bool(wert and wert.isdigit() and int(wert) + FRISCH_SEKUNDEN > time.time())
+
+
+def frisch_vergessen(db: Session, user_id: str) -> None:
+    for bereich in ("verwaltung", "guthaben"):
+        _loeschen(db, f"verwaltung.faktor_frisch.{bereich}.{user_id}")
+
+
+def konto_entfernt(db: Session, user_id: str) -> None:
+    """Konto gelöscht: alles zum zweiten Faktor aus server_meta."""
+    from app import passkeys
+
+    passkeys.alle_entfernen(db, user_id)
+    for schluessel in (_schluessel(user_id), _neu_schluessel(user_id), f"verwaltung.faktor_fassung.{user_id}"):
+        _loeschen(db, schluessel)
+    frisch_vergessen(db, user_id)

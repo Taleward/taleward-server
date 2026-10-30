@@ -770,6 +770,42 @@ class BekanntesGeraet(Base):
     last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
 
 
+# ---------------------------------------------------------------- Passkeys und vertraute Geräte (0.4.143)
+class Passkey(Base):
+    """Passkey (WebAuthn) eines Verwaltungs- oder SL-Kontos als zweiter Faktor neben dem Code (app/passkeys.py).
+    Gespeichert sind nur die Credential-ID, der öffentliche Schlüssel (COSE) und der Signaturzähler – nichts
+    Biometrisches, nichts Geheimes. Gültig nur für die RP-ID (Hostname der eingetragenen öffentlichen Adresse)."""
+
+    __tablename__ = "passkeys"
+    id: Mapped[str] = mapped_column(String(1024), primary_key=True)  # Credential-ID, base64url
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    public_key: Mapped[str] = mapped_column(Text)  # COSE, base64url
+    sign_count: Mapped[int] = mapped_column(Integer, default=0)
+    transports: Mapped[str] = mapped_column(Text, default="[]")  # JSON-Liste
+    rp_id: Mapped[str] = mapped_column(String(255))
+    name: Mapped[str] = mapped_column(String(40))
+    auffaellig: Mapped[bool] = mapped_column(Boolean, default=False)  # Signaturzähler ging zurück (geklont?)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
+
+class VertrautesGeraet(Base):
+    """Browser, dem ein Konto nach dem zweiten Faktor 30 Tage vertraut (S44, app/vertraut.py): dort entfällt beim
+    Anmelden nur der Code, das Passwort bleibt. Nur die SHA-256 des Merkzeichens; gebunden an Konto, token_version
+    und Faktor-Fassung (Passkey entfernt, Faktor aus oder neu, neue Wiederherstellungscodes)."""
+
+    __tablename__ = "vertraute_geraete"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # SHA-256 hex von Merkzeichen und Bereich
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    bereich: Mapped[str] = mapped_column(String(16))  # verwaltung | guthaben
+    token_version: Mapped[int] = mapped_column(Integer, default=0)
+    faktor_fassung: Mapped[int] = mapped_column(Integer, default=0)
+    bezeichnung: Mapped[str] = mapped_column(String(60), default="")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    last_used_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 # ---------------------------------------------------------------- Einmal-Tokens (0.4.0)
 class EinmalToken(Base):
     """Kurzlebige Einmal-Werte: E-Mail bestätigen, Anmeldung mit Dienst (Zustand, Ticket, Registrierung, Verbinden).

@@ -12,7 +12,7 @@ from app import anmeldedienste, mail
 from app.db import get_db
 from app.einstellungen import meta_schreiben, oeffentliche_adresse
 from app.models import User
-from app.verwaltung.router import _seite, _zurueck, csrf_pruefen, tr, verwalter
+from app.verwaltung.router import _seite, _zurueck, csrf_pruefen, faktor_frisch, tr, verwalter
 
 router = APIRouter(prefix="/verwaltung", include_in_schema=False)
 
@@ -63,14 +63,19 @@ def seite(request: Request, user: User, db: Session, fehler: str = "", faktor_ne
     from app.verwaltung import zweiter_faktor
 
     basis = oeffentliche_adresse(db, request)
+    from app import passkeys, vertraut
+
     faktor = {"aktiv": zweiter_faktor.aktiv(db, user.id), "codes_uebrig": zweiter_faktor.restliche_codes(db, user.id),
-              "neu": faktor_neu, "codes": faktor_codes}
+              "neu": faktor_neu, "codes": faktor_codes,
+              # 0.4.143: Passkeys und vertraute Geräte (S44)
+              "passkeys": passkeys.anzeige(db, user.id), "passkeys_moeglich": passkeys.verfuegbar(db),
+              "frisch": zweiter_faktor.frisch(db, user.id), "vertraute": vertraut.liste(db, user.id)}
     return _seite(request, "anmeldung.html", user, db, dienste=_dienste(db, basis), basis=basis,
                   https=basis.startswith("https://"), mail_bereit=mail.kann_senden(db), fehler=fehler, faktor=faktor)
 
 
 @router.post("/anmeldung/{dienst}", dependencies=[Depends(csrf_pruefen)])
-async def anmeldung_speichern(dienst: str, request: Request, user: User = Depends(verwalter),
+async def anmeldung_speichern(dienst: str, request: Request, user: User = Depends(faktor_frisch),  # 0.4.143 (S44)
                               db: Session = Depends(get_db)):
     _ = tr(request)
     if dienst not in anmeldedienste.DIENSTE:

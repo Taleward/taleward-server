@@ -524,6 +524,13 @@ def _auf_stoppdatei_achten() -> None:
     datei = os.environ.get("WORKER_STOP_DATEI")
     if not datei:
         return
+    if os.name != "nt":
+        import signal
+
+        # 0.4.143: Wer den Worker aus einem Hintergrund-Prozess startet, vererbt ein ignoriertes SIGINT – dann käme das
+        # Signal aus der Stoppdatei nie an. Der Worker soll hier aber auf die Datei hören.
+        if signal.getsignal(signal.SIGINT) is signal.SIG_IGN:
+            signal.signal(signal.SIGINT, signal.default_int_handler)
 
     def achten() -> None:
         while not os.path.exists(datei):

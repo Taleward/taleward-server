@@ -43,6 +43,11 @@ def _wartung_starten() -> threading.Event | None:
 
                     einmal.aufraeumen(db)
                     geraete.aufraeumen(db)  # 0.4.141: bekannte Geräte ohne Anmeldung seit 180 Tagen
+                    from app import passkeys, vertraut
+
+                    passkeys.aufraeumen(db)  # 0.4.143: abgelaufene Challenges
+                    vertraut.aufraeumen(db)  # 0.4.143: vertraute Geräte nach 30 Tagen
+                    db.commit()
                 if any(ergebnis.values()):
                     log.info("Wartung: %s", ergebnis)
             except Exception:  # Wartung darf den Server nie stoppen
