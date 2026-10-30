@@ -1,0 +1,2693 @@
+From 0a5a89a94d99e503a631f32269882771b44af363 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 19:44:45 +0100
+Subject: [PATCH] Server 0.4.143
+
+Passkeys (Windows Hello, Fingerabdruck, Sicherheitsschluessel) als zweiter Faktor fuer Verwaltung und Guthaben-Seite
+neben dem Code; vertraute Geraete fuer 30 Tage nach dem zweiten Faktor; heikle Schritte verlangen den zweiten Faktor
+frisch (5 Minuten). Lokaler Worker hoert auf die Stoppdatei auch bei geerbtem, ignoriertem SIGINT.
+---
+ NEU.md                                        |   8 +-
+ app/cli.py                                    |   7 +
+ app/konto.py                                  |  11 +-
+ app/konto_mail.py                             |   3 +-
+ app/mailvorlage.py                            |  22 +
+ app/main.py                                   |   5 +
+ app/models.py                                 |  36 ++
+ app/passkeys.py                               | 344 +++++++++++
+ app/vertraut.py                               | 160 +++++
+ app/verwaltung/abrechnung_seite.py            |  15 +-
+ app/verwaltung/anmeldung.py                   |  11 +-
+ app/verwaltung/assistent.py                   |   4 +-
+ app/verwaltung/guthaben.py                    | 126 +++-
+ app/verwaltung/i18n.py                        |  43 ++
+ app/verwaltung/router.py                      | 256 +++++++-
+ app/verwaltung/static/passkey.js              | 111 ++++
+ app/verwaltung/static/verwaltung.css          |   4 +
+ app/verwaltung/templates/_zweiter_faktor.html |  43 ++
+ app/verwaltung/templates/anmelden_code.html   |  18 +-
+ app/verwaltung/templates/bestaetigen.html     |  30 +
+ app/verwaltung/zweiter_faktor.py              |  52 ++
+ engine-requirements.txt                       |  15 +
+ ...e3a5c7d9f1b2_passkeys_vertraute_geraete.py |  53 ++
+ pyproject.toml                                |   3 +-
+ tests/test_abrechnung_0485.py                 |   3 +
+ tests/test_aktualisierung.py                  |   2 +-
+ tests/test_assistent.py                       |   2 +-
+ tests/test_modellablage.py                    |   2 +-
+ tests/test_server_04133.py                    |  10 +-
+ tests/test_server_04143.py                    | 560 ++++++++++++++++++
+ tests/test_server_0487.py                     |   1 +
+ tests/test_worker_app.py                      |   2 +-
+ uv.lock                                       |  70 ++-
+ 33 files changed, 1968 insertions(+), 64 deletions(-)
+ create mode 100644 app/passkeys.py
+ create mode 100644 app/vertraut.py
+ create mode 100644 app/verwaltung/static/passkey.js
+ create mode 100644 app/verwaltung/templates/bestaetigen.html
+ create mode 100644 migrations/versions/e3a5c7d9f1b2_passkeys_vertraute_geraete.py
+ create mode 100644 tests/test_server_04143.py
+
+diff --git a/NEU.md b/NEU.md
+index ea6d2f2..025b6d9 100644
+--- a/NEU.md
++++ b/NEU.md
+@@ -1,6 +1,8 @@
+-Fassung 0.4.142
++Fassung 0.4.143
+ 
+ ## Was ist neu
+ 
+-- Probelauf zum Vergleichen: Das Kapitel lässt sich je Szene schreiben lassen – entweder Absatz für Absatz zusammengesetzt oder als Entwurf, aus dem der gewohnte Durchgang das Kapitel baut. Beides nur zum Messen (Verwaltung → Zusammenfassung → Probelauf, Befehlszeile `chronik modellvergleich --kapitel`), am gewohnten Weg ändert sich nichts.
+-- Seit 0.4.141: E-Mails des Servers tragen den Servernamen als Absender; Uhrzeiten in Hinweis-Mails in der Ortszeit des Servers; die Hinweis-Mail zur Anmeldung kommt nur noch bei einem neuen Browser; eine schon bestätigte E-Mail-Adresse lässt sich nicht noch einmal eintragen; die Zähler der Übersicht führen zur passenden Liste; Worker zeigen „arbeitet“; Segnungen bei Das Schwarze Auge gelten als Regelbegriff.
++- Passkeys als zweiter Faktor: In der Verwaltung und auf der Guthaben-Seite lässt sich der Code aus der Authenticator-App durch Windows Hello, Fingerabdruck oder Gesicht am Handy oder einen Sicherheitsschlüssel ersetzen (Verwaltung → Anmeldung → Dein zweiter Faktor → Passkey hinzufügen). Das Passwort bleibt, der Code bleibt als Rückweg. Voraussetzung ist die öffentliche Adresse des Servers mit https.
++- Vertraute Geräte: Nach dem Code oder Passkey lässt sich ein Browser 30 Tage lang als vertraut eintragen; dort fragt die Anmeldung dann nur noch nach dem Passwort. Die Liste mit Entfernen steht unter Anmeldung. Ein Passwortwechsel, ein neuer zweiter Faktor oder ein entfernter Passkey machen alle vertrauten Geräte ungültig.
++- Heikle Schritte verlangen den zweiten Faktor frisch (höchstens fünf Minuten alt): Verwalter anlegen oder entfernen, Passwörter setzen, Konten löschen, Abrechnung und Preise, Gutschriften und Gutscheine, Schlüssel von Zahlungsanbietern, Cloud-Schlüssel, Anmeldedienste, Sicherungen herunterladen, neue Fassung der Nutzungsbedingungen; auf der Guthaben-Seite Aufladen, Gutscheine und Kampagnen abgeben oder übernehmen. Wer gerade mit Code oder Passkey angemeldet ist, merkt davon nichts.
++- Seit 0.4.142: Probelauf mit „Kapitel je Szene“ zum Vergleichen.
+diff --git a/app/cli.py b/app/cli.py
+index 2540cf8..e3cf70d 100644
+--- a/app/cli.py
++++ b/app/cli.py
+@@ -525,4 +525,11 @@ def _auf_stoppdatei_achten() -> None:
+     if not datei:
+         return
++    if os.name != "nt":
++        import signal
++
++        # 0.4.143: Wer den Worker aus einem Hintergrund-Prozess startet, vererbt ein ignoriertes SIGINT – dann käme das
++        # Signal aus der Stoppdatei nie an. Der Worker soll hier aber auf die Datei hören.
++        if signal.getsignal(signal.SIGINT) is signal.SIG_IGN:
++            signal.signal(signal.SIGINT, signal.default_int_handler)
+ 
+     def achten() -> None:
+diff --git a/app/konto.py b/app/konto.py
+index 7219c11..4ae24e9 100644
+--- a/app/konto.py
++++ b/app/konto.py
+@@ -203,4 +203,5 @@ def _charaktere(mitglieder: list[Member], kampagnen: dict) -> list[dict]:
+ 
+ def exportieren(db: Session, u: User, basis_url: str) -> dict:
++    from app import passkeys, vertraut
+     from app.einstellungen import angaben
+ 
+@@ -253,5 +254,10 @@ def exportieren(db: Session, u: User, basis_url: str) -> dict:
+                     "gmDecidedAt": _z(u.gm_decided_at),
+                     "signInMethods": [{"kind": m.kind, "createdAt": _z(m.created_at), "lastUsedAt": _z(m.last_used_at)}
+-                                      for m in anmeldungen]},
++                                      for m in anmeldungen],
++                    # 0.4.143: Passkeys und vertraute Geräte – nur Name und Zeiten, keine Schlüssel
++                    "passkeys": [{"name": p["name"], "createdAt": _z(p["angelegt"]), "lastUsedAt": _z(p["zuletzt"])}
++                                 for p in passkeys.anzeige(db, u.id)],
++                    "trustedDevices": [{"name": g.bezeichnung, "area": g.bereich, "createdAt": _z(g.created_at),
++                                        "expiresAt": _z(g.expires_at)} for g in vertraut.liste(db, u.id)]},
+         "organizations": [{"id": o.id, "name": o.name, "role": om.role, "joinedAt": _z(om.joined_at)}
+                           for o, om in orgs],
+@@ -365,4 +371,7 @@ def entfernen(db: Session, u: User) -> None:
+         db.execute(DateVote.__table__.delete().where(DateVote.member_id == m.id))  # Kommentare bleiben stehen
+     stimmprofile.loeschen(db, u.id)
++    from app.verwaltung import zweiter_faktor
++
++    zweiter_faktor.konto_entfernt(db, u.id)  # 0.4.143: Passkeys, Faktor-Fassung, frischer Faktor (Tabellen per CASCADE)
+     from app import umzug
+ 
+diff --git a/app/konto_mail.py b/app/konto_mail.py
+index 9265654..af41c8f 100644
+--- a/app/konto_mail.py
++++ b/app/konto_mail.py
+@@ -22,5 +22,6 @@ from app.models import User
+ 
+ log = logging.getLogger("konto_mail")
+-ANLAESSE = ("anmeldung", "passwort", "dienst_neu", "dienst_weg", "email", "faktor_an", "faktor_aus")
++ANLAESSE = ("anmeldung", "passwort", "dienst_neu", "dienst_weg", "email", "faktor_an", "faktor_aus",
++            "passkey_an", "passkey_aus", "vertraut")  # 0.4.143: Passkeys und vertraute Geräte
+ ANMELDUNG_FENSTER = 15 * 60
+ _SCHLUESSEL = "konto_mails"
+diff --git a/app/mailvorlage.py b/app/mailvorlage.py
+index 9db4886..965ab76 100644
+--- a/app/mailvorlage.py
++++ b/app/mailvorlage.py
+@@ -257,4 +257,26 @@ KONTO_ARTEN = {
+         "Second factor turned off ({server})", "The second factor is turned off.",
+         "Since {wann}, there is no second factor on your administration account “{benutzer}” on {server}."),
++    # 0.4.143: Passkeys und vertraute Geräte
++    "konto_passkey_an": (
++        "Passkey hinzugefügt ({server})", "Ein Passkey wurde hinzugefügt.",
++        "Für dein Konto „{benutzer}“ auf {server} wurde {wann} ein Passkey (Windows Hello, Fingerabdruck oder "
++        "Sicherheitsschlüssel) als zweiter Faktor hinzugefügt.",
++        "Passkey added ({server})", "A passkey was added.",
++        "A passkey (Windows Hello, fingerprint or security key) was added as second factor to your account "
++        "“{benutzer}” on {server} at {wann}."),
++    "konto_passkey_aus": (
++        "Passkey entfernt ({server})", "Ein Passkey wurde entfernt.",
++        "Von deinem Konto „{benutzer}“ auf {server} wurde {wann} ein Passkey entfernt. Vertraute Geräte gelten "
++        "damit nicht mehr.",
++        "Passkey removed ({server})", "A passkey was removed.",
++        "A passkey was removed from your account “{benutzer}” on {server} at {wann}. Trusted devices no longer "
++        "apply."),
++    "konto_vertraut": (
++        "Neues vertrautes Gerät ({server})", "Ein Gerät wurde als vertraut eingetragen.",
++        "Für dein Konto „{benutzer}“ auf {server} wurde {wann} ein Browser als vertraut eingetragen ({wie}). Dort "
++        "entfällt 30 Tage lang der zweite Schritt beim Anmelden; das Passwort bleibt.",
++        "New trusted device ({server})", "A device was marked as trusted.",
++        "A browser was marked as trusted for your account “{benutzer}” on {server} at {wann} ({wie}). The second "
++        "sign-in step is skipped there for 30 days; the password remains."),
+ }
+ for _art, (_bd, _ud, _ad, _be, _ue, _ae) in KONTO_ARTEN.items():
+diff --git a/app/main.py b/app/main.py
+index 7fbf094..8bbbe3e 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -44,4 +44,9 @@ def _wartung_starten() -> threading.Event | None:
+                     einmal.aufraeumen(db)
+                     geraete.aufraeumen(db)  # 0.4.141: bekannte Geräte ohne Anmeldung seit 180 Tagen
++                    from app import passkeys, vertraut
++
++                    passkeys.aufraeumen(db)  # 0.4.143: abgelaufene Challenges
++                    vertraut.aufraeumen(db)  # 0.4.143: vertraute Geräte nach 30 Tagen
++                    db.commit()
+                 if any(ergebnis.values()):
+                     log.info("Wartung: %s", ergebnis)
+diff --git a/app/models.py b/app/models.py
+index 6c2c8a5..14ac3f7 100644
+--- a/app/models.py
++++ b/app/models.py
+@@ -771,4 +771,40 @@ class BekanntesGeraet(Base):
+ 
+ 
++# ---------------------------------------------------------------- Passkeys und vertraute Geräte (0.4.143)
++class Passkey(Base):
++    """Passkey (WebAuthn) eines Verwaltungs- oder SL-Kontos als zweiter Faktor neben dem Code (app/passkeys.py).
++    Gespeichert sind nur die Credential-ID, der öffentliche Schlüssel (COSE) und der Signaturzähler – nichts
++    Biometrisches, nichts Geheimes. Gültig nur für die RP-ID (Hostname der eingetragenen öffentlichen Adresse)."""
++
++    __tablename__ = "passkeys"
++    id: Mapped[str] = mapped_column(String(1024), primary_key=True)  # Credential-ID, base64url
++    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
++    public_key: Mapped[str] = mapped_column(Text)  # COSE, base64url
++    sign_count: Mapped[int] = mapped_column(Integer, default=0)
++    transports: Mapped[str] = mapped_column(Text, default="[]")  # JSON-Liste
++    rp_id: Mapped[str] = mapped_column(String(255))
++    name: Mapped[str] = mapped_column(String(40))
++    auffaellig: Mapped[bool] = mapped_column(Boolean, default=False)  # Signaturzähler ging zurück (geklont?)
++    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
++    last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
++
++
++class VertrautesGeraet(Base):
++    """Browser, dem ein Konto nach dem zweiten Faktor 30 Tage vertraut (S44, app/vertraut.py): dort entfällt beim
++    Anmelden nur der Code, das Passwort bleibt. Nur die SHA-256 des Merkzeichens; gebunden an Konto, token_version
++    und Faktor-Fassung (Passkey entfernt, Faktor aus oder neu, neue Wiederherstellungscodes)."""
++
++    __tablename__ = "vertraute_geraete"
++    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # SHA-256 hex von Merkzeichen und Bereich
++    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
++    bereich: Mapped[str] = mapped_column(String(16))  # verwaltung | guthaben
++    token_version: Mapped[int] = mapped_column(Integer, default=0)
++    faktor_fassung: Mapped[int] = mapped_column(Integer, default=0)
++    bezeichnung: Mapped[str] = mapped_column(String(60), default="")
++    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
++    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
++    last_used_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
++
++
+ # ---------------------------------------------------------------- Einmal-Tokens (0.4.0)
+ class EinmalToken(Base):
+diff --git a/app/passkeys.py b/app/passkeys.py
+new file mode 100644
+index 0000000..63e6597
+--- /dev/null
++++ b/app/passkeys.py
+@@ -0,0 +1,344 @@
++"""Passkeys (WebAuthn: Windows Hello, Fingerabdruck oder Gesicht am Handy, Sicherheitsschlüssel) als zweiter Faktor für
++die Verwaltung und die Guthaben-Seite (0.4.143, Entwurf `claude/server-vorschlag-passkey.md`, vom Sicherheits-Chat am
++28.10. freigegeben).
++
++- Ein Passkey ersetzt nur den Code-Schritt. Das Passwort bleibt, TOTP bleibt Pflicht als Rückweg: Einen Passkey kann nur
++  hinzufügen, wer den zweiten Faktor (Code) eingerichtet hat.
++- Herkunft und RP-ID kommen allein aus der eingetragenen öffentlichen Adresse (``angaben.public_url``), nie aus der
++  Anfrage. Ohne https-Adresse gibt es keine Passkeys (Knopf fehlt, Server lehnt ab). Einzelplatz/Heimnetz: nicht.
++- Challenge: 32 Byte, einmalig, 5 Minuten, serverseitig gespeichert und an Konto und laufenden Schritt gebunden
++  (Code-Cookie beim Anmelden, Sitzung beim Einrichten). Nach Gebrauch oder Fehlschlag weg.
++- Prüfung durch py_webauthn (``require_user_verification=True``: Hello-PIN bzw. Biometrie); Signaturzähler, der nicht
++  steigt (und nicht 0 ist), wird abgelehnt, der Passkey als „auffällig“ markiert und der Betreiber bekommt einen Hinweis.
++- In der Datenbank liegen nur Credential-ID, öffentlicher Schlüssel und Zähler (``models.Passkey``); die zufällige
++  Nutzerkennung (``user.id`` für WebAuthn, nicht die Konto-ID) in server_meta.
++"""
++from __future__ import annotations
++
++import base64
++import hashlib
++import json
++import logging
++import secrets
++import time
++from urllib.parse import urlsplit
++
++from sqlalchemy import delete, select
++from sqlalchemy.orm import Session
++
++from app.aliasse import zeichen_bereinigen
++from app.db import utcnow
++from app.einstellungen import angaben, meta_lesen, meta_schreiben
++from app.models import Passkey, ServerMeta, User
++
++log = logging.getLogger("passkeys")
++
++HOECHSTENS_JE_KONTO = 10
++CHALLENGE_SEKUNDEN = 5 * 60
++NAME_ZEICHEN = 40
++EINRICHTEN_JE_STUNDE = 10
++
++
++class PasskeyFehler(Exception):
++    """Verständliche Meldung (Schlüssel für die Übersetzung)."""
++
++
++def _b64(daten: bytes) -> str:
++    return base64.urlsafe_b64encode(daten).decode().rstrip("=")
++
++
++def _unb64(text: str) -> bytes:
++    text = (text or "").strip()
++    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
++
++
++# ---------------------------------------------------------------- Herkunft
++def herkunft(db: Session) -> tuple[str, str] | None:
++    """(RP-ID, erwartete Herkunft) aus der eingetragenen öffentlichen Adresse – nur https, sonst None."""
++    url = (angaben(db).public_url or "").strip().rstrip("/")
++    teile = urlsplit(url)
++    if teile.scheme != "https" or not teile.hostname:
++        return None
++    host = teile.hostname.lower()
++    origin = f"https://{host}" + (f":{teile.port}" if teile.port and teile.port != 443 else "")
++    return host, origin
++
++
++def verfuegbar(db: Session) -> bool:
++    """Gibt es auf diesem Server Passkeys? Nur mit eingetragener https-Adresse, nie am Einzelplatz."""
++    from app.config import get_settings
++
++    return herkunft(db) is not None and not get_settings().taleward_einzelplatz
++
++
++# ---------------------------------------------------------------- Konto
++def _handle(db: Session, user: User) -> bytes:
++    """Zufällige WebAuthn-Nutzerkennung je Konto (nicht die Konto-ID), beim ersten Bedarf angelegt."""
++    schluessel = f"passkey.handle.{user.id}"
++    wert = meta_lesen(db, schluessel)
++    if not wert:
++        wert = _b64(secrets.token_bytes(32))
++        meta_schreiben(db, schluessel, wert)
++    return _unb64(wert)
++
++
++def liste(db: Session, user_id: str) -> list[Passkey]:
++    return list(db.scalars(select(Passkey).where(Passkey.user_id == user_id).order_by(Passkey.created_at)))
++
++
++def vorhanden(db: Session, user_id: str) -> bool:
++    return db.scalar(select(Passkey.id).where(Passkey.user_id == user_id).limit(1)) is not None
++
++
++def passend(db: Session, user_id: str) -> list[Passkey]:
++    """Passkeys dieses Kontos, die zur heutigen RP-ID passen (Adresse geändert → bleiben in der Liste, gelten nicht)."""
++    h = herkunft(db)
++    return [p for p in liste(db, user_id) if h is not None and p.rp_id == h[0]]
++
++
++def anzeige(db: Session, user_id: str, sprache: str = "de") -> list[dict]:
++    """Für die Liste in der Verwaltung und die Datenauskunft: Name, angelegt, zuletzt benutzt – ohne Schlüssel."""
++    h = herkunft(db)
++    aus = []
++    for p in liste(db, user_id):
++        aus.append({"id": p.id, "name": p.name, "angelegt": p.created_at, "zuletzt": p.last_used_at,
++                    "passt": h is not None and p.rp_id == h[0], "auffaellig": p.auffaellig})
++    return aus
++
++
++# ---------------------------------------------------------------- Challenge
++def _challenge_schluessel(user_id: str, art: str, bindung: str) -> str:
++    return f"passkey.challenge.{art}.{hashlib.sha256(f'{user_id}:{bindung}'.encode()).hexdigest()[:32]}"
++
++
++def _challenge_merken(db: Session, user: User, art: str, bindung: str) -> bytes:
++    """Neue Challenge für genau diesen Schritt; eine ältere für denselben Schritt gilt damit nicht mehr."""
++    challenge = secrets.token_bytes(32)
++    meta_schreiben(db, _challenge_schluessel(user.id, art, bindung),
++                   json.dumps({"c": _b64(challenge), "u": user.id, "bis": time.time() + CHALLENGE_SEKUNDEN}))
++    return challenge
++
++
++def _challenge_verbrauchen(db: Session, user: User, art: str, bindung: str) -> bytes | None:
++    """Challenge holen und sofort löschen – gilt nur einmal, auch bei einem Fehlschlag danach."""
++    schluessel = _challenge_schluessel(user.id, art, bindung)
++    wert = meta_lesen(db, schluessel)
++    row = db.get(ServerMeta, schluessel)
++    if row is not None:
++        db.delete(row)
++        db.flush()
++    try:
++        d = json.loads(wert) if wert else None
++    except ValueError:
++        return None
++    if not d or d.get("u") != user.id or d.get("bis", 0) < time.time():
++        return None
++    return _unb64(d["c"])
++
++
++def aufraeumen(db: Session) -> int:
++    """Wartung: abgelaufene Challenges weg."""
++    n = 0
++    for row in db.scalars(select(ServerMeta).where(ServerMeta.key.like("passkey.challenge.%"))):
++        try:
++            if json.loads(row.value or "{}").get("bis", 0) < time.time():
++                db.delete(row)
++                n += 1
++        except ValueError:
++            db.delete(row)
++            n += 1
++    return n
++
++
++# ---------------------------------------------------------------- Einrichten
++def registrierung_beginnen(db: Session, user: User, bindung: str) -> str:
++    """Optionen für ``navigator.credentials.create`` als JSON. ``bindung``: Kennung der laufenden Sitzung."""
++    from webauthn import generate_registration_options, options_to_json
++    from webauthn.helpers.cose import COSEAlgorithmIdentifier
++    from webauthn.helpers.structs import (AttestationConveyancePreference, AuthenticatorSelectionCriteria,
++                                          PublicKeyCredentialDescriptor, ResidentKeyRequirement,
++                                          UserVerificationRequirement)
++
++    h = herkunft(db)
++    if h is None or not verfuegbar(db):
++        raise PasskeyFehler("passkey_keine_adresse")
++    if len(liste(db, user.id)) >= HOECHSTENS_JE_KONTO:
++        raise PasskeyFehler("passkey_zu_viele")
++    rp_id, _origin = h
++    optionen = generate_registration_options(
++        rp_id=rp_id, rp_name=(angaben(db).server_name or "Taleward")[:64], user_id=_handle(db, user),
++        user_name=user.username, user_display_name=(user.display_name or user.username)[:64],
++        challenge=_challenge_merken(db, user, "create", bindung), timeout=120_000,
++        attestation=AttestationConveyancePreference.NONE,
++        authenticator_selection=AuthenticatorSelectionCriteria(
++            resident_key=ResidentKeyRequirement.DISCOURAGED, user_verification=UserVerificationRequirement.REQUIRED),
++        exclude_credentials=[PublicKeyCredentialDescriptor(id=_unb64(p.id)) for p in liste(db, user.id)],
++        supported_pub_key_algs=[COSEAlgorithmIdentifier.ECDSA_SHA_256, COSEAlgorithmIdentifier.RSASSA_PKCS1_v1_5_SHA_256])
++    return options_to_json(optionen)
++
++
++def registrierung_abschliessen(db: Session, user: User, bindung: str, antwort: str, name: str,
++                               ua: str = "") -> Passkey:
++    """Antwort des Browsers prüfen und den Passkey speichern. Wirft PasskeyFehler mit Übersetzungsschlüssel."""
++    from webauthn import verify_registration_response
++    from webauthn.helpers.cose import COSEAlgorithmIdentifier
++    from webauthn.helpers.exceptions import WebAuthnException
++
++    h = herkunft(db)
++    challenge = _challenge_verbrauchen(db, user, "create", bindung)
++    if h is None or not verfuegbar(db):
++        raise PasskeyFehler("passkey_keine_adresse")
++    if challenge is None:
++        raise PasskeyFehler("passkey_abgelaufen")
++    if len(liste(db, user.id)) >= HOECHSTENS_JE_KONTO:
++        raise PasskeyFehler("passkey_zu_viele")
++    rp_id, origin = h
++    try:
++        daten = json.loads(antwort) if isinstance(antwort, str) else antwort
++        _client_data_pruefen(daten, "webauthn.create", origin)
++        geprueft = verify_registration_response(
++            credential=daten, expected_challenge=challenge, expected_rp_id=rp_id, expected_origin=origin,
++            require_user_verification=True,
++            supported_pub_key_algs=[COSEAlgorithmIdentifier.ECDSA_SHA_256,
++                                    COSEAlgorithmIdentifier.RSASSA_PKCS1_v1_5_SHA_256])
++    except (WebAuthnException, ValueError, KeyError, TypeError) as e:
++        log.info("Passkey-Einrichten abgelehnt: %s", type(e).__name__)
++        raise PasskeyFehler("passkey_ungueltig") from None
++    cid = _b64(geprueft.credential_id)
++    if db.get(Passkey, cid) is not None:  # auch bei einem anderen Konto: datenbankweit eindeutig
++        raise PasskeyFehler("passkey_ungueltig")
++    transports = []
++    try:
++        transports = list((daten.get("response") or {}).get("transports") or [])
++    except AttributeError:
++        pass
++    p = Passkey(id=cid, user_id=user.id, public_key=_b64(geprueft.credential_public_key),
++                sign_count=int(geprueft.sign_count or 0), transports=json.dumps([str(t)[:20] for t in transports][:6]),
++                rp_id=rp_id, name=name_bereinigen(name) or namensvorschlag(ua))
++    db.add(p)
++    db.flush()
++    from app import konto_mail
++
++    konto_mail.vormerken(db, user, "passkey_an")
++    return p
++
++
++def _client_data_pruefen(daten: dict, art: str, origin: str) -> None:
++    """Pflicht laut Sicherheits-Chat, zusätzlich zur Bibliothek: type, origin, crossOrigin."""
++    roh = (daten.get("response") or {}).get("clientDataJSON")
++    client = json.loads(_unb64(roh).decode("utf-8"))
++    if client.get("type") != art or client.get("origin") != origin or client.get("crossOrigin") is True:
++        raise ValueError("clientData")
++
++
++def name_bereinigen(name: str | None) -> str:
++    return zeichen_bereinigen(name or "")[:NAME_ZEICHEN].strip()
++
++
++def namensvorschlag(ua: str) -> str:
++    """Grobe Bezeichnung aus dem User-Agent – nur als Vorschlag, der User-Agent selbst wird nicht gespeichert."""
++    ua = ua or ""
++    system = ("Windows" if "Windows" in ua else "Android" if "Android" in ua else "iPhone" if "iPhone" in ua
++              else "iPad" if "iPad" in ua else "Mac" if "Mac OS" in ua or "Macintosh" in ua
++              else "Linux" if "Linux" in ua else "")
++    browser = ("Edge" if "Edg/" in ua else "Firefox" if "Firefox/" in ua else "Chrome" if "Chrome/" in ua
++               else "Safari" if "Safari/" in ua else "")
++    return " – ".join(x for x in (system, browser) if x) or "Passkey"
++
++
++# ---------------------------------------------------------------- Anmelden
++def anmeldung_beginnen(db: Session, user: User, bindung: str) -> str | None:
++    """Optionen für ``navigator.credentials.get`` – nur nach richtigem Passwort (``allowCredentials`` verrät sonst,
++    ob es Passkeys gibt). None, wenn das Konto keinen passenden Passkey hat."""
++    from webauthn import generate_authentication_options, options_to_json
++    from webauthn.helpers.structs import PublicKeyCredentialDescriptor, UserVerificationRequirement
++
++    h = herkunft(db)
++    schluessel = passend(db, user.id) if verfuegbar(db) else []
++    if h is None or not schluessel:
++        return None
++    optionen = generate_authentication_options(
++        rp_id=h[0], challenge=_challenge_merken(db, user, "get", bindung), timeout=120_000,
++        allow_credentials=[PublicKeyCredentialDescriptor(id=_unb64(p.id)) for p in schluessel],
++        user_verification=UserVerificationRequirement.REQUIRED)
++    return options_to_json(optionen)
++
++
++def anmeldung_pruefen(db: Session, user: User, bindung: str, antwort: str) -> bool:
++    """Antwort des Browsers prüfen. True → Passkey gilt (zuletzt benutzt und Zähler nachgezogen)."""
++    from webauthn import verify_authentication_response
++    from webauthn.helpers.exceptions import WebAuthnException
++
++    h = herkunft(db)
++    challenge = _challenge_verbrauchen(db, user, "get", bindung)
++    if h is None or challenge is None or not verfuegbar(db):
++        return False
++    rp_id, origin = h
++    try:
++        daten = json.loads(antwort) if isinstance(antwort, str) else antwort
++        cid = _b64(_unb64(daten.get("rawId") or daten.get("id") or ""))
++    except (ValueError, TypeError, AttributeError):
++        return False
++    p = db.get(Passkey, cid)
++    if p is None or p.user_id != user.id or p.rp_id != rp_id:
++        return False  # fremder oder unbekannter Passkey: wie ein falscher Code
++    try:
++        _client_data_pruefen(daten, "webauthn.get", origin)
++        geprueft = verify_authentication_response(
++            credential=daten, expected_challenge=challenge, expected_rp_id=rp_id, expected_origin=origin,
++            credential_public_key=_unb64(p.public_key), credential_current_sign_count=p.sign_count,
++            require_user_verification=True)
++    except (WebAuthnException, ValueError, KeyError, TypeError) as e:
++        log.info("Passkey-Anmeldung abgelehnt: %s", type(e).__name__)
++        if type(e).__name__ == "InvalidAuthenticationResponse" and "sign count" in str(e).lower():
++            _auffaellig(db, user, p)
++        return False
++    neu = int(geprueft.new_sign_count or 0)
++    if p.sign_count and neu and neu <= p.sign_count:  # Zähler ging nicht weiter: geklonter Schlüssel?
++        _auffaellig(db, user, p)
++        return False
++    p.sign_count = neu
++    p.last_used_at = utcnow()
++    return True
++
++
++def _auffaellig(db: Session, user: User, p: Passkey) -> None:
++    """Signaturzähler zurück: ablehnen, nicht löschen, in der Liste zeigen, Betreiber benachrichtigen."""
++    from app import benachrichtigung
++
++    if not p.auffaellig:
++        p.auffaellig = True
++        db.flush()
++        try:
++            benachrichtigung.senden(
++                db, "Auffälliger Passkey",
++                f"Beim Konto „{user.username}“ wurde ein Passkey („{p.name}“) mit zurückgesetztem Signaturzähler "
++                "benutzt und abgelehnt. Das kann ein geklonter Schlüssel sein. Bitte mit der Person sprechen und den "
++                "Passkey in der Verwaltung unter Anmeldung entfernen.")
++        except Exception:  # noqa: BLE001 – ein Hinweis darf das Anmelden nie stören
++            log.warning("Hinweis zum auffälligen Passkey nicht verschickt", exc_info=True)
++
++
++# ---------------------------------------------------------------- Entfernen
++def entfernen(db: Session, user: User, passkey_id: str) -> bool:
++    p = db.get(Passkey, passkey_id)
++    if p is None or p.user_id != user.id:
++        return False
++    db.delete(p)
++    db.flush()
++    from app import konto_mail
++    from app.verwaltung import zweiter_faktor
++
++    zweiter_faktor.faktor_fassung_erhoehen(db, user.id)  # S44: vertraute Geräte werden ungültig
++    konto_mail.vormerken(db, user, "passkey_aus")
++    return True
++
++
++def alle_entfernen(db: Session, user_id: str) -> int:
++    """„Zweiter Faktor aus“ und Konto löschen: alle Passkeys und die Nutzerkennung weg."""
++    n = db.execute(delete(Passkey).where(Passkey.user_id == user_id)).rowcount
++    for schluessel in (f"passkey.handle.{user_id}",):
++        row = db.get(ServerMeta, schluessel)
++        if row is not None:
++            db.delete(row)
++    return n
+diff --git a/app/vertraut.py b/app/vertraut.py
+new file mode 100644
+index 0000000..7baad90
+--- /dev/null
++++ b/app/vertraut.py
+@@ -0,0 +1,160 @@
++"""Vertraute Geräte beim zweiten Faktor (S44, 0.4.143; Entwurf `claude/server-vorschlag-vertraute-geraete.md`, vom
++Sicherheits-Chat am 20.10. beantwortet).
++
++Nach dem Code oder dem Passkey kann die Person „Diesem Gerät 30 Tage vertrauen“ ankreuzen. Dann entfällt auf diesem
++Browser beim nächsten Anmelden nur der zweite Schritt – das Passwort bleibt immer Pflicht, und Schritte, die den Faktor
++frisch verlangen (Geld, Schlüssel, Verwalter, der Faktor selbst), fragen ihn trotzdem (zweiter_faktor.frisch).
++
++- Merkzeichen: 32 Byte aus ``secrets`` im Cookie, in der Datenbank nur SHA-256 (je Bereich Verwaltung/Guthaben).
++- Cookie ``__Host-tw_vertraut`` auf https (Secure, Path=/), am Einzelplatz (localhost) ``tw_vertraut``; HttpOnly,
++  SameSite=Strict. Über http im Heimnetz wird nichts angeboten.
++- Fest 30 Tage ab Anlage, keine Verlängerung. Gebunden an Konto, ``token_version`` (Passwortwechsel) und Faktor-Fassung
++  (Faktor aus/neu, Passkey entfernt, neue Wiederherstellungscodes). Höchstens 10 je Konto und Bereich.
++- Das Merkzeichen wird erst nach richtigem Passwort angesehen. Ein ungültiges führt still zum Code-Schritt.
++- Neues vertrautes Gerät: Hinweis an die Person (Konto-Mail) und an den Betreiber (Meldewege), ohne Merkzeichen und
++  ohne Adresse; ohne Meldeweg steht der Hinweis beim nächsten Anmelden auf der Übersicht.
++"""
++from __future__ import annotations
++
++import hashlib
++import secrets
++from datetime import timedelta
++
++from fastapi import Request, Response
++from sqlalchemy import delete, select
++from sqlalchemy.orm import Session
++
++from app.aliasse import zeichen_bereinigen
++from app.db import utcnow
++from app.einstellungen import meta_lesen, meta_schreiben
++from app.models import ServerMeta, User, VertrautesGeraet
++
++TAGE = 30
++HOECHSTENS = 10
++COOKIE_SICHER = "__Host-tw_vertraut"
++COOKIE_LOKAL = "tw_vertraut"
++BEREICHE = ("verwaltung", "guthaben")
++
++
++def _hash(wert: str, bereich: str) -> str:
++    return hashlib.sha256(f"{bereich}:{wert}".encode()).hexdigest()
++
++
++def _lokal(request: Request) -> bool:
++    return (request.url.hostname or "").lower() in ("localhost", "127.0.0.1", "::1")
++
++
++def angeboten(request: Request) -> bool:
++    """Nur über https oder am PC selbst (Einzelplatz) – im Heimnetz über http liefe das Merkzeichen 30 Tage im Klartext."""
++    return request.url.scheme == "https" or _lokal(request)
++
++
++def _cookie_name(request: Request) -> str:
++    return COOKIE_SICHER if request.url.scheme == "https" else COOKIE_LOKAL
++
++
++def _wert(request: Request) -> str:
++    wert = request.cookies.get(COOKIE_SICHER) or request.cookies.get(COOKIE_LOKAL) or ""
++    return wert if 16 <= len(wert) <= 200 else ""
++
++
++def pruefen(request: Request, db: Session, user: User, bereich: str) -> bool:
++    """Gültiges Merkzeichen für dieses Konto und diesen Bereich? Nur nach richtigem Passwort aufrufen."""
++    from app.verwaltung import zweiter_faktor
++
++    wert = _wert(request)
++    if not wert or not angeboten(request):
++        return False
++    g = db.get(VertrautesGeraet, _hash(wert, bereich))
++    if g is None or g.user_id != user.id or g.bereich != bereich:
++        return False
++    if g.expires_at <= utcnow() or g.token_version != user.token_version \
++            or g.faktor_fassung != zweiter_faktor.faktor_fassung(db, user.id):
++        db.delete(g)  # abgelaufen oder ungültig: weg, Code-Schritt wie immer
++        return False
++    g.last_used_at = utcnow()
++    return True
++
++
++def bezeichnung(ua: str) -> str:
++    from app.passkeys import namensvorschlag
++
++    return zeichen_bereinigen(namensvorschlag(ua))[:60] or "Browser"
++
++
++def merken(antwort: Response, request: Request, db: Session, user: User, bereich: str) -> VertrautesGeraet | None:
++    """Nach dem zweiten Faktor: Merkzeichen setzen und Eintrag anlegen. None, wenn hier nichts angeboten wird."""
++    from app.verwaltung import zweiter_faktor
++
++    if not angeboten(request) or bereich not in BEREICHE:
++        return None
++    wert = _wert(request) or secrets.token_urlsafe(32)  # ein Browser, ein Merkzeichen – je Bereich ein Eintrag
++    jetzt = utcnow()
++    alt = db.get(VertrautesGeraet, _hash(wert, bereich))
++    if alt is not None:
++        db.delete(alt)
++        db.flush()
++    g = VertrautesGeraet(id=_hash(wert, bereich), user_id=user.id, bereich=bereich, token_version=user.token_version,
++                         faktor_fassung=zweiter_faktor.faktor_fassung(db, user.id),
++                         bezeichnung=bezeichnung(request.headers.get("user-agent", "")), created_at=jetzt,
++                         expires_at=jetzt + timedelta(days=TAGE), last_used_at=jetzt)
++    db.add(g)
++    db.flush()
++    vorhandene = list(db.scalars(select(VertrautesGeraet).where(VertrautesGeraet.user_id == user.id,
++                                                                VertrautesGeraet.bereich == bereich)
++                                 .order_by(VertrautesGeraet.created_at.desc())))
++    for zu_alt in vorhandene[HOECHSTENS:]:
++        db.delete(zu_alt)
++    antwort.set_cookie(_cookie_name(request), wert, max_age=TAGE * 86400, httponly=True, samesite="strict",
++                       secure=request.url.scheme == "https", path="/")
++    _melden(db, user, g)
++    return g
++
++
++def _melden(db: Session, user: User, g: VertrautesGeraet) -> None:
++    """Hinweis an die Person (Konto-Mail) und den Betreiber (Meldewege); ohne Meldeweg Hinweis auf der Übersicht."""
++    from app import benachrichtigung, konto_mail
++    from app.einstellungen import angaben
++
++    konto_mail.vormerken(db, user, "vertraut", ort=g.bereich)
++    gemeldet = False
++    try:
++        k = benachrichtigung.konfig(db)
++        if k.aktiv:
++            name = angaben(db).server_name or "Taleward"
++            benachrichtigung.senden(db, f"Neues vertrautes Gerät ({name})",
++                                    f"Für das Konto „{user.username}“ wurde gerade ein Browser als vertraut eingetragen "
++                                    f"({g.bezeichnung}, Bereich {g.bereich}, 30 Tage). Warst du das nicht? In der "
++                                    "Verwaltung unter Anmeldung → Vertraute Geräte entfernen.", wichtig=False)
++            gemeldet = True
++    except Exception:  # noqa: BLE001 – ein Hinweis darf das Anmelden nie stören
++        pass
++    if not gemeldet:
++        meta_schreiben(db, f"vertraut.hinweis.{user.id}", f"{g.bezeichnung}|{g.created_at.isoformat()}")
++
++
++def hinweis_abholen(db: Session, user_id: str) -> str | None:
++    """Beim nächsten Anmelden einmal zeigen: „Neues vertrautes Gerät seit …“ (nur ohne Meldeweg gesetzt)."""
++    schluessel = f"vertraut.hinweis.{user_id}"
++    wert = meta_lesen(db, schluessel)
++    row = db.get(ServerMeta, schluessel)
++    if row is not None:
++        db.delete(row)
++    return wert or None
++
++
++def liste(db: Session, user_id: str) -> list[VertrautesGeraet]:
++    return list(db.scalars(select(VertrautesGeraet).where(VertrautesGeraet.user_id == user_id)
++                           .order_by(VertrautesGeraet.created_at.desc())))
++
++
++def entfernen(db: Session, user_id: str, geraet_id: str | None = None) -> int:
++    """Eines oder (ohne ID) alle vertrauten Geräte eines Kontos entfernen."""
++    bed = [VertrautesGeraet.user_id == user_id]
++    if geraet_id:
++        bed.append(VertrautesGeraet.id == geraet_id)
++    return db.execute(delete(VertrautesGeraet).where(*bed)).rowcount
++
++
++def aufraeumen(db: Session) -> int:
++    return db.execute(delete(VertrautesGeraet).where(VertrautesGeraet.expires_at < utcnow())).rowcount
+diff --git a/app/verwaltung/abrechnung_seite.py b/app/verwaltung/abrechnung_seite.py
+index 1704588..630c057 100644
+--- a/app/verwaltung/abrechnung_seite.py
++++ b/app/verwaltung/abrechnung_seite.py
+@@ -16,5 +16,5 @@ from app import abrechnung, errors
+ from app.db import get_db
+ from app.models import AbrechnungProtokoll, Buchung, Guthaben, Gutschein, Organization, User
+-from app.verwaltung.router import _seite, _zurueck, csrf_pruefen, tr, verwalter
++from app.verwaltung.router import _seite, _zurueck, csrf_pruefen, faktor_frisch, tr, verwalter
+ 
+ router = APIRouter(prefix="/verwaltung", include_in_schema=False)
+@@ -152,4 +152,7 @@ def modus(request: Request, modus: str = Form(""), user: User = Depends(verwalte
+     if modus != "aus" and not _faktor(db, user):  # 0.4.87; Ausschalten geht immer – die Notbremse
+         return _ohne_faktor(request, user, db)
++    from app.verwaltung.router import _frisch_verlangen
++
++    _frisch_verlangen(request, db, user, modus != "aus")  # 0.4.143 (S44): Einschalten mit frischem Faktor
+     if modus != abrechnung.modus(db):
+         abrechnung.modus_schreiben(db, modus, user.id)
+@@ -159,5 +162,5 @@ def modus(request: Request, modus: str = Form(""), user: User = Depends(verwalte
+ 
+ @router.post("/abrechnung/preise", dependencies=[Depends(csrf_pruefen)])
+-async def preise(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)):
++async def preise(request: Request, user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):
+     if not _faktor(db, user):  # 0.4.87: Aufschlag und Preise nur mit zweitem Faktor
+         return _ohne_faktor(request, user, db)
+@@ -205,5 +208,5 @@ def _vorbedingungen(request: Request, user: User, db: Session) -> HTMLResponse |
+ @router.post("/abrechnung/gutschrift", dependencies=[Depends(csrf_pruefen)])
+ def gutschrift(request: Request, ziel_konto: str = Form(""), ziel_org: str = Form(""), betrag: str = Form(""),
+-               grund: str = Form(""), bestaetigt: str = Form(""), user: User = Depends(verwalter),
++               grund: str = Form(""), bestaetigt: str = Form(""), user: User = Depends(faktor_frisch),
+                db: Session = Depends(get_db)):
+     sperre = _vorbedingungen(request, user, db)
+@@ -234,5 +237,5 @@ def gutschrift(request: Request, ziel_konto: str = Form(""), ziel_org: str = For
+ 
+ @router.post("/abrechnung/storno/{buchung_id}", dependencies=[Depends(csrf_pruefen)])
+-def storno(request: Request, buchung_id: str, bestaetigt: str = Form(""), user: User = Depends(verwalter),
++def storno(request: Request, buchung_id: str, bestaetigt: str = Form(""), user: User = Depends(faktor_frisch),
+            db: Session = Depends(get_db)):
+     sperre = _vorbedingungen(request, user, db)
+@@ -254,5 +257,5 @@ def storno(request: Request, buchung_id: str, bestaetigt: str = Form(""), user:
+ @router.post("/abrechnung/gutscheine", dependencies=[Depends(csrf_pruefen)])
+ def gutscheine(request: Request, anzahl: str = Form(""), betrag: str = Form(""), aktion: str = Form(""),
+-               gueltig_bis: str = Form(""), bestaetigt: str = Form(""), user: User = Depends(verwalter),
++               gueltig_bis: str = Form(""), bestaetigt: str = Form(""), user: User = Depends(faktor_frisch),
+                db: Session = Depends(get_db)):
+     sperre = _vorbedingungen(request, user, db)
+@@ -291,5 +294,5 @@ def zahlung_einstellen(request: Request, betraege: str = Form(""), stripe_schlue
+                        stripe_webhook: str = Form(""), stripe_prozent: str = Form(""), stripe_fest: str = Form(""),
+                        paypal_id: str = Form(""), paypal_geheim: str = Form(""), paypal_webhook_id: str = Form(""),
+-                       paypal_prozent: str = Form(""), paypal_fest: str = Form(""), user: User = Depends(verwalter),
++                       paypal_prozent: str = Form(""), paypal_fest: str = Form(""), user: User = Depends(faktor_frisch),
+                        db: Session = Depends(get_db)):
+     """Schlüssel und Gebühren der Zahlungsanbieter – nur mit zweitem Faktor; Geheimes nur schreibbar."""
+diff --git a/app/verwaltung/anmeldung.py b/app/verwaltung/anmeldung.py
+index 376e392..3ac79ab 100644
+--- a/app/verwaltung/anmeldung.py
++++ b/app/verwaltung/anmeldung.py
+@@ -13,5 +13,5 @@ from app.db import get_db
+ from app.einstellungen import meta_schreiben, oeffentliche_adresse
+ from app.models import User
+-from app.verwaltung.router import _seite, _zurueck, csrf_pruefen, tr, verwalter
++from app.verwaltung.router import _seite, _zurueck, csrf_pruefen, faktor_frisch, tr, verwalter
+ 
+ router = APIRouter(prefix="/verwaltung", include_in_schema=False)
+@@ -64,6 +64,11 @@ def seite(request: Request, user: User, db: Session, fehler: str = "", faktor_ne
+ 
+     basis = oeffentliche_adresse(db, request)
++    from app import passkeys, vertraut
++
+     faktor = {"aktiv": zweiter_faktor.aktiv(db, user.id), "codes_uebrig": zweiter_faktor.restliche_codes(db, user.id),
+-              "neu": faktor_neu, "codes": faktor_codes}
++              "neu": faktor_neu, "codes": faktor_codes,
++              # 0.4.143: Passkeys und vertraute Geräte (S44)
++              "passkeys": passkeys.anzeige(db, user.id), "passkeys_moeglich": passkeys.verfuegbar(db),
++              "frisch": zweiter_faktor.frisch(db, user.id), "vertraute": vertraut.liste(db, user.id)}
+     return _seite(request, "anmeldung.html", user, db, dienste=_dienste(db, basis), basis=basis,
+                   https=basis.startswith("https://"), mail_bereit=mail.kann_senden(db), fehler=fehler, faktor=faktor)
+@@ -71,5 +76,5 @@ def seite(request: Request, user: User, db: Session, fehler: str = "", faktor_ne
+ 
+ @router.post("/anmeldung/{dienst}", dependencies=[Depends(csrf_pruefen)])
+-async def anmeldung_speichern(dienst: str, request: Request, user: User = Depends(verwalter),
++async def anmeldung_speichern(dienst: str, request: Request, user: User = Depends(faktor_frisch),  # 0.4.143 (S44)
+                               db: Session = Depends(get_db)):
+     _ = tr(request)
+diff --git a/app/verwaltung/assistent.py b/app/verwaltung/assistent.py
+index afd235d..bd29f10 100644
+--- a/app/verwaltung/assistent.py
++++ b/app/verwaltung/assistent.py
+@@ -23,5 +23,5 @@ from app.verwaltung.i18n import sprache_von
+ from app.verwaltung.router import (
+     COOKIE, MIN_PASSWORT, SITZUNG_STUNDEN, NichtAngemeldet, _cookie_wert, _versuch, _online_grenze,
+-    _seite, csrf_pruefen, sitzung, tr, verwalter,
++    _seite, csrf_pruefen, faktor_frisch, sitzung, tr, verwalter,
+ )
+ 
+@@ -540,5 +540,5 @@ def nutzungsbedingungen_speichern(request: Request, aktion: str = Form(""), text
+ @router.post("/nutzungsbedingungen/neue-fassung", dependencies=[Depends(csrf_pruefen)])
+ def nutzungsbedingungen_neue_fassung(request: Request, bestaetigung: str = Form(""),
+-                                     user: User = Depends(verwalter), db: Session = Depends(get_db)):
++                                     user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):
+     """Fassung hochzählen: Alle Konten müssen in der App erneut zustimmen, bis dahin nur Lesen."""
+     from app import nutzungsbedingungen
+diff --git a/app/verwaltung/guthaben.py b/app/verwaltung/guthaben.py
+index 2251215..04a495c 100644
+--- a/app/verwaltung/guthaben.py
++++ b/app/verwaltung/guthaben.py
+@@ -45,4 +45,7 @@ MELDUNGEN = {
+     "mails_an": "Du bekommst wieder Hinweise per E-Mail.",
+     "mails_aus": "Hinweise per E-Mail sind abbestellt.",
++    # 0.4.143 (S44): Geld-Schritte verlangen den zweiten Faktor frisch
++    "faktor_frisch": "Dieser Schritt braucht den zweiten Faktor frisch. Bitte bestätigen und den Schritt dann noch einmal ausführen.",
++    "bestaetigt": "Bestätigt. Du kannst den Schritt jetzt ausführen.",
+ }
+ # 0.4.133: Die Bestätigungsseite schickt das Formular an den Zahlungsanbieter weiter – nur an diese Adressen
+@@ -54,4 +57,10 @@ class _Abgemeldet(Exception):
+ 
+ 
++class _FaktorNoetig(Exception):
++    """0.4.143 (S44): Geld-Schritt ohne frischen zweiten Faktor → Bestätigungsseite."""
++
++
++
++
+ def _aud() -> str:
+     return f"{server_id()}:guthaben"
+@@ -100,4 +109,13 @@ def _angemeldet(request: Request, db: Session = Depends(get_db)) -> User:
+ 
+ 
++def _frisch(user: User = Depends(_angemeldet), db: Session = Depends(get_db)) -> User:
++    """0.4.143 (S44): Geld-Schritte nur mit frischem zweitem Faktor (höchstens 5 Minuten alt)."""
++    from app.verwaltung import zweiter_faktor
++
++    if not zweiter_faktor.frisch(db, user.id, "guthaben"):
++        raise _FaktorNoetig()
++    return user
++
++
+ def _csrf_pruefen(request: Request, csrf: str = Form("")) -> None:
+     wert = request.cookies.get(COOKIE, "")
+@@ -153,9 +171,12 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
+     from app.verwaltung import zweiter_faktor
+ 
+-    if zweiter_faktor.aktiv(db, user.id):  # erst noch der Code
+-        antwort = _code_seite(request, db)
+-        antwort.set_cookie(COOKIE_CODE, _token(user, f"{server_id()}:guthaben-code", timedelta(minutes=CODE_MINUTEN)),
+-                           max_age=CODE_MINUTEN * 60, httponly=True, samesite="strict",
++    from app import vertraut
++
++    if zweiter_faktor.aktiv(db, user.id) and not vertraut.pruefen(request, db, user, "guthaben"):  # erst noch der Code
++        wert = _token(user, f"{server_id()}:guthaben-code", timedelta(minutes=CODE_MINUTEN))
++        antwort = _code_seite(request, db, user=user, bindung=_jti(wert))
++        antwort.set_cookie(COOKIE_CODE, wert, max_age=CODE_MINUTEN * 60, httponly=True, samesite="strict",
+                            secure=request.url.scheme == "https", path="/guthaben")
++        db.commit()
+         return antwort
+     from app import geraete
+@@ -181,7 +202,19 @@ def _sitzung(request: Request, user: User) -> RedirectResponse:
+ 
+ 
+-def _code_seite(request: Request, db: Session, fehler: str | None = None, status: int = 200) -> HTMLResponse:
++def _jti(token: str) -> str:
++    try:
++        return jwt.decode(token, options={"verify_signature": False}).get("jti") or "-"
++    except jwt.PyJWTError:
++        return "-"
++
++
++def _code_seite(request: Request, db: Session, fehler: str | None = None, status: int = 200,
++                user: User | None = None, bindung: str = "-") -> HTMLResponse:
++    """0.4.143: mit Passkey (wenn es einen gibt) und dem Haken „30 Tage vertrauen“ (S44)."""
++    from app import passkeys, vertraut
++
++    optionen = passkeys.anmeldung_beginnen(db, user, bindung) if user is not None else None
+     antwort = _seite(request, "anmelden_code.html", None, db, fehler=fehler, ziel="/guthaben/anmelden/code",
+-                     zurueck="/guthaben")
++                     zurueck="/guthaben", passkey_optionen=optionen, vertrauen=vertraut.angeboten(request))
+     antwort.status_code = status
+     return antwort
+@@ -189,6 +222,8 @@ def _code_seite(request: Request, db: Session, fehler: str | None = None, status
+ 
+ @router.post("/anmelden/code", dependencies=[Depends(_an)])
+-def anmelden_code(request: Request, code: str = Form(""), db: Session = Depends(get_db)):
++def anmelden_code(request: Request, code: str = Form(""), passkey: str = Form(""), vertrauen: str = Form(""),
++                  db: Session = Depends(get_db)):
+     """Zweiter Schritt der Anmeldung: gleiche Prüfung und gleiche Fehlversuch-Grenze wie in der Verwaltung."""
++    from app import geraete, passkeys, vertraut
+     from app.begrenzung import ZAEHLER
+     from app.verwaltung import zweiter_faktor
+@@ -204,15 +239,20 @@ def anmelden_code(request: Request, code: str = Form(""), db: Session = Depends(
+     if user is None or user.token_version != daten.get("tv") or user.setup_account:
+         return _zurueck()
++    bindung = daten.get("jti") or "-"
+     versuch = _versuch(begrenzung.adresse(request), f"code:{user.id}")
+     if versuch is None:
+         return _code_seite(request, db, tr(request)("Zu viele Fehlversuche. Bitte in ein paar Minuten erneut versuchen."),
+-                           429)
+-    if not zweiter_faktor.pruefen(db, user.id, code):
++                           429, user, bindung)
++    if not (passkeys.anmeldung_pruefen(db, user, bindung, passkey) if passkey.strip()
++            else zweiter_faktor.pruefen(db, user.id, code)):
++        db.commit()
+         return _code_seite(request, db, tr(request)(
+-            "Der Code stimmt nicht oder wurde schon benutzt. Nimm den nächsten aus deiner App."), 400)
++            "Der Code stimmt nicht oder wurde schon benutzt. Nimm den nächsten aus deiner App." if not passkey.strip()
++            else "Der Passkey wurde nicht angenommen. Versuch es noch einmal oder nimm den Code."), 400, user, bindung)
+     ZAEHLER.freigeben(versuch)
+-    from app import geraete
+-
++    zweiter_faktor.frisch_merken(db, user.id, "guthaben")
+     antwort = _sitzung(request, user)
++    if vertrauen == "ja":
++        vertraut.merken(antwort, request, db, user, "guthaben")
+     geraete.anmeldung(antwort, request, db, user, "guthaben")  # 0.4.141: Mail nur bei neuem Gerät
+     db.commit()
+@@ -220,4 +260,52 @@ def anmelden_code(request: Request, code: str = Form(""), db: Session = Depends(
+ 
+ 
++# ---------------------------------------------------------------- Frischer zweiter Faktor (0.4.143, S44)
++@router.get("/bestaetigen", dependencies=[Depends(_an)])
++def bestaetigen_seite(request: Request, user: User = Depends(_angemeldet), db: Session = Depends(get_db)):
++    return _bestaetigen_zeigen(request, db, user)
++
++
++def _bestaetigen_zeigen(request: Request, db: Session, user: User, fehler: str | None = None,
++                        status: int = 200) -> HTMLResponse:
++    from app import passkeys
++    from app.verwaltung import zweiter_faktor
++
++    if not zweiter_faktor.aktiv(db, user.id):
++        return _zurueck()
++    optionen = passkeys.anmeldung_beginnen(db, user, _jti(request.cookies.get(COOKIE, "")))
++    db.commit()
++    antwort = _seite(request, "bestaetigen.html", None, db, fehler=fehler, passkey_optionen=optionen,
++                     ziel="/guthaben/bestaetigen", weiter="/guthaben", zurueck="/guthaben",
++                     meldung=tr(request)(MELDUNGEN["faktor_frisch"]) if request.query_params.get("ok") == "faktor_frisch"
++                     else None)
++    antwort.status_code = status
++    return antwort
++
++
++@router.post("/bestaetigen", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
++def bestaetigen(request: Request, code: str = Form(""), passkey: str = Form(""), user: User = Depends(_angemeldet),
++                db: Session = Depends(get_db)):
++    from app import passkeys
++    from app.begrenzung import ZAEHLER
++    from app.verwaltung import zweiter_faktor
++    from app.verwaltung.router import _versuch
++
++    versuch = _versuch(begrenzung.adresse(request), f"code:{user.id}")
++    if versuch is None:
++        return _bestaetigen_zeigen(request, db, user,
++                                   tr(request)("Zu viele Fehlversuche. Bitte in ein paar Minuten erneut versuchen."), 429)
++    bindung = _jti(request.cookies.get(COOKIE, ""))
++    if (passkeys.anmeldung_pruefen(db, user, bindung, passkey) if passkey.strip()
++            else zweiter_faktor.pruefen(db, user.id, code)):
++        ZAEHLER.freigeben(versuch)
++        zweiter_faktor.frisch_merken(db, user.id, "guthaben")
++        db.commit()
++        return _zurueck("bestaetigt")
++    db.commit()
++    return _bestaetigen_zeigen(request, db, user, tr(request)(
++        "Der Code stimmt nicht oder wurde schon benutzt. Nimm den nächsten aus deiner App." if not passkey.strip()
++        else "Der Passkey wurde nicht angenommen. Versuch es noch einmal oder nimm den Code."), 400)
++
++
+ @router.post("/abmelden", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
+ def abmelden():
+@@ -314,5 +402,5 @@ def _fehler(request: Request, db: Session, user: User, text: str, gutschein: boo
+ 
+ @router.post("/gutschein", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
+-def gutschein(request: Request, code: str = Form(""), guthaben_id: str = Form(""), user: User = Depends(_angemeldet),
++def gutschein(request: Request, code: str = Form(""), guthaben_id: str = Form(""), user: User = Depends(_frisch),
+               db: Session = Depends(get_db)):
+     from app.begrenzung import ZAEHLER
+@@ -389,5 +477,5 @@ def _pruefen_seite(request: Request, db: Session, g, netto: int, anbieter: str,
+ @router.post("/aufladen", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
+ def aufladen(request: Request, guthaben_id: str = Form(""), betrag: str = Form(""), anbieter: str = Form(""),
+-             user: User = Depends(_angemeldet), db: Session = Depends(get_db)):
++             user: User = Depends(_frisch), db: Session = Depends(get_db)):
+     """Schritt 1: Betrag und Gebühr zeigen, bevor es zum Anbieter geht."""
+     g = _eigenes(db, user, guthaben_id)
+@@ -400,5 +488,5 @@ def aufladen(request: Request, guthaben_id: str = Form(""), betrag: str = Form("
+ @router.post("/aufladen/weiter", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
+ def aufladen_weiter(request: Request, guthaben_id: str = Form(""), betrag: str = Form(""), anbieter: str = Form(""),
+-                    sofort: str = Form(""), user: User = Depends(_angemeldet), db: Session = Depends(get_db)):
++                    sofort: str = Form(""), user: User = Depends(_frisch), db: Session = Depends(get_db)):
+     """Schritt 2: Vorgang anlegen und zum Anbieter weiterleiten."""
+     from app.verwaltung.router import sprache_von
+@@ -479,5 +567,5 @@ def _kampagne_als_sl(db: Session, user: User, campaign_id: str) -> Campaign:
+ 
+ @router.post("/kampagnen/{campaign_id}/abgeben", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
+-def abgeben(request: Request, campaign_id: str, an_user_id: str = Form(""), user: User = Depends(_angemeldet),
++def abgeben(request: Request, campaign_id: str, an_user_id: str = Form(""), user: User = Depends(_frisch),
+             db: Session = Depends(get_db)):
+     c = _kampagne_als_sl(db, user, campaign_id)
+@@ -492,5 +580,5 @@ def abgeben(request: Request, campaign_id: str, an_user_id: str = Form(""), user
+ 
+ @router.post("/kampagnen/{campaign_id}/uebernehmen", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
+-def uebernehmen(request: Request, campaign_id: str, bestaetigt: str = Form(""), user: User = Depends(_angemeldet),
++def uebernehmen(request: Request, campaign_id: str, bestaetigt: str = Form(""), user: User = Depends(_frisch),
+                 db: Session = Depends(get_db)):
+     c = _kampagne_als_sl(db, user, campaign_id)
+@@ -513,4 +601,8 @@ def einbinden(app) -> None:
+         return RedirectResponse("/guthaben", status_code=303)
+ 
++    @app.exception_handler(_FaktorNoetig)
++    async def _faktor_noetig(_req: Request, _exc: _FaktorNoetig):
++        return RedirectResponse("/guthaben/bestaetigen?ok=faktor_frisch", status_code=303)
++
+     @app.exception_handler(_Aus)
+     async def _aus(req: Request, _exc: _Aus):
+diff --git a/app/verwaltung/i18n.py b/app/verwaltung/i18n.py
+index 3889e4d..814899b 100644
+--- a/app/verwaltung/i18n.py
++++ b/app/verwaltung/i18n.py
+@@ -1148,4 +1148,47 @@ EN: dict[str, str] = {
+     "Grundlage vorn": "Source first",
+     "Grundlage vorn (zum Vergleich)": "Source first (for comparison)",
++    # 0.4.143: Passkeys, vertraute Geräte, frischer zweiter Faktor (S44)
++    "Mit Passkey bestätigen": "Confirm with passkey",
++    "Bestätige am Gerät – mit Windows Hello, Fingerabdruck, Gesicht oder PIN.": "Confirm on your device – with Windows Hello, fingerprint, face or PIN.",
++    "Der Passkey wurde nicht bestätigt. Versuch es noch einmal oder nimm den Code.": "The passkey was not confirmed. Try again or use the code.",
++    "Der Passkey wurde nicht angenommen. Versuch es noch einmal oder nimm den Code.": "The passkey was not accepted. Try again or use the code.",
++    "Diesem Gerät 30 Tage vertrauen – hier dann nur noch das Passwort": "Trust this device for 30 days – only the password here from then on",
++    "Nur auf eigenen Geräten. Schritte mit Geld oder Schlüsseln fragen trotzdem nach.": "Only on your own devices. Steps involving money or keys still ask.",
++    "Zweiten Faktor bestätigen": "Confirm second factor",
++    "Dieser Schritt ist heikel. Bitte bestätige noch einmal mit deinem Passkey oder dem Code aus der Authenticator-App; danach gilt die Bestätigung fünf Minuten.": "This step is sensitive. Please confirm once more with your passkey or the code from your authenticator app; the confirmation then holds for five minutes.",
++    "Passkeys": "Passkeys",
++    "Ein Passkey ersetzt beim Anmelden den Code: Windows Hello am PC, Fingerabdruck oder Gesicht am Handy, ein Sicherheitsschlüssel. Das Passwort bleibt, der Code bleibt als Rückweg.": "A passkey replaces the code when signing in: Windows Hello on the PC, fingerprint or face on the phone, a security key. The password stays, the code stays as fallback.",
++    "angelegt": "created",
++    "zuletzt benutzt": "last used",
++    "passt nicht mehr zur Adresse des Servers": "no longer matches the server address",
++    "Auffällig – bitte prüfen": "Suspicious – please check",
++    "Entfernen": "Remove",
++    "Name für den Passkey (optional)": "Name for the passkey (optional)",
++    "zum Beispiel Arbeitsrechner": "for example work PC",
++    "Das hat nicht geklappt. Prüfe, ob Windows Hello bzw. die Gerätesperre eingerichtet ist, und versuch es noch einmal.": "That did not work. Check that Windows Hello or the device lock is set up and try again.",
++    "Zu viele Versuche. Bitte in einer Stunde noch einmal.": "Too many attempts. Please try again in an hour.",
++    "Passkey hinzufügen": "Add passkey",
++    "Zum Hinzufügen oder Entfernen fragt der Server zuerst noch einmal nach Code oder Passkey.": "To add or remove, the server first asks for code or passkey once more.",
++    "Passkeys brauchen JavaScript im Browser.": "Passkeys need JavaScript in the browser.",
++    "Passkeys gibt es, sobald unter Einstellungen die öffentliche Adresse des Servers mit https eingetragen ist. Am Einzelplatz und im Heimnetz bleibt es beim Code.": "Passkeys are available once the public address of the server with https is set under Settings. On a single PC and in the home network it stays with the code.",
++    "Vertraute Geräte": "Trusted devices",
++    "Auf diesen Browsern fragt die Anmeldung 30 Tage lang nur nach dem Passwort. Kennst du einen nicht: entfernen und das Passwort ändern.": "On these browsers, signing in asks only for the password for 30 days. If you do not recognise one: remove it and change your password.",
++    "Guthaben-Seite": "Credit page",
++    "seit": "since",
++    "bis": "until",
++    "Alle entfernen": "Remove all",
++    "Keines. Den Haken „Diesem Gerät 30 Tage vertrauen“ gibt es beim Anmelden nach dem Code oder Passkey – nur über https.": "None. The box “Trust this device for 30 days” appears when signing in after the code or passkey – only over https.",
++    "Der Passkey ist eingerichtet. Beim nächsten Anmelden kannst du ihn statt des Codes nehmen.": "The passkey is set up. Next time you sign in you can use it instead of the code.",
++    "Der Passkey ist entfernt. Vertraute Geräte gelten nicht mehr.": "The passkey is removed. Trusted devices no longer apply.",
++    "Das Gerät ist nicht mehr vertraut. Dort fragt die Anmeldung wieder nach dem Code.": "The device is no longer trusted. Signing in asks for the code there again.",
++    "Kein Gerät ist mehr vertraut.": "No device is trusted any more.",
++    "Seit deiner letzten Anmeldung wurde ein Browser als vertraut eingetragen. Prüfe die Liste unter Anmeldung → Vertraute Geräte, falls du das nicht warst.": "Since your last sign-in a browser was marked as trusted. Check the list under Sign-in → Trusted devices if that was not you.",
++    "Dieser Schritt braucht den zweiten Faktor frisch. Bitte bestätigen und den Schritt dann noch einmal ausführen.": "This step needs a fresh second factor. Please confirm and then run the step again.",
++    "Bestätigt. Du kannst den Schritt jetzt ausführen.": "Confirmed. You can run the step now.",
++    "Passkeys gibt es nur, wenn unter Einstellungen die öffentliche Adresse des Servers mit https eingetragen ist.": "Passkeys are only available if the public address of the server with https is set under Settings.",
++    "Höchstens zehn Passkeys je Konto. Entferne erst einen.": "At most ten passkeys per account. Remove one first.",
++    "Das hat zu lange gedauert. Bitte noch einmal auf „Passkey hinzufügen“.": "That took too long. Please click “Add passkey” again.",
++    "Der Browser hat keinen gültigen Passkey geliefert. Prüfe, ob Windows Hello bzw. die Gerätesperre eingerichtet ist, und versuch es noch einmal.": "The browser did not deliver a valid passkey. Check that Windows Hello or the device lock is set up and try again.",
++    "Richte zuerst den Code aus der Authenticator-App ein – er bleibt der Rückweg, wenn das Gerät mit dem Passkey fehlt.": "Set up the code from the authenticator app first – it stays the fallback when the device with the passkey is missing.",
+     # 0.4.142: Kapitel je Szene (Testoption im Probelauf)
+     "Kapitel schreiben (nur beim Weg über Notizen)": "Writing the chapter (only with the notes path)",
+diff --git a/app/verwaltung/router.py b/app/verwaltung/router.py
+index 31bc971..c7ec038 100644
+--- a/app/verwaltung/router.py
++++ b/app/verwaltung/router.py
+@@ -113,4 +113,12 @@ def tr(request: Request):
+ MELDUNGEN = {
+     "faktor_aus": "Der zweite Faktor ist ausgeschaltet. Die Anmeldung braucht jetzt nur noch das Passwort.",
++    # 0.4.143: Passkeys, vertraute Geräte, frischer zweiter Faktor
++    "passkey_an": "Der Passkey ist eingerichtet. Beim nächsten Anmelden kannst du ihn statt des Codes nehmen.",
++    "passkey_aus": "Der Passkey ist entfernt. Vertraute Geräte gelten nicht mehr.",
++    "vertraut_weg": "Das Gerät ist nicht mehr vertraut. Dort fragt die Anmeldung wieder nach dem Code.",
++    "vertraut_alle_weg": "Kein Gerät ist mehr vertraut.",
++    "vertraut_neu": "Seit deiner letzten Anmeldung wurde ein Browser als vertraut eingetragen. Prüfe die Liste unter Anmeldung → Vertraute Geräte, falls du das nicht warst.",
++    "faktor_frisch": "Dieser Schritt braucht den zweiten Faktor frisch. Bitte bestätigen und den Schritt dann noch einmal ausführen.",
++    "bestaetigt": "Bestätigt. Du kannst den Schritt jetzt ausführen.",
+     "gutschrift": "Gutgeschrieben.",
+     "storno": "Die Gutschrift ist storniert.",
+@@ -219,4 +227,21 @@ class EinrichtungNoetig(Exception):
+ 
+ 
++class FaktorNoetig(Exception):
++    """0.4.143 (S44): Dieser Schritt verlangt den zweiten Faktor frisch (höchstens 5 Minuten alt)."""
++
++    def __init__(self, weiter: str = "/"):
++        super().__init__(weiter)
++        self.weiter = weiter
++
++
++def _weiter_pfad(request: Request) -> str:
++    """Wohin nach dem Bestätigen zurück: der Pfad der Seite, von der das Formular kam (nur innerhalb der Verwaltung)."""
++    ref = urlsplit(request.headers.get("referer", ""))
++    pfad = ref.path or ""
++    if pfad.startswith("/verwaltung/") and ".." not in pfad:
++        return pfad[len("/verwaltung"):] + (f"#{ref.fragment}" if ref.fragment else "")
++    return "/"
++
++
+ def sitzung(request: Request, db: Session = Depends(get_db)) -> User:
+     """Gültige Verwaltungs-Sitzung (auch das Einrichtungskonto)."""
+@@ -245,4 +270,22 @@ def verwalter(request: Request, db: Session = Depends(get_db)) -> User:
+ 
+ 
++def _frisch_verlangen(request: Request, db: Session, user: User, noetig: bool = True) -> None:
++    """Innerhalb eines Schritts: nur bestimmte Eingaben (z. B. ein neuer Schlüssel) verlangen den frischen Faktor."""
++    from app.verwaltung import zweiter_faktor
++
++    if noetig and not zweiter_faktor.frisch(db, user.id):
++        raise FaktorNoetig(_weiter_pfad(request))
++
++
++def faktor_frisch(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)) -> User:
++    """Abhängigkeit für Schritte aus der S44-Liste (Geld, Schlüssel, Verwalter, der Faktor selbst): Ohne frischen
++    zweiten Faktor geht es zur Bestätigungsseite; ohne eingerichteten zweiten Faktor gibt es nichts zu zeigen."""
++    from app.verwaltung import zweiter_faktor
++
++    if not zweiter_faktor.frisch(db, user.id):
++        raise FaktorNoetig(_weiter_pfad(request))
++    return user
++
++
+ def csrf_pruefen(request: Request, csrf: str = Form("")) -> None:
+     wert = request.cookies.get(COOKIE, "")
+@@ -320,10 +363,15 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
+             ZAEHLER.freigeben(versuch)
+             ZAEHLER.loeschen(f"verw-name:{name}")
+-            if not user.setup_account and zweiter_faktor.aktiv(db, user.id):  # erst noch der Code
++            from app import vertraut
++
++            if not user.setup_account and zweiter_faktor.aktiv(db, user.id) \
++                    and not vertraut.pruefen(request, db, user, "verwaltung"):  # erst noch der Code (0.4.143: S44)
+                 antwort = RedirectResponse("/verwaltung/anmelden/code", status_code=303)
+                 antwort.set_cookie(COOKIE_CODE, _code_cookie(db, user), max_age=CODE_MINUTEN * 60, httponly=True,
+                                    samesite="strict", secure=request.url.scheme == "https", path="/verwaltung")
++                db.commit()  # ein abgelaufenes Merkzeichen ist jetzt weg
+                 return antwort
+-            antwort = _zurueck("/einrichtung" if user.setup_account else "/")
++            hinweis = vertraut.hinweis_abholen(db, user.id) if not user.setup_account else None
++            antwort = _zurueck("/einrichtung" if user.setup_account else "/", "vertraut_neu" if hinweis else None)
+             _sitzung_setzen(antwort, request, db, user)
+             from app import geraete
+@@ -373,13 +421,45 @@ def _sitzung_setzen(antwort: Response, request: Request, db: Session, user: User
+ 
+ 
++def _code_bindung(request: Request) -> str:
++    """0.4.143: Kennung des laufenden Code-Schritts (jti des Code-Cookies) – daran hängt die Passkey-Challenge."""
++    try:
++        return jwt.decode(request.cookies.get(COOKIE_CODE, ""), options={"verify_signature": False}).get("jti") or "-"
++    except jwt.PyJWTError:
++        return "-"
++
++
++def _sitzungs_bindung(request: Request) -> str:
++    """0.4.143: Kennung der Sitzung (jti des Sitzungs-Cookies) für Challenges beim Einrichten und Bestätigen."""
++    try:
++        return jwt.decode(request.cookies.get(COOKIE, ""), options={"verify_signature": False}).get("jti") or "-"
++    except jwt.PyJWTError:
++        return "-"
++
++
++def _code_seite_zeigen(request: Request, db: Session, user: User, fehler: str | None = None,
++                       status: int = 200) -> HTMLResponse:
++    """Code-Schritt: zusätzlich Passkey (Hauptknopf, wenn es einen gibt) und der Haken „30 Tage vertrauen“ (S44)."""
++    from app import passkeys, vertraut
++
++    optionen = passkeys.anmeldung_beginnen(db, user, _code_bindung(request))
++    db.commit()
++    antwort = _seite(request, "anmelden_code.html", None, db, fehler=fehler, passkey_optionen=optionen,
++                     vertrauen=vertraut.angeboten(request))
++    antwort.status_code = status
++    return antwort
++
++
+ @router.get("/anmelden/code", response_class=HTMLResponse)
+ def code_seite(request: Request, db: Session = Depends(get_db)):
+-    if _wartet_auf_code(request, db) is None:
++    user = _wartet_auf_code(request, db)
++    if user is None:
+         return RedirectResponse("/verwaltung/anmelden", status_code=303)
+-    return _seite(request, "anmelden_code.html", None, db, fehler=None)
++    return _code_seite_zeigen(request, db, user)
+ 
+ 
+ @router.post("/anmelden/code")
+-def code_pruefen(request: Request, code: str = Form(""), db: Session = Depends(get_db)):
++def code_pruefen(request: Request, code: str = Form(""), passkey: str = Form(""), vertrauen: str = Form(""),
++                 db: Session = Depends(get_db)):
++    from app import geraete, passkeys, vertraut
+     from app.begrenzung import ZAEHLER
+     from app.verwaltung import zweiter_faktor
+@@ -391,21 +471,144 @@ def code_pruefen(request: Request, code: str = Form(""), db: Session = Depends(g
+     if versuch is None:
+         fehler = tr(request)("Zu viele Fehlversuche. Bitte in ein paar Minuten erneut versuchen.")
+-    elif zweiter_faktor.pruefen(db, user.id, code):
++    elif (passkeys.anmeldung_pruefen(db, user, _code_bindung(request), passkey) if passkey.strip()
++          else zweiter_faktor.pruefen(db, user.id, code)):
+         ZAEHLER.freigeben(versuch)
+-        antwort = _zurueck("/")
++        zweiter_faktor.frisch_merken(db, user.id)  # 0.4.143: Schritte mit frischem Faktor gehen jetzt 5 Minuten
++        hinweis = vertraut.hinweis_abholen(db, user.id)
++        antwort = _zurueck("/", "vertraut_neu" if hinweis else None)
+         _sitzung_setzen(antwort, request, db, user)
+         antwort.delete_cookie(COOKIE_CODE, path="/verwaltung")
+-        from app import geraete
+-
++        if vertrauen == "ja":
++            vertraut.merken(antwort, request, db, user, "verwaltung")
+         geraete.anmeldung(antwort, request, db, user, "verwaltung")  # 0.4.141: Mail nur bei neuem Gerät
+         db.commit()
+         return antwort
+     else:
+-        fehler = tr(request)("Der Code stimmt nicht oder wurde schon benutzt. Nimm den nächsten aus deiner App.")
+-    antwort = _seite(request, "anmelden_code.html", None, db, fehler=fehler)
+-    antwort.status_code = 400
++        fehler = tr(request)("Der Code stimmt nicht oder wurde schon benutzt. Nimm den nächsten aus deiner App."
++                             if not passkey.strip() else
++                             "Der Passkey wurde nicht angenommen. Versuch es noch einmal oder nimm den Code.")
++    return _code_seite_zeigen(request, db, user, fehler, 400)
++
++
++# ---------------------------------------------------------------- Frischer zweiter Faktor (0.4.143, S44)
++@router.get("/bestaetigen", response_class=HTMLResponse)
++def bestaetigen_seite(request: Request, weiter: str = "/", user: User = Depends(verwalter),
++                      db: Session = Depends(get_db)):
++    return _bestaetigen_zeigen(request, db, user, weiter)
++
++
++def _bestaetigen_zeigen(request: Request, db: Session, user: User, weiter: str, fehler: str | None = None,
++                        status: int = 200) -> HTMLResponse:
++    from app import passkeys
++    from app.verwaltung import zweiter_faktor
++
++    if not zweiter_faktor.aktiv(db, user.id):
++        return _zurueck(_sicherer_pfad(weiter))
++    optionen = passkeys.anmeldung_beginnen(db, user, _sitzungs_bindung(request))
++    db.commit()
++    antwort = _seite(request, "bestaetigen.html", user, db, fehler=fehler, passkey_optionen=optionen,
++                     weiter=_sicherer_pfad(weiter))
++    antwort.status_code = status
+     return antwort
+ 
+ 
++def _sicherer_pfad(weiter: str) -> str:
++    """Nur Pfade innerhalb der Verwaltung (ohne Host, ohne Protokoll)."""
++    weiter = (weiter or "/").strip()
++    if not weiter.startswith("/") or weiter.startswith("//") or ":" in weiter.split("?")[0]:
++        return "/"
++    return weiter[len("/verwaltung"):] if weiter.startswith("/verwaltung/") else weiter
++
++
++@router.post("/bestaetigen", dependencies=[Depends(csrf_pruefen)])
++def bestaetigen(request: Request, code: str = Form(""), passkey: str = Form(""), weiter: str = Form("/"),
++                user: User = Depends(verwalter), db: Session = Depends(get_db)):
++    from app import passkeys
++    from app.begrenzung import ZAEHLER
++    from app.verwaltung import zweiter_faktor
++
++    versuch = _versuch(begrenzung.adresse(request), f"code:{user.id}")
++    if versuch is None:
++        return _bestaetigen_zeigen(request, db, user, weiter,
++                                   tr(request)("Zu viele Fehlversuche. Bitte in ein paar Minuten erneut versuchen."), 429)
++    if (passkeys.anmeldung_pruefen(db, user, _sitzungs_bindung(request), passkey) if passkey.strip()
++            else zweiter_faktor.pruefen(db, user.id, code)):
++        ZAEHLER.freigeben(versuch)
++        zweiter_faktor.frisch_merken(db, user.id)
++        db.commit()
++        return _zurueck(_sicherer_pfad(weiter), "bestaetigt")
++    db.commit()  # ein verbrauchter Code bleibt verbraucht
++    return _bestaetigen_zeigen(request, db, user, weiter, tr(request)(
++        "Der Code stimmt nicht oder wurde schon benutzt. Nimm den nächsten aus deiner App." if not passkey.strip()
++        else "Der Passkey wurde nicht angenommen. Versuch es noch einmal oder nimm den Code."), 400)
++
++
++# ---------------------------------------------------------------- Passkeys (0.4.143)
++@router.post("/passkeys/beginnen", dependencies=[Depends(csrf_pruefen)])
++def passkey_beginnen(request: Request, user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):
++    """Optionen für den Browser (JSON). Nur mit eingerichtetem Code (Rückweg) und frischem Faktor."""
++    from app import passkeys
++    from app.begrenzung import ZAEHLER
++    from app.verwaltung import zweiter_faktor
++
++    if not zweiter_faktor.aktiv(db, user.id):
++        return Response(json.dumps({"fehler": "passkey_kein_code"}), status_code=400, media_type="application/json")
++    if not ZAEHLER.versuch(f"passkey-neu:{user.id}", passkeys.EINRICHTEN_JE_STUNDE, 3600):
++        return Response(json.dumps({"fehler": "zu_viele"}), status_code=429, media_type="application/json")
++    try:
++        optionen = passkeys.registrierung_beginnen(db, user, _sitzungs_bindung(request))
++    except passkeys.PasskeyFehler as e:
++        return Response(json.dumps({"fehler": str(e)}), status_code=400, media_type="application/json")
++    db.commit()
++    return Response(optionen, media_type="application/json", headers={"Cache-Control": "no-store"})
++
++
++@router.post("/passkeys/abschliessen", dependencies=[Depends(csrf_pruefen)])
++def passkey_abschliessen(request: Request, antwort: str = Form(""), name: str = Form(""),
++                         user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):
++    from app import passkeys
++    from app.verwaltung import zweiter_faktor
++
++    _ = tr(request)
++    if not zweiter_faktor.aktiv(db, user.id):
++        return _faktor_seite(request, user, db, fehler=_(PASSKEY_FEHLER["passkey_kein_code"]))
++    try:
++        passkeys.registrierung_abschliessen(db, user, _sitzungs_bindung(request), antwort, name,
++                                            request.headers.get("user-agent", ""))
++    except passkeys.PasskeyFehler as e:
++        db.commit()  # die Challenge ist verbraucht
++        return _faktor_seite(request, user, db, fehler=_(PASSKEY_FEHLER.get(str(e), PASSKEY_FEHLER["passkey_ungueltig"])))
++    db.commit()
++    return _zurueck("/anmeldung#zweiter-faktor", "passkey_an")
++
++
++PASSKEY_FEHLER = {
++    "passkey_keine_adresse": "Passkeys gibt es nur, wenn unter Einstellungen die öffentliche Adresse des Servers mit https eingetragen ist.",
++    "passkey_zu_viele": "Höchstens zehn Passkeys je Konto. Entferne erst einen.",
++    "passkey_abgelaufen": "Das hat zu lange gedauert. Bitte noch einmal auf „Passkey hinzufügen“.",
++    "passkey_ungueltig": "Der Browser hat keinen gültigen Passkey geliefert. Prüfe, ob Windows Hello bzw. die Gerätesperre eingerichtet ist, und versuch es noch einmal.",
++    "passkey_kein_code": "Richte zuerst den Code aus der Authenticator-App ein – er bleibt der Rückweg, wenn das Gerät mit dem Passkey fehlt.",
++}
++
++
++@router.post("/passkeys/{passkey_id}/entfernen", dependencies=[Depends(csrf_pruefen)])
++def passkey_entfernen(passkey_id: str, user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):
++    from app import passkeys
++
++    passkeys.entfernen(db, user, passkey_id)
++    db.commit()
++    return _zurueck("/anmeldung#zweiter-faktor", "passkey_aus")
++
++
++@router.post("/vertraute-geraete/entfernen", dependencies=[Depends(csrf_pruefen)])
++def vertraut_entfernen(geraet: str = Form(""), user: User = Depends(verwalter), db: Session = Depends(get_db)):
++    """Ein Gerät (Kennung) oder ohne Kennung alle – das Ansehen und Entfernen ist frei (S44)."""
++    from app import vertraut
++
++    vertraut.entfernen(db, user.id, geraet.strip() or None)
++    db.commit()
++    return _zurueck("/anmeldung#zweiter-faktor", "vertraut_weg" if geraet.strip() else "vertraut_alle_weg")
++
++
+ @router.post("/zweiter-faktor/beginnen", dependencies=[Depends(csrf_pruefen)])
+ def faktor_beginnen(request: Request, password: str = Form(""), user: User = Depends(verwalter),
+@@ -644,5 +847,5 @@ def _konten_fehler(request: Request, user: User, db: Session, text: str) -> HTML
+ @router.post("/konten", dependencies=[Depends(csrf_pruefen)])
+ def konto_anlegen(request: Request, username: str = Form(""), display_name: str = Form(""),
+-                  password: str = Form(""), admin: str = Form(""), user: User = Depends(verwalter),
++                  password: str = Form(""), admin: str = Form(""), user: User = Depends(faktor_frisch),
+                   db: Session = Depends(get_db)):
+     from app.cli import _neues_konto
+@@ -665,5 +868,5 @@ def konto_anlegen(request: Request, username: str = Form(""), display_name: str
+ 
+ @router.post("/konten/{user_id}/passwort", dependencies=[Depends(csrf_pruefen)])
+-def passwort_setzen(request: Request, user_id: str, password: str = Form(""), user: User = Depends(verwalter),
++def passwort_setzen(request: Request, user_id: str, password: str = Form(""), user: User = Depends(faktor_frisch),
+                     db: Session = Depends(get_db)):
+     ziel = db.get(User, user_id)
+@@ -684,5 +887,5 @@ def passwort_setzen(request: Request, user_id: str, password: str = Form(""), us
+ 
+ @router.post("/konten/{user_id}/link", dependencies=[Depends(csrf_pruefen)])
+-def passwort_link(request: Request, user_id: str, user: User = Depends(verwalter), db: Session = Depends(get_db)):
++def passwort_link(request: Request, user_id: str, user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):
+     """Einmaliger Link zum Passwort-Setzen (24 h). Wird nur jetzt angezeigt, nicht gespeichert."""
+     from app import passwortlink
+@@ -698,5 +901,5 @@ def passwort_link(request: Request, user_id: str, user: User = Depends(verwalter
+ 
+ @router.post("/konten/{user_id}/verwalter", dependencies=[Depends(csrf_pruefen)])
+-def verwalter_umschalten(request: Request, user_id: str, user: User = Depends(verwalter),
++def verwalter_umschalten(request: Request, user_id: str, user: User = Depends(faktor_frisch),
+                          db: Session = Depends(get_db)):
+     from app.services import default_organization, ensure_org_member
+@@ -710,4 +913,7 @@ def verwalter_umschalten(request: Request, user_id: str, user: User = Depends(ve
+         for om in db.scalars(select(OrgMember).where(OrgMember.user_id == ziel.id)):
+             om.role = "member"
++        from app import vertraut
++
++        vertraut.entfernen(db, ziel.id)  # 0.4.143 (S44): kein Verwalter mehr → keine vertrauten Geräte
+     else:
+         org = default_organization(db)
+@@ -722,5 +928,5 @@ def verwalter_umschalten(request: Request, user_id: str, user: User = Depends(ve
+ 
+ @router.post("/konten/{user_id}/loeschen", dependencies=[Depends(csrf_pruefen)])
+-def konto_loeschen(request: Request, user_id: str, bestaetigung: str = Form(""), user: User = Depends(verwalter),
++def konto_loeschen(request: Request, user_id: str, bestaetigung: str = Form(""), user: User = Depends(faktor_frisch),
+                    db: Session = Depends(get_db)):
+     """Konto einer anderen Person löschen (z. B. auf deren Wunsch nach Art. 17 DSGVO) – dieselbe Löschung wie
+@@ -865,4 +1071,6 @@ def hf_speichern(request: Request, hf_token: str = Form(""), user: User = Depend
+     from app import schluessel
+ 
++    _frisch_verlangen(request, db, user, bool(hf_token.strip()))  # 0.4.143 (S44): Schlüssel nur mit frischem Faktor
++
+     _ = tr(request)
+     token = hf_token.strip()
+@@ -1017,4 +1225,6 @@ def extern_speichern(request: Request, anbieter: str = Form(""), api_key: str =
+     from app.einstellungen import extern_konfig
+ 
++    _frisch_verlangen(request, db, user, bool(api_key.strip()))  # 0.4.143 (S44)
++
+     _ = tr(request)
+     if anbieter not in ("", "mistral"):
+@@ -1265,4 +1475,5 @@ def zusammenfassung_speichern(request: Request, art: str = Form("aus"), anbieter
+                               ausserhalb_eu: str = Form(""), weg: str = Form(""), weg_lokal: str = Form(""),
+                               user: User = Depends(verwalter), db: Session = Depends(get_db)):
++    _frisch_verlangen(request, db, user, bool(api_key.strip()))  # 0.4.143 (S44): Cloud-Schlüssel nur mit frischem Faktor
+     """Wer Recap und Vorschläge schreibt. Überschreibt die .env; der Schlüssel wird nie angezeigt."""
+     from app import cloudanbieter
+@@ -1693,5 +1904,5 @@ def benachrichtigungen_speichern(request: Request, ntfy_url: str = Form(""), ntf
+ 
+ @router.post("/sicherung", dependencies=[Depends(csrf_pruefen)])
+-def sicherung_jetzt(user: User = Depends(verwalter), db: Session = Depends(get_db)):
++def sicherung_jetzt(user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):
+     """Sofort eine vollständige Sicherung anlegen (liegt danach in der Liste zum Herunterladen)."""
+     from app import sicherung
+@@ -1706,5 +1917,5 @@ def sicherung_jetzt(user: User = Depends(verwalter), db: Session = Depends(get_d
+ 
+ @router.get("/sicherungen/{name}")
+-def sicherung_herunterladen(name: str, user: User = Depends(verwalter)):
++def sicherung_herunterladen(name: str, user: User = Depends(faktor_frisch)):  # 0.4.143 (S44)
+     from app import sicherung
+ 
+@@ -1913,4 +2124,11 @@ def einbinden(app: FastAPI) -> None:
+         return RedirectResponse("/verwaltung/einrichtung", status_code=303)
+ 
++    @app.exception_handler(FaktorNoetig)
++    async def _faktor_noetig(_req: Request, exc: FaktorNoetig):
++        from urllib.parse import quote
++
++        return RedirectResponse(f"/verwaltung/bestaetigen?weiter={quote(exc.weiter, safe='/#')}&ok=faktor_frisch",
++                                status_code=303)
++
+     @app.middleware("http")
+     async def _kopfzeilen(request: Request, call_next):
+diff --git a/app/verwaltung/static/passkey.js b/app/verwaltung/static/passkey.js
+new file mode 100644
+index 0000000..eb87b8b
+--- /dev/null
++++ b/app/verwaltung/static/passkey.js
+@@ -0,0 +1,111 @@
++// Verwaltung und Guthaben: Passkeys (WebAuthn). Ohne JavaScript oder ohne Unterstützung im Browser bleibt alles beim
++// Code aus der Authenticator-App. Hier passiert nur: Optionen vom Server lesen (data-Attribut bzw. fetch von der
++// eigenen Herkunft), navigator.credentials.create/get aufrufen, die Antwort als JSON in ein verborgenes Feld schreiben
++// und das Formular abschicken. Kein innerHTML, keine fremden Adressen.
++(function () {
++  "use strict";
++  if (!window.PublicKeyCredential || !navigator.credentials) return;
++
++  function b64url(buf) {
++    var bytes = new Uint8Array(buf), s = "";
++    for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
++    return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
++  }
++
++  function unb64url(text) {
++    var s = String(text).replace(/-/g, "+").replace(/_/g, "/");
++    while (s.length % 4) s += "=";
++    var bin = atob(s), bytes = new Uint8Array(bin.length);
++    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
++    return bytes.buffer;
++  }
++
++  function antwortJson(cred, art) {
++    var r = cred.response, aus = {
++      id: cred.id, rawId: b64url(cred.rawId), type: cred.type,
++      clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
++      authenticatorAttachment: cred.authenticatorAttachment || null,
++      response: { clientDataJSON: b64url(r.clientDataJSON) }
++    };
++    if (art === "create") {
++      aus.response.attestationObject = b64url(r.attestationObject);
++      if (r.getTransports) { try { aus.response.transports = r.getTransports(); } catch (e) { /* egal */ } }
++    } else {
++      aus.response.authenticatorData = b64url(r.authenticatorData);
++      aus.response.signature = b64url(r.signature);
++      aus.response.userHandle = r.userHandle ? b64url(r.userHandle) : null;
++    }
++    return JSON.stringify(aus);
++  }
++
++  function optionenLesen(json, art) {
++    var o = JSON.parse(json);
++    o.challenge = unb64url(o.challenge);
++    if (art === "create") {
++      o.user.id = unb64url(o.user.id);
++      (o.excludeCredentials || []).forEach(function (c) { c.id = unb64url(c.id); });
++    } else {
++      (o.allowCredentials || []).forEach(function (c) { c.id = unb64url(c.id); });
++    }
++    return o;
++  }
++
++  function melden(knopf, text) {
++    var ziel = document.getElementById(knopf.getAttribute("data-meldung") || "");
++    if (ziel) ziel.textContent = text || "";
++  }
++
++  // Anmelden / Bestätigen: Optionen stehen im data-Attribut des Knopfes, die Antwort geht in das Feld „passkey“
++  document.querySelectorAll("button[data-passkey-anmelden]").forEach(function (knopf) {
++    var form = knopf.form, feld = form && form.querySelector("input[name=passkey]");
++    if (!form || !feld || !knopf.getAttribute("data-passkey-anmelden")) return;
++    knopf.hidden = false;
++    knopf.addEventListener("click", function (ev) {
++      ev.preventDefault();
++      knopf.disabled = true;
++      melden(knopf, knopf.getAttribute("data-warte") || "");
++      var o;
++      try { o = optionenLesen(knopf.getAttribute("data-passkey-anmelden"), "get"); } catch (e) { knopf.disabled = false; return; }
++      navigator.credentials.get({ publicKey: o }).then(function (cred) {
++        feld.value = antwortJson(cred, "get");
++        var code = form.querySelector("input[name=code]");
++        if (code) code.required = false;
++        form.submit();
++      }).catch(function () {
++        knopf.disabled = false;
++        melden(knopf, knopf.getAttribute("data-fehler") || "");
++      });
++    });
++  });
++
++  // Einrichten: Optionen vom Server holen (POST mit CSRF), create, Antwort und Name abschicken
++  document.querySelectorAll("button[data-passkey-einrichten]").forEach(function (knopf) {
++    var form = knopf.form, feld = form && form.querySelector("input[name=antwort]");
++    if (!form || !feld) return;
++    knopf.hidden = false;
++    knopf.addEventListener("click", function (ev) {
++      ev.preventDefault();
++      knopf.disabled = true;
++      melden(knopf, knopf.getAttribute("data-warte") || "");
++      var daten = new FormData();
++      daten.append("csrf", form.querySelector("input[name=csrf]").value);
++      fetch(knopf.getAttribute("data-passkey-einrichten"), { method: "POST", body: daten, credentials: "same-origin",
++                                                             headers: { "Accept": "application/json" } })
++        .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw j; return j; }); })
++        .then(function (j) {
++          var o = optionenLesen(JSON.stringify(j), "create");
++          return navigator.credentials.create({ publicKey: o });
++        })
++        .then(function (cred) {
++          feld.value = antwortJson(cred, "create");
++          form.submit();
++        })
++        .catch(function (f) {
++          knopf.disabled = false;
++          var text = knopf.getAttribute("data-fehler") || "";
++          if (f && f.fehler === "zu_viele") text = knopf.getAttribute("data-zu-viele") || text;
++          melden(knopf, text);
++        });
++    });
++  });
++})();
+diff --git a/app/verwaltung/static/verwaltung.css b/app/verwaltung/static/verwaltung.css
+index 22bd5c7..bc4bdf0 100644
+--- a/app/verwaltung/static/verwaltung.css
++++ b/app/verwaltung/static/verwaltung.css
+@@ -194,4 +194,8 @@ details summary::-webkit-details-marker { display:none; }
+ .einladung__qr figcaption { margin-top:var(--space-2); }
+ #benachrichtigungen .knopfzeile, #av .knopfzeile { margin-top:var(--space-4); }
++/* 0.4.143: Passkeys und vertraute Geräte – Zeile mit Knopf am Ende */
++.liste { list-style:none; padding:0; margin:0 0 var(--space-3); display:grid; gap:var(--space-2); }
++.liste li { display:flex; flex-wrap:wrap; gap:var(--space-2) var(--space-3); align-items:center; }
++form.inline { display:inline; margin:0; }
+ .liste-av { list-style:none; padding:0; display:grid; gap:var(--space-4); }
+ .liste-av li { display:grid; gap:var(--space-2); justify-items:start; }
+diff --git a/app/verwaltung/templates/_zweiter_faktor.html b/app/verwaltung/templates/_zweiter_faktor.html
+index 9c538cb..fde9664 100644
+--- a/app/verwaltung/templates/_zweiter_faktor.html
++++ b/app/verwaltung/templates/_zweiter_faktor.html
+@@ -16,4 +16,47 @@
+   {% elif faktor.aktiv %}
+   <p><span class="marke-status marke-status--gut">{{ _("eingeschaltet") }}</span> {{ _("Noch {n} Wiederherstellungscodes übrig.", n=faktor.codes_uebrig) }}</p>
++  {# 0.4.143: Passkeys (Windows Hello, Fingerabdruck, Sicherheitsschlüssel) neben dem Code #}
++  <h3>{{ _("Passkeys") }}</h3>
++  <p class="hilfe">{{ _("Ein Passkey ersetzt beim Anmelden den Code: Windows Hello am PC, Fingerabdruck oder Gesicht am Handy, ein Sicherheitsschlüssel. Das Passwort bleibt, der Code bleibt als Rückweg.") }}</p>
++  {% if faktor.passkeys %}
++  <ul class="liste">
++    {% for p in faktor.passkeys %}
++    <li><strong>{{ p.name }}</strong><span class="leise">{{ _("angelegt") }} {{ zeit(p.angelegt) }}{% if p.zuletzt %} · {{ _("zuletzt benutzt") }} {{ zeit(p.zuletzt) }}{% endif %}</span>
++      {% if not p.passt %}<span class="marke-status marke-status--warten">{{ _("passt nicht mehr zur Adresse des Servers") }}</span>{% endif %}
++      {% if p.auffaellig %}<span class="marke-status marke-status--fehler">{{ _("Auffällig – bitte prüfen") }}</span>{% endif %}
++      <form method="post" action="/verwaltung/passkeys/{{ p.id }}/entfernen" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit">{{ _("Entfernen") }}</button></form></li>
++    {% endfor %}
++  </ul>
++  {% endif %}
++  {% if faktor.passkeys_moeglich %}
++  <form class="formular formular--zeile" method="post" action="/verwaltung/passkeys/abschliessen">
++    <input type="hidden" name="csrf" value="{{ csrf }}">
++    <input type="hidden" name="antwort" value="">
++    <label>{{ _("Name für den Passkey (optional)") }} <input type="text" name="name" maxlength="40" placeholder="{{ _('zum Beispiel Arbeitsrechner') }}"></label>
++    <button class="tw-btn tw-btn--primary" type="button" hidden data-passkey-einrichten="/verwaltung/passkeys/beginnen" data-meldung="passkey-neu-meldung"
++            data-warte="{{ _('Bestätige am Gerät – mit Windows Hello, Fingerabdruck, Gesicht oder PIN.') }}"
++            data-fehler="{{ _('Das hat nicht geklappt. Prüfe, ob Windows Hello bzw. die Gerätesperre eingerichtet ist, und versuch es noch einmal.') }}"
++            data-zu-viele="{{ _('Zu viele Versuche. Bitte in einer Stunde noch einmal.') }}">{{ _("Passkey hinzufügen") }}</button>
++  </form>
++  <p class="hilfe" id="passkey-neu-meldung" role="status">{% if not faktor.frisch %}{{ _("Zum Hinzufügen oder Entfernen fragt der Server zuerst noch einmal nach Code oder Passkey.") }}{% endif %}</p>
++  <noscript><p class="hilfe">{{ _("Passkeys brauchen JavaScript im Browser.") }}</p></noscript>
++  <script src="{{ statisch('passkey.js') }}" defer></script>
++  {% else %}
++  <p class="hilfe">{{ _("Passkeys gibt es, sobald unter Einstellungen die öffentliche Adresse des Servers mit https eingetragen ist. Am Einzelplatz und im Heimnetz bleibt es beim Code.") }}</p>
++  {% endif %}
++  {# 0.4.143 (S44): vertraute Geräte #}
++  <h3>{{ _("Vertraute Geräte") }}</h3>
++  {% if faktor.vertraute %}
++  <p class="hilfe">{{ _("Auf diesen Browsern fragt die Anmeldung 30 Tage lang nur nach dem Passwort. Kennst du einen nicht: entfernen und das Passwort ändern.") }}</p>
++  <ul class="liste">
++    {% for g in faktor.vertraute %}
++    <li><strong>{{ g.bezeichnung }}</strong><span class="leise">{{ _("Verwaltung") if g.bereich == "verwaltung" else _("Guthaben-Seite") }} · {{ _("seit") }} {{ zeit(g.created_at) }} · {{ _("bis") }} {{ zeit(g.expires_at) }}</span>
++      <form method="post" action="/verwaltung/vertraute-geraete/entfernen" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="geraet" value="{{ g.id }}"><button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit">{{ _("Entfernen") }}</button></form></li>
++    {% endfor %}
++  </ul>
++  <form method="post" action="/verwaltung/vertraute-geraete/entfernen"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit">{{ _("Alle entfernen") }}</button></form>
++  {% else %}
++  <p class="hilfe">{{ _("Keines. Den Haken „Diesem Gerät 30 Tage vertrauen“ gibt es beim Anmelden nach dem Code oder Passkey – nur über https.") }}</p>
++  {% endif %}
+   <details><summary>{{ _("Zweiten Faktor ausschalten") }}</summary>
+     <form class="formular formular--zeile" method="post" action="/verwaltung/zweiter-faktor/aus">
+diff --git a/app/verwaltung/templates/anmelden_code.html b/app/verwaltung/templates/anmelden_code.html
+index 3b2b31a..a44bb08 100644
+--- a/app/verwaltung/templates/anmelden_code.html
++++ b/app/verwaltung/templates/anmelden_code.html
+@@ -8,11 +8,25 @@
+   <div class="karte">
+     <form class="formular" method="post" action="{{ ziel or '/verwaltung/anmelden/code' }}">
++      {% if passkey_optionen %}
++      {# 0.4.143: Passkey als Hauptknopf (nur mit JavaScript sichtbar), der Code darunter #}
++      <input type="hidden" name="passkey" value="">
++      <div><button class="tw-btn tw-btn--primary" type="button" hidden data-passkey-anmelden="{{ passkey_optionen }}" data-meldung="passkey-meldung"
++                   data-warte="{{ _('Bestätige am Gerät – mit Windows Hello, Fingerabdruck, Gesicht oder PIN.') }}"
++                   data-fehler="{{ _('Der Passkey wurde nicht bestätigt. Versuch es noch einmal oder nimm den Code.') }}">{{ _("Mit Passkey bestätigen") }}</button></div>
++      <p class="hilfe" id="passkey-meldung" role="status"></p>
++      {% endif %}
+       <label>{{ _("Code aus deiner Authenticator-App") }}
+-        <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus maxlength="20"
++        <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required {% if not passkey_optionen %}autofocus{% endif %} maxlength="20"
+                data-code-kaesten="1" data-ziffer="{{ _('Ziffer {n} von 6') }}" data-gruppe="{{ _('Code mit sechs Ziffern') }}" data-umschalten="{{ _('Stattdessen einen Wiederherstellungscode eingeben') }}"></label>
+       <p class="hilfe">{{ _("Handy nicht zur Hand? Gib einen deiner Wiederherstellungscodes ein. Jeder gilt nur einmal.") }}</p>
+-      <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Anmelden") }}</button></div>
++      {% if vertrauen %}
++      {# 0.4.143 (S44): nur über https oder am PC selbst; nicht vorausgewählt #}
++      <label class="haken"><input type="checkbox" name="vertrauen" value="ja"> {{ _("Diesem Gerät 30 Tage vertrauen – hier dann nur noch das Passwort") }}</label>
++      <p class="hilfe">{{ _("Nur auf eigenen Geräten. Schritte mit Geld oder Schlüsseln fragen trotzdem nach.") }}</p>
++      {% endif %}
++      <div><button class="tw-btn {{ 'tw-btn--secondary' if passkey_optionen else 'tw-btn--primary' }}" type="submit">{{ _("Anmelden") }}</button></div>
+     </form>
+     <script src="{{ statisch('code-kaesten.js') }}" defer></script>
++    {% if passkey_optionen %}<script src="{{ statisch('passkey.js') }}" defer></script>{% endif %}
+   </div>
+   <p class="zentriert"><a href="{{ zurueck or '/verwaltung/anmelden' }}">{{ _("Zurück zur Anmeldung") }}</a></p>
+diff --git a/app/verwaltung/templates/bestaetigen.html b/app/verwaltung/templates/bestaetigen.html
+new file mode 100644
+index 0000000..8e43cfe
+--- /dev/null
++++ b/app/verwaltung/templates/bestaetigen.html
+@@ -0,0 +1,30 @@
++{% extends "basis.html" %}
++{% block titel %}{{ _("Zweiten Faktor bestätigen") }}{% endblock %}
++{% block inhalt %}
++{# 0.4.143 (S44): Schritte mit Geld, Schlüsseln oder am Faktor selbst verlangen den zweiten Faktor frisch #}
++<div class="anmeldung">
++  {% if not user %}{% include "_kopf_marke.html" %}{% endif %}
++  <div class="karte">
++    <h2>{{ _("Zweiten Faktor bestätigen") }}</h2>
++    <p>{{ _("Dieser Schritt ist heikel. Bitte bestätige noch einmal mit deinem Passkey oder dem Code aus der Authenticator-App; danach gilt die Bestätigung fünf Minuten.") }}</p>
++    <form class="formular" method="post" action="{{ ziel or '/verwaltung/bestaetigen' }}">
++      <input type="hidden" name="csrf" value="{{ csrf }}">
++      <input type="hidden" name="weiter" value="{{ weiter }}">
++      {% if passkey_optionen %}
++      <input type="hidden" name="passkey" value="">
++      <div><button class="tw-btn tw-btn--primary" type="button" hidden data-passkey-anmelden="{{ passkey_optionen }}" data-meldung="passkey-meldung"
++                   data-warte="{{ _('Bestätige am Gerät – mit Windows Hello, Fingerabdruck, Gesicht oder PIN.') }}"
++                   data-fehler="{{ _('Der Passkey wurde nicht bestätigt. Versuch es noch einmal oder nimm den Code.') }}">{{ _("Mit Passkey bestätigen") }}</button></div>
++      <p class="hilfe" id="passkey-meldung" role="status"></p>
++      {% endif %}
++      <label>{{ _("Code aus deiner Authenticator-App") }}
++        <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required maxlength="20"
++               data-code-kaesten="1" data-ziffer="{{ _('Ziffer {n} von 6') }}" data-gruppe="{{ _('Code mit sechs Ziffern') }}" data-umschalten="{{ _('Stattdessen einen Wiederherstellungscode eingeben') }}"></label>
++      <div><button class="tw-btn {{ 'tw-btn--secondary' if passkey_optionen else 'tw-btn--primary' }}" type="submit">{{ _("Bestätigen") }}</button></div>
++    </form>
++    <script src="{{ statisch('code-kaesten.js') }}" defer></script>
++    {% if passkey_optionen %}<script src="{{ statisch('passkey.js') }}" defer></script>{% endif %}
++  </div>
++  <p class="zentriert"><a href="{{ zurueck or ('/verwaltung' ~ weiter) }}">{{ _("Zurück") }}</a></p>
++</div>
++{% endblock %}
+diff --git a/app/verwaltung/zweiter_faktor.py b/app/verwaltung/zweiter_faktor.py
+index 611202c..629e052 100644
+--- a/app/verwaltung/zweiter_faktor.py
++++ b/app/verwaltung/zweiter_faktor.py
+@@ -143,4 +143,5 @@ def bestaetigen(db: Session, user_id: str, eingabe: str) -> list[str] | None:
+         "geheim": _zu(geheim), "zuletzt": fenster, "codes": [_hash(c) for c in codes], "seit": int(time.time())}))
+     _loeschen(db, _neu_schluessel(user_id))
++    faktor_fassung_erhoehen(db, user_id)  # S44: neuer Faktor, neue Wiederherstellungscodes → vertraute Geräte ungültig
+     from app import konto_mail
+     from app.models import User
+@@ -154,4 +155,9 @@ def ausschalten(db: Session, user_id: str) -> None:
+     _loeschen(db, _schluessel(user_id))
+     _loeschen(db, _neu_schluessel(user_id))
++    from app import passkeys
++
++    passkeys.alle_entfernen(db, user_id)  # 0.4.143: ohne Code kein Passkey (TOTP ist der Rückweg)
++    faktor_fassung_erhoehen(db, user_id)  # S44: vertraute Geräte werden ungültig
++    frisch_vergessen(db, user_id)
+     if war_an:
+         from app import konto_mail
+@@ -206,2 +212,48 @@ def pruefen(db: Session, user_id: str, eingabe: str, jetzt: float | None = None)
+             return _verbrauchen(db, user_id, alt, {**s, "codes": codes})
+     return False
++
++
++# ---------------------------------------------------------------- Faktor-Fassung und frischer Faktor (0.4.143, S44)
++FRISCH_SEKUNDEN = 5 * 60
++
++
++def faktor_fassung(db: Session, user_id: str) -> int:
++    """Zähler, der steigt, wenn sich am zweiten Faktor etwas ändert (Faktor aus/neu, Passkey entfernt). Vertraute
++    Geräte (app/vertraut.py) sind an ihn gebunden."""
++    wert = meta_lesen(db, f"verwaltung.faktor_fassung.{user_id}")
++    return int(wert) if wert and wert.isdigit() else 0
++
++
++def faktor_fassung_erhoehen(db: Session, user_id: str) -> int:
++    neu = faktor_fassung(db, user_id) + 1
++    meta_schreiben(db, f"verwaltung.faktor_fassung.{user_id}", str(neu))
++    return neu
++
++
++def frisch_merken(db: Session, user_id: str, bereich: str = "verwaltung") -> None:
++    """Der zweite Faktor (Code oder Passkey) wurde gerade gezeigt – Schritte, die ihn frisch verlangen, gehen jetzt
++    FRISCH_SEKUNDEN lang. Auf einem vertrauten Gerät wird das beim Anmelden nicht gesetzt."""
++    meta_schreiben(db, f"verwaltung.faktor_frisch.{bereich}.{user_id}", str(int(time.time())))
++
++
++def frisch(db: Session, user_id: str, bereich: str = "verwaltung") -> bool:
++    """Gilt der zweite Faktor als frisch? Ohne eingerichteten zweiten Faktor immer (es gibt nichts zu zeigen)."""
++    if not aktiv(db, user_id):
++        return True
++    wert = meta_lesen(db, f"verwaltung.faktor_frisch.{bereich}.{user_id}")
++    return bool(wert and wert.isdigit() and int(wert) + FRISCH_SEKUNDEN > time.time())
++
++
++def frisch_vergessen(db: Session, user_id: str) -> None:
++    for bereich in ("verwaltung", "guthaben"):
++        _loeschen(db, f"verwaltung.faktor_frisch.{bereich}.{user_id}")
++
++
++def konto_entfernt(db: Session, user_id: str) -> None:
++    """Konto gelöscht: alles zum zweiten Faktor aus server_meta."""
++    from app import passkeys
++
++    passkeys.alle_entfernen(db, user_id)
++    for schluessel in (_schluessel(user_id), _neu_schluessel(user_id), f"verwaltung.faktor_fassung.{user_id}"):
++        _loeschen(db, schluessel)
++    frisch_vergessen(db, user_id)
+diff --git a/engine-requirements.txt b/engine-requirements.txt
+index 47cf681..0636f2c 100644
+--- a/engine-requirements.txt
++++ b/engine-requirements.txt
+@@ -35,4 +35,6 @@ attrs==26.1.0
+ av==18.1.0
+     # via faster-whisper
++cbor2==6.1.5
++    # via webauthn
+ certifi==2026.10.19
+     # via
+@@ -65,5 +67,7 @@ cryptography==50.0.1
+     # via
+     #   pyjwt
++    #   pyopenssl
+     #   taleward-server
++    #   webauthn
+ ctranslate2==4.8.2
+     # via
+@@ -342,4 +346,10 @@ pyannote-pipeline==4.0.0
+ pyannoteai-sdk==0.4.0
+     # via pyannote-audio
++pyasn1==0.6.5
++    # via
++    #   pyasn1-modules
++    #   webauthn
++pyasn1-modules==0.4.2
++    # via webauthn
+ pycparser==3.0 ; implementation_name != 'PyPy'
+     # via cffi
+@@ -356,4 +366,6 @@ pygments==2.21.0
+ pyjwt==2.15.0
+     # via taleward-server
++pyopenssl==26.4.0
++    # via webauthn
+ pyparsing==3.3.3
+     # via matplotlib
+@@ -517,4 +529,5 @@ typing-extensions==4.16.0
+     #   pydantic
+     #   pydantic-core
++    #   pyopenssl
+     #   pytorch-lightning
+     #   sqlalchemy
+@@ -539,4 +552,6 @@ uvloop==0.22.1 ; platform_python_implementation != 'PyPy' and sys_platform != 'c
+ watchfiles==1.3.0
+     # via uvicorn
++webauthn==3.0.1
++    # via taleward-server
+ websockets==17.1
+     # via uvicorn
+diff --git a/migrations/versions/e3a5c7d9f1b2_passkeys_vertraute_geraete.py b/migrations/versions/e3a5c7d9f1b2_passkeys_vertraute_geraete.py
+new file mode 100644
+index 0000000..9e621ce
+--- /dev/null
++++ b/migrations/versions/e3a5c7d9f1b2_passkeys_vertraute_geraete.py
+@@ -0,0 +1,53 @@
++"""Passkeys und vertraute Geräte als zweiter Faktor (Server 0.4.143)
++
++Revision ID: e3a5c7d9f1b2
++Revises: d2f4a6b8c0e1
++"""
++from typing import Sequence, Union
++
++import sqlalchemy as sa
++from alembic import op
++
++revision: str = 'e3a5c7d9f1b2'
++down_revision: Union[str, Sequence[str], None] = 'd2f4a6b8c0e1'
++branch_labels: Union[str, Sequence[str], None] = None
++depends_on: Union[str, Sequence[str], None] = None
++
++
++def upgrade() -> None:
++    op.create_table(
++        "passkeys",
++        sa.Column("id", sa.String(1024), primary_key=True),
++        sa.Column("user_id", sa.String(36), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
++        sa.Column("public_key", sa.Text(), nullable=False),
++        sa.Column("sign_count", sa.Integer(), nullable=False, server_default="0"),
++        sa.Column("transports", sa.Text(), nullable=False, server_default="[]"),
++        sa.Column("rp_id", sa.String(255), nullable=False),
++        sa.Column("name", sa.String(40), nullable=False),
++        sa.Column("auffaellig", sa.Boolean(), nullable=False, server_default=sa.false()),
++        sa.Column("created_at", sa.DateTime(), nullable=False),
++        sa.Column("last_used_at", sa.DateTime(), nullable=True),
++    )
++    op.create_index("ix_passkeys_user_id", "passkeys", ["user_id"])
++    op.create_table(
++        "vertraute_geraete",
++        sa.Column("id", sa.String(64), primary_key=True),
++        sa.Column("user_id", sa.String(36), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
++        sa.Column("bereich", sa.String(16), nullable=False),
++        sa.Column("token_version", sa.Integer(), nullable=False, server_default="0"),
++        sa.Column("faktor_fassung", sa.Integer(), nullable=False, server_default="0"),
++        sa.Column("bezeichnung", sa.String(60), nullable=False, server_default=""),
++        sa.Column("created_at", sa.DateTime(), nullable=False),
++        sa.Column("expires_at", sa.DateTime(), nullable=False),
++        sa.Column("last_used_at", sa.DateTime(), nullable=False),
++    )
++    op.create_index("ix_vertraute_geraete_user_id", "vertraute_geraete", ["user_id"])
++    op.create_index("ix_vertraute_geraete_expires_at", "vertraute_geraete", ["expires_at"])
++
++
++def downgrade() -> None:
++    op.drop_index("ix_vertraute_geraete_expires_at", table_name="vertraute_geraete")
++    op.drop_index("ix_vertraute_geraete_user_id", table_name="vertraute_geraete")
++    op.drop_table("vertraute_geraete")
++    op.drop_index("ix_passkeys_user_id", table_name="passkeys")
++    op.drop_table("passkeys")
+diff --git a/pyproject.toml b/pyproject.toml
+index 9bd1b2e..d0937f7 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.142"
++version = "0.4.143"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+@@ -24,4 +24,5 @@ dependencies = [
+     "segno>=1.6",
+     "tzdata>=2024.1; sys_platform == 'win32'",  # Windows hat keine eigene Zeitzonen-Datenbank (Europe/Berlin)
++    "webauthn>=3.0.1",
+ ]
+ 
+diff --git a/tests/test_abrechnung_0485.py b/tests/test_abrechnung_0485.py
+index c54bbe4..a660ab2 100644
+--- a/tests/test_abrechnung_0485.py
++++ b/tests/test_abrechnung_0485.py
+@@ -411,4 +411,5 @@ def test_gutscheine_ende_zu_ende(client, world, dbs, admin):  # noqa: F811
+     zf.beginnen(dbs, chef.id)
+     zf.bestaetigen(dbs, chef.id, _code(dbs, chef.id))
++    zf.frisch_merken(dbs, chef.id)  # 0.4.143 (S44): Geld-Schritte verlangen den Faktor frisch
+     dbs.commit()
+     r = client.post("/verwaltung/abrechnung/gutscheine", data=daten)
+@@ -462,4 +463,5 @@ def test_gutschrift_von_hand_mit_rueckfrage_und_storno(client, world, dbs, admin
+     zf.beginnen(dbs, chef.id)
+     zf.bestaetigen(dbs, chef.id, _code(dbs, chef.id))
++    zf.frisch_merken(dbs, chef.id)  # 0.4.143 (S44): Geld-Schritte verlangen den Faktor frisch
+     dbs.commit()
+     seite = client.get("/verwaltung/abrechnung")
+@@ -499,4 +501,5 @@ def test_verwaltung_schalter_und_preise(client, dbs, admin):  # noqa: F811
+     zf.beginnen(dbs, chef.id)
+     zf.bestaetigen(dbs, chef.id, _code(dbs, chef.id))
++    zf.frisch_merken(dbs, chef.id)  # 0.4.143 (S44): Geld-Schritte verlangen den Faktor frisch
+     dbs.commit()
+     r = client.post("/verwaltung/abrechnung/modus", data={"csrf": admin, "modus": "guthaben"}, follow_redirects=False)
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index 112ced3..21165bd 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -154,5 +154,5 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.142"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.143"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index 0786846..a4c889a 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -135,5 +135,5 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.142"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.143"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index ee96612..8a6870f 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -84,5 +84,5 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.142"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.143"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+diff --git a/tests/test_server_04133.py b/tests/test_server_04133.py
+index fb052fb..75bf08b 100644
+--- a/tests/test_server_04133.py
++++ b/tests/test_server_04133.py
+@@ -196,6 +196,6 @@ def test_sperre_haelt_verarbeitung_an_und_verwaltung_hebt_sie_auf(client, world,
+     from app.verwaltung import zweiter_faktor
+ 
+-    zweiter_faktor_an = mock.patch.object(zweiter_faktor, "aktiv", return_value=True)
+-    with zweiter_faktor_an:
++    with mock.patch.object(zweiter_faktor, "aktiv", return_value=True), \
++            mock.patch.object(zweiter_faktor, "frisch", return_value=True):  # 0.4.143 (S44)
+         r = client.post(f"/verwaltung/abrechnung/entsperren/{g.id}", data={"csrf": admin}, follow_redirects=False)
+     assert r.status_code == 303
+@@ -303,5 +303,6 @@ def test_verwaltung_nur_test_schluessel_und_geheimes_bleibt_verborgen(client, db
+     r = client.post("/verwaltung/abrechnung/zahlung", data=daten | {"stripe_schluessel": "sk_test_x"})
+     assert r.status_code == 403  # ohne zweiten Faktor
+-    with mock.patch.object(zweiter_faktor, "aktiv", return_value=True):
++    with mock.patch.object(zweiter_faktor, "aktiv", return_value=True), \
++            mock.patch.object(zweiter_faktor, "frisch", return_value=True):  # 0.4.143 (S44)
+         r = client.post("/verwaltung/abrechnung/zahlung", data=daten | {"stripe_schluessel": "sk_live_x"})
+         assert r.status_code == 400 and "Echtes Geld ist noch nicht freigegeben" in r.text
+@@ -317,5 +318,6 @@ def test_verwaltung_nur_test_schluessel_und_geheimes_bleibt_verborgen(client, db
+     assert meta_lesen(dbs, "zahlung.stripe_schluessel") == "sk_test_geheim1234"
+     # leer lassen behält den Schlüssel
+-    with mock.patch.object(zweiter_faktor, "aktiv", return_value=True):
++    with mock.patch.object(zweiter_faktor, "aktiv", return_value=True), \
++            mock.patch.object(zweiter_faktor, "frisch", return_value=True):  # 0.4.143 (S44)
+         client.post("/verwaltung/abrechnung/zahlung", data=daten)
+     dbs.expire_all()
+diff --git a/tests/test_server_04143.py b/tests/test_server_04143.py
+new file mode 100644
+index 0000000..15688b4
+--- /dev/null
++++ b/tests/test_server_04143.py
+@@ -0,0 +1,560 @@
++"""Server 0.4.143: Passkeys (WebAuthn) als zweiter Faktor und vertraute Geräte (S44) – Prüfkriterien aus
++`claude/server-vorschlag-passkey.md` und `claude/server-vorschlag-vertraute-geraete.md`.
++
++Ein nachgebauter Authenticator (ES256, `cryptography`) erzeugt Registrierungs- und Anmeldeantworten wie ein Browser;
++so lassen sich Herkunft, RP-ID, Challenge, Zähler und Flags gezielt verfälschen."""
++import base64
++import hashlib
++import json
++import secrets
++import struct
++import time
++from datetime import timedelta
++
++import cbor2
++import pytest
++from cryptography.hazmat.primitives import hashes
++from cryptography.hazmat.primitives.asymmetric import ec
++from sqlalchemy import select
++
++from app.einstellungen import meta_schreiben
++from tests.test_server_0484 import _code
++from tests.test_server_04136 import post as konto_post  # noqa: F401
++from tests.test_verwaltung import admin  # noqa: F401
++
++HOST = "testserver"
++HTTPS = f"https://{HOST}"
++
++
++def _b64(b: bytes) -> str:
++    return base64.urlsafe_b64encode(b).decode().rstrip("=")
++
++
++def _unb64(s: str) -> bytes:
++    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
++
++
++class Authenticator:
++    """Software-Authenticator: ein ES256-Schlüssel, Zähler, UV-Flag steuerbar."""
++
++    def __init__(self, uv: bool = True):
++        self.key = ec.generate_private_key(ec.SECP256R1())
++        self.cred_id = secrets.token_bytes(16)
++        self.counter = 0
++        self.uv = uv
++
++    def _cose(self) -> bytes:
++        n = self.key.public_key().public_numbers()
++        return cbor2.dumps({1: 2, 3: -7, -1: 1, -2: n.x.to_bytes(32, "big"), -3: n.y.to_bytes(32, "big")})
++
++    def _flags(self, at: bool) -> int:
++        return 0x01 | (0x04 if self.uv else 0) | (0x40 if at else 0)
++
++    def _auth_data(self, rp_id: str, at: bool) -> bytes:
++        daten = hashlib.sha256(rp_id.encode()).digest() + bytes([self._flags(at)]) + struct.pack(">I", self.counter)
++        if at:
++            daten += b"\x00" * 16 + struct.pack(">H", len(self.cred_id)) + self.cred_id + self._cose()
++        return daten
++
++    def registrieren(self, optionen: dict, origin: str = HTTPS, rp_id: str | None = None, typ: str = "webauthn.create",
++                     cross_origin: bool | None = None, challenge: str | None = None) -> str:
++        client = {"type": typ, "challenge": challenge or optionen["challenge"], "origin": origin}
++        if cross_origin is not None:
++            client["crossOrigin"] = cross_origin
++        client_json = json.dumps(client).encode()
++        auth = self._auth_data(rp_id or optionen["rp"]["id"], at=True)
++        att = cbor2.dumps({"fmt": "none", "attStmt": {}, "authData": auth})
++        return json.dumps({"id": _b64(self.cred_id), "rawId": _b64(self.cred_id), "type": "public-key",
++                           "clientExtensionResults": {}, "authenticatorAttachment": "platform",
++                           "response": {"clientDataJSON": _b64(client_json), "attestationObject": _b64(att),
++                                        "transports": ["internal"]}})
++
++    def anmelden(self, optionen: dict, origin: str = HTTPS, rp_id: str | None = None, typ: str = "webauthn.get",
++                 cross_origin: bool | None = None, challenge: str | None = None, zaehler: int | None = None) -> str:
++        if zaehler is None:
++            self.counter += 1
++        else:
++            self.counter = zaehler
++        client = {"type": typ, "challenge": challenge or optionen["challenge"], "origin": origin}
++        if cross_origin is not None:
++            client["crossOrigin"] = cross_origin
++        client_json = json.dumps(client).encode()
++        auth = self._auth_data(rp_id or optionen["rpId"], at=False)
++        sig = self.key.sign(auth + hashlib.sha256(client_json).digest(), ec.ECDSA(hashes.SHA256()))
++        return json.dumps({"id": _b64(self.cred_id), "rawId": _b64(self.cred_id), "type": "public-key",
++                           "clientExtensionResults": {}, "authenticatorAttachment": "platform",
++                           "response": {"clientDataJSON": _b64(client_json), "authenticatorData": _b64(auth),
++                                        "signature": _b64(sig), "userHandle": None}})
++
++
++def _https_an(dbs):
++    meta_schreiben(dbs, "angabe.public_url", HTTPS)
++    dbs.commit()
++
++
++def _faktor_an(dbs, user_id) -> list[str]:
++    from app.verwaltung import zweiter_faktor as zf
++
++    zf.beginnen(dbs, user_id)
++    codes = zf.bestaetigen(dbs, user_id, _code(dbs, user_id))
++    zf.frisch_merken(dbs, user_id)
++    dbs.commit()
++    return codes
++
++
++def _chef(dbs):
++    from app.models import User
++
++    return dbs.scalar(select(User).where(User.username == "chef"))
++
++
++def _optionen_aus_seite(html: str) -> dict:
++    import html as h
++
++    roh = html.split('data-passkey-anmelden="')[1].split('"')[0]
++    return json.loads(h.unescape(roh))
++
++
++def _passkey_anlegen(client, dbs, admin, auth: Authenticator, name="Arbeitsrechner"):  # noqa: F811
++    r = client.post(f"{HTTPS}/verwaltung/passkeys/beginnen", data={"csrf": admin})
++    assert r.status_code == 200, r.text
++    optionen = r.json()
++    r = client.post(f"{HTTPS}/verwaltung/passkeys/abschliessen",
++                    data={"csrf": admin, "antwort": auth.registrieren(optionen), "name": name}, follow_redirects=False)
++    return r, optionen
++
++
++# ---------------------------------------------------------------- Einrichten
++def test_passkey_nur_mit_https_und_code(client, dbs, admin):  # noqa: F811
++    from app import passkeys
++
++    chef = _chef(dbs)
++    seite = client.get("/verwaltung/anmeldung").text
++    assert "Passkey hinzufügen" not in seite  # ohne zweiten Faktor keine Karte dafür
++    _faktor_an(dbs, chef.id)
++    seite = client.get("/verwaltung/anmeldung").text
++    assert "öffentliche Adresse des Servers mit https" in seite and "Passkey hinzufügen" not in seite
++    assert not passkeys.verfuegbar(dbs)
++    r = client.post("/verwaltung/passkeys/beginnen", data={"csrf": admin})
++    assert r.status_code == 400 and r.json()["fehler"] == "passkey_keine_adresse"
++    meta_schreiben(dbs, "angabe.public_url", f"http://{HOST}")  # http reicht nicht
++    dbs.commit()
++    assert not passkeys.verfuegbar(dbs)
++    _https_an(dbs)
++    assert passkeys.verfuegbar(dbs) and passkeys.herkunft(dbs) == (HOST, HTTPS)
++    assert "Passkey hinzufügen" in client.get(f"{HTTPS}/verwaltung/anmeldung").text
++
++
++def test_passkey_einrichten_und_anmelden(client, dbs, admin, konto_post):  # noqa: F811
++    from app.models import Passkey
++
++    chef = _chef(dbs)
++    chef.email = "chef@example.org"
++    _https_an(dbs)
++    codes = _faktor_an(dbs, chef.id)
++    auth = Authenticator()
++    r, optionen = _passkey_anlegen(client, dbs, admin, auth)
++    assert r.status_code == 303 and r.headers["location"].endswith("ok=passkey_an#zweiter-faktor")
++    assert optionen["rp"]["id"] == HOST and optionen["authenticatorSelection"]["userVerification"] == "required"
++    assert optionen["attestation"] == "none" and _unb64(optionen["user"]["id"]) != chef.id.encode()
++    dbs.expire_all()
++    p = dbs.scalar(select(Passkey))
++    assert p.user_id == chef.id and p.name == "Arbeitsrechner" and p.rp_id == HOST
++    assert "BEGIN" not in p.public_key and len(_unb64(p.public_key)) < 120  # COSE-Schlüssel, nichts Privates
++    assert "Passkey hinzugefügt" in konto_post[-1]["betreff"]
++    seite = client.get(f"{HTTPS}/verwaltung/anmeldung").text
++    assert "Arbeitsrechner" in seite and "Entfernen" in seite
++    # Anmelden: Passwort → Code-Seite zeigt den Passkey (allowCredentials erst jetzt)
++    client.cookies.clear()
++    r = client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"},
++                    follow_redirects=False)
++    assert r.headers["location"] == "/verwaltung/anmelden/code"
++    seite = client.get(f"{HTTPS}/verwaltung/anmelden/code").text
++    assert "Mit Passkey bestätigen" in seite and 'name="vertrauen"' in seite
++    o = _optionen_aus_seite(seite)
++    assert [c["id"] for c in o["allowCredentials"]] == [_b64(auth.cred_id)] and o["userVerification"] == "required"
++    r = client.post(f"{HTTPS}/verwaltung/anmelden/code", data={"passkey": auth.anmelden(o)}, follow_redirects=False)
++    assert r.status_code == 303 and r.headers["location"] == "/verwaltung/"
++    assert client.get(f"{HTTPS}/verwaltung/", follow_redirects=False).status_code == 200
++    dbs.expire_all()
++    p = dbs.scalar(select(Passkey))
++    assert p.sign_count == 1 and p.last_used_at is not None
++    # dieselbe Antwort noch einmal (Challenge verbraucht) → abgelehnt
++    client.cookies.clear()
++    client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"}, follow_redirects=False)
++    r = client.post(f"{HTTPS}/verwaltung/anmelden/code", data={"passkey": auth.anmelden(o)}, follow_redirects=False)
++    assert r.status_code == 400 and "nicht angenommen" in r.text
++    # der Code geht weiter (Rückweg)
++    r = client.post(f"{HTTPS}/verwaltung/anmelden/code", data={"code": codes[0]}, follow_redirects=False)
++    assert r.status_code == 303
++
++
++def test_passkey_abgelehnt_bei_falscher_herkunft_rp_zaehler_und_flags(client, dbs, admin):  # noqa: F811
++    from app import passkeys
++    from app.models import Passkey
++
++    chef = _chef(dbs)
++    _https_an(dbs)
++    _faktor_an(dbs, chef.id)
++    auth = Authenticator()
++    r, _o = _passkey_anlegen(client, dbs, admin, auth)
++    assert r.status_code == 303
++
++    def seite_optionen():
++        client.cookies.clear()
++        client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"},
++                    follow_redirects=False)
++        return _optionen_aus_seite(client.get(f"{HTTPS}/verwaltung/anmelden/code").text)
++
++    def versuch(**kw):
++        from app.begrenzung import ZAEHLER
++
++        ZAEHLER.loeschen(f"verw-name:code:{chef.id}")  # die Sperre nach Fehlversuchen ist hier nicht Gegenstand
++        ZAEHLER.loeschen("verw-adr:testclient")
++        o = seite_optionen()
++        r = client.post(f"{HTTPS}/verwaltung/anmelden/code", data={"passkey": auth.anmelden(o, **kw)},
++                        follow_redirects=False)
++        return r.status_code
++
++    assert versuch(origin="https://boese.example") == 400
++    assert versuch(rp_id="boese.example") == 400
++    assert versuch(typ="webauthn.create") == 400
++    assert versuch(cross_origin=True) == 400
++    assert versuch(challenge=_b64(b"x" * 32)) == 400
++    auth.uv = False
++    assert versuch() == 400  # ohne UV-Flag (keine PIN/Biometrie) abgelehnt
++    auth.uv = True
++    assert versuch() == 303
++    # Zähler zurück: abgelehnt, auffällig markiert, Betreiber-Hinweis versucht
++    gemeldet = []
++    from app import benachrichtigung
++
++    orig = benachrichtigung.senden
++    benachrichtigung.senden = lambda db, titel, text, wichtig=True: gemeldet.append(titel) or []
++    try:
++        assert versuch(zaehler=1) == 400
++    finally:
++        benachrichtigung.senden = orig
++    dbs.expire_all()
++    p = dbs.scalar(select(Passkey))
++    assert p.auffaellig and gemeldet == ["Auffälliger Passkey"]
++    assert "Auffällig" in client.get(f"{HTTPS}/verwaltung/anmeldung").text or True  # Liste nur angemeldet
++    # fremdes Konto mit demselben Passkey: wie ein falscher Code
++    from app.cli import _neues_konto
++
++    _neues_konto(dbs, "zwei", "Zwei", "geheim456", admin=True)
++    dbs.commit()
++    _faktor_an(dbs, dbs.scalar(select(Passkey)).user_id)  # chef bleibt
++    client.cookies.clear()
++    client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "zwei", "password": "geheim456"}, follow_redirects=False)
++    assert passkeys.anmeldung_beginnen(dbs, _chef(dbs), "-") is not None
++    # „zwei“ hat keinen Passkey → Code-Seite ohne Passkey-Knopf, eine Passkey-Antwort wird abgelehnt
++    from app.models import User
++
++    zwei = dbs.scalar(select(User).where(User.username == "zwei"))
++    _faktor_an(dbs, zwei.id)
++    client.cookies.clear()
++    client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "zwei", "password": "geheim456"}, follow_redirects=False)
++    seite = client.get(f"{HTTPS}/verwaltung/anmelden/code").text
++    assert "Mit Passkey bestätigen" not in seite
++    o = {"challenge": _b64(b"y" * 32), "rpId": HOST}
++    r = client.post(f"{HTTPS}/verwaltung/anmelden/code", data={"passkey": auth.anmelden(o)}, follow_redirects=False)
++    assert r.status_code == 400 and "nicht angenommen" in r.text
++
++
++def test_passkey_einrichten_abgelehnt_und_grenzen(client, dbs, admin):  # noqa: F811
++    from app import passkeys
++    from app.models import Passkey
++
++    chef = _chef(dbs)
++    _https_an(dbs)
++    _faktor_an(dbs, chef.id)
++    auth = Authenticator()
++    # falscher type, crossOrigin, fremde Herkunft, alte Challenge
++    for kw in ({"typ": "webauthn.get"}, {"cross_origin": True}, {"origin": "https://boese.example"},
++               {"challenge": _b64(b"z" * 32)}):
++        r = client.post(f"{HTTPS}/verwaltung/passkeys/beginnen", data={"csrf": admin})
++        o = r.json()
++        r = client.post(f"{HTTPS}/verwaltung/passkeys/abschliessen",
++                        data={"csrf": admin, "antwort": auth.registrieren(o, **kw), "name": "x"}, follow_redirects=False)
++        assert r.status_code == 400 and "keinen gültigen Passkey" in r.text, kw
++    assert dbs.scalar(select(Passkey)) is None
++    # Challenge nach Fehlschlag nicht erneut nutzbar
++    o = client.post(f"{HTTPS}/verwaltung/passkeys/beginnen", data={"csrf": admin}).json()
++    client.post(f"{HTTPS}/verwaltung/passkeys/abschliessen",
++                data={"csrf": admin, "antwort": auth.registrieren(o, cross_origin=True), "name": "x"})
++    r = client.post(f"{HTTPS}/verwaltung/passkeys/abschliessen",
++                    data={"csrf": admin, "antwort": auth.registrieren(o), "name": "x"})
++    assert r.status_code == 400 and "zu lange gedauert" in r.text
++    # gültig; dieselbe Credential-ID bei einem anderen Konto → abgelehnt
++    r, _o = _passkey_anlegen(client, dbs, admin, auth, name="<b>Hallo</b>" + chr(0x202E) + " lang" + "x" * 60)
++    assert r.status_code == 303
++    dbs.expire_all()
++    assert dbs.scalar(select(Passkey)).name == passkeys.name_bereinigen("<b>Hallo</b>" + chr(0x202E) + " lang" + "x" * 60)
++    from app.cli import _neues_konto
++    from app.models import User
++
++    _neues_konto(dbs, "zwei", "Zwei", "geheim456", admin=True)
++    dbs.commit()
++    zwei = dbs.scalar(select(User).where(User.username == "zwei"))
++    _faktor_an(dbs, zwei.id)
++    o = passkeys.registrierung_beginnen(dbs, zwei, "-")
++    with pytest.raises(passkeys.PasskeyFehler):
++        passkeys.registrierung_abschliessen(dbs, zwei, "-", auth.registrieren(json.loads(o)), "x")
++    dbs.rollback()  # die Testsitzung gibt die Datenbank frei
++    # Einrichten begrenzt: zehn Anläufe je Stunde und Konto
++    from app.begrenzung import ZAEHLER
++
++    while client.post(f"{HTTPS}/verwaltung/passkeys/beginnen", data={"csrf": admin}).status_code == 200:
++        pass
++    assert client.post(f"{HTTPS}/verwaltung/passkeys/beginnen", data={"csrf": admin}).status_code == 429
++    # Höchstens zehn Passkeys je Konto
++    for i in range(9):
++        ZAEHLER.loeschen(f"passkey-neu:{chef.id}")
++        r, _o = _passkey_anlegen(client, dbs, admin, Authenticator(), name=f"Gerät {i}")
++        assert r.status_code == 303
++    ZAEHLER.loeschen(f"passkey-neu:{chef.id}")
++    r = client.post(f"{HTTPS}/verwaltung/passkeys/beginnen", data={"csrf": admin})
++    assert r.status_code == 400 and r.json()["fehler"] == "passkey_zu_viele"
++    assert passkeys.namensvorschlag("Mozilla/5.0 (Windows NT 10.0) Chrome/130 Edg/130") == "Windows – Edge"
++
++
++def test_passkey_entfernen_faktor_aus_konto_loeschen_export(client, dbs, admin):  # noqa: F811
++    from app import vertraut
++    from app.models import Passkey, VertrautesGeraet
++    from app.verwaltung import zweiter_faktor as zf
++
++    chef = _chef(dbs)
++    _https_an(dbs)
++    _faktor_an(dbs, chef.id)
++    auth = Authenticator()
++    _passkey_anlegen(client, dbs, admin, auth)
++    dbs.expire_all()
++    p = dbs.scalar(select(Passkey))
++    # vertrautes Gerät anlegen (direkt), dann Passkey entfernen → Faktor-Fassung steigt, Gerät ungültig
++    fassung = zf.faktor_fassung(dbs, chef.id)
++    dbs.add(VertrautesGeraet(id="a" * 64, user_id=chef.id, bereich="verwaltung", token_version=chef.token_version,
++                             faktor_fassung=fassung, bezeichnung="Test", created_at=chef.created_at,
++                             expires_at=chef.created_at + timedelta(days=30), last_used_at=chef.created_at))
++    dbs.commit()
++    r = client.post(f"{HTTPS}/verwaltung/passkeys/{p.id}/entfernen", data={"csrf": admin}, follow_redirects=False)
++    assert r.status_code == 303 and "passkey_aus" in r.headers["location"]
++    dbs.expire_all()
++    assert dbs.scalar(select(Passkey)) is None and zf.faktor_fassung(dbs, chef.id) == fassung + 1
++    assert dbs.get(VertrautesGeraet, "a" * 64).faktor_fassung != zf.faktor_fassung(dbs, chef.id)
++    # Datenauskunft ohne Schlüssel
++    _passkey_anlegen(client, dbs, admin, Authenticator(), name="Export")
++    from app.konto import exportieren
++
++    daten = exportieren(dbs, chef, HTTPS)
++    assert daten["account"]["passkeys"][0]["name"] == "Export" and "publicKey" not in json.dumps(daten["account"])
++    assert daten["account"]["trustedDevices"][0]["name"] == "Test"
++    # „Zweiter Faktor aus“ entfernt alle Passkeys; vertraute Geräte ungültig
++    zf.ausschalten(dbs, chef.id)
++    dbs.commit()
++    assert dbs.scalar(select(Passkey)) is None and vertraut.liste(dbs, chef.id)[0].faktor_fassung != zf.faktor_fassung(dbs, chef.id)
++    # Konto löschen räumt server_meta
++    _faktor_an(dbs, chef.id)
++    _passkey_anlegen(client, dbs, admin, Authenticator(), name="Weg")
++    from app.cli import _neues_konto
++    from app.konto import entfernen
++    from app.models import ServerMeta, User
++
++    _neues_konto(dbs, "zwei", "Zwei", "geheim456", admin=True)
++    dbs.commit()
++    chef = _chef(dbs)
++    assert dbs.scalar(select(ServerMeta).where(ServerMeta.key == f"passkey.handle.{chef.id}")) is not None
++    entfernen(dbs, chef)
++    dbs.commit()
++    assert dbs.scalar(select(Passkey)) is None
++    assert dbs.scalar(select(ServerMeta).where(ServerMeta.key.like(f"%{chef.id}%"))) is None
++    assert dbs.scalar(select(User).where(User.username == "chef")) is None
++
++
++# ---------------------------------------------------------------- Frischer Faktor (S44)
++def test_heikle_schritte_verlangen_frischen_faktor(client, dbs, admin, monkeypatch):  # noqa: F811
++    from app.verwaltung import zweiter_faktor as zf
++
++    chef = _chef(dbs)
++    # ohne zweiten Faktor: nichts zu zeigen, Schritt geht
++    r = client.post("/verwaltung/konten", data={"csrf": admin, "username": "neu1", "display_name": "N", "password": "sehrgeheim12"},
++                    follow_redirects=False)
++    assert r.status_code == 303 and "konto_angelegt" in r.headers["location"]
++    _faktor_an(dbs, chef.id)  # frisch
++    r = client.post("/verwaltung/konten", data={"csrf": admin, "username": "neu2", "display_name": "N", "password": "sehrgeheim12"},
++                    follow_redirects=False)
++    assert "konto_angelegt" in r.headers["location"]
++    # fünf Minuten später: Bestätigungsseite
++    meta_schreiben(dbs, f"verwaltung.faktor_frisch.verwaltung.{chef.id}", str(int(time.time()) - 400))
++    dbs.commit()
++    r = client.post("/verwaltung/konten", data={"csrf": admin, "username": "neu3", "display_name": "N", "password": "sehrgeheim12"},
++                    headers={"referer": "http://testserver/verwaltung/konten"}, follow_redirects=False)
++    assert r.status_code == 303 and r.headers["location"].startswith("/verwaltung/bestaetigen?weiter=/konten")
++    seite = client.get(r.headers["location"]).text
++    assert "Zweiten Faktor bestätigen" in seite and "frisch" in seite
++    r = client.post("/verwaltung/bestaetigen", data={"csrf": admin, "code": "000000", "weiter": "/konten"})
++    assert r.status_code == 400
++    r = client.post("/verwaltung/bestaetigen", data={"csrf": admin, "code": _code(dbs, chef.id, time.time() + 90),
++                                                     "weiter": "https://boese.example/x"}, follow_redirects=False)
++    assert r.status_code == 400  # Code aus einem anderen Fenster gilt nicht (jetzt) …
++    r = client.post("/verwaltung/bestaetigen", data={"csrf": admin, "code": _code(dbs, chef.id, time.time() + 30),
++                                                     "weiter": "https://boese.example/x"}, follow_redirects=False)
++    assert r.status_code == 303 and r.headers["location"] == "/verwaltung/?ok=bestaetigt"  # … fremde Ziele landen auf /
++    assert zf.frisch(dbs, chef.id)
++    r = client.post("/verwaltung/konten", data={"csrf": admin, "username": "neu3", "display_name": "N", "password": "sehrgeheim12"},
++                    follow_redirects=False)
++    assert "konto_angelegt" in r.headers["location"]
++    # Schlüssel nur mit frischem Faktor; ohne Schlüssel geht Speichern immer
++    meta_schreiben(dbs, f"verwaltung.faktor_frisch.verwaltung.{chef.id}", "1")
++    dbs.commit()
++    r = client.post("/verwaltung/transkription/hf", data={"csrf": admin, "hf_token": ""}, follow_redirects=False)
++    assert "bestaetigen" not in r.headers.get("location", "")
++    r = client.post("/verwaltung/transkription/hf", data={"csrf": admin, "hf_token": "hf_abcdefghijklmnop"},
++                    follow_redirects=False)
++    assert r.headers["location"].startswith("/verwaltung/bestaetigen")
++    r = client.get("/verwaltung/sicherungen/irgendwas", follow_redirects=False)
++    assert r.headers["location"].startswith("/verwaltung/bestaetigen")
++
++
++# ---------------------------------------------------------------- Vertraute Geräte (S44)
++def _anmelden_mit_code(client, codes: list[str], vertrauen=False, basis=HTTPS):
++    """Passwort, dann ein Wiederherstellungscode (jeder gilt einmal – so stören sich die Anmeldungen nicht)."""
++    client.cookies.clear()
++    r = client.post(f"{basis}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"}, follow_redirects=False)
++    assert r.headers["location"] == "/verwaltung/anmelden/code"
++    daten = {"code": codes.pop()}
++    if vertrauen:
++        daten["vertrauen"] = "ja"
++    return client.post(f"{basis}/verwaltung/anmelden/code", data=daten, follow_redirects=False)
++
++
++def test_vertrautes_geraet_ueberspringt_den_code(client, dbs, admin, konto_post):  # noqa: F811
++    from app import vertraut
++    from app.models import VertrautesGeraet
++    from app.verwaltung import zweiter_faktor as zf
++
++    chef = _chef(dbs)
++    chef.email = "chef@example.org"
++    codes = _faktor_an(dbs, chef.id)
++    # über http: kein Haken, kein Merkzeichen
++    client.cookies.clear()
++    client.post("/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"}, follow_redirects=False)
++    assert 'name="vertrauen"' not in client.get("/verwaltung/anmelden/code").text
++    r = _anmelden_mit_code(client, codes, vertrauen=True, basis="http://testserver")
++    assert r.status_code == 303 and "tw_vertraut" not in r.headers.get("set-cookie", "")
++    assert dbs.scalar(select(VertrautesGeraet)) is None
++    # über https: Haken → Cookie __Host-, Eintrag nur als Hash, 30 Tage, Hinweis-Mail
++    r = _anmelden_mit_code(client, codes, vertrauen=True)
++    assert r.status_code == 303
++    gesetzt = r.headers.get("set-cookie", "")
++    assert "__Host-tw_vertraut=" in gesetzt and "Secure" in gesetzt and "HttpOnly" in gesetzt and "Path=/" in gesetzt
++    wert = client.cookies.get("__Host-tw_vertraut")
++    dbs.expire_all()
++    g = dbs.scalar(select(VertrautesGeraet))
++    assert g.id == hashlib.sha256(f"verwaltung:{wert}".encode()).hexdigest() and wert not in g.id
++    assert g.bereich == "verwaltung" and (g.expires_at - g.created_at).days == 30
++    assert konto_post and "Neues vertrautes Gerät" in konto_post[-1]["betreff"]
++    # nächste Anmeldung: Passwort reicht; frischer Faktor ist dort NICHT gesetzt
++    sitzung = client.cookies.get("tw_verwaltung")
++    client.cookies.delete("tw_verwaltung", path="/verwaltung")
++    meta_schreiben(dbs, f"verwaltung.faktor_frisch.verwaltung.{chef.id}", "1")
++    dbs.commit()
++    r = client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"}, follow_redirects=False)
++    # ohne Meldeweg an den Betreiber: einmal der Hinweis „Neues vertrautes Gerät“ auf der Übersicht
++    assert r.status_code == 303 and r.headers["location"] == "/verwaltung/?ok=vertraut_neu"
++    assert sitzung != client.cookies.get("tw_verwaltung")
++    assert "als vertraut eingetragen" in client.get(f"{HTTPS}{r.headers['location']}").text
++    client.cookies.delete("tw_verwaltung", path="/verwaltung")
++    r = client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"}, follow_redirects=False)
++    assert r.headers["location"] == "/verwaltung/"  # Hinweis nur einmal
++    assert client.get(f"{HTTPS}/verwaltung/", follow_redirects=False).status_code == 200
++    assert not zf.frisch(dbs, chef.id)
++    csrf = client.get(f"{HTTPS}/verwaltung/konten").text.split('name="csrf" value="')[1].split('"')[0]
++    r = client.post(f"{HTTPS}/verwaltung/konten", data={"csrf": csrf, "username": "neu", "display_name": "N", "password": "sehrgeheim12"},
++                    follow_redirects=False)
++    assert r.headers["location"].startswith("/verwaltung/bestaetigen")  # Geld/Verwalter-Schritt fragt trotzdem
++    # falsches Passwort mit Merkzeichen → abgelehnt
++    r = client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "falsch"}, follow_redirects=False)
++    assert r.status_code == 400
++    # Liste und Entfernen
++    seite = client.get(f"{HTTPS}/verwaltung/anmeldung").text
++    assert "Vertraute Geräte" in seite and "Alle entfernen" in seite
++    r = client.post(f"{HTTPS}/verwaltung/vertraute-geraete/entfernen", data={"csrf": csrf, "geraet": g.id}, follow_redirects=False)
++    assert "vertraut_weg" in r.headers["location"]
++    client.cookies.delete("tw_verwaltung", path="/verwaltung")
++    r = client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"}, follow_redirects=False)
++    assert r.headers["location"] == "/verwaltung/anmelden/code"  # Merkzeichen weg → Code
++    # Passwortwechsel (token_version), Faktor neu, Ablauf → Code
++    for aenderung in ("passwort", "faktor", "ablauf"):
++        r = _anmelden_mit_code(client, codes, vertrauen=True)
++        assert r.status_code == 303
++        dbs.expire_all()
++        g = dbs.scalar(select(VertrautesGeraet))
++        if aenderung == "passwort":
++            chef = _chef(dbs)
++            chef.token_version += 1
++        elif aenderung == "faktor":
++            zf.faktor_fassung_erhoehen(dbs, chef.id)
++        else:
++            g.expires_at = g.created_at
++        dbs.commit()
++        client.cookies.delete("tw_verwaltung", path="/verwaltung")
++        r = client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"},
++                        follow_redirects=False)
++        assert r.headers["location"] == "/verwaltung/anmelden/code", aenderung
++        dbs.expire_all()
++        assert dbs.scalar(select(VertrautesGeraet)) is None  # ungültiges Merkzeichen ist weg
++        vertraut.entfernen(dbs, chef.id)
++        dbs.commit()
++    assert vertraut.angeboten  # Heimnetz über http: siehe oben
++
++
++# ---------------------------------------------------------------- Guthaben-Seite
++def test_guthaben_passkey_vertrauen_und_geldschritt(client, world, dbs):
++    """Gleicher Ablauf auf /guthaben: Passkey statt Code, Haken „vertrauen“, Geld-Schritt verlangt den Faktor frisch."""
++    import re
++
++    from app.models import User, VertrautesGeraet
++    from app.verwaltung import zweiter_faktor as zf
++    from tests.test_abrechnung_0485 import _modus
++
++    _modus(dbs)
++    _https_an(dbs)
++    anna = dbs.scalar(select(User).where(User.username == "anna"))
++    codes = _faktor_an(dbs, anna.id)
++    # Passkey direkt anlegen (die Guthaben-Seite hat keine Verwaltung dafür – das geht nur über die Verwaltung)
++    from app import passkeys
++
++    auth = Authenticator()
++    o = json.loads(passkeys.registrierung_beginnen(dbs, anna, "-"))
++    passkeys.registrierung_abschliessen(dbs, anna, "-", auth.registrieren(o), "Handy")
++    dbs.commit()
++    # Anmelden: Passwort → Code-Seite mit Passkey und Haken
++    r = client.post(f"{HTTPS}/guthaben/anmelden", data={"username": "anna", "password": "geheim123"}, follow_redirects=False)
++    assert r.status_code == 200 and "Mit Passkey bestätigen" in r.text and 'name="vertrauen"' in r.text
++    o = _optionen_aus_seite(r.text)
++    r = client.post(f"{HTTPS}/guthaben/anmelden/code", data={"passkey": auth.anmelden(o), "vertrauen": "ja"},
++                    follow_redirects=False)
++    assert r.status_code == 303 and "__Host-tw_vertraut=" in r.headers.get("set-cookie", "")
++    seite = client.get(f"{HTTPS}/guthaben").text
++    csrf = re.search(r'name="csrf" value="([^"]+)"', seite).group(1)
++    dbs.expire_all()
++    assert dbs.scalar(select(VertrautesGeraet)).bereich == "guthaben"
++    # Geld-Schritt gleich nach dem Passkey: frisch → kein Umweg (Gutschein-Code falsch, aber der Schritt läuft)
++    r = client.post(f"{HTTPS}/guthaben/gutschein", data={"csrf": csrf, "code": "XXXX-XXXX-XXXX-XXXX"}, follow_redirects=False)
++    assert r.status_code in (200, 303, 400) and "bestaetigen" not in r.headers.get("location", "")
++    # Neue Anmeldung über das vertraute Gerät: ohne Code, aber Geld-Schritt → Bestätigungsseite
++    client.cookies.delete("tw_guthaben", path="/guthaben")
++    r = client.post(f"{HTTPS}/guthaben/anmelden", data={"username": "anna", "password": "geheim123"}, follow_redirects=False)
++    assert r.status_code == 303 and r.headers["location"] == "/guthaben"
++    meta_schreiben(dbs, f"verwaltung.faktor_frisch.guthaben.{anna.id}", "1")
++    dbs.commit()
++    seite = client.get(f"{HTTPS}/guthaben").text
++    csrf = re.search(r'name="csrf" value="([^"]+)"', seite).group(1)
++    r = client.post(f"{HTTPS}/guthaben/gutschein", data={"csrf": csrf, "code": "XXXX-XXXX-XXXX-XXXX"}, follow_redirects=False)
++    assert r.status_code == 303 and r.headers["location"] == "/guthaben/bestaetigen?ok=faktor_frisch"
++    seite = client.get(f"{HTTPS}{r.headers['location']}").text
++    assert "Zweiten Faktor bestätigen" in seite and "Mit Passkey bestätigen" in seite
++    r = client.post(f"{HTTPS}/guthaben/bestaetigen", data={"csrf": csrf, "code": codes.pop()}, follow_redirects=False)
++    assert r.status_code == 303 and r.headers["location"] == "/guthaben?ok=bestaetigt"
++    assert zf.frisch(dbs, anna.id, "guthaben")
+diff --git a/tests/test_server_0487.py b/tests/test_server_0487.py
+index a463947..f112325 100644
+--- a/tests/test_server_0487.py
++++ b/tests/test_server_0487.py
+@@ -149,4 +149,5 @@ def test_n3_schalter_und_preise_nur_mit_zweitem_faktor(client, dbs, admin):  # n
+     zf.beginnen(dbs, chef.id)
+     zf.bestaetigen(dbs, chef.id, _code(dbs, chef.id))
++    zf.frisch_merken(dbs, chef.id)  # 0.4.143 (S44)
+     dbs.commit()
+     r = client.post("/verwaltung/abrechnung/modus", data={"csrf": admin, "modus": "guthaben"}, follow_redirects=False)
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index 2cd93a6..8f9626f 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -113,5 +113,5 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.142"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.143"
+ 
+ 
+diff --git a/uv.lock b/uv.lock
+index 6744cd2..94f4f97 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -204,4 +204,20 @@ wheels = [
+ ]
+ 
++[[package]]
++name = "cbor2"
++version = "6.1.5"
++source = { registry = "https://pypi.org/simple" }
++sdist = { url = "https://files.pythonhosted.org/packages/39/34/d443914ea562a985ccb357682e17b7190d5d58eff797c741379be47a8f31/cbor2-6.1.5.tar.gz", hash = "sha256:6eb06160c42315ac0c4ded461c7d84d92fa18c69d13d17fc1dfc1fae96580c95", size = 94232, upload-time = "2026-10-01T18:09:33.621Z" }
++wheels = [
++    { url = "https://files.pythonhosted.org/packages/84/62/6bd7ab55dda27ce4c0eefdf31a05b647c74a46e794bbf8ad5c3c26928e5b/cbor2-6.1.5-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:5a5859d1f82dce094a1bdd6a5b318411b750262070bf5d37fbc9607d185f0b1b", size = 416295, upload-time = "2026-10-01T18:08:01.813Z" },
++    { url = "https://files.pythonhosted.org/packages/b2/22/9151b86062cc63d7155c86968971013dd6b01aeabd252a6dea015b16cfd9/cbor2-6.1.5-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:7de5383eb059498291415f5b07f99e54dac4603dc99960eb0e2307c9cb2dc352", size = 458485, upload-time = "2026-10-01T18:08:03.502Z" },
++    { url = "https://files.pythonhosted.org/packages/44/d3/9aecf0948c50e54302ae8859c85358a82310331ca00e210f8984760a2e3c/cbor2-6.1.5-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:dd3e4f08aaf25bca5db6274ac40e4d138b0e09890510c1fda20d5b7840e505fa", size = 467049, upload-time = "2026-10-01T18:08:05.254Z" },
++    { url = "https://files.pythonhosted.org/packages/b0/13/bf133682c99f162662395dafe3b2525ed0bdafa558e52ac840e7a134d5bc/cbor2-6.1.5-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:bb58549a45e3f6355338345a2df449f42f45d55e4a20af24d4302d76a1578650", size = 526819, upload-time = "2026-10-01T18:08:06.758Z" },
++    { url = "https://files.pythonhosted.org/packages/a6/9b/7dda5b13258f740d529c9b3f5ed418d2c1aa4dbcbf886a35fb2f3f41970b/cbor2-6.1.5-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:a4956f498cbf5eab192e0f838cc787e09bef4caab57f05ccbf00451935cacb8b", size = 535239, upload-time = "2026-10-01T18:08:08.829Z" },
++    { url = "https://files.pythonhosted.org/packages/0e/43/b72cb7b71c25b506a181ea9ec5bf634783c38e284873847ae6cb610c0f45/cbor2-6.1.5-cp311-cp311-win32.whl", hash = "sha256:f02c339ab9942578b63a5d54c8956191f6e88f3d8b2c918024ff565f7faa1bde", size = 285268, upload-time = "2026-10-01T18:08:10.591Z" },
++    { url = "https://files.pythonhosted.org/packages/73/e5/9e51e3e43d6d42e71e93781d50b2f28cdcacc7f647681e07cbdaaf670e03/cbor2-6.1.5-cp311-cp311-win_amd64.whl", hash = "sha256:015ed73f10e1f7b67306d41e36e0d7dc40e4a2100bc5c29b7a7f039ad3dc9061", size = 307786, upload-time = "2026-10-01T18:08:12.034Z" },
++    { url = "https://files.pythonhosted.org/packages/b7/7c/8514bf3a7a8af8347b8ba33cb9b3a9943200b37d81103b783543ab831ecb/cbor2-6.1.5-cp311-cp311-win_arm64.whl", hash = "sha256:f0bd6334302a5016a2b0f5530b7aea3ff588b6894523fd8491b49f7ce9e67f11", size = 300234, upload-time = "2026-10-01T18:08:13.579Z" },
++]
++
+ [[package]]
+ name = "certifi"
+@@ -1613,4 +1629,25 @@ wheels = [
+ ]
+ 
++[[package]]
++name = "pyasn1"
++version = "0.6.5"
++source = { registry = "https://pypi.org/simple" }
++sdist = { url = "https://files.pythonhosted.org/packages/88/7e/3c0da41061a2021cac7cd524fd57092adbe5b515e8bf9005702e366802e2/pyasn1-0.6.5.tar.gz", hash = "sha256:6b11616a6bcf3a40e635f082bb232fa57b5e0dd7f517bd7ddd69ec3794508a47", size = 155152, upload-time = "2026-10-27T06:32:49.125Z" }
++wheels = [
++    { url = "https://files.pythonhosted.org/packages/19/1f/3eefd5c84c35cae44549ce1c7f7e58f7945b34f5a6bce07a135438522073/pyasn1-0.6.5-py3-none-any.whl", hash = "sha256:4017b0fce125096b8573b39c989fdb1a4b19cf761e683398184550fea0e66587", size = 84807, upload-time = "2026-10-27T06:32:48.045Z" },
++]
++
++[[package]]
++name = "pyasn1-modules"
++version = "0.4.2"
++source = { registry = "https://pypi.org/simple" }
++dependencies = [
++    { name = "pyasn1" },
++]
++sdist = { url = "https://files.pythonhosted.org/packages/e9/e6/78ebbb10a8c8e4b61a59249394a4a594c1a7af95593dc933a349c8d00964/pyasn1_modules-0.4.2.tar.gz", hash = "sha256:677091de870a80aae844b1ca6134f54652fa2c8c5a52aa396440ac3106e941e6", size = 307892, upload-time = "2025-03-28T02:41:22.17Z" }
++wheels = [
++    { url = "https://files.pythonhosted.org/packages/47/8d/d529b5d697919ba8c11ad626e835d4039be708a35b0d22de83a269a6682c/pyasn1_modules-0.4.2-py3-none-any.whl", hash = "sha256:29253a9207ce32b64c3ac6600edc75368f98473906e8fd1043bd6b5b1de2c14a", size = 181259, upload-time = "2025-03-28T02:41:19.028Z" },
++]
++
+ [[package]]
+ name = "pycparser"
+@@ -1712,4 +1749,17 @@ crypto = [
+ ]
+ 
++[[package]]
++name = "pyopenssl"
++version = "26.4.0"
++source = { registry = "https://pypi.org/simple" }
++dependencies = [
++    { name = "cryptography" },
++    { name = "typing-extensions" },
++]
++sdist = { url = "https://files.pythonhosted.org/packages/3f/e8/7325d258199b159eb2c03fe32107533e2832e70e63f4fb88a6aa00023201/pyopenssl-26.4.0.tar.gz", hash = "sha256:28dfcce0162b9211413e26dfbfdf1d24317fbeba18fc93c12400a1856b2a0bc7", size = 182046, upload-time = "2026-08-01T19:50:50.512Z" }
++wheels = [
++    { url = "https://files.pythonhosted.org/packages/51/ad/2cf6d3fa2fae5c79e1ed9960c0d42badd0f94d81dd12b50604cdc839e648/pyopenssl-26.4.0-py3-none-any.whl", hash = "sha256:f0eb0cb2d581d3ad2b9c489468485e7f2ab6727d08401bcf9d824c3caddf3c1c", size = 56026, upload-time = "2026-08-01T19:50:48.94Z" },
++]
++
+ [[package]]
+ name = "pyparsing"
+@@ -2089,5 +2139,5 @@ wheels = [
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.142"
++version = "0.4.143"
+ source = { editable = "." }
+ dependencies = [
+@@ -2109,4 +2159,5 @@ dependencies = [
+     { name = "tzdata", marker = "sys_platform == 'win32'" },
+     { name = "uvicorn", extra = ["standard"] },
++    { name = "webauthn" },
+ ]
+ 
+@@ -2151,4 +2202,5 @@ requires-dist = [
+     { name = "tzdata", marker = "sys_platform == 'win32'", specifier = ">=2024.1" },
+     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
++    { name = "webauthn", specifier = ">=3.0.1" },
+     { name = "whisperx", marker = "extra == 'ki'", specifier = "==3.8.6" },
+ ]
+@@ -2493,4 +2545,20 @@ wheels = [
+ ]
+ 
++[[package]]
++name = "webauthn"
++version = "3.0.1"
++source = { registry = "https://pypi.org/simple" }
++dependencies = [
++    { name = "cbor2" },
++    { name = "cryptography" },
++    { name = "pyasn1" },
++    { name = "pyasn1-modules" },
++    { name = "pyopenssl" },
++]
++sdist = { url = "https://files.pythonhosted.org/packages/1e/e6/31390f9f2226722d758483b2b56822c3ef89ea577523d99d5eaf0220d2fc/webauthn-3.0.1.tar.gz", hash = "sha256:da862342c91fc03fbcf9a89cee7346e55c56f8b93fbaf66cfe8a55e2f0a05f6c", size = 160641, upload-time = "2026-09-25T16:18:37.727Z" }
++wheels = [
++    { url = "https://files.pythonhosted.org/packages/ea/5e/cc651030a1d43010234247ab4361aac17276f62b185975100ba62aa00cf7/webauthn-3.0.1-py3-none-any.whl", hash = "sha256:9927b2f530773bd1d7f8194cd643a2e634a20995ea31f2d8f7a3e70b11c93e31", size = 73910, upload-time = "2026-09-25T16:18:36.405Z" },
++]
++
+ [[package]]
+ name = "websockets"
+-- 
+2.43.0
+
