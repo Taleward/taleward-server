@@ -1,0 +1,2545 @@
+From 8667b39c973566f09915903c9a6940e3dba550c5 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 20:26:20 +0100
+Subject: [PATCH] Server 0.4.144
+
+Schnittstelle 0.4.27 und 0.4.28: Geraetekennung bei der Anmeldung der App; Vorschlaege von Spielenden fuer die Bibel
+(nur eigene, Zustand closed fuer die Urheberin, Grenzen, Schalter in den Einstellungen, Aufbewahrung 90 Tage);
+Merken waehrend der Runde (nur fuer die Person selbst, Zeit in der Aufnahme aus den Spannen, Absatz im Kapitel);
+Pronomen fuer Figuren und Eintraege; Zaehler am Charakter (nur Person und SL). Nichts davon an ein Sprachmodell oder
+in einen Umzug.
+---
+ NEU.md                                        |  13 +-
+ app/charaktere.py                             |  11 +-
+ app/errors.py                                 |  23 +
+ app/geraete.py                                |  27 +
+ app/kampagnen_einstellungen.py                |  28 +-
+ app/konto.py                                  |   8 +-
+ app/main.py                                   |   7 +-
+ app/models.py                                 |  46 ++
+ app/routers/anmeldung.py                      |   5 +-
+ app/routers/auth.py                           |   7 +-
+ app/routers/campaigns.py                      |  11 +-
+ app/routers/spielende.py                      |  80 +++
+ app/routers/uploads.py                        |   9 +-
+ app/schemas.py                                |  85 ++-
+ app/services.py                               |  16 +-
+ app/spielende.py                              | 513 ++++++++++++++++++
+ app/sprachmodell.py                           |   5 +-
+ app/umzug.py                                  |  19 +-
+ app/zusammenfassung.py                        |   7 +-
+ contract/session-chronik-api.yaml             | 373 ++++++++++++-
+ .../f4b6d8e0a2c3_spielende_tragen_bei.py      |  71 +++
+ pyproject.toml                                |   2 +-
+ tests/contract.py                             |   6 +-
+ tests/test_aktualisierung.py                  |   2 +-
+ tests/test_assistent.py                       |   2 +-
+ tests/test_modellablage.py                    |   2 +-
+ tests/test_schnittstelle_0410.py              |   2 +-
+ tests/test_schnittstelle_0422.py              |   2 +-
+ tests/test_server_04128.py                    |   2 +-
+ tests/test_server_04139.py                    |   2 +-
+ tests/test_server_04144.py                    | 404 ++++++++++++++
+ tests/test_server_0464.py                     |   4 +-
+ tests/test_server_0484.py                     |   2 +-
+ tests/test_server_0490.py                     |   6 +-
+ tests/test_step1b.py                          |   2 +-
+ tests/test_umzug_048.py                       |   2 +-
+ tests/test_verwaltung2.py                     |   2 +-
+ tests/test_webapp.py                          |   2 +-
+ tests/test_worker_app.py                      |   2 +-
+ uv.lock                                       |   2 +-
+ 40 files changed, 1759 insertions(+), 55 deletions(-)
+ create mode 100644 app/routers/spielende.py
+ create mode 100644 app/spielende.py
+ create mode 100644 migrations/versions/f4b6d8e0a2c3_spielende_tragen_bei.py
+ create mode 100644 tests/test_server_04144.py
+
+diff --git a/NEU.md b/NEU.md
+index 025b6d9..29468c4 100644
+--- a/NEU.md
++++ b/NEU.md
+@@ -1,8 +1,11 @@
+-Fassung 0.4.143
++Fassung 0.4.144
+ 
+ ## Was ist neu
+ 
+-- Passkeys als zweiter Faktor: In der Verwaltung und auf der Guthaben-Seite lässt sich der Code aus der Authenticator-App durch Windows Hello, Fingerabdruck oder Gesicht am Handy oder einen Sicherheitsschlüssel ersetzen (Verwaltung → Anmeldung → Dein zweiter Faktor → Passkey hinzufügen). Das Passwort bleibt, der Code bleibt als Rückweg. Voraussetzung ist die öffentliche Adresse des Servers mit https.
+-- Vertraute Geräte: Nach dem Code oder Passkey lässt sich ein Browser 30 Tage lang als vertraut eintragen; dort fragt die Anmeldung dann nur noch nach dem Passwort. Die Liste mit Entfernen steht unter Anmeldung. Ein Passwortwechsel, ein neuer zweiter Faktor oder ein entfernter Passkey machen alle vertrauten Geräte ungültig.
+-- Heikle Schritte verlangen den zweiten Faktor frisch (höchstens fünf Minuten alt): Verwalter anlegen oder entfernen, Passwörter setzen, Konten löschen, Abrechnung und Preise, Gutschriften und Gutscheine, Schlüssel von Zahlungsanbietern, Cloud-Schlüssel, Anmeldedienste, Sicherungen herunterladen, neue Fassung der Nutzungsbedingungen; auf der Guthaben-Seite Aufladen, Gutscheine und Kampagnen abgeben oder übernehmen. Wer gerade mit Code oder Passkey angemeldet ist, merkt davon nichts.
+-- Seit 0.4.142: Probelauf mit „Kapitel je Szene“ zum Vergleichen.
++- Spielende tragen bei (für die App ab Schnittstelle 0.4.28): Spielende können Einträge für die Bibel vorschlagen oder zu einem Eintrag etwas ergänzen. Die Spielleitung übernimmt oder lehnt ab; erst dann entsteht ein Eintrag, angehängt und nie überschrieben. Spielende sehen nur ihre eigenen Vorschläge, und ob etwas abgelehnt oder ins Geheime übernommen wurde, sieht für sie gleich aus. Abschalten in der App unter Kampagne verwalten.
++- Merken: Wer am Tisch sitzt, kann sich während der Runde Stellen merken und findet sie später im Kapitel wieder. Die gemerkten Stellen sieht nur die Person selbst, auch die Spielleitung nicht.
++- Pronomen für Figuren und NSC; die Zusammenfassung nutzt sie nur bei Einträgen, die alle kennen.
++- Zähler am Charakter (zum Beispiel Lebenspunkte), wenn die Spielleitung sie für die Kampagne einschaltet. Die Stände sehen nur die Person selbst und die Spielleitung.
++- Nichts davon geht an ein Sprachmodell oder in einen Umzug. Vorschläge werden 90 Tage nach der Entscheidung gelöscht; beim Austritt fallen offene Vorschläge und gemerkte Stellen weg.
++- Die App meldet bei der Anmeldung eine Gerätekennung; ein bekanntes Handy löst dann keine Hinweis-Mail mehr aus.
++- Seit 0.4.143: Passkeys (Windows Hello, Fingerabdruck, Sicherheitsschlüssel) als zweiter Faktor für Verwaltung und Guthaben-Seite, vertraute Geräte für 30 Tage, heikle Schritte verlangen den zweiten Faktor frisch.
+diff --git a/app/charaktere.py b/app/charaktere.py
+index 8b5c4f8..1f446f5 100644
+--- a/app/charaktere.py
++++ b/app/charaktere.py
+@@ -51,10 +51,11 @@ def _pc_abgleichen(db: Session, me: Member) -> None:
+                   visibility="public", created_at=jetzt)
+         db.add(e)
+-    alt = (e.name, e.summary, e.holder_member_id)
++    alt = (e.name, e.summary, e.holder_member_id, e.pronouns)
+     e.name = (me.character_name or e.name)[:300]
+     e.summary = me.character_summary or ""
++    e.pronouns = me.character_pronouns  # 0.4.28
+     e.holder_member_id = me.id
+     e.pc_character_id = me.character_id
+-    if (e.name, e.summary, e.holder_member_id) != alt or e.public_changed_at is None:
++    if (e.name, e.summary, e.holder_member_id, e.pronouns) != alt or e.public_changed_at is None:
+         e.updated_at = jetzt
+         if e.visibility == "public":
+@@ -71,4 +72,8 @@ def _uebernehmen(me: Member, ch: schemas.CharacterIn) -> None:
+     me.character_backstory = (ch.backstory or "").strip() or None
+     me.character_system = (ch.system or "").strip() or None
++    if "pronouns" in ch.model_fields_set:  # 0.4.28; ältere Apps schicken das Feld nicht – dann bleibt es
++        from app import aliasse
++
++        me.character_pronouns = aliasse.zeichen_bereinigen(ch.pronouns or "")[:32].strip() or None
+ 
+ 
+@@ -103,5 +108,5 @@ def loesen(db: Session, me: Member) -> None:
+         e.updated_at = utcnow()
+     me.character_id = me.character_version = me.character_status = None
+-    me.character_nickname = me.character_system = None
++    me.character_nickname = me.character_system = me.character_pronouns = None
+ 
+ 
+diff --git a/app/errors.py b/app/errors.py
+index 5f50373..010e884 100644
+--- a/app/errors.py
++++ b/app/errors.py
+@@ -182,4 +182,27 @@ MESSAGES: dict[str, tuple[str, str]] = {
+     "not_found.entry": ("Der Eintrag wurde nicht gefunden.", "Entry not found."),
+     "not_found.member": ("Das Mitglied wurde nicht gefunden.", "Member not found."),
++    # 0.4.28: Spielende tragen bei
++    "not_found.player_proposal": ("Der Vorschlag wurde nicht gefunden.", "Suggestion not found."),
++    "not_found.bookmark": ("Die gemerkte Stelle wurde nicht gefunden.", "Bookmark not found."),
++    "player_proposals_off": ("In dieser Kampagne können Spielende gerade keine Einträge vorschlagen.",
++                             "Players can't suggest entries in this campaign right now."),
++    "player_proposal_limit": ("Es warten schon viele Vorschläge auf die Spielleitung. Ein neuer geht, sobald sie welche "
++                              "angesehen hat.",
++                              "Many suggestions are already waiting for the game master. You can add a new one once "
++                              "some have been looked at."),
++    "player_proposal_decided": ("Über diesen Vorschlag ist schon entschieden.", "This suggestion has already been decided."),
++    "merge_target_unknown": ("Den Eintrag zum Ergänzen gibt es nicht mehr. Wähle einen anderen oder leg einen neuen an.",
++                             "The entry to add to no longer exists. Choose another one or create a new entry."),
++    "bookmark_limit": ("Für diese Runde hast du schon sehr viele Stellen gemerkt.",
++                       "You have already bookmarked a lot of moments in this session."),
++    "bookmark_time_invalid": ("Die Uhrzeit dieser Stelle passt nicht zur Runde. Prüf die Uhr deines Geräts.",
++                              "The time of this moment doesn't match the session. Check your device's clock."),
++    "session_published.bookmark": ("Die Runde ist schon veröffentlicht. Merken geht nur während der Runde.",
++                          "The session has already been published. Bookmarks can only be added during the session."),
++    "counters_off": ("In dieser Kampagne gibt es keine Zähler am Charakter.", "This campaign has no character counters."),
++    "counter_unknown": ("Diesen Zähler gibt es in der Kampagne nicht mehr. Lade die Kampagne neu.",
++                        "This counter no longer exists in the campaign. Reload the campaign."),
++    "validation_error.counter_kinds": ("Jeder Zähler braucht eine Bezeichnung und eine eigene Kennung.",
++                                       "Each counter needs a label and its own identifier."),
+     "not_found.recap": ("Für diese Runde gibt es noch kein Kapitel.", "There is no chapter for this session yet."),
+     "not_found.image": ("Es gibt kein Bild.", "There is no image."),
+diff --git a/app/geraete.py b/app/geraete.py
+index fcabd37..b02ff11 100644
+--- a/app/geraete.py
++++ b/app/geraete.py
+@@ -63,4 +63,31 @@ def anmeldung(antwort: Response, request: Request, db: Session, user: User, ort:
+ 
+ 
++_GERAET_KENNUNG = __import__("re").compile(r"^[A-Za-z0-9_-]{16,64}$")
++
++
++def app_anmeldung(db: Session, user: User, device_id: str | None, ort: str | None, dienst: str | None = None) -> None:
++    """Schnittstelle 0.4.27: Anmeldung aus der App mit freiwilliger Gerätekennung (deviceId). Gespeichert wird nur der
++    SHA-256-Wert, gebunden an das Konto. Bekannt → keine Mail; neu → Mail vormerken und merken. Ohne oder mit ungültiger
++    Kennung bleibt es beim bisherigen Weg (höchstens eine Mail je 15 Minuten, app/konto_mail.py)."""
++    from app import konto_mail
++
++    kennung = (device_id or "").strip()
++    if not _GERAET_KENNUNG.match(kennung):
++        konto_mail.vormerken(db, user, "anmeldung", ort=ort, dienst=dienst)
++        return
++    schluessel = _hash(f"app:{user.id}:{kennung}")
++    g = db.get(BekanntesGeraet, schluessel)
++    if g is not None and g.user_id == user.id:
++        g.last_seen_at = utcnow()
++        return
++    konto_mail.vormerken(db, user, "anmeldung", ort=ort, dienst=dienst)
++    db.add(BekanntesGeraet(id=schluessel, user_id=user.id, ort="app"))
++    db.flush()
++    bekannte = list(db.scalars(select(BekanntesGeraet).where(BekanntesGeraet.user_id == user.id)
++                               .order_by(BekanntesGeraet.last_seen_at.desc())))
++    for alt in bekannte[MAX_JE_KONTO:]:
++        db.delete(alt)
++
++
+ def vergessen(db: Session, user_id: str) -> int:
+     """Alle bekannten Geräte eines Kontos vergessen (z. B. nach einem Passwortwechsel oder auf Wunsch)."""
+diff --git a/app/kampagnen_einstellungen.py b/app/kampagnen_einstellungen.py
+index 02070a1..f959e70 100644
+--- a/app/kampagnen_einstellungen.py
++++ b/app/kampagnen_einstellungen.py
+@@ -23,5 +23,7 @@ from app.models import Campaign, EinstellungsProtokoll, Member, User
+ # Name in der Schnittstelle → Spalte der Kampagne
+ FELDER = {"allowCloudSummary": "allow_cloud_summary", "allowExternalTranscription": "allow_external_transcription",
+-          "allowCharacterAnalysis": "allow_character_analysis"}
++          "allowCharacterAnalysis": "allow_character_analysis", "playerProposals": "player_proposals"}
++# Einschalten nur mit Zustimmung zu den Nutzungsbedingungen (Cloud und Auswertung)
++MIT_BEDINGUNGEN = ("allowCloudSummary", "allowExternalTranscription", "allowCharacterAnalysis")
+ PROTOKOLL_HOECHSTENS = 100
+ 
+@@ -42,5 +44,5 @@ def sperren(db: Session) -> dict[str, tuple[bool, str]]:
+ 
+ 
+-def aendern(db: Session, c: Campaign, me: Member, user: User, werte: dict[str, bool | None], *,
++def aendern(db: Session, c: Campaign, me: Member, user: User, werte: dict, *,
+             fassung: int | None = None, neu_angelegt: bool = False) -> bool:
+     """Einstellungen ändern (der einzige Weg). werte: Schnittstellen-Name → neuer Wert (None = nicht ändern).
+@@ -50,9 +52,13 @@ def aendern(db: Session, c: Campaign, me: Member, user: User, werte: dict[str, b
+ 
+     require_gm(me)
++    from app import spielende
++
++    arten = werte.get("counterKinds")
++    arten_neu = spielende.arten_pruefen(arten) if arten is not None else None  # 400 vor allem anderen
+     werte = {k: v for k, v in werte.items() if k in FELDER and v is not None}
+     if fassung is not None and fassung != (c.settings_version or 1):
+         raise errors.ApiError(409, "settings_conflict", details={"current": lesen(db, c, me).model_dump(
+             mode="json", by_alias=True)})
+-    if any(werte.values()):  # Einschalten nur mit Zustimmung zu den Nutzungsbedingungen
++    if any(v for k, v in werte.items() if k in MIT_BEDINGUNGEN):  # Einschalten nur mit Zustimmung
+         terms_verlangen(user, db)
+     gesperrt = sperren(db)
+@@ -66,4 +72,8 @@ def aendern(db: Session, c: Campaign, me: Member, user: User, werte: dict[str, b
+         if wert != alt:
+             aenderungen[feld] = (alt, wert)
++    arten_alt = spielende.arten(c)
++    if arten_neu is not None and arten_neu != arten_alt:
++        # 0.4.28: im Protokoll als Anzahl (oldValue/newValue sind Zahl oder Wahrheitswert)
++        aenderungen["counterKinds"] = (len(arten_alt), len(arten_neu))
+     if not aenderungen:
+         return False
+@@ -73,5 +83,8 @@ def aendern(db: Session, c: Campaign, me: Member, user: User, werte: dict[str, b
+         charakterauswertung.abgeschaltet(db, c)  # offene Anfragen gelten als abgelehnt
+     for feld, (_alt, neu) in aenderungen.items():
+-        setattr(c, FELDER[feld], neu)
++        if feld in FELDER:
++            setattr(c, FELDER[feld], neu)
++    if "counterKinds" in aenderungen:
++        spielende.arten_setzen(db, c, arten_neu)  # entfernte Arten verwerfen ihre Stände (dieselbe Transaktion)
+     if neu_angelegt:
+         return True
+@@ -91,4 +104,5 @@ def lesen(db: Session, c: Campaign, me: Member) -> schemas.CampaignSettingsOut:
+         allow_external_transcription=bool(c.allow_external_transcription),
+         allow_character_analysis=bool(c.allow_character_analysis), character_sheet_limits=_bogen_grenzen(db, c),
++        player_proposals=c.player_proposals is not False, counter_kinds=spielende_arten(c),
+         locks=[schemas.SettingLockOut(field=f, value=w, reason=g) for f, (w, g) in sperren(db).items()],
+         updated_at=c.settings_updated_at or c.created_at,
+@@ -96,4 +110,10 @@ def lesen(db: Session, c: Campaign, me: Member) -> schemas.CampaignSettingsOut:
+ 
+ 
++def spielende_arten(c: Campaign) -> list[schemas.CounterKind]:
++    from app import spielende
++
++    return [schemas.CounterKind(**a) for a in spielende.arten(c)]
++
++
+ def _wert(roh: str | None):
+     try:
+diff --git a/app/konto.py b/app/konto.py
+index 4ae24e9..344a314 100644
+--- a/app/konto.py
++++ b/app/konto.py
+@@ -203,5 +203,5 @@ def _charaktere(mitglieder: list[Member], kampagnen: dict) -> list[dict]:
+ 
+ def exportieren(db: Session, u: User, basis_url: str) -> dict:
+-    from app import passkeys, vertraut
++    from app import passkeys, spielende, vertraut
+     from app.einstellungen import angaben
+ 
+@@ -270,5 +270,8 @@ def exportieren(db: Session, u: User, basis_url: str) -> dict:
+             "recordingConsentAt": _z(m.recording_consent_at), "moveConsentAt": _z(m.move_consent_at),
+             "portrait": bilder(m),
++            "characterPronouns": m.character_pronouns,  # 0.4.28
++            "counters": [w.model_dump(mode="json", by_alias=True) for w in (spielende.staende(m, kampagnen[m.campaign_id]) or [])],
+         } for m in mitglieder],
++        **spielende.export(db, member_ids),  # 0.4.28: eigene Vorschläge (wie die Person sie sieht) und Merkstellen
+         "characters": _charaktere(mitglieder, kampagnen),  # 0.4.7
+         "sessionsAttended": [{"campaignId": s.campaign_id, "sessionId": s.id, "number": s.number, "title": s.title,
+@@ -354,5 +357,5 @@ def entfernen(db: Session, u: User) -> None:
+     db.flush()
+     jetzt = utcnow()
+-    from app import charaktere, charakterauswertung, figuren
++    from app import charaktere, charakterauswertung, figuren, spielende
+ 
+     for m in db.scalars(select(Member).where(Member.user_id == u.id)):
+@@ -368,4 +371,5 @@ def entfernen(db: Session, u: User) -> None:
+         charaktere.beitritt_vergessen(db, m.id)  # 0.4.14
+         charakterauswertung.mitglied_weg(db, m.id)  # 0.4.18
++        spielende.mitglied_weg(db, m.id)  # 0.4.28: offene Vorschläge, Merkstellen, Zähler
+         db.execute(SessionSeen.__table__.delete().where(SessionSeen.member_id == m.id))
+         db.execute(DateVote.__table__.delete().where(DateVote.member_id == m.id))  # Kommentare bleiben stehen
+diff --git a/app/main.py b/app/main.py
+index 8bbbe3e..3d06dd8 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -48,4 +48,7 @@ def _wartung_starten() -> threading.Event | None:
+                     passkeys.aufraeumen(db)  # 0.4.143: abgelaufene Challenges
+                     vertraut.aufraeumen(db)  # 0.4.143: vertraute Geräte nach 30 Tagen
++                    from app import spielende
++
++                    spielende.aufraeumen(db)  # 0.4.144: entschiedene Vorschläge von Spielenden nach 90 Tagen
+                     db.commit()
+                 if any(ergebnis.values()):
+@@ -241,5 +244,7 @@ def create_app() -> FastAPI:
+     from app.routers import guthaben as guthaben_router
+ 
+-    for r in (guthaben_router.router, auth.router, anmeldung.router, voice_profile.router, charaktere.router, umzug_router.router, campaigns.router, sessions.router, pruefung.router, uploads.router, entries.router, miteinander.router, unterlagen.router, plaene.router):
++    from app.routers import spielende as spielende_router
++
++    for r in (guthaben_router.router, auth.router, anmeldung.router, voice_profile.router, charaktere.router, umzug_router.router, campaigns.router, sessions.router, pruefung.router, uploads.router, entries.router, miteinander.router, unterlagen.router, plaene.router, spielende_router.router):
+         api.include_router(r)
+     app.include_router(api)
+diff --git a/app/models.py b/app/models.py
+index 14ac3f7..d954598 100644
+--- a/app/models.py
++++ b/app/models.py
+@@ -131,4 +131,8 @@ class Campaign(Base):
+     settings_updated_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+     settings_updated_by: Mapped[str | None] = mapped_column(String(36), nullable=True)  # Mitglied, None = Betreiber
++    # 0.4.28: Spielende dürfen Einträge vorschlagen (Standard an) und Zählerarten am Charakter als JSON
++    # [{id, label, hint}] (leer = aus); beides nur über app/kampagnen_einstellungen.aendern
++    player_proposals: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
++    counter_kinds: Mapped[str | None] = mapped_column(Text, nullable=True)
+     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+ 
+@@ -167,4 +171,8 @@ class Member(Base):
+     move_consent_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+     open_seat: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
++    # 0.4.28: wie über die Figur gesprochen wird (öffentlich wie die Kurzbeschreibung) und Zählerstände als JSON
++    # [{kindId, value, max}] – die Stände nur für die Person selbst und die SL (app/spielende.py)
++    character_pronouns: Mapped[str | None] = mapped_column(String(32), nullable=True)
++    counters: Mapped[str | None] = mapped_column(Text, nullable=True)
+ 
+     campaign: Mapped[Campaign] = relationship(back_populates="members")
+@@ -315,4 +323,6 @@ class Entry(Base):
+     # 0.4.21: „Auch genannt“ – weitere Namen als JSON-Liste; sichtbar wie der Name
+     aliases_json: Mapped[str | None] = mapped_column("aliases", Text, nullable=True)
++    # 0.4.28: Pronomen (sinnvoll bei NSC), sichtbar wie der Name
++    pronouns: Mapped[str | None] = mapped_column(String(32), nullable=True)
+ 
+     mentions: Mapped[list["EntryMention"]] = relationship(cascade="all, delete-orphan")
+@@ -395,4 +405,7 @@ class Upload(Base):
+     # 0.4.85: vom Server selbst gemessene Länge der Aufnahme (nur bei eingeschalteter Abrechnung)
+     dauer_sekunden: Mapped[float | None] = mapped_column(Float, nullable=True)
++    # 0.4.28: Spannen der Aufnahme (nur table, nur von der SL) als JSON [[start, ende], …] in Sekunden seit 1970 –
++    # nur gespeichert, wenn sie aufsteigend und ohne Überlappung sind (app/spielende.py)
++    spans: Mapped[str | None] = mapped_column(Text, nullable=True)
+ 
+     files: Mapped[list["UploadFile"]] = relationship(
+@@ -771,4 +784,37 @@ class BekanntesGeraet(Base):
+ 
+ 
++# ---------------------------------------------------------------- Spielende tragen bei (0.4.28)
++class PlayerProposal(Base):
++    """Vorschlag einer Spielerin für die Bibel. Geht nie an ein Sprachmodell und nie ins Kapitel; erst die Entscheidung
++    der SL macht einen Eintrag. Nie im Umzug. text_sichtbar: beim Übernehmen stand der Text im öffentlichen Teil (nicht nur
++    in SL-Notizen) – Grundlage dafür, was die Urheberin sieht (S56, app/spielende.py)."""
++
++    __tablename__ = "player_proposals"
++    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
++    campaign_id: Mapped[str] = mapped_column(ForeignKey("campaigns.id", ondelete="CASCADE"), index=True)
++    author_member_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
++    entry_type: Mapped[str] = mapped_column(String(16))
++    title: Mapped[str] = mapped_column(String(120))
++    detail: Mapped[str] = mapped_column(Text, default="")
++    target_entry_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
++    state: Mapped[str] = mapped_column(String(16), default="open", index=True)  # open | accepted | rejected | withdrawn
++    result_entry_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
++    text_sichtbar: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
++    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
++    decided_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
++
++
++class Bookmark(Base):
++    """Gemerkte Stelle einer Runde – nur für die Person selbst (auch nicht für die SL). Nie an ein Sprachmodell."""
++
++    __tablename__ = "bookmarks"
++    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
++    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
++    member_id: Mapped[str] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"), index=True)
++    at: Mapped[datetime] = mapped_column(UTCDateTime)
++    note: Mapped[str | None] = mapped_column(String(280), nullable=True)
++    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
++
++
+ # ---------------------------------------------------------------- Passkeys und vertraute Geräte (0.4.143)
+ class Passkey(Base):
+diff --git a/app/routers/anmeldung.py b/app/routers/anmeldung.py
+index 38832df..c3d6ac2 100644
+--- a/app/routers/anmeldung.py
++++ b/app/routers/anmeldung.py
+@@ -416,7 +416,8 @@ def _tausch(body: schemas.OidcExchangeRequest, request: Request, db: Session) ->
+         _email_uebernehmen(db, u, email)
+         mail.sprache_merken(u, request)
+-        from app import konto_mail
++        from app import geraete, konto_mail
+ 
+-        konto_mail.vormerken(db, u, "anmeldung", ort=konto_mail.ort_aus(request), dienst=dienst)
++        geraete.app_anmeldung(db, u, body.device_id if isinstance(body.device_id, str) else None,
++                              konto_mail.ort_aus(request), dienst=dienst)  # 0.4.27
+         db.commit()
+         token, bis = create_token(u.id, u.token_version, server_id())
+diff --git a/app/routers/auth.py b/app/routers/auth.py
+index 5bb4686..a098865 100644
+--- a/app/routers/auth.py
++++ b/app/routers/auth.py
+@@ -15,5 +15,5 @@ from app.security import create_token, verify_password
+ from app.services import user_out
+ 
+-API_VERSION = "0.4.26"
++API_VERSION = "0.4.28"
+ 
+ router = APIRouter(tags=["Auth"])
+@@ -115,7 +115,8 @@ def login(body: schemas.LoginRequest, request: Request, db: Session = Depends(ge
+     methode.last_used_at = utcnow()
+     mail.sprache_merken(user, request)
+-    from app import konto_mail
++    from app import geraete, konto_mail
+ 
+-    konto_mail.vormerken(db, user, "anmeldung", ort=konto_mail.ort_aus(request))
++    geraete.app_anmeldung(db, user, body.device_id if isinstance(body.device_id, str) else None,
++                          konto_mail.ort_aus(request))  # 0.4.27: Hinweis-Mail nur bei neuem Gerät
+     db.commit()
+     token, expires = create_token(user.id, user.token_version, server_id())
+diff --git a/app/routers/campaigns.py b/app/routers/campaigns.py
+index ff6b801..2f1b969 100644
+--- a/app/routers/campaigns.py
++++ b/app/routers/campaigns.py
+@@ -198,5 +198,5 @@ _NUR_AUSSCHALTEN = {"allow_external_transcription", "allow_cloud_summary", "allo
+ 
+ 
+-def _einstellungen(body) -> dict[str, bool | None]:
++def _einstellungen(body) -> dict:
+     """Schnittstellen-Namen → Wert (nur mitgeschickte Felder)."""
+     f = body.model_fields_set
+@@ -204,5 +204,9 @@ def _einstellungen(body) -> dict[str, bool | None]:
+             "allowExternalTranscription": body.allow_external_transcription
+             if "allow_external_transcription" in f else None,
+-            "allowCharacterAnalysis": body.allow_character_analysis if "allow_character_analysis" in f else None}
++            "allowCharacterAnalysis": body.allow_character_analysis if "allow_character_analysis" in f else None,
++            # 0.4.28 (nur PATCH …/settings und beim Anlegen; PATCH /campaigns kennt sie nicht)
++            "playerProposals": getattr(body, "player_proposals", None) if "player_proposals" in f else None,
++            "counterKinds": [k.model_dump() for k in body.counter_kinds]
++            if "counter_kinds" in f and getattr(body, "counter_kinds", None) is not None else None}
+ 
+ 
+@@ -397,4 +401,7 @@ def remove_member(campaignId: str, memberId: str, user: User = Depends(current_u
+ 
+     charakterauswertung.mitglied_weg(db, target.id)  # 0.4.18: Offenes entfällt samt Text
++    from app import spielende
++
++    spielende.mitglied_weg(db, target.id)  # 0.4.28: offene Vorschläge, Merkstellen, Zähler
+     db.execute(SessionSeen.__table__.delete().where(SessionSeen.member_id == target.id))
+     db.execute(DateVote.__table__.delete().where(DateVote.member_id == target.id))
+diff --git a/app/routers/spielende.py b/app/routers/spielende.py
+new file mode 100644
+index 0000000..77b56b5
+--- /dev/null
++++ b/app/routers/spielende.py
+@@ -0,0 +1,80 @@
++"""Spielende tragen bei (Schnittstelle 0.4.28): Vorschläge für die Bibel, Merken, Zähler. Regeln in app/spielende.py."""
++from typing import Literal
++
++from fastapi import APIRouter, Depends, Query, Response
++from sqlalchemy.orm import Session
++
++from app import schemas, spielende
++from app.access import current_user, require_member
++from app.db import get_db
++from app.models import Campaign, User
++
++router = APIRouter()
++
++
++@router.get("/campaigns/{campaignId}/player-proposals", tags=["Vorschläge"],
++            response_model=list[schemas.PlayerProposalOut])
++def list_player_proposals(campaignId: str, state: Literal["open", "all"] = Query(default="all"),
++                          user: User = Depends(current_user), db: Session = Depends(get_db)):
++    me = require_member(db, campaignId, user)
++    return spielende.liste(db, db.get(Campaign, campaignId), me, state == "open")
++
++
++@router.post("/campaigns/{campaignId}/player-proposals", tags=["Vorschläge"], status_code=201,
++             response_model=schemas.PlayerProposalOut)
++def create_player_proposal(campaignId: str, body: schemas.PlayerProposalIn, user: User = Depends(current_user),
++                           db: Session = Depends(get_db)):
++    me = require_member(db, campaignId, user)
++    p = spielende.anlegen(db, db.get(Campaign, campaignId), me, body)
++    db.commit()
++    return spielende.vorschlag_out(db, p, False)
++
++
++@router.delete("/player-proposals/{proposalId}", tags=["Vorschläge"], status_code=204)
++def withdraw_player_proposal(proposalId: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
++    p, me = spielende.laden(db, proposalId, user)
++    spielende.zurueckziehen(db, p, me)
++    db.commit()
++    return Response(status_code=204)
++
++
++@router.post("/player-proposals/{proposalId}/decision", tags=["Vorschläge"],
++             response_model=schemas.PlayerProposalOut)
++def decide_player_proposal(proposalId: str, body: schemas.PlayerProposalDecision,
++                           user: User = Depends(current_user), db: Session = Depends(get_db)):
++    p, me = spielende.laden(db, proposalId, user)
++    spielende.entscheiden(db, p, me, body)
++    db.commit()
++    return spielende.vorschlag_out(db, p, True)
++
++
++@router.get("/sessions/{sessionId}/bookmarks", tags=["Chronik"], response_model=list[schemas.BookmarkOut])
++def list_bookmarks(sessionId: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
++    s, me = spielende.runde_laden(db, sessionId, user, schreiben=False)
++    return spielende.merkstellen(db, s, me)
++
++
++@router.post("/sessions/{sessionId}/bookmarks", tags=["Chronik"], status_code=201, response_model=schemas.BookmarkOut)
++def create_bookmark(sessionId: str, body: schemas.BookmarkIn | None = None, user: User = Depends(current_user),
++                    db: Session = Depends(get_db)):
++    s, me = spielende.runde_laden(db, sessionId, user, schreiben=True)
++    b = spielende.merken(db, s, me, body or schemas.BookmarkIn())
++    db.commit()
++    return next(x for x in spielende.merkstellen(db, s, me) if x.id == b.id)
++
++
++@router.delete("/bookmarks/{bookmarkId}", tags=["Chronik"], status_code=204)
++def delete_bookmark(bookmarkId: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
++    spielende.merkstelle_loeschen(db, bookmarkId, user)
++    db.commit()
++    return Response(status_code=204)
++
++
++@router.put("/campaigns/{campaignId}/members/me/counters", tags=["Charaktere"],
++            response_model=list[schemas.CounterValue])
++def put_counters(campaignId: str, body: schemas.CountersIn, user: User = Depends(current_user),
++                 db: Session = Depends(get_db)):
++    me = require_member(db, campaignId, user)
++    aus = spielende.staende_setzen(db, db.get(Campaign, campaignId), me, body.values)
++    db.commit()
++    return aus
+diff --git a/app/routers/uploads.py b/app/routers/uploads.py
+index aa75694..4144eb7 100644
+--- a/app/routers/uploads.py
++++ b/app/routers/uploads.py
+@@ -4,5 +4,5 @@ import math
+ import threading
+ 
+-from typing import Literal
++from typing import Any, Literal
+ 
+ from fastapi import APIRouter, Depends, Header, Request, Response
+@@ -35,4 +35,7 @@ class UploadStart(schemas.ApiModel):
+     source: Literal["table", "discord"]
+     files: list[FileIn] = Field(max_length=500)
++    # 0.4.28: Zeiten, in denen aufgenommen wurde (nur table). Bewusst ohne Schema: passt etwas nicht, verwirft der
++    # Server die Spannen still (app/spielende.spannen_pruefen) – nie ein Fehler, nie ein Hindernis für das Hochladen
++    spans: Any = None
+ 
+ 
+@@ -119,4 +122,8 @@ def start_upload(sessionId: str, body: UploadStart, user: User = Depends(current
+     chunk = get_settings().chunk_size_bytes
+     up = Upload(session_id=s.id, source=body.source, chunk_size=chunk)
++    if body.source == "table":
++        from app import spielende
++
++        up.spans = spielende.spannen_pruefen(body.spans, s.played_at)
+     up.files = [
+         UploadFile(position=i, file_name=f.file_name, size_bytes=f.size_bytes, mime_type=f.mime_type,
+diff --git a/app/schemas.py b/app/schemas.py
+index a712630..4762936 100644
+--- a/app/schemas.py
++++ b/app/schemas.py
+@@ -7,5 +7,5 @@ Feld ausdrücklich.
+ """
+ from datetime import datetime, timezone
+-from typing import Annotated, Literal
++from typing import Annotated, Any, Literal
+ 
+ from pydantic import BaseModel, ConfigDict, Field, field_validator
+@@ -107,4 +107,5 @@ class LoginRequest(ApiModel):
+     username: str
+     password: str
++    device_id: Any = None  # 0.4.27: freiwillig; ungültige Werte (auch kein Text) ignoriert der Server (app/geraete.py)
+ 
+ 
+@@ -168,4 +169,5 @@ class OidcExchangeRequest(ApiModel):
+     ticket: str = Field(max_length=200)
+     verifier: str = Field(max_length=200)
++    device_id: Any = None  # 0.4.27, wie bei LoginRequest
+ 
+ 
+@@ -235,4 +237,6 @@ class MemberOut(ApiModel):
+     move_consent_at: datetime | None = None  # 0.4.8
+     open_seat: bool = False
++    character_pronouns: str | None = None  # 0.4.28, für alle Mitglieder
++    counters: list["CounterValue"] | None = None  # 0.4.28: nur Person selbst und SL, sonst fehlt das Feld
+ 
+ 
+@@ -285,4 +289,6 @@ class CampaignOut(CampaignSummaryOut):
+     settings_version: int | None = None  # 0.4.25, für alle Mitglieder
+     billing: "CampaignBillingOut | None" = None  # 0.4.25, nur für die SL bei eingeschaltetem Guthaben
++    open_player_proposals: int | None = None  # 0.4.28, nur für die SL, für Spielende weggelassen
++    live_session_id: str | None = None  # 0.4.28, nur SL und Anwesende der Runde, sonst null
+     members: list[MemberOut]
+ 
+@@ -336,4 +342,5 @@ class CharacterIn(ApiModel):
+     backstory: str | None = Field(default=None, max_length=20000)
+     system: str | None = Field(default=None, max_length=64)
++    pronouns: str | None = Field(default=None, max_length=32)  # 0.4.28 → Member.characterPronouns
+     status: CharacterStatus
+     status_changed_at: datetime | None = None
+@@ -691,4 +698,5 @@ class EntryInput(ApiModel):
+     # 0.4.21: „Auch genannt“, sichtbar wie der Name; je Eintrag 1–40 Zeichen (sonst 400)
+     aliases: list[Annotated[str, Field(min_length=1, max_length=40)]] | None = Field(default=None, max_length=10)
++    pronouns: str | None = Field(default=None, max_length=32)  # 0.4.28, sichtbar wie der Name
+ 
+ 
+@@ -708,4 +716,5 @@ class EntryOut(ApiModel):
+     visibility: Visibility
+     aliases: list[str] = []  # 0.4.21
++    pronouns: str | None = None  # 0.4.28
+     gm_notes: str | None = None  # wird für Spieler weggelassen
+     hidden_from_member_ids: list[str] | None = None  # wird für Spieler weggelassen
+@@ -978,8 +987,78 @@ class PayerOfferIn(ApiModel):
+ 
+ 
++# ---------- Spielende tragen bei (0.4.28) ----------
++class CounterKind(ApiModel):
++    id: str = Field(pattern=r"^[a-z0-9_-]{1,24}$")
++    label: str = Field(min_length=1, max_length=24)
++    hint: str | None = Field(default=None, max_length=60)
++
++
++class CounterValue(ApiModel):
++    kind_id: str = Field(max_length=24)
++    value: int = Field(ge=-9999, le=99999)
++    max: int | None = Field(default=None, ge=0, le=99999)
++
++
++class CountersIn(ApiModel):
++    values: list[CounterValue] = Field(max_length=12)
++
++
++PlayerEntryType = Literal["npc", "location", "quest", "item", "faction", "other"]
++
++
++class PlayerProposalIn(ApiModel):
++    entry_type: PlayerEntryType
++    title: str = Field(min_length=1, max_length=120)
++    detail: str = Field(default="", max_length=2000)
++    target_entry_id: str | None = Field(default=None, max_length=64)
++
++
++class PlayerProposalOut(ApiModel):
++    id: str
++    campaign_id: str
++    author_member_id: str
++    entry_type: PlayerEntryType
++    title: str
++    detail: str
++    target_entry_id: str | None
++    state: Literal["open", "accepted", "rejected", "withdrawn", "closed"]
++    created_at: datetime
++    decided_at: datetime | None
++    result_entry_id: str | None
++
++
++class PlayerProposalDecision(ApiModel):
++    decision: Literal["accept", "reject"]
++    entry_type: PlayerEntryType | None = None
++    title: str | None = Field(default=None, min_length=1, max_length=120)
++    detail: str | None = Field(default=None, max_length=2000)
++    gm_notes: str | None = Field(default=None, max_length=20000)
++    visibility: Visibility | None = None
++    hidden_from_member_ids: list[str] | None = Field(default=None, max_length=500)
++    merge_into_entry_id: str | None = Field(default=None, max_length=64)
++    holder_member_id: str | None = Field(default=None, max_length=64)
++
++
++class BookmarkIn(ApiModel):
++    at: datetime | None = None
++    note: str | None = Field(default=None, max_length=280)
++
++
++class BookmarkOut(ApiModel):
++    id: str
++    session_id: str
++    at: datetime
++    note: str | None
++    offset_ms: int | None
++    recap_paragraph: int | None
++    created_at: datetime
++
++
+ class CampaignSettingsIn(ApiModel):
+     allow_cloud_summary: bool | None = None
+     allow_external_transcription: bool | None = None
+     allow_character_analysis: bool | None = None
++    player_proposals: bool | None = None  # 0.4.28
++    counter_kinds: list[CounterKind] | None = Field(default=None, max_length=8)  # 0.4.28, ganze Liste
+ 
+ 
+@@ -999,4 +1078,6 @@ class CampaignSettingsOut(ApiModel):
+     allow_external_transcription: bool
+     allow_character_analysis: bool
++    player_proposals: bool = True  # 0.4.28
++    counter_kinds: list[CounterKind] = []  # 0.4.28
+     character_sheet_limits: SheetLimitsOut | None
+     locks: list[SettingLockOut]
+@@ -1015,4 +1096,4 @@ class CampaignSettingsLogOut(ApiModel):
+ 
+ 
+-for _m in (CampaignOut, CharacterAnalysisOut, CampaignCreate, ProcessingStatusOut, CampaignDocumentOut):
++for _m in (MemberOut, CampaignOut, CharacterAnalysisOut, CampaignCreate, ProcessingStatusOut, CampaignDocumentOut):
+     _m.model_rebuild()
+diff --git a/app/services.py b/app/services.py
+index c185952..38733ff 100644
+--- a/app/services.py
++++ b/app/services.py
+@@ -95,6 +95,13 @@ def member_out(m: Member, viewer: Member | None) -> schemas.MemberOut:
+         character_status=m.character_status, character_nickname=m.character_nickname,
+         move_consent_at=m.move_consent_at, open_seat=m.open_seat,
++        character_pronouns=m.character_pronouns,  # 0.4.28, öffentlich wie die Kurzbeschreibung
+     )
+     if viewer is not None and may_see_backstory(viewer, m):
++        # 0.4.28: Zählerstände nur für die Person selbst und die SL – für alle anderen fehlt das Feld
++        from app import spielende
++
++        werte = spielende.staende(m, m.campaign)
++        if werte is not None:
++            daten["counters"] = werte
+         daten["character_backstory"] = m.character_backstory
+         # 0.4.8: die Kennung ist der Schlüssel zu einem offenen Platz – nur die Person selbst und die SL
+@@ -225,4 +232,7 @@ def campaign_out(db: Session, c: Campaign, me: Member) -> schemas.CampaignOut:
+         settings_version=c.settings_version or 1,  # 0.4.25
+     )
++    from app import spielende
++
++    out.live_session_id = spielende.live_session_id(db, c, me)  # 0.4.28: nur SL und Anwesende, sonst null
+     from app.routers.guthaben import billing_out
+ 
+@@ -235,4 +245,5 @@ def campaign_out(db: Session, c: Campaign, me: Member) -> schemas.CampaignOut:
+ 
+         out.gm_notices = hinweise(db, c)  # 0.4.7
++        out.open_player_proposals = spielende.offene_anzahl(db, c.id)  # 0.4.28, nur für die SL
+     return out
+ 
+@@ -478,4 +489,5 @@ def entry_out(e: Entry, is_gm: bool, viewer_id: str | None = None) -> schemas.En
+         status=e.status, holder_member_id=e.holder_member_id, visibility=e.visibility,
+         aliases=e.aliases,  # 0.4.21: sichtbar wie der Name (Spieler sehen nur Einträge, die sie sehen dürfen)
++        pronouns=e.pronouns,  # 0.4.28: sichtbar wie der Name
+         first_session_number=min(numbers) if numbers else None,
+         last_session_number=max(numbers) if numbers else None,
+@@ -494,5 +506,5 @@ def entry_out(e: Entry, is_gm: bool, viewer_id: str | None = None) -> schemas.En
+ 
+ 
+-_PUBLIC_FIELDS = ("type", "name", "summary", "status", "holder_member_id", "visibility", "aliases_json")
++_PUBLIC_FIELDS = ("type", "name", "summary", "status", "holder_member_id", "visibility", "aliases_json", "pronouns")
+ 
+ 
+@@ -546,4 +558,6 @@ def apply_entry_input(db: Session, e: Entry, data: schemas.EntryInput, require_p
+     elif "name" in fields and e.aliases:  # neuer Name darf nicht zugleich Alias sein
+         e.aliases_json = aliasse.schreiben(aliasse.bereinigen(e.name, e.aliases))
++    if "pronouns" in fields:  # 0.4.28
++        e.pronouns = aliasse.zeichen_bereinigen(data.pronouns or "")[:32].strip() or None
+     if require_public_text and e.visibility == "public" and not (e.summary or "").strip():
+         raise errors.bad_request("validation_error", "public_text_required")
+diff --git a/app/spielende.py b/app/spielende.py
+new file mode 100644
+index 0000000..aee72b9
+--- /dev/null
++++ b/app/spielende.py
+@@ -0,0 +1,513 @@
++"""Spielende tragen bei (Schnittstelle 0.4.28): Vorschläge für die Bibel, „Merken“, Zähler am Charakter.
++
++Grundsätze (Freigabe des Sicherheits-Chats vom 30.10.2026, Bedingungen 1–23):
++- Nichts davon geht an ein Sprachmodell, ins Kapitel, in einen Umzug oder in Messwerte.
++- Vorschläge: Spielende sehen nur die eigenen, keine Anzahl. Für die Urheberin sind „abgelehnt“ und „übernommen, aber für
++  sie nicht sichtbar“ nicht unterscheidbar (S56: state closed). Erst die Entscheidung der SL macht einen Eintrag –
++  angehängt wie bei Session-Vorschlägen, nie überschrieben; Geheimes landet nur in den SL-Notizen.
++- Merkstellen: nur die Person selbst, auch nicht die SL, auch nicht als Anzahl. offsetMs und recapParagraph sind nur
++  Zahlen; Abschrift, Audio und Belege bleiben, wo sie sind.
++- Zähler: nur die Person selbst und die SL; für alle anderen fehlt das Feld.
++"""
++from __future__ import annotations
++
++import json
++import re
++from datetime import datetime, timedelta, timezone
++
++from sqlalchemy import delete, func, select
++from sqlalchemy.orm import Session
++
++from app import aliasse, errors, schemas
++from app.db import utcnow
++from app.models import Bookmark, Campaign, Entry, GameSession, Member, PlayerProposal, Recap, Upload
++
++# ---------------------------------------------------------------- Grenzen
++OFFEN_JE_MITGLIED = 20
++OFFEN_JE_KAMPAGNE = 200
++JE_STUNDE = 30
++SL_TAGE = 30            # die SL sieht entschiedene so lange
++AUFBEWAHRUNG_TAGE = 90  # entschiedene und zurückgezogene danach gelöscht
++MERKEN_JE_RUNDE = 200
++MERKEN_JE_MINUTE = 60
++MERKEN_VORLAUF = timedelta(hours=12)
++MERKEN_ZUKUNFT = timedelta(minutes=5)
++SPANNEN_HOECHSTENS = 500
++SPANNEN_TOLERANZ_S = 60
++LIVE_STUNDEN = 16
++ABSATZ_FENSTER_S = 600  # so weit darf ein Beleg vor der gemerkten Stelle liegen
++MAX_TEXT = 20000
++
++# Steuer- und Richtungszeichen wie bei Namen (aliasse), Zeilenumbrüche bleiben
++_UNSICHTBAR_OHNE_ZEILE = re.compile("[" + "".join(f"{chr(a)}-{chr(b)}" for a, b in (
++    (0x00, 0x09), (0x0B, 0x1F), (0x7F, 0x9F), (0x61C, 0x61C), (0x200E, 0x200F), (0x202A, 0x202E),
++    (0x2066, 0x2069))) + "]")
++
++
++def text_bereinigen(text: str | None, laenge: int) -> str:
++    """Mehrzeiliger Text: Steuer- und Richtungszeichen weg, höchstens zwei Zeilenumbrüche hintereinander."""
++    t = (text or "").replace("\r\n", "\n").replace("\r", "\n")
++    t = _UNSICHTBAR_OHNE_ZEILE.sub(" ", t)
++    zeilen = [" ".join(z.split()) for z in t.split("\n")]
++    t = re.sub(r"\n{3,}", "\n\n", "\n".join(zeilen)).strip()
++    return t[:laenge].strip()
++
++
++def _utc(dt: datetime) -> datetime:
++    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
++
++
++def _anhaengen(alt: str | None, neu: str | None) -> str:
++    return "\n\n".join(t for t in ((alt or "").strip(), (neu or "").strip()) if t)[:MAX_TEXT]
++
++
++# ================================================================ Zähler
++def arten(c: Campaign) -> list[dict]:
++    try:
++        liste = json.loads(c.counter_kinds or "[]")
++    except ValueError:
++        return []
++    return [a for a in liste if isinstance(a, dict) and isinstance(a.get("id"), str)]
++
++
++def arten_pruefen(roh: list[dict]) -> list[dict]:
++    """Bezeichnungen und Hinweise bereinigen; leere Bezeichnung oder doppelte Kennung → 400."""
++    aus, gesehen = [], set()
++    for a in roh:
++        label = aliasse.zeichen_bereinigen(a.get("label") or "")[:24].strip()
++        hint = aliasse.zeichen_bereinigen(a.get("hint") or "")[:60].strip() or None
++        if not label or a["id"] in gesehen:
++            raise errors.bad_request("validation_error", "validation_error.counter_kinds")
++        gesehen.add(a["id"])
++        aus.append({"id": a["id"], "label": label, "hint": hint})
++    return aus
++
++
++def arten_setzen(db: Session, c: Campaign, neu: list[dict]) -> None:
++    """Neue Liste speichern; Stände entfernter Arten verwerfen (dieselbe Transaktion)."""
++    c.counter_kinds = json.dumps(neu, ensure_ascii=False) if neu else None
++    bleibt = {a["id"] for a in neu}
++    for m in db.scalars(select(Member).where(Member.campaign_id == c.id, Member.counters.is_not(None))):
++        werte = [w for w in _staende_roh(m) if w["kindId"] in bleibt]
++        m.counters = json.dumps(werte) if werte else None
++
++
++def _staende_roh(m: Member) -> list[dict]:
++    try:
++        liste = json.loads(m.counters or "[]")
++    except ValueError:
++        return []
++    return [w for w in liste if isinstance(w, dict) and isinstance(w.get("kindId"), str)]
++
++
++def staende(m: Member, c: Campaign) -> list[schemas.CounterValue] | None:
++    """Stände für die Ausgabe; None, wenn die Kampagne keine Zähler hat (dann fehlt das Feld)."""
++    ids = [a["id"] for a in arten(c)]
++    if not ids:
++        return None
++    nach = {w["kindId"]: w for w in _staende_roh(m)}
++    return [schemas.CounterValue(kind_id=k, value=int(nach[k]["value"]), max=nach[k].get("max"))
++            for k in ids if k in nach]
++
++
++def staende_setzen(db: Session, c: Campaign, me: Member, werte: list[schemas.CounterValue]) -> list[schemas.CounterValue]:
++    if me.role != "player" or not me.aktiv:
++        raise errors.forbidden()
++    ids = {a["id"] for a in arten(c)}
++    if not ids:
++        raise errors.ApiError(403, "counters_off")
++    gesehen = set()
++    for w in werte:
++        if w.kind_id not in ids:
++            raise errors.bad_request("counter_unknown")
++        if w.kind_id in gesehen:
++            raise errors.bad_request("validation_error", "validation_error.counter_kinds")
++        gesehen.add(w.kind_id)
++    me.counters = json.dumps([{"kindId": w.kind_id, "value": w.value, "max": w.max} for w in werte]) if werte else None
++    return staende(me, c) or []
++
++
++# ================================================================ Vorschläge von Spielenden
++def urheberin_sicht(db: Session, p: PlayerProposal) -> tuple[str, str | None]:
++    """Zustand und Eintrag, wie die Urheberin sie sehen darf (S56)."""
++    if p.state in ("open", "withdrawn"):
++        return p.state, None
++    if p.state == "accepted" and p.text_sichtbar and p.result_entry_id:
++        e = db.get(Entry, p.result_entry_id)
++        if (e is not None and e.campaign_id == p.campaign_id and e.visibility == "public"
++                and p.author_member_id not in e.hidden_member_ids):
++            return "accepted", e.id
++    return "closed", None
++
++
++def vorschlag_out(db: Session, p: PlayerProposal, fuer_sl: bool) -> schemas.PlayerProposalOut:
++    if fuer_sl:
++        zustand, ergebnis = p.state, p.result_entry_id
++    else:
++        zustand, ergebnis = urheberin_sicht(db, p)
++    return schemas.PlayerProposalOut(
++        id=p.id, campaign_id=p.campaign_id, author_member_id=p.author_member_id or "", entry_type=p.entry_type,
++        title=p.title, detail=p.detail or "", target_entry_id=p.target_entry_id, state=zustand, created_at=p.created_at,
++        decided_at=p.decided_at, result_entry_id=ergebnis)
++
++
++def offene_anzahl(db: Session, campaign_id: str) -> int:
++    return db.scalar(select(func.count()).select_from(PlayerProposal).where(
++        PlayerProposal.campaign_id == campaign_id, PlayerProposal.state == "open")) or 0
++
++
++def liste(db: Session, c: Campaign, me: Member, nur_offen: bool) -> list[schemas.PlayerProposalOut]:
++    q = select(PlayerProposal).where(PlayerProposal.campaign_id == c.id)
++    if me.role == "gm":
++        grenze = utcnow() - timedelta(days=SL_TAGE)
++        q = q.where((PlayerProposal.state == "open") if nur_offen else
++                    ((PlayerProposal.state == "open") | (PlayerProposal.decided_at >= grenze)))
++    else:
++        if not c.player_proposals:
++            return []
++        q = q.where(PlayerProposal.author_member_id == me.id)
++        if nur_offen:
++            q = q.where(PlayerProposal.state == "open")
++    zeilen = db.scalars(q.order_by(PlayerProposal.created_at.desc(), PlayerProposal.id))
++    return [vorschlag_out(db, p, me.role == "gm") for p in zeilen]
++
++
++def anlegen(db: Session, c: Campaign, me: Member, body: schemas.PlayerProposalIn) -> PlayerProposal:
++    from app.access import player_can_see_entry
++
++    if me.role != "player":
++        raise errors.forbidden()
++    if not c.player_proposals:
++        raise errors.ApiError(403, "player_proposals_off")
++    ziel = None
++    if body.target_entry_id is not None:
++        # derselbe Weg wie GET /entries/{id}: unbekannt und verborgen → gleiche 404
++        e = db.get(Entry, body.target_entry_id)
++        if e is None or e.campaign_id != c.id or not player_can_see_entry(e, me):
++            raise errors.not_found("entry")
++        ziel = e.id
++    titel = aliasse.zeichen_bereinigen(body.title)[:120].strip()
++    if not titel:
++        raise errors.bad_request("validation_error", "validation_error.title")
++    jetzt = utcnow()
++    if (db.scalar(select(func.count()).select_from(PlayerProposal).where(
++            PlayerProposal.author_member_id == me.id, PlayerProposal.created_at >= jetzt - timedelta(hours=1)))
++            or 0) >= JE_STUNDE:
++        raise errors.ApiError(429, "too_many_requests")
++    eigene = db.scalar(select(func.count()).select_from(PlayerProposal).where(
++        PlayerProposal.author_member_id == me.id, PlayerProposal.state == "open")) or 0
++    if eigene >= OFFEN_JE_MITGLIED or offene_anzahl(db, c.id) >= OFFEN_JE_KAMPAGNE:
++        raise errors.conflict("player_proposal_limit")
++    p = PlayerProposal(campaign_id=c.id, author_member_id=me.id, entry_type=body.entry_type, title=titel,
++                       detail=text_bereinigen(body.detail, 2000), target_entry_id=ziel, state="open", created_at=jetzt)
++    db.add(p)
++    db.flush()
++    return p
++
++
++def laden(db: Session, proposal_id: str, user) -> tuple[PlayerProposal, Member]:
++    """Vorschlag für die SL der Kampagne oder die Urheberin; alle anderen 404."""
++    from app.access import membership
++
++    p = db.get(PlayerProposal, proposal_id)
++    m = membership(db, p.campaign_id, user) if p is not None else None
++    if p is None or m is None or (m.role != "gm" and m.id != p.author_member_id):
++        raise errors.not_found("player_proposal")
++    return p, m
++
++
++def zurueckziehen(db: Session, p: PlayerProposal, me: Member) -> None:
++    if me.id != p.author_member_id:
++        raise errors.not_found("player_proposal")
++    if p.state != "open":
++        raise errors.conflict("player_proposal_decided")
++    p.state, p.decided_at = "withdrawn", utcnow()
++
++
++def entscheiden(db: Session, p: PlayerProposal, me: Member, body: schemas.PlayerProposalDecision) -> None:
++    if me.role != "gm":
++        raise errors.not_found("player_proposal")
++    if p.state != "open":
++        raise errors.conflict("player_proposal_decided")
++    if body.decision == "reject":
++        p.state, p.decided_at = "rejected", utcnow()
++        return
++    e, sichtbar = _uebernehmen(db, p, body)
++    p.state, p.decided_at, p.result_entry_id, p.text_sichtbar = "accepted", utcnow(), e.id, sichtbar
++
++
++def _halter(db: Session, campaign_id: str, holder_id: str | None) -> str | None:
++    """Halter nur aktive Mitglieder mit Rolle player (wie 0.4.139), sonst 400."""
++    if holder_id is None:
++        return None
++    m = db.get(Member, holder_id)
++    if m is None or m.campaign_id != campaign_id or not m.aktiv or m.role != "player":
++        raise errors.bad_request("holder_unknown")
++    return m.id
++
++
++def _uebernehmen(db: Session, p: PlayerProposal, body: schemas.PlayerProposalDecision) -> tuple[Entry, bool]:
++    """Eintrag anlegen oder ergänzen. Rückgabe: Eintrag und ob der Text im öffentlichen Teil steht."""
++    from app.services import apply_entry_input
++
++    f = body.model_fields_set
++    typ = body.entry_type or p.entry_type
++    titel = p.title
++    if body.title is not None:
++        titel = aliasse.zeichen_bereinigen(body.title)[:120].strip()
++        if not titel:
++            raise errors.bad_request("validation_error", "validation_error.title")
++    text = text_bereinigen(body.detail, 2000) if body.detail is not None else (p.detail or "")
++    geheim = text_bereinigen(body.gm_notes, MAX_TEXT) if body.gm_notes else ""
++    sicht = body.visibility or "public"
++    verborgen = sorted(set(body.hidden_from_member_ids or [])) if sicht == "public" else []
++    if verborgen:
++        gueltig = set(db.scalars(select(Member.id).where(Member.campaign_id == p.campaign_id,
++                                                         Member.id.in_(verborgen))))
++        if gueltig != set(verborgen):
++            raise errors.bad_request("hidden_member_unknown")
++    halter = _halter(db, p.campaign_id, body.holder_member_id) if typ == "item" else None
++    ziel_id = body.merge_into_entry_id if "merge_into_entry_id" in f else p.target_entry_id
++    e = db.get(Entry, ziel_id) if ziel_id else None
++    if e is not None and (e.campaign_id != p.campaign_id or e.type == "pc"):
++        e = None
++    if e is None and ziel_id and "merge_into_entry_id" in f:
++        raise errors.bad_request("merge_target_unknown")
++    if e is not None:  # Ergänzen: anhängen, nie überschreiben
++        weniger_sichtbar = e.visibility == "public" and (
++            sicht != "public" or bool(set(verborgen) - e.hidden_member_ids))
++        if weniger_sichtbar:
++            # Geheimes zu einem sichtbareren Eintrag: nur in die SL-Notizen, ohne neues Änderungsdatum
++            notiz = _anhaengen(_anhaengen(e.gm_notes, f"{titel}: {text}".strip(": ")), geheim)
++            vorher = e.updated_at
++            apply_entry_input(db, e, schemas.EntryInput(gm_notes=notiz))
++            e.updated_at = vorher
++            return e, False
++        daten = dict(summary=_anhaengen(e.summary, text), gm_notes=_anhaengen(e.gm_notes, geheim))
++        if sicht == "public" and verborgen and e.visibility == "public":
++            daten["hidden_from_member_ids"] = sorted(e.hidden_member_ids | set(verborgen))
++        if halter and (e.type or typ) == "item":
++            daten["holder_member_id"] = halter
++        apply_entry_input(db, e, schemas.EntryInput(**daten))
++        return e, bool(text.strip())
++    e = Entry(campaign_id=p.campaign_id, type="", name="", summary="", visibility="gm_only")
++    db.add(e)
++    db.flush()
++    daten = dict(type=typ, name=titel, summary=text, gm_notes=geheim, visibility=sicht,
++                 hidden_from_member_ids=verborgen)
++    if halter:
++        daten["holder_member_id"] = halter
++    apply_entry_input(db, e, schemas.EntryInput(**daten))
++    return e, True
++
++
++# ================================================================ Merken
++def _anwesend(s: GameSession, me: Member) -> bool:
++    return any(a.member_id == me.id for a in s.attendees)
++
++
++def runde_laden(db: Session, session_id: str, user, schreiben: bool) -> tuple[GameSession, Member]:
++    """Lesen: jede Runde, die die Person sieht (vor dem Veröffentlichen nur Anwesende). Schreiben: nur Anwesende, nur
++    bis zur Veröffentlichung (danach 409). Alles andere 404 – die Runde selbst bleibt für Spielende verborgen."""
++    from app.access import membership, player_can_see_session
++
++    s = db.get(GameSession, session_id)
++    me = membership(db, s.campaign_id, user) if s is not None else None
++    if s is None or me is None:
++        raise errors.not_found("session")
++    sieht = me.role == "gm" or player_can_see_session(s) or _anwesend(s, me)
++    if not sieht:
++        raise errors.not_found("session")
++    if schreiben:
++        if s.state == "published":
++            raise errors.conflict("session_published", "session_published.bookmark")
++        if not _anwesend(s, me):
++            raise errors.not_found("session")
++    return s, me
++
++
++def merken(db: Session, s: GameSession, me: Member, body: schemas.BookmarkIn) -> Bookmark:
++    from app.begrenzung import ZAEHLER
++
++    jetzt = utcnow()
++    at = _utc(body.at) if body.at is not None else jetzt
++    if at < _utc(s.played_at) - MERKEN_VORLAUF or at > jetzt + MERKEN_ZUKUNFT:
++        raise errors.bad_request("bookmark_time_invalid")
++    if not ZAEHLER.versuch(f"merken:{me.id}", MERKEN_JE_MINUTE, 60):
++        raise errors.ApiError(429, "too_many_requests")
++    anzahl = db.scalar(select(func.count()).select_from(Bookmark).where(
++        Bookmark.session_id == s.id, Bookmark.member_id == me.id)) or 0
++    if anzahl >= MERKEN_JE_RUNDE:
++        raise errors.conflict("bookmark_limit")
++    b = Bookmark(session_id=s.id, member_id=me.id, at=at, note=text_bereinigen(body.note, 280) or None, created_at=jetzt)
++    db.add(b)
++    db.flush()
++    return b
++
++
++def merkstellen(db: Session, s: GameSession, me: Member) -> list[schemas.BookmarkOut]:
++    zeilen = list(db.scalars(select(Bookmark).where(Bookmark.session_id == s.id, Bookmark.member_id == me.id)
++                             .order_by(Bookmark.at, Bookmark.id)))
++    if not zeilen:
++        return []
++    achse = zeitachse(db, s)
++    absaetze = _absatz_belege(db, s)
++    aus = []
++    for b in zeilen:
++        versatz = versatz_ms(achse, b.at) if achse else None
++        absatz = absatz_finden(absaetze, versatz / 1000) if versatz is not None and absaetze else None
++        aus.append(schemas.BookmarkOut(id=b.id, session_id=b.session_id, at=b.at, note=b.note, offset_ms=versatz,
++                                       recap_paragraph=absatz, created_at=b.created_at))
++    return aus
++
++
++def merkstelle_loeschen(db: Session, bookmark_id: str, user) -> None:
++    from app.access import membership
++
++    b = db.get(Bookmark, bookmark_id)
++    m = db.get(Member, b.member_id) if b is not None else None
++    eigen = m is not None and membership(db, m.campaign_id, user) is not None and m.user_id == user.id
++    if not eigen:
++        raise errors.not_found("bookmark")
++    db.delete(b)
++
++
++# ---------------------------------------------------------------- Zeit in der Aufnahme
++def spannen_pruefen(roh, played_at: datetime) -> str | None:
++    """Spannen beim Start des Hochladens: aufsteigend, ohne Überlappung, jede > 0, ab playedAt − 12 h, nicht nach dem
++    Hochladen. Passt etwas nicht: None (still verworfen – nie ein Fehler). Die Summe prüft zeitachse() gegen die Länge."""
++    if not isinstance(roh, list) or not roh or len(roh) > SPANNEN_HOECHSTENS:
++        return None
++    jetzt = utcnow()
++    frueheste = _utc(played_at) - MERKEN_VORLAUF
++    aus, vorher = [], None
++    for sp in roh:
++        if not isinstance(sp, dict):
++            return None
++        try:
++            a = _utc(datetime.fromisoformat(str(sp.get("startedAt")).replace("Z", "+00:00")))
++            b = _utc(datetime.fromisoformat(str(sp.get("endedAt")).replace("Z", "+00:00")))
++        except (TypeError, ValueError):
++            return None
++        if b <= a or a < frueheste or b > jetzt + MERKEN_ZUKUNFT or (vorher is not None and a < vorher):
++            return None
++        aus.append([a.timestamp(), b.timestamp()])
++        vorher = b
++    return json.dumps(aus)
++
++
++def zeitachse(db: Session, s: GameSession) -> list[tuple[float, float]] | None:
++    """Zeiten (Sekunden seit 1970), in denen aufgenommen wurde. Ohne gültige Spannen: playedAt ohne Pausen. None,
++    solange keine Aufnahme da bzw. ihre Länge unbekannt ist."""
++    up = db.scalar(select(Upload).where(Upload.session_id == s.id, Upload.state != "aborted")
++                   .order_by(Upload.created_at.desc()).limit(1))
++    if up is None:
++        return None
++    laenge = s.duration_seconds if s.duration_seconds is not None else up.dauer_sekunden
++    if up.spans and up.source == "table":
++        try:
++            spannen = [(float(a), float(b)) for a, b in json.loads(up.spans)]
++        except (TypeError, ValueError):
++            spannen = []
++        ende = _utc(up.completed_at).timestamp() + MERKEN_ZUKUNFT.total_seconds() if up.completed_at else None
++        summe = sum(b - a for a, b in spannen)
++        if (spannen and (ende is None or spannen[-1][1] <= ende)
++                and (laenge is None or abs(summe - laenge) <= SPANNEN_TOLERANZ_S)):
++            return spannen
++    if laenge is None:
++        return None
++    beginn = _utc(s.played_at).timestamp()
++    return [(beginn, beginn + float(laenge))]
++
++
++def versatz_ms(achse: list[tuple[float, float]], at: datetime) -> int | None:
++    """Zeit in der Aufnahme. In einer Pause: das Ende der Spanne davor. Vor dem Beginn oder nach dem Ende: None."""
++    t = _utc(at).timestamp()
++    if t < achse[0][0] or t > achse[-1][1]:
++        return None
++    bisher = 0.0
++    for a, b in achse:
++        if t < a:
++            break
++        if t <= b:
++            return int(round((bisher + t - a) * 1000))
++        bisher += b - a
++    return int(round(bisher * 1000))
++
++
++def _absatz_belege(db: Session, s: GameSession) -> list[tuple[int, float]] | None:
++    """(Absatz, Beleg-Zeitpunkt) aus dem Prüfteil des veröffentlichten Kapitels; nur solange er zum Text passt."""
++    if s.state != "published":
++        return None
++    r = db.get(Recap, s.id)
++    if r is None:
++        return None
++    from app import pruefteil
++
++    d = pruefteil.lesen(r.review)
++    if d.get("state") != "done" or d.get("stale"):
++        return None
++    aus = []
++    for p in d.get("paragraphs") or []:
++        for b in p.get("evidence") or []:
++            if isinstance(b, dict) and isinstance(b.get("start"), (int, float)) and isinstance(p.get("index"), int):
++                aus.append((p["index"], float(b["start"])))
++    return aus or None
++
++
++def absatz_finden(belege: list[tuple[int, float]], sekunde: float) -> int | None:
++    """Absatz mit dem spätesten Beleg bis kurz nach der gemerkten Stelle (höchstens ABSATZ_FENSTER_S davor)."""
++    passend = [(start, absatz) for absatz, start in belege if sekunde - ABSATZ_FENSTER_S <= start <= sekunde + 30]
++    return max(passend)[1] if passend else None
++
++
++# ================================================================ Laufende Runde, Austritt, Aufräumen
++def live_session_id(db: Session, c: Campaign, me: Member) -> str | None:
++    grenze = utcnow() - timedelta(hours=LIVE_STUNDEN)
++    s = db.scalar(select(GameSession).where(GameSession.campaign_id == c.id,
++                                            GameSession.state.in_(("created", "uploading")),
++                                            GameSession.played_at >= grenze)
++                  .order_by(GameSession.played_at.desc()).limit(1))
++    if s is None:
++        return None
++    if me.role == "gm" or _anwesend(s, me):
++        return s.id
++    return None
++
++
++def mitglied_weg(db: Session, member_id: str, zaehler: bool = True) -> None:
++    """Austritt, Konto löschen, Platz freigeben: offene Vorschläge und Merkstellen der Person löschen (entschiedene
++    Vorschläge bleiben stehen). zaehler: Stände verwerfen – beim Freigeben eines Platzes bleiben sie an der Figur."""
++    db.execute(delete(PlayerProposal).where(PlayerProposal.author_member_id == member_id,
++                                            PlayerProposal.state == "open"))
++    db.execute(delete(Bookmark).where(Bookmark.member_id == member_id))
++    if zaehler:
++        m = db.get(Member, member_id)
++        if m is not None:
++            m.counters = None
++
++
++def aufraeumen(db: Session) -> int:
++    grenze = utcnow() - timedelta(days=AUFBEWAHRUNG_TAGE)
++    r = db.execute(delete(PlayerProposal).where(PlayerProposal.state != "open", PlayerProposal.decided_at < grenze))
++    return r.rowcount or 0
++
++
++def export(db: Session, member_ids: list[str]) -> dict:
++    """Datenauskunft: eigene Vorschläge (Zustand wie die Person ihn sieht) und eigene Merkstellen."""
++    if not member_ids:
++        return {"playerProposals": [], "bookmarks": []}
++
++    def z(dt):
++        return _utc(dt).isoformat().replace("+00:00", "Z") if dt else None
++
++    vorschlaege = []
++    for p in db.scalars(select(PlayerProposal).where(PlayerProposal.author_member_id.in_(member_ids))
++                        .order_by(PlayerProposal.created_at)):
++        zustand, ergebnis = urheberin_sicht(db, p)
++        vorschlaege.append({"campaignId": p.campaign_id, "id": p.id, "entryType": p.entry_type, "title": p.title,
++                            "detail": p.detail, "state": zustand, "resultEntryId": ergebnis,
++                            "createdAt": z(p.created_at), "decidedAt": z(p.decided_at)})
++    merk = [{"sessionId": b.session_id, "id": b.id, "at": z(b.at), "note": b.note, "createdAt": z(b.created_at)}
++            for b in db.scalars(select(Bookmark).where(Bookmark.member_id.in_(member_ids)).order_by(Bookmark.at))]
++    return {"playerProposals": vorschlaege, "bookmarks": merk}
+diff --git a/app/sprachmodell.py b/app/sprachmodell.py
+index 32a89c9..cfcd2b4 100644
+--- a/app/sprachmodell.py
++++ b/app/sprachmodell.py
+@@ -735,4 +735,6 @@ def _kopf(ein: dict) -> str:
+         else:
+             c = p.get("charakter") or "(ohne Charaktername)"
++            if p.get("pronomen"):  # 0.4.28
++                c += f" (Pronomen: {p['pronomen']})"
+             kurz = f" – {p['charakter_kurz']}" if p.get("charakter_kurz") else ""
+             runde.append(f"- {p['name']} spielt {c}{kurz}")
+@@ -1988,5 +1990,6 @@ def _namenszeile(e: dict) -> str:
+     """„Name“ bzw. „Name (auch: Alias, Alias)“ für die Eingabe des Sprachmodells."""
+     auch = [a for a in (e.get("aliases") or []) if a]
+-    return str(e.get("name") or "") + (f" (auch: {', '.join(auch)})" if auch else "")
++    pronomen = f" (Pronomen: {e['pronomen']})" if e.get("pronomen") else ""  # 0.4.28
++    return str(e.get("name") or "") + (f" (auch: {', '.join(auch)})" if auch else "") + pronomen
+ 
+ 
+diff --git a/app/umzug.py b/app/umzug.py
+index a824c12..01ade96 100644
+--- a/app/umzug.py
++++ b/app/umzug.py
+@@ -43,5 +43,5 @@ from app.models import (
+     Attendee, Campaign, CampaignDocument, ChapterPlan, CampaignExport, CampaignImport, CharacterAnalysis, Comment,
+     CommentRecipient,
+-    DateOption, DateVote, Entry, EntryHidden, EntryMention, GameSession, GmNote, GmNotice, Invite, Member, Proposal,
++    DateOption, DateVote, Entry, EntryHidden, EntryMention, GameSession, GmNote, GmNotice, Invite, Member, PlayerProposal, Proposal,
+     Recap, SessionSeen, Speaker, User,
+ )
+@@ -252,5 +252,6 @@ def packliste(db: Session, c: Campaign, zugestimmt: set[str]) -> tuple[dict, lis
+             p["character"] = {"version": m.character_version, "status": m.character_status,
+                               "nickname": m.character_nickname, "summary": m.character_summary,
+-                              "backstory": m.character_backstory, "system": m.character_system}
++                              "backstory": m.character_backstory, "system": m.character_system,
++                              "pronouns": m.character_pronouns}
+             if m.portrait_updated_at:
+                 for art, feld in (("full", "portrait"), ("thumb", "portraitThumb")):
+@@ -308,5 +309,6 @@ def packliste(db: Session, c: Campaign, zugestimmt: set[str]) -> tuple[dict, lis
+                         "version": e.origin_version, "seat": platz.get(e.origin_member_id)}
+         eintraege.append({
+-            "key": f"e{i + 1}", "type": e.type, "name": e.name, "aliases": e.aliases, "summary": summary,
++            "key": f"e{i + 1}", "type": e.type, "name": e.name, "aliases": e.aliases, "pronouns": e.pronouns,
++            "summary": summary,
+             "gmNotes": e.gm_notes,
+             # Geheimes aus Bogen/Hintergrund geht als SL-Wissen mit (die Herkunftsmarke reist nicht mit)
+@@ -488,4 +490,5 @@ class _Charakter(schemas.ApiModel):
+     backstory: str | None = Field(default=None, max_length=50000)
+     system: str | None = Field(default=None, max_length=64)
++    pronouns: str | None = Field(default=None, max_length=200)  # 0.4.28
+ 
+ 
+@@ -563,4 +566,5 @@ class _Eintrag(schemas.ApiModel):
+     name: str = Field(min_length=1, max_length=300)
+     aliases: list[str] = Field(default=[], max_length=50)  # 0.4.21; bereinigt beim Anlegen
++    pronouns: str | None = Field(default=None, max_length=200)  # 0.4.28; bereinigt und gekürzt beim Anlegen
+     summary: str = Field(default="", max_length=200_000)
+     gm_notes: str | None = Field(default=None, max_length=200_000)
+@@ -835,4 +839,5 @@ def _anlegen(db: Session, user: User, z: zipfile.ZipFile, d: _Datei, angelegt: l
+             m.character_backstory = (ch.backstory or "").strip() or None
+             m.character_system = (ch.system or "").strip() or None
++            m.character_pronouns = aliasse.zeichen_bereinigen(ch.pronouns or "")[:32].strip() or None
+         db.add(m)
+         db.flush()
+@@ -907,5 +912,6 @@ def _anlegen(db: Session, user: User, z: zipfile.ZipFile, d: _Datei, angelegt: l
+                   public_changed_at=e.public_changed_at,
+                   links=links.schreiben(links.bereinigen(e.links, links.MAX_EINTRAG)),
+-                  aliases_json=aliasse.schreiben(aliasse.bereinigen(e.name, e.aliases)))
++                  aliases_json=aliasse.schreiben(aliasse.bereinigen(e.name, e.aliases)),
++                  pronouns=aliasse.zeichen_bereinigen(e.pronouns or "")[:32].strip() or None)
+         if e.origin is not None:
+             x.origin_character_id = e.origin.character_id.lower()
+@@ -1065,5 +1071,5 @@ _PRIVAT = (
+     (Comment, "author_member_id"), (Comment, "recipient_member_id"), (CommentRecipient, "member_id"),
+     (Proposal, "submitted_by_member_id"), (CampaignDocument, "uploaded_by_member_id"), (CharacterAnalysis, "member_id"), (Entry, "origin_member_id"),
+-    (DateOption, "proposed_by_member_id"),
++    (DateOption, "proposed_by_member_id"), (PlayerProposal, "author_member_id"),  # 0.4.28
+ )
+ 
+@@ -1092,4 +1098,7 @@ def _privates_abloesen(db: Session, platz: Member) -> Member:
+         if (ids or p.analysis_id) and platz.id not in ids:
+             p.hidden_member_ids_json = json.dumps(sorted(set(ids) | {platz.id}))
++    from app import spielende
++
++    spielende.mitglied_weg(db, platz.id, zaehler=False)  # 0.4.28: Zähler gehören zur Figur und bleiben am Platz
+     for modell, feld in _PRIVAT:
+         spalte = getattr(modell, feld)
+diff --git a/app/zusammenfassung.py b/app/zusammenfassung.py
+index 9de061f..0c04eac 100644
+--- a/app/zusammenfassung.py
++++ b/app/zusammenfassung.py
+@@ -52,4 +52,5 @@ class Person:
+     charakter: str | None = None
+     charakter_kurz: str | None = None  # characterSummary (für alle sichtbar)
++    pronomen: str | None = None  # 0.4.28: characterPronouns (für alle sichtbar)
+ 
+ 
+@@ -69,4 +70,5 @@ class BekannterEintrag:
+     zusammenfassung: str  # nur öffentlicher Text
+     aliases: list[str] = field(default_factory=list)  # 0.4.21: nur bei allgemein bekannten Einträgen
++    pronomen: str | None = None  # 0.4.28: nur bei allgemein bekannten Einträgen
+ 
+ 
+@@ -111,5 +113,6 @@ def eingabe_bauen(db: Session, s: GameSession) -> Eingabe:
+         if a.member_id and a.member_id in mitglieder:
+             m = mitglieder[a.member_id]
+-            personen.append(Person(m.id, m.anzeigename, m.role, m.character_name, m.character_summary))
++            personen.append(Person(m.id, m.anzeigename, m.role, m.character_name, m.character_summary,
++                                   m.character_pronouns))
+         elif a.guest_name:
+             gaeste.append(a.guest_name)
+@@ -138,5 +141,5 @@ def eingabe_bauen(db: Session, s: GameSession) -> Eingabe:
+         # Teilweise verborgene Einträge („Wer weiß was“) wie gm_only behandeln – den Recap lesen alle (0.3.6)
+         if e.allgemein_bekannt:  # 0.4.89: auch Geheimes aus Bogen/Hintergrund nicht als bekannt
+-            bibel.append(BekannterEintrag(e.id, e.type, e.name, e.summary, e.aliases))
++            bibel.append(BekannterEintrag(e.id, e.type, e.name, e.summary, e.aliases, e.pronouns))
+         else:
+             geheim.append(GeheimerEintrag(e.id, e.type, e.name, e.aliases))
+diff --git a/contract/session-chronik-api.yaml b/contract/session-chronik-api.yaml
+index d4591cb..a307771 100644
+--- a/contract/session-chronik-api.yaml
++++ b/contract/session-chronik-api.yaml
+@@ -2,5 +2,5 @@ openapi: 3.1.0
+ info:
+   title: Taleward API
+-  version: 0.4.26
++  version: 0.4.28
+   description: |
+     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
+@@ -265,4 +265,20 @@ info:
+     Außerdem private Kommentare an mehrere Personen: POST …/comments nimmt recipientMemberIds, Comment liefert
+     recipientMemberIds. recipientMemberId bleibt (erster Empfänger) für ältere Apps.
++    Änderungen in 0.4.27 (Hinweis-Mail nur bei neuem Gerät): POST /auth/login und POST /auth/oidc/exchange nehmen ein
++    freiwilliges Feld deviceId. Außerdem 409 email_confirmed bei PUT /me/email beschrieben (Server ab 0.4.141).
++    Änderungen in 0.4.28 (Spielende tragen bei; alles freiwillig, nichts davon geht an ein Sprachmodell):
++    - Vorschläge von Spielenden für die Bibel: /campaigns/{id}/player-proposals, /player-proposals/{id}. Spielende sehen
++      nur die eigenen, nie fremde und keine Anzahl; die SL entscheidet wie bei Session-Vorschlägen. Schalter
++      CampaignSettings.playerProposals (Standard an). Für die Urheberin sind „abgelehnt“ und „übernommen, aber für sie
++      nicht sichtbar“ nicht unterscheidbar (state closed). Ein Umzug nimmt Vorschläge von Spielenden nie mit.
++    - „Merken“: Stellen während einer Runde markieren, nur für die Person selbst (/sessions/{id}/bookmarks,
++      /bookmarks/{id}). Damit der Server die Zeit einer Stelle in der Aufnahme findet, schickt die aufnehmende App bei
++      POST …/uploads die Zeiten, in denen wirklich aufgenommen wurde (spans). Campaign.liveSessionId zeigt Anwesenden
++      die laufende Runde.
++    - Pronomen: Character.pronouns → Member.characterPronouns, EntryInput.pronouns für NSC. Öffentlich wie Name und
++      Kurzbeschreibung; das Kapitel nutzt sie (nur bei Einträgen, die der Recap-Pipeline ohnehin offenstehen).
++    - Zähler am Charakter (LeP, AsP …): CampaignSettings.counterKinds (leer = aus, Standard), Stände je Mitglied über
++      PUT /campaigns/{id}/members/me/counters, Member.counters nur für die Person selbst und die SL.
++    Ältere Apps sehen davon nichts; ältere Server ignorieren pronouns und spans.
+ 
+ servers:
+@@ -313,4 +329,13 @@ paths:
+                 username: { type: string }
+                 password: { type: string, format: password }
++                deviceId:
++                  type: string
++                  pattern: "^[A-Za-z0-9_-]{16,64}$"
++                  description: |
++                    Ab 0.4.27, freiwillig: zufällige Kennung dieser Installation (von der App einmal erzeugt und dauerhaft
++                    gespeichert, nie aus Hardware-Kennungen). Der Server speichert nur den SHA-256-Wert am Konto und
++                    schickt die Hinweis-Mail zur Anmeldung nur, wenn die Kennung für das Konto neu ist; er vergisst sie
++                    nach 180 Tagen ohne Anmeldung und nach einem neuen Passwort. Ohne Feld: höchstens eine Mail je
++                    15 Minuten. Ungültige Werte werden ignoriert (kein Fehler). Ältere Server ignorieren das Feld.
+       responses:
+         "200":
+@@ -495,4 +520,8 @@ paths:
+                 ticket: { type: string }
+                 verifier: { type: string }
++                deviceId:
++                  type: string
++                  pattern: "^[A-Za-z0-9_-]{16,64}$"
++                  description: Ab 0.4.27, freiwillig, wie bei POST /auth/login
+       responses:
+         "200":
+@@ -585,4 +614,6 @@ paths:
+         202; der Server schickt einen Bestätigungslink (24 h) auf https://<server>/konto/email/<token>. Bis dahin steht die
+         Adresse in User.emailPending. Fehler: 400 invalid_email, 409 email_taken (an anderem Konto bestätigt),
++        409 email_confirmed (Server ab 0.4.141: für dieses Konto schon bestätigt; kein neuer Vorgang, ein offener zur selben
++        Adresse wird verworfen; die App zeigt die Meldung des Servers),
+         503 mail_unavailable, 429 (höchstens 5 pro Stunde).
+       requestBody:
+@@ -1114,4 +1145,191 @@ paths:
+         "409": { $ref: "#/components/responses/Conflict" }
+ 
++  /campaigns/{campaignId}/player-proposals:
++    parameters: [{ $ref: "#/components/parameters/campaignId" }]
++    get:
++      tags: [Vorschläge]
++      summary: Vorschläge von Spielenden (ab 0.4.28)
++      description: |
++        Spielende bekommen nur die eigenen (neueste zuerst), nie fremde und keine Anzahl, mit dem Zustand, wie sie ihn
++        sehen dürfen (siehe PlayerProposal.state: closed statt rejected bzw. statt accepted ohne sichtbares Ergebnis). Die
++        SL bekommt alle offenen und die der letzten 30 Tage mit dem echten Zustand. Ist playerProposals aus, bekommen Spielende eine leere Liste; die SL
++        sieht bestehende weiter.
++      parameters:
++        - { name: state, in: query, required: false, schema: { type: string, enum: [open, all] }, description: "Standard all" }
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema:
++                type: array
++                items: { $ref: "#/components/schemas/PlayerProposal" }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++    post:
++      tags: [Vorschläge]
++      summary: Eintrag oder Ergänzung vorschlagen (nur Spielende, ab 0.4.28)
++      description: |
++        Nur aktive Mitglieder mit Rolle player; SL → 403. Mit targetEntryId eine Ergänzung zu einem Eintrag, den die
++        Person sieht – sonst 404 (auch bei verborgenen Einträgen, kein Unterschied zu „gibt es nicht“). Ohne
++        targetEntryId ein neuer Eintrag. Der Server prüft NICHT, ob es einen verborgenen Eintrag mit diesem Namen gibt,
++        und antwortet immer gleich (kein Hinweis auf Geheimes). Höchstens 20 offene je Mitglied und 200 offene je
++        Kampagne → 409 `player_proposal_limit`; höchstens 30 je Stunde → 429. playerProposals aus → 403 `player_proposals_off`.
++        Vorschläge von Spielenden gehen nie an ein Sprachmodell und nie in Kapitel; erst eine Entscheidung der SL macht
++        daraus einen Eintrag (der danach wie jeder Eintrag behandelt wird). Kein Push. Aufbewahrung: entschiedene und
++        zurückgezogene nach 90 Tagen gelöscht; beim Austritt bzw. Löschen des Kontos werden offene gelöscht, entschiedene
++        bleiben ohne Person. Umzug: nie mitgenommen, weder offene noch entschiedene.
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema: { $ref: "#/components/schemas/PlayerProposalIn" }
++      responses:
++        "201":
++          description: Angelegt
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/PlayerProposal" }
++        "400": { $ref: "#/components/responses/BadRequest" }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "403": { $ref: "#/components/responses/Forbidden" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "409": { $ref: "#/components/responses/Conflict" }
++
++  /player-proposals/{proposalId}:
++    parameters:
++      - { name: proposalId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
++    delete:
++      tags: [Vorschläge]
++      summary: Eigenen offenen Vorschlag zurückziehen (ab 0.4.28)
++      description: Nur die Urheberin und nur im Zustand open (sonst 409). Fremde → 404. Wird zu state withdrawn.
++      responses:
++        "204": { description: Zurückgezogen }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "409": { $ref: "#/components/responses/Conflict" }
++
++  /player-proposals/{proposalId}/decision:
++    parameters:
++      - { name: proposalId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
++    post:
++      tags: [Vorschläge]
++      summary: Vorschlag einer Spielerin übernehmen oder ablehnen (nur SL, ab 0.4.28)
++      description: |
++        accept legt einen Eintrag an (Felder aus dem Vorschlag, von der SL geändert) oder ergänzt mergeIntoEntryId
++        (Standard: targetEntryId) – angehängt wie bei Session-Vorschlägen, nie überschrieben. Die SL darf auch in einen
++        Eintrag ergänzen, den die Urheberin nicht sieht, oder den Text in gmNotes legen. Sichtbarkeit ohne Angabe:
++        public. reject schließt ihn ohne Eintrag. Nur im Zustand open, sonst 409.
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema: { $ref: "#/components/schemas/PlayerProposalDecision" }
++      responses:
++        "200":
++          description: Neuer Stand des Vorschlags (resultEntryId gesetzt bei accept)
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/PlayerProposal" }
++        "400": { $ref: "#/components/responses/BadRequest" }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "409": { $ref: "#/components/responses/Conflict" }
++
++  /sessions/{sessionId}/bookmarks:
++    parameters: [{ $ref: "#/components/parameters/sessionId" }]
++    get:
++      tags: [Chronik]
++      summary: Eigene gemerkte Stellen einer Runde (ab 0.4.28)
++      description: |
++        Nur die eigenen. Niemand sonst sieht sie – auch die SL nicht, auch nicht als Anzahl. Spielende bekommen sie zu
++        jeder Runde, die sie sehen dürfen (vor dem Veröffentlichen nur Anwesende der Runde, sonst 404).
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema:
++                type: array
++                items: { $ref: "#/components/schemas/Bookmark" }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++    post:
++      tags: [Chronik]
++      summary: Stelle merken (ab 0.4.28)
++      description: |
++        Nur Anwesende der Runde (Attendee.memberId) und nur bis zur Veröffentlichung (danach 409 `session_published`).
++        Ohne at nimmt der Server seine eigene Uhrzeit. at darf höchstens 12 Stunden vor playedAt bzw. 5 Minuten in der
++        Zukunft liegen (sonst 400). Höchstens 200 je Mitglied und Runde (409 `bookmark_limit`). Gemerkte Stellen gehen
++        nie an ein Sprachmodell, nie in Kapitel oder Vorschläge, nie an die SL. Beim Löschen der Runde oder des Kontos
++        werden sie mit gelöscht, ebenso beim Austritt; ein Umzug nimmt sie nicht mit. Zusätzlich höchstens 60 POST je
++        Minute und Mitglied (429). liveSessionId und Merkstellen geben keinen Zugang zur Runde: GET /sessions/{id} und
++        alles andere bleibt für Spielende vor dem Veröffentlichen 404.
++      requestBody:
++        required: false
++        content:
++          application/json:
++            schema:
++              type: object
++              properties:
++                at: { type: string, format: date-time }
++                note: { type: [string, "null"], maxLength: 280 }
++      responses:
++        "201":
++          description: Angelegt
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/Bookmark" }
++        "400": { $ref: "#/components/responses/BadRequest" }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "409": { $ref: "#/components/responses/Conflict" }
++
++  /bookmarks/{bookmarkId}:
++    parameters:
++      - { name: bookmarkId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
++    delete:
++      tags: [Chronik]
++      summary: Gemerkte Stelle löschen (ab 0.4.28; nur die eigene, sonst 404)
++      responses:
++        "204": { description: Gelöscht }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++
++  /campaigns/{campaignId}/members/me/counters:
++    parameters: [{ $ref: "#/components/parameters/campaignId" }]
++    put:
++      tags: [Charaktere]
++      summary: Eigene Zählerstände setzen (ab 0.4.28)
++      description: |
++        Nur das Mitglied selbst (Rolle player); die SL liest sie, ändert sie aber nicht. Ersetzt alle Stände. Nur
++        Zählerarten aus CampaignSettings.counterKinds (andere → 400 `counter_unknown`); counterKinds leer → 403
++        `counters_off`. Zähler gehen nie an ein Sprachmodell, nie in Kapitel, nie an andere Spielende und nicht in einen
++        Umzug. Wird eine Zählerart entfernt, verwirft der Server ihre Stände.
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [values]
++              properties:
++                values:
++                  type: array
++                  maxItems: 12
++                  items: { $ref: "#/components/schemas/CounterValue" }
++      responses:
++        "200":
++          description: Neuer Stand
++          content:
++            application/json:
++              schema:
++                type: array
++                items: { $ref: "#/components/schemas/CounterValue" }
++        "400": { $ref: "#/components/responses/BadRequest" }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "403": { $ref: "#/components/responses/Forbidden" }
++        "404": { $ref: "#/components/responses/NotFound" }
++
+   /campaigns/{campaignId}/members/me/world:
+     parameters: [{ $ref: "#/components/parameters/campaignId" }]
+@@ -2205,4 +2423,20 @@ paths:
+                         type: string
+                         description: Nur bei source=discord – welches Mitglied auf dieser Spur spricht
++                spans:
++                  type: array
++                  maxItems: 500
++                  description: |
++                    Ab 0.4.28, freiwillig, nur bei source=table: Zeiten (Uhr des aufnehmenden Geräts), in denen wirklich
++                    aufgenommen wurde – zwischen zwei Spannen lag eine Pause. Zusammen ergeben sie die Länge der Aufnahme.
++                    Der Server rechnet damit gemerkte Stellen (Bookmark.at) in eine Zeit der Aufnahme um. Fehlt das Feld,
++                    gilt playedAt als Beginn ohne Pausen. Der Server prüft: aufsteigend, ohne Überlappung, jede Spanne > 0,
++                    alle zwischen playedAt − 12 h und dem Ende des Hochladens, Summe passt zur Länge (± 60 s). Passt etwas
++                    nicht, verwirft er die Spannen still – nie ein Fehler, nie ein Hindernis für das Hochladen.
++                  items:
++                    type: object
++                    required: [startedAt, endedAt]
++                    properties:
++                      startedAt: { type: string, format: date-time }
++                      endedAt: { type: string, format: date-time }
+       responses:
+         "201":
+@@ -3781,4 +4015,10 @@ components:
+         allowExternalTranscription: { type: boolean }
+         allowCharacterAnalysis: { type: boolean }
++        playerProposals: { type: boolean, description: "Ab 0.4.28" }
++        counterKinds:
++          type: array
++          maxItems: 8
++          items: { $ref: "#/components/schemas/CounterKind" }
++          description: Ab 0.4.28, ersetzt die ganze Liste
+ 
+     CampaignSettings:
+@@ -3794,4 +4034,16 @@ components:
+         allowExternalTranscription: { type: boolean }
+         allowCharacterAnalysis: { type: boolean }
++        playerProposals:
++          type: boolean
++          description: |
++            Ab 0.4.28: Spielende dürfen Einträge für die Bibel vorschlagen. Standard true. Fehlt bei älteren Servern
++            (dann gibt es die Funktion nicht).
++        counterKinds:
++          type: array
++          maxItems: 8
++          items: { $ref: "#/components/schemas/CounterKind" }
++          description: |
++            Ab 0.4.28: Zähler am Charakter (LeP, AsP …). Leer = aus (Standard). Die App schlägt Arten je Spielsystem vor;
++            die SL wählt. Fehlt bei älteren Servern.
+         characterSheetLimits:
+           description: Nur lesbar, wie Campaign.characterSheetLimits
+@@ -4129,4 +4381,15 @@ components:
+           description: Ab 0.4.7
+         characterNickname: { type: [string, "null"], description: "Ab 0.4.7" }
++        characterPronouns:
++          type: [string, "null"]
++          description: |
++            Ab 0.4.28: wie über die Figur gesprochen wird (aus Character.pronouns), für alle Mitglieder sichtbar und für
++            die Recap-Pipeline erlaubt (wie characterSummary).
++        counters:
++          type: array
++          items: { $ref: "#/components/schemas/CounterValue" }
++          description: |
++            Ab 0.4.28: Zählerstände – nur für die Person selbst und die SL. Für alle anderen fehlt das Feld ganz (nicht
++            leer) in jeder Ausgabe, auch in Umzug und Datenauskunft anderer. Fehlt auch, wenn counterKinds leer ist.
+         moveConsentAt:
+           type: [string, "null"]
+@@ -4276,8 +4539,104 @@ components:
+                 frei (PATCH /entries/{id}) und erledigt den Hinweis mit DELETE /campaigns/{id}/gm-notices/{noticeId}.
+               items: { $ref: "#/components/schemas/GmNotice" }
++            openPlayerProposals:
++              type: integer
++              description: Ab 0.4.28, nur für die SL (für Spielende weggelassen) – offene Vorschläge von Spielenden
++            liveSessionId:
++              type: [string, "null"]
++              description: |
++                Ab 0.4.28: Runde, die gerade aufgenommen wird oder auf das Hochladen wartet (state created oder uploading,
++                playedAt in den letzten 16 Stunden). Nur für die SL und für Anwesende dieser Runde, sonst null. Die App
++                zeigt Anwesenden damit „Merken“.
+             members:
+               type: array
+               items: { $ref: "#/components/schemas/Member" }
+ 
++    PlayerProposalIn:
++      type: object
++      required: [entryType, title]
++      properties:
++        entryType: { type: string, enum: [npc, location, quest, item, faction, other] }
++        title: { type: string, minLength: 1, maxLength: 120 }
++        detail: { type: string, maxLength: 2000 }
++        targetEntryId:
++          type: [string, "null"]
++          description: Ergänzung zu diesem Eintrag (muss für die Person sichtbar sein, sonst 404)
++
++    PlayerProposal:
++      allOf:
++        - $ref: "#/components/schemas/PlayerProposalIn"
++        - type: object
++          required: [id, campaignId, authorMemberId, state, createdAt]
++          properties:
++            id: { type: string }
++            campaignId: { type: string }
++            authorMemberId: { type: string }
++            state:
++              type: string
++              enum: [open, accepted, rejected, withdrawn, closed]
++              description: |
++                Die SL sieht den echten Zustand (open, accepted, rejected, withdrawn). Die Urheberin sieht accepted nur, wenn
++                sie den Eintrag sieht UND ihr Text im für sie sichtbaren Teil steht (nicht nur in gmNotes, nicht verborgen
++                vor ihr). Abgelehnt, in Verborgenes oder nur in gmNotes übernommen → für sie closed („Die Spielleitung hat
++                ihn gesehen“), gleich und ununterscheidbar. Wird der Eintrag später für sie sichtbar, darf der Server auf
++                accepted wechseln. Ältere Apps zeigen closed wie einen unbekannten Zustand.
++            createdAt: { type: string, format: date-time }
++            decidedAt: { type: [string, "null"], format: date-time }
++            resultEntryId:
++              type: [string, "null"]
++              description: |
++                Eintrag, der daraus wurde bzw. ergänzt wurde. Für die Urheberin nur bei state accepted (siehe dort), sonst
++                null.
++
++    PlayerProposalDecision:
++      type: object
++      required: [decision]
++      properties:
++        decision: { type: string, enum: [accept, reject] }
++        entryType: { type: string, enum: [npc, location, quest, item, faction, other] }
++        title: { type: string, minLength: 1, maxLength: 120 }
++        detail: { type: string, maxLength: 2000 }
++        gmNotes: { type: [string, "null"] }
++        visibility: { $ref: "#/components/schemas/Visibility" }
++        hiddenFromMemberIds: { type: array, items: { type: string } }
++        mergeIntoEntryId:
++          type: [string, "null"]
++          description: Ergänzen statt neu anlegen; Standard targetEntryId. null mit targetEntryId = doch neu anlegen
++        holderMemberId: { type: [string, "null"], description: "Nur bei item" }
++
++    Bookmark:
++      type: object
++      required: [id, sessionId, at, createdAt]
++      properties:
++        id: { type: string }
++        sessionId: { type: string }
++        at: { type: string, format: date-time, description: "Uhrzeit, zu der gemerkt wurde" }
++        note: { type: [string, "null"] }
++        offsetMs:
++          type: [integer, "null"]
++          description: Zeit in der Aufnahme (aus Upload spans); null, solange unbekannt oder außerhalb der Aufnahme
++        recapParagraph:
++          type: [integer, "null"]
++          description: |
++            Nach dem Veröffentlichen: Absatz des Kapitels (ab 0 in Recap.text), der diese Stelle erzählt – soweit der
++            Server ihn über die Belege findet; sonst null. Nur ein Hinweis, das Kapitel ändert sich dadurch nicht.
++        createdAt: { type: string, format: date-time }
++
++    CounterKind:
++      type: object
++      required: [id, label]
++      properties:
++        id: { type: string, pattern: "^[a-z0-9_-]{1,24}$" }
++        label: { type: string, minLength: 1, maxLength: 24, description: "z. B. LeP" }
++        hint: { type: [string, "null"], maxLength: 60, description: "z. B. Lebenspunkte" }
++
++    CounterValue:
++      type: object
++      required: [kindId, value]
++      properties:
++        kindId: { type: string }
++        value: { type: integer, minimum: -9999, maximum: 99999 }
++        max: { type: [integer, "null"], minimum: 0, maximum: 99999 }
++
+     Attendee:
+       type: object
+@@ -4778,4 +5137,10 @@ components:
+             verborgener Einträge; Vorschlags-Pipeline, Dublettenprüfung (Proposal.match) und Namenshilfe: alle. Doppelte und
+             der Name selbst fallen beim Speichern weg. Fehlt bei älteren Servern.
++        pronouns:
++          type: [string, "null"]
++          maxLength: 32
++          description: |
++            Ab 0.4.28, freiwillig, sinnvoll bei npc: wie über die Figur gesprochen wird. Sichtbar wie der Name. Die
++            Recap-Pipeline bekommt es nur bei Einträgen, die sie ohnehin bekommt (öffentlich, nicht teilweise verborgen).
+         visibility: { $ref: "#/components/schemas/Visibility" }
+         hiddenFromMemberIds:
+@@ -4844,4 +5209,10 @@ components:
+         backstory: { type: [string, "null"], maxLength: 20000, description: "wird zu Member.characterBackstory (nur Person und SL; nie in Recap/Vorschläge)" }
+         system: { type: [string, "null"], maxLength: 64, description: "Regelsystem als freier Text, nur Anzeige" }
++        pronouns:
++          type: [string, "null"]
++          maxLength: 32
++          description: |
++            Ab 0.4.28, freiwillig: wie andere über die Figur sprechen („sie“, „er“ oder eigener Text). Wird zu
++            Member.characterPronouns. Ältere Server ignorieren das Feld.
+         status: { type: string, enum: [active, retired, deceased] }
+         statusChangedAt: { type: [string, "null"], format: date-time }
+diff --git a/migrations/versions/f4b6d8e0a2c3_spielende_tragen_bei.py b/migrations/versions/f4b6d8e0a2c3_spielende_tragen_bei.py
+new file mode 100644
+index 0000000..2f96633
+--- /dev/null
++++ b/migrations/versions/f4b6d8e0a2c3_spielende_tragen_bei.py
+@@ -0,0 +1,71 @@
++"""Spielende tragen bei: Vorschläge, Merken, Pronomen, Zähler (Schnittstelle 0.4.28, Server 0.4.144)
++
++Revision ID: f4b6d8e0a2c3
++Revises: e3a5c7d9f1b2
++"""
++from typing import Sequence, Union
++
++import sqlalchemy as sa
++from alembic import op
++
++revision: str = 'f4b6d8e0a2c3'
++down_revision: Union[str, Sequence[str], None] = 'e3a5c7d9f1b2'
++branch_labels: Union[str, Sequence[str], None] = None
++depends_on: Union[str, Sequence[str], None] = None
++
++
++def upgrade() -> None:
++    # ohne Tabellen-Neubau (nur neue Spalten mit Standardwert bzw. leer)
++    op.add_column("campaigns", sa.Column("player_proposals", sa.Boolean(), nullable=False, server_default="1"))
++    op.add_column("campaigns", sa.Column("counter_kinds", sa.Text(), nullable=True))
++    op.add_column("members", sa.Column("character_pronouns", sa.String(32), nullable=True))
++    op.add_column("members", sa.Column("counters", sa.Text(), nullable=True))
++    op.add_column("entries", sa.Column("pronouns", sa.String(32), nullable=True))
++    op.add_column("uploads", sa.Column("spans", sa.Text(), nullable=True))
++    op.create_table(
++        "player_proposals",
++        sa.Column("id", sa.String(36), primary_key=True),
++        sa.Column("campaign_id", sa.String(36), sa.ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False),
++        sa.Column("author_member_id", sa.String(36), nullable=True),
++        sa.Column("entry_type", sa.String(16), nullable=False),
++        sa.Column("title", sa.String(120), nullable=False),
++        sa.Column("detail", sa.Text(), nullable=False, server_default=""),
++        sa.Column("target_entry_id", sa.String(36), nullable=True),
++        sa.Column("state", sa.String(16), nullable=False, server_default="open"),
++        sa.Column("result_entry_id", sa.String(36), nullable=True),
++        sa.Column("text_sichtbar", sa.Boolean(), nullable=False, server_default="0"),
++        sa.Column("created_at", sa.DateTime(), nullable=False),
++        sa.Column("decided_at", sa.DateTime(), nullable=True),
++    )
++    for spalte in ("campaign_id", "author_member_id", "state", "created_at", "decided_at"):
++        op.create_index(f"ix_player_proposals_{spalte}", "player_proposals", [spalte])
++    op.create_table(
++        "bookmarks",
++        sa.Column("id", sa.String(36), primary_key=True),
++        sa.Column("session_id", sa.String(36), sa.ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False),
++        sa.Column("member_id", sa.String(36), sa.ForeignKey("members.id", ondelete="CASCADE"), nullable=False),
++        sa.Column("at", sa.DateTime(), nullable=False),
++        sa.Column("note", sa.String(280), nullable=True),
++        sa.Column("created_at", sa.DateTime(), nullable=False),
++    )
++    op.create_index("ix_bookmarks_session_id", "bookmarks", ["session_id"])
++    op.create_index("ix_bookmarks_member_id", "bookmarks", ["member_id"])
++
++
++def downgrade() -> None:
++    op.drop_index("ix_bookmarks_member_id", table_name="bookmarks")
++    op.drop_index("ix_bookmarks_session_id", table_name="bookmarks")
++    op.drop_table("bookmarks")
++    for spalte in ("decided_at", "created_at", "state", "author_member_id", "campaign_id"):
++        op.drop_index(f"ix_player_proposals_{spalte}", table_name="player_proposals")
++    op.drop_table("player_proposals")
++    with op.batch_alter_table("uploads") as b:
++        b.drop_column("spans")
++    with op.batch_alter_table("entries") as b:
++        b.drop_column("pronouns")
++    with op.batch_alter_table("members") as b:
++        b.drop_column("counters")
++        b.drop_column("character_pronouns")
++    with op.batch_alter_table("campaigns") as b:
++        b.drop_column("counter_kinds")
++        b.drop_column("player_proposals")
+diff --git a/pyproject.toml b/pyproject.toml
+index d0937f7..4c5067d 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.143"
++version = "0.4.144"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+diff --git a/tests/contract.py b/tests/contract.py
+index 20e3c38..5ba945c 100644
+--- a/tests/contract.py
++++ b/tests/contract.py
+@@ -34,9 +34,13 @@ OPTIONAL_FIELDS = {"characterBackstory", "gmNotes", "hiddenFromMemberIds", "memb
+                    "assignedMemberId",  # 0.4.10: erst nach der Bestätigung der Stimmen
+                    "gmWarnings",  # 0.4.21: nur für die SL, für Spieler weggelassen
++                   "counters", "openPlayerProposals",  # 0.4.28: nur Person selbst bzw. SL, sonst weggelassen
+                    "user",
+                    "topUpUrl"}  # 0.4.25: fehlt ohne eingetragene öffentliche Adresse (G15)
+ 
+ # Statuscodes, die in der YAML fehlen, aber fachlich nötig sind – für den nächsten Änderungswunsch notiert.
+-BEKANNTE_LUECKEN: set[tuple[str, str, int]] = set()
++# 0.4.28: Merken (60 je Minute) und Vorschläge von Spielenden (30 je Stunde) antworten mit 429 – die YAML nennt die
++# Grenze im Text, aber nicht als Antwort (an den App-Chat gemeldet).
++BEKANNTE_LUECKEN: set[tuple[str, str, int]] = {("POST", "/sessions/{sessionId}/bookmarks", 429),
++                                               ("POST", "/campaigns/{campaignId}/player-proposals", 429)}
+ 
+ 
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index 21165bd..13b076b 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -154,5 +154,5 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.143"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.144"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index a4c889a..c0269f0 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -135,5 +135,5 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.143"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.144"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index 8a6870f..d6e76ca 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -84,5 +84,5 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.143"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.144"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+diff --git a/tests/test_schnittstelle_0410.py b/tests/test_schnittstelle_0410.py
+index b5776bc..26dc15a 100644
+--- a/tests/test_schnittstelle_0410.py
++++ b/tests/test_schnittstelle_0410.py
+@@ -191,3 +191,3 @@ def test_stimmen_vor_bestaetigung_ohne_zuordnung(client, world, dbs, tmp_path):
+ 
+ def test_info_meldet_schnittstelle_0411(client):
+-    assert client.get(f"{API}/info").json()["apiVersion"] == "0.4.26"
++    assert client.get(f"{API}/info").json()["apiVersion"] == "0.4.28"
+diff --git a/tests/test_schnittstelle_0422.py b/tests/test_schnittstelle_0422.py
+index b8afd2d..c4aabd1 100644
+--- a/tests/test_schnittstelle_0422.py
++++ b/tests/test_schnittstelle_0422.py
+@@ -11,5 +11,5 @@ def test_info_und_oeffentliche_seite(client, world, dbs, admin):  # noqa: F811
+     info = client.get(f"{API}/info").json()
+     assert info["termsUrl"] == "http://testserver/nutzungsbedingungen" and info["termsVersion"] == 1
+-    assert info["legalNoticeUrl"] is None and info["apiVersion"] == "0.4.26"
++    assert info["legalNoticeUrl"] is None and info["apiVersion"] == "0.4.28"
+     seite = client.get("/nutzungsbedingungen")
+     assert seite.status_code == 200 and "<h1>Nutzungsbedingungen</h1>" in seite.text and "Fassung 1" in seite.text
+diff --git a/tests/test_server_04128.py b/tests/test_server_04128.py
+index 7eda0af..f1d6fd6 100644
+--- a/tests/test_server_04128.py
++++ b/tests/test_server_04128.py
+@@ -54,5 +54,5 @@ def mit_adresse(dbs, name: str, adresse: str):
+ def test_gm_approval_nach_registrierung_einstellung_und_abrechnung(client, dbs):
+     info = client.get(f"{API}/info").json()
+-    assert info["apiVersion"] == "0.4.26" and info["registration"] == "invite_only" and info["gmApproval"] == "none"
++    assert info["apiVersion"] == "0.4.28" and info["registration"] == "invite_only" and info["gmApproval"] == "none"
+     for registrierung, freigabe, modus, erwartet in [
+         ("open", "offen", "aus", "required"), ("code", "offen", "aus", "none"), ("invite_only", "immer", "aus", "required"),
+diff --git a/tests/test_server_04139.py b/tests/test_server_04139.py
+index be07228..46059ca 100644
+--- a/tests/test_server_04139.py
++++ b/tests/test_server_04139.py
+@@ -198,3 +198,3 @@ def test_api_version():
+     from app.routers.auth import API_VERSION
+ 
+-    assert API_VERSION == "0.4.26"
++    assert API_VERSION == "0.4.28"
+diff --git a/tests/test_server_04144.py b/tests/test_server_04144.py
+new file mode 100644
+index 0000000..89c8573
+--- /dev/null
++++ b/tests/test_server_04144.py
+@@ -0,0 +1,404 @@
++"""Server 0.4.144 (Schnittstelle 0.4.27 + 0.4.28): Gerätekennung bei der App-Anmeldung, Vorschläge von Spielenden,
++Merken, Pronomen, Zähler – mit den Prüfkriterien des Sicherheits-Chats (S56 und Bedingungen 1–23)."""
++import json
++from datetime import datetime, timedelta, timezone
++
++from tests.test_step2a import API
++
++RTL = chr(0x202E)  # Richtungszeichen, das nie gespeichert werden darf
++
++
++def _z(dt: datetime) -> str:
++    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
++
++
++def _zweite_spielerin(client, w, make_user, login):
++    make_user("dora")
++    h = login("dora")
++    code = client.post(f"{API}/campaigns/{w['cid']}/invites", headers=w["gm"]).json()["code"]
++    j = client.post(f"{API}/campaigns/join", json={"code": code, "characterName": "Tilda"}, headers=h).json()
++    return h, {m["displayName"]: m["id"] for m in j["members"]}["Dora"]
++
++
++def _vorschlagen(client, w, h=None, **felder):
++    daten = {"entryType": "npc", "title": "Der Graf", "detail": "Trägt nie einen Spiegel bei sich."} | felder
++    return client.post(f"{API}/campaigns/{w['cid']}/player-proposals", headers=h or w["pl"], json=daten)
++
++
++def _eintrag(client, w, **felder):
++    daten = {"type": "npc", "visibility": "public", "summary": "Ein Mann."} | felder
++    r = client.post(f"{API}/campaigns/{w['cid']}/entries", headers=w["gm"], json=daten)
++    assert r.status_code == 201, r.text
++    return r.json()
++
++
++def _eigene(client, w, h=None):
++    return {p["id"]: p for p in client.get(f"{API}/campaigns/{w['cid']}/player-proposals", headers=h or w["pl"]).json()}
++
++
++# ---------------------------------------------------------------- Vorschläge: S56
++def test_s56_urheberin_sieht_abgelehnt_und_verborgen_gleich(client, world):
++    w = world
++    geheim = _eintrag(client, w, name="Graf Orlok", visibility="gm_only")
++    oeff = _eintrag(client, w, name="Burg Rabenstein", summary="Alte Burg.")
++    ids = {}
++    for name in ("abgelehnt", "verborgen", "nur_notiz", "sichtbar", "in_geheimes"):
++        r = _vorschlagen(client, w, title=f"Vorschlag {name}", detail=f"Text {name}")
++        assert r.status_code == 201, r.text
++        assert r.json()["state"] == "open" and r.json()["authorMemberId"] == w["pl_member"]
++        ids[name] = r.json()["id"]
++
++    def entscheiden(name, **felder):
++        r = client.post(f"{API}/player-proposals/{ids[name]}/decision", headers=w["gm"], json=felder)
++        assert r.status_code == 200, r.text
++        return r.json()
++
++    assert entscheiden("abgelehnt", decision="reject")["state"] == "rejected"
++    sl = entscheiden("verborgen", decision="accept", visibility="gm_only")
++    assert sl["state"] == "accepted" and sl["resultEntryId"]  # die SL sieht den echten Zustand
++    entscheiden("nur_notiz", decision="accept", mergeIntoEntryId=oeff["id"], detail="", gmNotes="Text nur_notiz")
++    sichtbar = entscheiden("sichtbar", decision="accept")
++    entscheiden("in_geheimes", decision="accept", mergeIntoEntryId=geheim["id"])
++
++    eigene = _eigene(client, w)
++    for name in ("abgelehnt", "verborgen", "nur_notiz", "in_geheimes"):
++        p = eigene[ids[name]]
++        assert (p["state"], p["resultEntryId"]) == ("closed", None), name
++        assert p["decidedAt"]
++    assert eigene[ids["sichtbar"]]["state"] == "accepted"
++    assert eigene[ids["sichtbar"]]["resultEntryId"] == sichtbar["resultEntryId"]
++    # Geheimes nie im sichtbaren Teil
++    e = client.get(f"{API}/entries/{oeff['id']}", headers=w["gm"]).json()
++    assert "Text nur_notiz" in e["gmNotes"] and "nur_notiz" not in e["summary"]
++    assert client.get(f"{API}/entries/{oeff['id']}", headers=w["pl"]).json().get("gmNotes") is None
++    # wird der Eintrag aufgedeckt, darf die Urheberin „übernommen“ sehen
++    client.patch(f"{API}/entries/{sl['resultEntryId']}", headers=w["gm"], json={"visibility": "public"})
++    assert _eigene(client, w)[ids["verborgen"]]["state"] == "accepted"
++
++
++def test_ergaenzen_in_sichtbares_haengt_an_und_halter_nur_spielende(client, world):
++    w = world
++    karte = _eintrag(client, w, type="item", name="Karte", summary="Zeigt den Pfad.")
++    p = _vorschlagen(client, w, entryType="item", title="Karte", detail="Mira hat sie.",
++                     targetEntryId=karte["id"]).json()
++    r = client.post(f"{API}/player-proposals/{p['id']}/decision", headers=w["gm"],
++                    json={"decision": "accept", "holderMemberId": w["gm_member"]})
++    assert r.status_code == 400 and r.json()["code"] == "holder_unknown"
++    r = client.post(f"{API}/player-proposals/{p['id']}/decision", headers=w["gm"],
++                    json={"decision": "accept", "holderMemberId": w["pl_member"]})
++    assert r.status_code == 200
++    e = client.get(f"{API}/entries/{karte['id']}", headers=w["pl"]).json()
++    assert e["summary"] == "Zeigt den Pfad.\n\nMira hat sie." and e["holderMemberId"] == w["pl_member"]
++    assert _eigene(client, w)[p["id"]]["state"] == "accepted"
++    r = client.post(f"{API}/player-proposals/{p['id']}/decision", headers=w["gm"], json={"decision": "reject"})
++    assert r.status_code == 409
++
++
++def test_nur_eigene_keine_anzahl_und_gleiche_404(client, world, make_user, login):
++    w = world
++    dora, dora_id = _zweite_spielerin(client, w, make_user, login)
++    verborgen = _eintrag(client, w, name="Geheimtür", hiddenFromMemberIds=[w["pl_member"]])
++    unbekannt = _vorschlagen(client, w, targetEntryId="gibt-es-nicht")
++    versteckt = _vorschlagen(client, w, targetEntryId=verborgen["id"])
++    assert unbekannt.status_code == versteckt.status_code == 404
++    assert unbekannt.json() == versteckt.json()
++    assert _vorschlagen(client, w, dora, targetEntryId=verborgen["id"]).status_code == 201  # Dora sieht ihn
++    p = _vorschlagen(client, w).json()
++    assert list(_eigene(client, w, dora)) != [] and p["id"] not in _eigene(client, w, dora)
++    assert client.delete(f"{API}/player-proposals/{p['id']}", headers=dora).status_code == 404
++    assert client.post(f"{API}/player-proposals/{p['id']}/decision", headers=dora,
++                       json={"decision": "reject"}).status_code == 404
++    assert client.post(f"{API}/player-proposals/{p['id']}/decision", headers=w["pl"],
++                       json={"decision": "reject"}).status_code == 404
++    assert client.get(f"{API}/campaigns/{w['cid']}/player-proposals", headers=w["out"]).status_code == 404
++    c_sp = client.get(f"{API}/campaigns/{w['cid']}", headers=w["pl"]).json()
++    assert "openPlayerProposals" not in c_sp
++    assert client.get(f"{API}/campaigns/{w['cid']}", headers=w["gm"]).json()["openPlayerProposals"] == 2
++    assert len(client.get(f"{API}/campaigns/{w['cid']}/player-proposals", headers=w["gm"],
++                          params={"state": "open"}).json()) == 2
++    assert _vorschlagen(client, w, w["gm"]).status_code == 403  # die SL schlägt nicht vor
++    # zurückziehen: einmal, danach 409
++    assert client.delete(f"{API}/player-proposals/{p['id']}", headers=w["pl"]).status_code == 204
++    assert client.delete(f"{API}/player-proposals/{p['id']}", headers=w["pl"]).status_code == 409
++    assert _eigene(client, w)[p["id"]]["state"] == "withdrawn"
++    assert dora_id
++
++
++def test_grenzen_schalter_und_bereinigung(client, world, dbs):
++    from app.models import PlayerProposal
++
++    w = world
++    r = _vorschlagen(client, w, title="Der" + RTL + " Graf" + chr(7), detail="Zeile 1\r\n\r\n\r\n" + chr(0x2066) + "Zeile 2")
++    assert r.status_code == 201
++    assert r.json()["title"] == "Der Graf" and r.json()["detail"] == "Zeile 1\n\nZeile 2"
++    assert _vorschlagen(client, w, title="x" * 121).status_code == 400
++    assert _vorschlagen(client, w, detail="x" * 2001).status_code == 400
++    for i in range(19):
++        assert _vorschlagen(client, w, title=f"V{i}").status_code == 201
++    r = _vorschlagen(client, w, title="zu viel")
++    assert r.status_code == 409 and r.json()["code"] == "player_proposal_limit"
++    # 30 je Stunde: ältere zählen nicht mehr
++    for p in dbs.query(PlayerProposal).all():
++        p.created_at = p.created_at - timedelta(hours=2)
++    dbs.commit()
++    eine = dbs.query(PlayerProposal).first().id
++    client.delete(f"{API}/player-proposals/{eine}", headers=w["pl"])
++    assert _vorschlagen(client, w, title="wieder Platz").status_code == 201
++    # Schalter über die Einstellungen (mit Fassung und Protokoll)
++    v = client.get(f"{API}/campaigns/{w['cid']}/settings", headers=w["gm"]).json()
++    assert v["playerProposals"] is True and v["counterKinds"] == []
++    r = client.patch(f"{API}/campaigns/{w['cid']}/settings", headers=w["gm"],
++                     json={"version": v["version"], "playerProposals": False})
++    assert r.status_code == 200 and r.json()["version"] == v["version"] + 1
++    log = client.get(f"{API}/campaigns/{w['cid']}/settings/log", headers=w["gm"]).json()
++    assert log[0]["field"] == "playerProposals" and log[0]["newValue"] is False
++    r = _vorschlagen(client, w)
++    assert r.status_code == 403 and r.json()["code"] == "player_proposals_off"
++    assert _eigene(client, w) == {}
++    assert len(client.get(f"{API}/campaigns/{w['cid']}/player-proposals", headers=w["gm"]).json()) >= 20
++
++
++def test_aufbewahrung_austritt_und_auskunft(client, world, dbs):
++    from app import spielende
++    from app.db import utcnow
++    from app.models import Bookmark, PlayerProposal
++
++    w = world
++    alt = _vorschlagen(client, w, title="Alt").json()
++    client.post(f"{API}/player-proposals/{alt['id']}/decision", headers=w["gm"], json={"decision": "reject"})
++    neu = _vorschlagen(client, w, title="Neu").json()
++    auskunft = client.get(f"{API}/me/export", headers=w["pl"]).json()
++    zustaende = {p["title"]: p["state"] for p in auskunft["playerProposals"]}
++    assert zustaende == {"Alt": "closed", "Neu": "open"}  # wie die Person ihn sieht (S56)
++    p = dbs.get(PlayerProposal, alt["id"])
++    p.decided_at = utcnow() - timedelta(days=91)
++    dbs.commit()
++    assert spielende.aufraeumen(dbs) == 1
++    dbs.commit()
++    dbs.expire_all()
++    assert dbs.get(PlayerProposal, alt["id"]) is None and dbs.get(PlayerProposal, neu["id"]) is not None
++    entschieden = _vorschlagen(client, w, title="Bleibt").json()
++    client.post(f"{API}/player-proposals/{entschieden['id']}/decision", headers=w["gm"], json={"decision": "reject"})
++    assert client.delete(f"{API}/campaigns/{w['cid']}/members/{w['pl_member']}", headers=w["pl"]).status_code == 204
++    dbs.expire_all()
++    assert dbs.get(PlayerProposal, neu["id"]) is None  # offene weg
++    assert dbs.get(PlayerProposal, entschieden["id"]) is not None  # entschiedene bleiben
++    assert dbs.query(Bookmark).count() == 0
++
++
++# ---------------------------------------------------------------- Merken
++def _laufende_runde(client, w, mit_ben=True):
++    att = [{"memberId": w["gm_member"], "consent": True, "consentSource": "on_site"}]
++    if mit_ben:
++        att.append({"memberId": w["pl_member"], "consent": True, "consentSource": "on_site"})
++    r = client.post(f"{API}/campaigns/{w['cid']}/sessions", headers=w["gm"],
++                    json={"playedAt": _z(datetime.now(timezone.utc) - timedelta(hours=1)), "attendees": att})
++    assert r.status_code == 201, r.text
++    return r.json()
++
++
++def test_merken_nur_fuer_die_person(client, world, make_user, login):
++    w = world
++    dora, _dora_id = _zweite_spielerin(client, w, make_user, login)
++    s = _laufende_runde(client, w)
++    assert client.get(f"{API}/campaigns/{w['cid']}", headers=w["pl"]).json()["liveSessionId"] == s["id"]
++    assert client.get(f"{API}/campaigns/{w['cid']}", headers=w["gm"]).json()["liveSessionId"] == s["id"]
++    assert client.get(f"{API}/campaigns/{w['cid']}", headers=dora).json()["liveSessionId"] is None
++    # liveSessionId gibt keinen Zugang zur Runde
++    assert client.get(f"{API}/sessions/{s['id']}", headers=w["pl"]).status_code == 404
++    assert client.get(f"{API}/sessions/{s['id']}/bookmarks", headers=dora).status_code == 404
++    assert client.post(f"{API}/sessions/{s['id']}/bookmarks", headers=dora, json={}).status_code == 404
++    r = client.post(f"{API}/sessions/{s['id']}/bookmarks", headers=w["pl"], json={"note": "Graf" + RTL + " lügt"})
++    assert r.status_code == 201, r.text
++    b = r.json()
++    assert b["note"] == "Graf lügt" and b["offsetMs"] is None and b["recapParagraph"] is None
++    assert client.post(f"{API}/sessions/{s['id']}/bookmarks", headers=w["pl"]).status_code == 201  # ohne Inhalt
++    zu_frueh = _z(datetime.now(timezone.utc) - timedelta(hours=14))
++    zu_spaet = _z(datetime.now(timezone.utc) + timedelta(minutes=10))
++    for at in (zu_frueh, zu_spaet):
++        r = client.post(f"{API}/sessions/{s['id']}/bookmarks", headers=w["pl"], json={"at": at})
++        assert r.status_code == 400 and r.json()["code"] == "bookmark_time_invalid"
++    assert len(client.get(f"{API}/sessions/{s['id']}/bookmarks", headers=w["pl"]).json()) == 2
++    assert client.get(f"{API}/sessions/{s['id']}/bookmarks", headers=w["gm"]).json() == []  # auch die SL nicht
++    assert client.delete(f"{API}/bookmarks/{b['id']}", headers=w["gm"]).status_code == 404
++    assert client.delete(f"{API}/bookmarks/{b['id']}", headers=dora).status_code == 404
++    assert client.delete(f"{API}/bookmarks/{b['id']}", headers=w["pl"]).status_code == 204
++    assert client.get(f"{API}/me/export", headers=w["pl"]).json()["bookmarks"][0]["sessionId"] == s["id"]
++
++
++def test_merken_grenzen(client, world, dbs):
++    from app import spielende
++    from app.begrenzung import ZAEHLER
++
++    w = world
++    s = _laufende_runde(client, w)
++    for _ in range(spielende.MERKEN_JE_MINUTE):
++        assert client.post(f"{API}/sessions/{s['id']}/bookmarks", headers=w["pl"], json={}).status_code == 201
++    assert client.post(f"{API}/sessions/{s['id']}/bookmarks", headers=w["pl"], json={}).status_code == 429
++    ZAEHLER.vergessen()
++    from app.models import Bookmark
++
++    for _ in range(spielende.MERKEN_JE_RUNDE - spielende.MERKEN_JE_MINUTE):
++        dbs.add(Bookmark(session_id=s["id"], member_id=w["pl_member"], at=datetime.now(timezone.utc)))
++    dbs.commit()
++    r = client.post(f"{API}/sessions/{s['id']}/bookmarks", headers=w["pl"], json={})
++    assert r.status_code == 409 and r.json()["code"] == "bookmark_limit"
++
++
++def test_spannen_und_zeit_in_der_aufnahme():
++    from app import spielende
++
++    gespielt = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(hours=4)
++
++    def um(minuten):
++        return gespielt + timedelta(minutes=minuten)
++
++    spannen = [{"startedAt": _z(um(0)), "endedAt": _z(um(60))}, {"startedAt": _z(um(90)), "endedAt": _z(um(120))}]
++    roh = spielende.spannen_pruefen(spannen, gespielt)
++    achse = [tuple(x) for x in json.loads(roh)]
++    assert spielende.versatz_ms(achse, um(100)) == 70 * 60 * 1000  # 60 min + 10 min nach der Pause
++    assert spielende.versatz_ms(achse, um(70)) == 3600 * 1000  # in der Pause: Ende der Spanne davor
++    assert spielende.versatz_ms(achse, um(-60)) is None and spielende.versatz_ms(achse, um(130)) is None
++    # still verworfen: rückwärts, leer, zu früh, in der Zukunft, kaputt
++    assert spielende.spannen_pruefen(list(reversed(spannen)), gespielt) is None
++    assert spielende.spannen_pruefen([{"startedAt": _z(um(0)), "endedAt": _z(um(0))}], gespielt) is None
++    assert spielende.spannen_pruefen([{"startedAt": _z(um(-800)), "endedAt": _z(um(-790))}], gespielt) is None
++    assert spielende.spannen_pruefen([{"startedAt": _z(um(0)), "endedAt": _z(um(600))}], gespielt) is None
++    assert spielende.spannen_pruefen([{"startedAt": "kaputt"}], gespielt) is None
++    assert spielende.spannen_pruefen("kaputt", gespielt) is None
++    assert spielende.absatz_finden([(0, 10.0), (1, 900.0), (2, 1900.0)], 1000.0) == 1
++    assert spielende.absatz_finden([(0, 10.0)], 5000.0) is None
++
++
++def test_spannen_beim_hochladen_nie_ein_fehler(client, world, dbs):
++    from app.models import Upload
++    w = world
++    s = _laufende_runde(client, w)
++    files = [{"fileName": "a.m4a", "sizeBytes": 1000, "mimeType": "audio/mp4"}]
++    r = client.post(f"{API}/sessions/{s['id']}/uploads", headers=w["gm"],
++                    json={"source": "table", "files": files, "spans": [{"startedAt": 3}, "x"]})
++    assert r.status_code == 201, r.text
++    assert dbs.get(Upload, r.json()["uploadId"]).spans is None
++
++
++# ---------------------------------------------------------------- Pronomen
++def test_pronomen_sichtbar_wie_name_und_recap(client, world, dbs):
++    from app.models import GameSession
++    from app.zusammenfassung import eingabe_bauen, recap_eingabe
++
++    w = world
++    oeff = _eintrag(client, w, name="Wirtin Hella", pronouns=" sie" + RTL + " ")
++    assert oeff["pronouns"] == "sie"
++    teil = _eintrag(client, w, name="Spion Rax", pronouns="er", hiddenFromMemberIds=[w["pl_member"]])
++    r = client.post(f"{API}/campaigns/{w['cid']}/entries", headers=w["gm"],
++                    json={"type": "npc", "name": "Zu lang", "pronouns": "y" * 33})
++    assert r.status_code == 400
++    assert client.get(f"{API}/entries/{teil['id']}", headers=w["pl"]).status_code == 404
++    ch = {"id": "6f1c1f9e-2d1b-4c55-9a51-0d6a1d2f3b4c", "version": 1, "name": "Mira", "status": "active",
++          "pronouns": "sie/ihr"}
++    assert client.put(f"{API}/campaigns/{w['cid']}/members/me/character", headers=w["pl"], json=ch).status_code == 200
++    mitglieder = {m["id"]: m for m in client.get(f"{API}/campaigns/{w['cid']}", headers=w["pl"]).json()["members"]}
++    assert mitglieder[w["pl_member"]]["characterPronouns"] == "sie/ihr"
++    # Recap-Eingabe: Pronomen nur bei allgemein bekannten Einträgen; nie Vorschläge, Merkstellen, Zähler
++    _vorschlagen(client, w, title="MARKER-VORSCHLAG", detail="MARKER-VORSCHLAGSTEXT")
++    s = _laufende_runde(client, w)
++    client.post(f"{API}/sessions/{s['id']}/bookmarks", headers=w["pl"], json={"note": "MARKER-MERKEN"})
++    v = client.get(f"{API}/campaigns/{w['cid']}/settings", headers=w["gm"]).json()
++    client.patch(f"{API}/campaigns/{w['cid']}/settings", headers=w["gm"],
++                 json={"version": v["version"], "counterKinds": [{"id": "lep", "label": "MARKER-ZAEHLER"}]})
++    client.put(f"{API}/campaigns/{w['cid']}/members/me/counters", headers=w["pl"],
++               json={"values": [{"kindId": "lep", "value": 31337}]})
++    ein = recap_eingabe(eingabe_bauen(dbs, dbs.get(GameSession, s["id"])))
++    text = json.dumps(ein, ensure_ascii=False)
++    for marker in ("MARKER-VORSCHLAG", "MARKER-MERKEN", "MARKER-ZAEHLER", "31337", "Spion Rax"):
++        assert marker not in text
++    hella = next(e for e in ein["bibel"] if e["name"] == "Wirtin Hella")
++    assert hella["pronomen"] == "sie"
++    mira = next(p for p in ein["personen"] if p["member_id"] == w["pl_member"])
++    assert mira["pronomen"] == "sie/ihr"
++    from app.sprachmodell import _kopf, _namenszeile
++
++    assert "Mira (Pronomen: sie/ihr)" in _kopf(ein) and _namenszeile(hella) == "Wirtin Hella (Pronomen: sie)"
++
++
++# ---------------------------------------------------------------- Zähler
++def test_zaehler_nur_person_und_sl(client, world, make_user, login):
++    w = world
++    dora, dora_id = _zweite_spielerin(client, w, make_user, login)
++    pfad = f"{API}/campaigns/{w['cid']}/members/me/counters"
++    r = client.put(pfad, headers=w["pl"], json={"values": [{"kindId": "lep", "value": 3}]})
++    assert r.status_code == 403 and r.json()["code"] == "counters_off"
++    v = client.get(f"{API}/campaigns/{w['cid']}/settings", headers=w["gm"]).json()
++    r = client.patch(f"{API}/campaigns/{w['cid']}/settings", headers=w["gm"], json={"version": v["version"],
++                     "counterKinds": [{"id": "lep", "label": "LeP" + RTL, "hint": "Lebenspunkte"},
++                                      {"id": "asp", "label": "AsP"}]})
++    assert r.status_code == 200 and r.json()["counterKinds"][0] == {"id": "lep", "label": "LeP", "hint": "Lebenspunkte"}
++    r = client.patch(f"{API}/campaigns/{w['cid']}/settings", headers=w["gm"], json={
++        "version": r.json()["version"], "counterKinds": [{"id": "a", "label": "A"}, {"id": "a", "label": "B"}]})
++    assert r.status_code == 400
++    r = client.put(pfad, headers=w["pl"], json={"values": [{"kindId": "lep", "value": 28, "max": 32},
++                                                           {"kindId": "asp", "value": 5}]})
++    assert r.status_code == 200 and r.json()[0] == {"kindId": "lep", "value": 28, "max": 32}
++    r = client.put(pfad, headers=w["pl"], json={"values": [{"kindId": "kap", "value": 1}]})
++    assert r.status_code == 400 and r.json()["code"] == "counter_unknown"
++    assert client.put(pfad, headers=w["pl"], json={"values": [{"kindId": "lep", "value": 100000}]}).status_code == 400
++    assert client.put(pfad, headers=w["gm"], json={"values": []}).status_code == 403
++    client.put(pfad, headers=dora, json={"values": [{"kindId": "lep", "value": 9}]})
++
++    def mitglieder(h):
++        return {m["id"]: m for m in client.get(f"{API}/campaigns/{w['cid']}", headers=h).json()["members"]}
++
++    assert "counters" not in mitglieder(dora)[w["pl_member"]]  # Feld fehlt, nicht []
++    assert mitglieder(dora)[dora_id]["counters"] == [{"kindId": "lep", "value": 9, "max": None}]
++    assert len(mitglieder(w["pl"])[w["pl_member"]]["counters"]) == 2
++    assert len(mitglieder(w["gm"])[w["pl_member"]]["counters"]) == 2
++    assert "counters" not in mitglieder(w["gm"])[w["gm_member"]] or mitglieder(w["gm"])[w["gm_member"]]["counters"] == []
++    # Art entfernen verwirft ihre Stände
++    v = client.get(f"{API}/campaigns/{w['cid']}/settings", headers=w["gm"]).json()
++    client.patch(f"{API}/campaigns/{w['cid']}/settings", headers=w["gm"],
++                 json={"version": v["version"], "counterKinds": [{"id": "asp", "label": "AsP"}]})
++    assert mitglieder(w["pl"])[w["pl_member"]]["counters"] == [{"kindId": "asp", "value": 5, "max": None}]
++    log = client.get(f"{API}/campaigns/{w['cid']}/settings/log", headers=w["gm"]).json()
++    assert log[0]["field"] == "counterKinds" and (log[0]["oldValue"], log[0]["newValue"]) == (2, 1)
++    v = client.get(f"{API}/campaigns/{w['cid']}/settings", headers=w["gm"]).json()
++    client.patch(f"{API}/campaigns/{w['cid']}/settings", headers=w["gm"],
++                 json={"version": v["version"], "counterKinds": []})
++    assert "counters" not in mitglieder(w["pl"])[w["pl_member"]]  # aus: Feld fehlt
++
++
++# ---------------------------------------------------------------- 0.4.27: Gerätekennung
++def test_geraetekennung_bei_der_anmeldung(client, world, dbs):
++    from sqlalchemy import select
++
++    from app.models import BekanntesGeraet, User
++
++    ben = dbs.scalar(select(User).where(User.username == "ben"))
++    vorher = dbs.query(BekanntesGeraet).filter_by(user_id=ben.id).count()
++    for kennung in ("A" * 20, "A" * 20, "kurz", None, 12345):
++        r = client.post(f"{API}/auth/login", json={"username": "ben", "password": "geheim123", "deviceId": kennung})
++        assert r.status_code == 200, r.text
++    dbs.expire_all()
++    app_geraete = dbs.query(BekanntesGeraet).filter_by(user_id=ben.id, ort="app").count()
++    assert app_geraete == 1 and dbs.query(BekanntesGeraet).filter_by(user_id=ben.id).count() >= vorher + 1
++
++
++def test_umzug_nimmt_nichts_davon_mit(client, world, dbs):
++    from app import umzug
++    from app.models import Campaign
++
++    w = world
++    _vorschlagen(client, w, title="MARKER-VORSCHLAG")
++    s = _laufende_runde(client, w)
++    client.post(f"{API}/sessions/{s['id']}/bookmarks", headers=w["pl"], json={"note": "MARKER-MERKEN"})
++    v = client.get(f"{API}/campaigns/{w['cid']}/settings", headers=w["gm"]).json()
++    client.patch(f"{API}/campaigns/{w['cid']}/settings", headers=w["gm"],
++                 json={"version": v["version"], "counterKinds": [{"id": "lep", "label": "MARKER-ZAEHLER"}]})
++    client.put(f"{API}/campaigns/{w['cid']}/members/me/counters", headers=w["pl"],
++               json={"values": [{"kindId": "lep", "value": 31337}]})
++    _eintrag(client, w, name="Wirtin Hella", pronouns="sie")
++    dbs.expire_all()
++    paket, _dateien = umzug.packliste(dbs, dbs.get(Campaign, w["cid"]), {w["pl_member"]})
++    text = json.dumps(paket, ensure_ascii=False, default=str)
++    for marker in ("MARKER-VORSCHLAG", "MARKER-MERKEN", "MARKER-ZAEHLER", "31337"):
++        assert marker not in text
++    assert '"pronouns": "sie"' in text  # Pronomen gehören zum Eintrag und ziehen mit
+diff --git a/tests/test_server_0464.py b/tests/test_server_0464.py
+index 1147788..3c42452 100644
+--- a/tests/test_server_0464.py
++++ b/tests/test_server_0464.py
+@@ -56,7 +56,7 @@ def test_schnittstelle_0414(client):
+     from app.verwaltung.router import MELDUNGEN
+ 
+-    assert API_VERSION == "0.4.26"
++    assert API_VERSION == "0.4.28"
+     vertrag = Path(__file__).resolve().parents[1] / "contract" / "session-chronik-api.yaml"
+-    assert "version: 0.4.26" in vertrag.read_text(encoding="utf-8")
++    assert "version: 0.4.28" in vertrag.read_text(encoding="utf-8")
+     assert "„Kampagne verwalten“ → „Cloud-Dienste“" in MELDUNGEN["probe_cloud"]
+ 
+diff --git a/tests/test_server_0484.py b/tests/test_server_0484.py
+index 4434e7e..64ffc9a 100644
+--- a/tests/test_server_0484.py
++++ b/tests/test_server_0484.py
+@@ -78,5 +78,5 @@ def test_info_mit_public_url_und_server_id(client, dbs):
+ 
+     i = client.get(f"{API}/info").json()
+-    assert i["apiVersion"] == "0.4.26" and i["serverId"] == server_id() and i["publicUrl"] is None
++    assert i["apiVersion"] == "0.4.28" and i["serverId"] == server_id() and i["publicUrl"] is None
+     meta_schreiben(dbs, "angabe.public_url", "https://taleward.example.org/pfad/")
+     dbs.commit()
+diff --git a/tests/test_server_0490.py b/tests/test_server_0490.py
+index a9303fb..51c1b08 100644
+--- a/tests/test_server_0490.py
++++ b/tests/test_server_0490.py
+@@ -24,8 +24,10 @@ def _ohne_ausnahmen(text: str) -> str:
+ def test_yaml_nennt_409_bei_unterlagen():
+     spec = yaml.safe_load((WURZEL / "contract" / "session-chronik-api.yaml").read_text(encoding="utf-8"))
+-    assert spec["info"]["version"] == "0.4.26"
++    assert spec["info"]["version"] == "0.4.28"
+     assert "409" in spec["paths"]["/campaigns/{campaignId}/documents"]["post"]["responses"]
+     from tests.contract import BEKANNTE_LUECKEN
+-    assert not BEKANNTE_LUECKEN
++    # 0.4.144: nur die beiden gemeldeten 429 (Merken, Vorschläge von Spielenden) – an den App-Chat gemeldet
++    assert BEKANNTE_LUECKEN <= {("POST", "/sessions/{sessionId}/bookmarks", 429),
++                                ("POST", "/campaigns/{campaignId}/player-proposals", 429)}
+ 
+ 
+diff --git a/tests/test_step1b.py b/tests/test_step1b.py
+index aa0330b..f0bea67 100644
+--- a/tests/test_step1b.py
++++ b/tests/test_step1b.py
+@@ -23,5 +23,5 @@ def test_info_ist_oeffentlich(client):
+     assert r.status_code == 200
+     i = r.json()
+-    assert i["apiVersion"] == "0.4.26" and i["externalTranscription"] is None and i["authMethods"] == ["password"] and i["registration"] == "invite_only"
++    assert i["apiVersion"] == "0.4.28" and i["externalTranscription"] is None and i["authMethods"] == ["password"] and i["registration"] == "invite_only"
+ 
+ 
+diff --git a/tests/test_umzug_048.py b/tests/test_umzug_048.py
+index c423529..ca9179a 100644
+--- a/tests/test_umzug_048.py
++++ b/tests/test_umzug_048.py
+@@ -151,5 +151,5 @@ def test_export_inhalt_und_zugang(client, world, dbs, make_user, login):
+     alles = b"".join(z.read(n) for n in namen)
+     k = json.loads(z.read("kampagne.json"))
+-    assert k["format"] == "taleward-kampagne/1" and k["apiVersion"] == "0.4.26"
++    assert k["format"] == "taleward-kampagne/1" and k["apiVersion"] == "0.4.28"
+     # nie in der Datei
+     for verboten in (GEHEIM, PRUEF, "Anna", "Ben", "Dora", "anna", "HINTERGRUND-DORIN", "DORA-BOGEN",
+diff --git a/tests/test_verwaltung2.py b/tests/test_verwaltung2.py
+index af9bcc9..92aae9c 100644
+--- a/tests/test_verwaltung2.py
++++ b/tests/test_verwaltung2.py
+@@ -177,5 +177,5 @@ def test_mindestversion(client, world, admin):  # noqa: F811
+     info = client.get(f"{API}/info").json()  # /info bleibt immer erreichbar
+     assert info["minAppVersion"] == "0.9.0" and info["latestAppVersion"] == "0.9.1"
+-    assert info["releaseNotes"] == "Neue Einladungen." and info["apiVersion"] == "0.4.26"
++    assert info["releaseNotes"] == "Neue Einladungen." and info["apiVersion"] == "0.4.28"
+     url = f"{API}/campaigns"
+     r = client.get(url, headers=world["gm"])
+diff --git a/tests/test_webapp.py b/tests/test_webapp.py
+index 453c98b..7b8dd36 100644
+--- a/tests/test_webapp.py
++++ b/tests/test_webapp.py
+@@ -107,5 +107,5 @@ def test_info_mit_pruefsumme(client, dbs):
+     info = client.get(f"{API}/info").json()
+     assert info["appDownloadSha256"] == hashlib.sha256(APK).hexdigest() and info["appDownloadSizeBytes"] == len(APK)
+-    assert info["apiVersion"] == "0.4.26"
++    assert info["apiVersion"] == "0.4.28"
+ 
+ 
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index 8f9626f..0e5cd29 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -113,5 +113,5 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.143"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.144"
+ 
+ 
+diff --git a/uv.lock b/uv.lock
+index 94f4f97..c4fb5c5 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -2139,5 +2139,5 @@ wheels = [
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.143"
++version = "0.4.144"
+ source = { editable = "." }
+ dependencies = [
+-- 
+2.43.0
+
