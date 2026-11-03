@@ -1,0 +1,491 @@
+From b462d707c076a054d56b72c450ffdbf4e04ef78d Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Tue, 3 Nov 2026 20:47:25 +0100
+Subject: [PATCH] Server 0.4.147
+
+Vorschlaege aus der Weltbeschreibung bzw. mit Namen, die in der Abschrift nie fallen, gelten nicht als belegt;
+Kapiteltitel ohne vorangestellte Nummer; Runden ohne Aufnahme werden nach einer Woche entfernt (Nummer wird frei);
+Eigennamen aus Kampagnentitel und Weltbeschreibung fuer die Schreibhilfe der Abschrift.
+---
+ NEU.md                       |  10 ++--
+ app/aufbewahrung.py          |  27 ++++++++++
+ app/belege.py                |  34 ++++++++++++
+ app/main.py                  |   3 ++
+ app/namenshilfe.py           |  24 +++++++++
+ app/routers/sessions.py      |  27 ++++++----
+ app/zusammenfassung.py       |  21 +++++++-
+ pyproject.toml               |   2 +-
+ tests/test_aktualisierung.py |   2 +-
+ tests/test_assistent.py      |   2 +-
+ tests/test_modellablage.py   |   2 +-
+ tests/test_server_04147.py   | 102 +++++++++++++++++++++++++++++++++++
+ tests/test_step1b.py         |   6 ++-
+ tests/test_step2b.py         |   2 +-
+ tests/test_step5.py          |   2 +-
+ tests/test_worker_app.py     |   2 +-
+ uv.lock                      |   2 +-
+ 17 files changed, 244 insertions(+), 26 deletions(-)
+ create mode 100644 tests/test_server_04147.py
+
+diff --git a/NEU.md b/NEU.md
+index c5b5f30..7405237 100644
+--- a/NEU.md
++++ b/NEU.md
+@@ -1,7 +1,9 @@
+-Fassung 0.4.146
++Fassung 0.4.147
+ 
+ ## Was ist neu
+ 
+-- Die Anleitungen für die Anmeldung mit Microsoft, Google und Discord sagen jetzt genau, welches Feld und welche Spalte gemeint ist und was freiwillig ist, mit Knopf zum Kopieren der Rückleitungsadresse und den Adressen für Startseite, Nutzungsbedingungen und Datenschutz.
+-- Die Namen der Figuren und Gäste einer Runde helfen der Abschrift, sie richtig zu schreiben.
+-- Seit 0.4.145: Vorschläge über Mistral bleiben fest bei Large 3, Large 4 lässt sich im Probelauf vergleichen; Klasse und Stufe am Charakter; Hinweis in der Übersicht, wenn Einstellungen nicht zur Betriebsart passen.
++- Vorschläge für die Bibel, die nur aus der Weltbeschreibung stammen oder deren Name in der Abschrift nie fällt, gelten nicht mehr als belegt. Sie stehen mit „Beleg nicht gefunden“ da und werden nicht mehr als unauffällig mit übernommen.
++- Kapiteltitel kommen ohne „Kapitel 2:“ davor, die Nummer setzt die App ohnehin.
++- Runden, für die nie eine Aufnahme ankam (etwa weil eine Zustimmung fehlte oder das Mikrofon gesperrt war), verschwinden nach einer Woche von selbst, und ihre Nummer wird wieder frei. Runden mit SL-Notiz bleiben.
++- Eigennamen aus dem Kampagnentitel und der Weltbeschreibung helfen der Abschrift beim Schreiben.
++- Seit 0.4.145: Mistral bleibt fest bei Large 3, Klasse und Stufe am Charakter, neue Anleitungen für die Anmeldedienste.
+diff --git a/app/aufbewahrung.py b/app/aufbewahrung.py
+index d443bd4..76f3237 100644
+--- a/app/aufbewahrung.py
++++ b/app/aufbewahrung.py
+@@ -159,2 +159,29 @@ def _utc(t):
+ 
+     return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
++
++
++LEER_STUNDEN = 7 * 24  # eine Woche: wer offline aufnimmt und erst Tage später hochlädt, verliert seine Runde nicht
++
++
++def leere_runden_entfernen(db: Session) -> int:
++    """0.4.147 (Issue: „Noch keine Aufnahme“): Runden, für die nie etwas hochgeladen wurde – etwa weil das Hochladen
++    an einer fehlenden Zustimmung scheiterte oder das Mikrofon gesperrt war –, nach LEER_STUNDEN löschen, damit sie
++    nicht als „arbeitet“ stehen bleiben und ihre Nummer belegen. Bleibt stehen, was die SL dort schon hat (Notiz,
++    Kommentare) und was noch in der Zukunft gespielt wird."""
++    from datetime import timedelta
++
++    from sqlalchemy import exists
++
++    from app.models import Comment, GmNote
++    from app.routers.sessions import runde_entfernen
++
++    grenze = utcnow() - timedelta(hours=LEER_STUNDEN)
++    leer = list(db.scalars(select(GameSession).where(
++        GameSession.state == "created", GameSession.created_at < grenze, GameSession.played_at < grenze,
++        ~exists().where(Upload.session_id == GameSession.id),
++        ~exists().where(GmNote.session_id == GameSession.id),
++        ~exists().where(Comment.session_id == GameSession.id))
++        .order_by(GameSession.number.desc())))  # von hinten, damit das Aufrücken die übrigen nicht verschiebt
++    for s in leer:
++        runde_entfernen(db, s)
++    return len(leer)
+diff --git a/app/belege.py b/app/belege.py
+index 0d523d0..2f5a426 100644
+--- a/app/belege.py
++++ b/app/belege.py
+@@ -116,2 +116,36 @@ def pruefen(transkript: Transkript, evidence: list[dict]) -> list[dict]:
+             gut.append({"start": round(treffer[0], 2), "quote": treffer[1]})
+     return gut
++
++
++# ---------------------------------------------------------------- 0.4.147: Herkunft eines Vorschlags
++NAME_MIN = 4          # Wörter eines Namens, die zählen („Alte Abtei“ → „abtei“)
++NAME_AEHNLICH = 0.8   # „Nostrid“ ≈ „Nostria“ – Erkennungsfehler der Abschrift
++_FUELL = {"der", "die", "das", "den", "dem", "des", "ein", "eine", "einer", "eines", "alte", "alter", "altes",
++          "neue", "neuer", "neues", "the", "old", "new", "von", "zum", "zur", "und", "and"}
++
++
++def name_vorkommt(transkript: Transkript, name: str) -> bool:
++    """Fällt der Name (oder ein tragendes Wort daraus, ähnlich geschrieben) irgendwo in der Abschrift? Namen ohne
++    tragendes Wort (kurz, nur Füllwörter) gelten als gefunden – geprüft wird nur, was sich sicher prüfen lässt."""
++    teile = [n for n in (normal(t) for t in _TOKEN.findall(name or "")) if len(n) >= NAME_MIN and n not in _FUELL]
++    if not teile:
++        return True
++    for t in teile:
++        if t in transkript.index:
++            return True
++        for w in transkript.index:
++            if w[:1] == t[:1] and abs(len(w) - len(t)) <= 2 and SequenceMatcher(None, t, w).ratio() >= NAME_AEHNLICH:
++                return True
++    return False
++
++
++def aus_text(detail: str, quelle: str, min_woerter: int = 4) -> bool:
++    """Steht ein Satz des Vorschlags (ab min_woerter Wörtern) wörtlich in der Quelle (z. B. der Weltbeschreibung)?"""
++    if not detail or not quelle:
++        return False
++    q = " " + " ".join(n for n in (normal(t) for t in _TOKEN.findall(quelle)) if n) + " "
++    for satz in re.split(r"(?<=[.!?])\s+|\n+", detail):
++        w = [n for n in (normal(t) for t in _TOKEN.findall(satz)) if n]
++        if len(w) >= min_woerter and f" {' '.join(w)} " in q:
++            return True
++    return False
+diff --git a/app/main.py b/app/main.py
+index 3d06dd8..297ce1f 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -51,4 +51,7 @@ def _wartung_starten() -> threading.Event | None:
+ 
+                     spielende.aufraeumen(db)  # 0.4.144: entschiedene Vorschläge von Spielenden nach 90 Tagen
++                    from app import aufbewahrung
++
++                    aufbewahrung.leere_runden_entfernen(db)  # 0.4.147: Runden ohne Aufnahme nach einer Woche
+                     db.commit()
+                 if any(ergebnis.values()):
+diff --git a/app/namenshilfe.py b/app/namenshilfe.py
+index 1b7c353..b76ea56 100644
+--- a/app/namenshilfe.py
++++ b/app/namenshilfe.py
+@@ -6,4 +6,6 @@ Nie enthalten: Charakter-Hintergründe, SL-Notizen, gmNotes, Kommentare (nur Nam
+ import json
+ 
++import re
++
+ from sqlalchemy import func, select
+ from sqlalchemy.orm import Session
+@@ -73,7 +75,29 @@ def abgeleitet(db: Session, campaign: Campaign) -> list[str]:
+         namen.extend(e.aliases)  # 0.4.21: „Auch genannt“ direkt nach dem Namen
+     namen.append(campaign.system_name)
++    namen += eigennamen(campaign)  # 0.4.147
+     return _eindeutig(namen)
+ 
+ 
++WELT_NAMEN = 15
++_WORT = re.compile(r"[^\W\d_][\w'’-]{3,}")
++
++
++def eigennamen(campaign: Campaign) -> list[str]:
++    """0.4.147 (Issue: „Nostrid“ statt „Nostria“): Eigennamen aus Kampagnentitel und Weltbeschreibung – Wörter mit
++    großem Anfangsbuchstaben, die nicht in der allgemeinen Wortliste stehen. Ohne Wortliste nur aus dem Titel nichts
++    Allgemeines erkennbar, dann bleibt es leer (lieber keine Namen als Füllwörter wie „Fähre“ oder „Weg“)."""
++    from app import woerterbuch
++
++    allgemein = woerterbuch.liste(campaign.language if campaign.language in ("de", "en") else "de")
++    if not allgemein:
++        return []
++    aus: list[str] = []
++    for text in (campaign.title or "", (campaign.world_info or "")[:4000]):
++        for w in _WORT.findall(text):
++            if w[:1].isupper() and w.casefold() not in allgemein and w not in aus:
++                aus.append(w)
++    return aus[:WELT_NAMEN]
++
++
+ def anzeige(db: Session, campaign: Campaign) -> list[str]:
+     """Campaign.hotwords für die SL: Eigenes und Korrigiertes zuerst, dann die abgeleiteten Namen ohne die, die die
+diff --git a/app/routers/sessions.py b/app/routers/sessions.py
+index 1e91457..afa91f3 100644
+--- a/app/routers/sessions.py
++++ b/app/routers/sessions.py
+@@ -80,14 +80,7 @@ def create_session(
+ 
+ 
+-@router.delete("/sessions/{sessionId}", tags=["Sessions"], status_code=204)
+-def delete_session(sessionId: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+-    """Unveröffentlichtes Kapitel verwerfen (0.4.5): Session mit Aufnahme, Transkript, Hörproben, Vorschlägen und
+-    Recap-Entwurf; laufende Aufträge verschwinden mit (ein Worker bekommt dann 404 und bricht ab)."""
+-    acc = load_session(db, sessionId, user)
+-    if not acc.is_gm:
+-        raise errors.forbidden()
+-    s = acc.session
+-    if s.state == "published":
+-        raise errors.conflict("session_published")
++def runde_entfernen(db: Session, s: GameSession) -> None:
++    """Unveröffentlichte Runde samt Aufnahme, Hörproben und Entwürfen löschen; die Nummer wird wieder frei, spätere
++    Kapitel rücken auf (aufsteigend, damit die Eindeutigkeit hält). Ohne Commit."""
+     for up in db.scalars(select(Upload).where(Upload.session_id == s.id)):
+         storage.delete_upload_files(up.id)
+@@ -99,9 +92,21 @@ def delete_session(sessionId: str, user: User = Depends(current_user), db: Sessi
+     db.delete(s)
+     db.flush()
+-    # Die Nummer wird wieder frei: spätere Kapitel rücken auf (aufsteigend, damit die Eindeutigkeit hält)
+     for spaeter in db.scalars(select(GameSession).where(GameSession.campaign_id == campaign_id,
+                                                         GameSession.number > nummer).order_by(GameSession.number)):
+         spaeter.number -= 1
+         db.flush()
++
++
++@router.delete("/sessions/{sessionId}", tags=["Sessions"], status_code=204)
++def delete_session(sessionId: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
++    """Unveröffentlichtes Kapitel verwerfen (0.4.5): Session mit Aufnahme, Transkript, Hörproben, Vorschlägen und
++    Recap-Entwurf; laufende Aufträge verschwinden mit (ein Worker bekommt dann 404 und bricht ab)."""
++    acc = load_session(db, sessionId, user)
++    if not acc.is_gm:
++        raise errors.forbidden()
++    s = acc.session
++    if s.state == "published":
++        raise errors.conflict("session_published")
++    runde_entfernen(db, s)
+     db.commit()
+     return Response(status_code=204)
+diff --git a/app/zusammenfassung.py b/app/zusammenfassung.py
+index 0c04eac..ae75ebd 100644
+--- a/app/zusammenfassung.py
++++ b/app/zusammenfassung.py
+@@ -22,4 +22,5 @@ from __future__ import annotations
+ import json
+ import logging
++import re
+ import threading
+ import time
+@@ -409,4 +410,14 @@ def _teile_json(teile: list, text: str) -> str | None:
+ 
+ 
++_NUMMER_VORN = re.compile(r"^\s*(?:kapitel|chapter|teil|part|session|sitzung|runde)\s*\d+\s*[:.–—-]\s*", re.I)
++
++
++def titel_ohne_nummer(titel: str) -> str:
++    """0.4.147: „Kapitel 2: Der Krater …“ → „Der Krater …“ – die App setzt die Nummer selbst davor."""
++    t = (titel or "").strip()
++    ohne = _NUMMER_VORN.sub("", t).strip()
++    return ohne or t
++
++
+ def speichern(db: Session, s: GameSession, erg: Ergebnis, rechenzeit: float, engine: str = "local",
+               worker_id: str | None = None) -> None:
+@@ -423,5 +434,5 @@ def speichern(db: Session, s: GameSession, erg: Ergebnis, rechenzeit: float, eng
+     stellen = pruefteil.Stellen(abschnitte)
+     text = erg.text.strip()
+-    db.add(Recap(session_id=s.id, title=erg.titel.strip()[:300] or f"Kapitel {s.number}", text=text,
++    db.add(Recap(session_id=s.id, title=titel_ohne_nummer(erg.titel)[:300] or f"Kapitel {s.number}", text=text,
+                  open_threads=json.dumps([f.strip() for f in erg.offene_faeden if f.strip()], ensure_ascii=False),
+                  model=erg.modell, review=pruefteil.als_json(pruefteil.bauen(erg.pruefung, text, stellen, sprache)),
+@@ -432,4 +443,5 @@ def speichern(db: Session, s: GameSession, erg: Ergebnis, rechenzeit: float, eng
+ 
+     allgemein = woerterbuch.liste(sprache or "de")
++    welt_text = db.get(Campaign, s.campaign_id).world_info or ""
+     # Qualitätsprüfung Stufe 1: Belege gegen das Transkript prüfen (erfundene Zitate fallen weg)
+     transkript = stellen.woerter
+@@ -453,4 +465,11 @@ def speichern(db: Session, s: GameSession, erg: Ergebnis, rechenzeit: float, eng
+         sicherheit = max(0.0, min(1.0, v.confidence))
+         geprueft = belege.pruefen(transkript, v.evidence)
++        # 0.4.147 (Issue: „Kaltenfurt“): Was nur aus der Weltbeschreibung stammt oder dessen Name in der Abschrift nie
++        # fällt, gilt nicht als belegt – auch wenn das Modell einen echten, aber fremden Satz als Beleg nennt.
++        fremd = erg.modell != "attrappe" and (  # Testmodus: Platzhalter-Namen kommen in keiner Abschrift vor
++            (v.action == "create" and not belege.name_vorkommt(transkript, v.title))
++            or belege.aus_text(v.detail, welt_text))
++        if fremd:
++            geprueft = []
+         if not geprueft:
+             ohne_beleg += 1
+diff --git a/pyproject.toml b/pyproject.toml
+index b482c46..ffcdbc1 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,5 +1,5 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.146"
++version = "0.4.147"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index d3091e9..fd74798 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -154,5 +154,5 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.146"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.147"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index 786a3d2..41ab401 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -135,5 +135,5 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.146"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.147"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index a3d64cf..d505170 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -84,5 +84,5 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.146"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.147"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+diff --git a/tests/test_server_04147.py b/tests/test_server_04147.py
+new file mode 100644
+index 0000000..c8ffccd
+--- /dev/null
++++ b/tests/test_server_04147.py
+@@ -0,0 +1,102 @@
++"""Server 0.4.147 (Issues aus dem Testdurchlauf 03.11.): Vorschläge aus der Weltbeschreibung bzw. mit Namen, die in der
++Abschrift nie fallen, gelten nicht als belegt; Kapiteltitel ohne „Kapitel 2:“; leere Runden ohne Aufnahme verschwinden
++nach einer Woche; Eigennamen aus Kampagnentitel und Welt für die Schreibhilfe."""
++import json
++from datetime import timedelta
++
++from tests.test_step2a import API, neue_session
++from tests.test_step2b import zusammenfassen
++from tests.test_step4 import _kleine_teile  # noqa: F401 (Fixture)
++from tests.test_step5 import api, einstellen, mit_geheimnissen  # noqa: F401 (Fixture)
++
++
++def test_belege_name_und_herkunft():
++    from app import belege
++
++    t = belege.Transkript([(0.0, "Wir reiten nach Nostrid und sehen die Abtei am Fluss")])
++    assert belege.name_vorkommt(t, "Nostria")  # Erkennungsfehler gilt als derselbe Name
++    assert belege.name_vorkommt(t, "Alte Abtei") and belege.name_vorkommt(t, "Der Ox")  # zu kurz: nicht prüfbar
++    assert not belege.name_vorkommt(t, "Kaltenfurt")
++    welt = "Die Gruppe erreicht Kaltenfurt. Eine verschwundene Fähre blockiert den Weg zur alten Abtei."
++    assert belege.aus_text("Die Gruppe erreicht Kaltenfurt.", welt)
++    assert belege.aus_text("Am Ufer. Eine verschwundene Fähre blockiert den Weg zur alten Abtei!", welt)
++    assert not belege.aus_text("Die Gruppe erreicht den Fluss.", welt) and not belege.aus_text("Kaltenfurt", welt)
++
++
++def test_vorschlag_aus_der_welt_gilt_nicht_als_belegt(client, world, dbs, tmp_path, api):  # noqa: F811
++    from app.models import Campaign, Proposal, Recap
++
++    w = world
++    c = dbs.get(Campaign, w["cid"])
++    c.world_info = "Die Gruppe erreicht Kaltenfurt. Eine verschwundene Fähre blockiert den Weg zur alten Abtei."
++    dbs.commit()
++    s, _oeff, _geheim, _t = mit_geheimnissen(client, w, dbs, tmp_path)
++    echt = [{"start": "0:40", "quote": "Wir reiten nach Rabenfels"}]  # echter Satz, aber nicht über Kaltenfurt
++    api.vorschlaege = [
++        {"entryType": "location", "action": "create", "title": "Kaltenfurt", "detail": "Die Gruppe erreicht Kaltenfurt.",
++         "suggestedVisibility": "public", "confidence": 0.9, "evidence": echt},
++        {"entryType": "npc", "action": "create", "title": "Der Graue Fürst", "detail": "Wartet in Rabenfels.",
++         "suggestedVisibility": "public", "confidence": 0.9, "evidence": echt},
++        {"entryType": "location", "action": "create", "title": "Fährhaus", "detail": "Eine verschwundene Fähre "
++         "blockiert den Weg zur alten Abtei.", "suggestedVisibility": "public", "confidence": 0.9, "evidence": echt},
++    ]
++    einstellen(dbs, art="api", api_key="sk-test-schluessel-1234", weg="abschrift")
++    assert zusammenfassen(dbs)
++    v = {p.title: p for p in dbs.query(Proposal).filter_by(session_id=s["id"])}
++    for titel in ("Kaltenfurt", "Fährhaus"):
++        flags = json.loads(v[titel].flags)
++        assert "evidence_not_found" in flags and "low_confidence" in flags, titel
++        assert v[titel].confidence <= 0.3 and json.loads(v[titel].evidence) == []
++    assert "evidence_not_found" not in json.loads(v["Der Graue Fürst"].flags)
++    assert json.loads(v["Der Graue Fürst"].evidence)
++    # Titel ohne Nummer – die App setzt „Kapitel 1“ selbst davor
++    assert dbs.get(Recap, s["id"]).title == "Der Ritt"
++
++
++def test_titel_ohne_nummer():
++    from app.zusammenfassung import titel_ohne_nummer as t
++
++    assert t("Kapitel 2: Der Krater und die Grünkappen") == "Der Krater und die Grünkappen"
++    assert t("Chapter 12 – Fog over the Moor") == "Fog over the Moor"
++    assert t("Kapitel 3") == "Kapitel 3" and t("Der Weg nach Kapitel 2") == "Der Weg nach Kapitel 2"
++
++
++def test_leere_runden_verschwinden_nach_einer_woche(client, world, dbs):
++    from app import aufbewahrung
++    from app.db import utcnow
++    from app.models import GameSession
++
++    w = world
++    leer = neue_session(client, w)
++    mit_notiz = neue_session(client, w)
++    client.put(f"{API}/sessions/{mit_notiz['id']}/gm-note", headers=w["gm"], json={"text": "Vorbereitung"})
++    danach = neue_session(client, w)
++    assert aufbewahrung.leere_runden_entfernen(dbs) == 0  # zu frisch
++    for sid in (leer["id"], mit_notiz["id"], danach["id"]):
++        dbs.get(GameSession, sid).created_at = utcnow() - timedelta(hours=7 * 24 + 1)
++    dbs.commit()
++    from app.models import Upload
++
++    dbs.add(Upload(session_id=danach["id"], source="table", chunk_size=1, state="aborted"))
++    dbs.commit()
++    assert aufbewahrung.leere_runden_entfernen(dbs) == 1
++    dbs.commit()
++    dbs.expire_all()
++    assert dbs.get(GameSession, leer["id"]) is None
++    assert dbs.get(GameSession, mit_notiz["id"]).number == 1 and dbs.get(GameSession, danach["id"]).number == 2
++
++
++def test_eigennamen_aus_titel_und_welt(client, world, dbs, monkeypatch):
++    from app import namenshilfe, woerterbuch
++    from app.models import Campaign
++
++    c = dbs.get(Campaign, world["cid"])
++    c.title = "Nostria erhebt sich"
++    c.world_info = "Die Gruppe erreicht Kaltenfurt. Eine verschwundene Fähre blockiert den Weg zur alten Abtei."
++    dbs.commit()
++    monkeypatch.setattr(woerterbuch, "liste", lambda sprache: frozenset())
++    assert namenshilfe.eigennamen(c) == []  # ohne Wortliste lieber nichts
++    allgemein = frozenset({"die", "gruppe", "eine", "fähre", "weg", "abtei", "erhebt", "sich", "den", "zur", "alten"})
++    monkeypatch.setattr(woerterbuch, "liste", lambda sprache: allgemein)
++    assert namenshilfe.eigennamen(c) == ["Nostria", "Kaltenfurt"]
++    assert "Kaltenfurt" in namenshilfe.fuer_kampagne(dbs, c)
+diff --git a/tests/test_step1b.py b/tests/test_step1b.py
+index f075232..e9a5b0c 100644
+--- a/tests/test_step1b.py
++++ b/tests/test_step1b.py
+@@ -1,4 +1,5 @@
+ """Schritt 1b: Grundlagen aus Schnittstelle 0.3.3. Alle Antworten werden zusätzlich gegen die YAML geprüft."""
+ import sqlite3
++from datetime import datetime, timezone
+ import uuid
+ 
+@@ -272,7 +273,8 @@ def test_migration_aus_schritt1(tmp_path, monkeypatch):
+     con.execute("INSERT INTO campaigns VALUES (?, 'Alte Kampagne', '', '2026-09-01 10:00:00')", (cid,))
+     con.execute("INSERT INTO members VALUES (?, ?, ?, 'gm', NULL, '2026-09-01 10:00:00')", (mid, cid, uid))
++    # 0.4.147: Runden ohne Aufnahme räumt die Wartung nach einer Woche weg – diese ist frisch
++    jetzt = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0).isoformat(" ")
+     con.execute("INSERT INTO sessions (id, campaign_id, number, played_at, state, state_updated_at, created_at) "
+-                "VALUES (?, ?, 1, '2026-09-02 18:00:00', 'created', '2026-09-02 18:00:00', '2026-09-02 18:00:00')",
+-                (sid, cid))
++                "VALUES (?, ?, 1, ?, 'created', ?, ?)", (sid, cid, jetzt, jetzt, jetzt))
+     con.execute("INSERT INTO attendees VALUES (?, ?, 0, 1, '2026-09-02 18:00:00')", (sid, mid))
+     con.commit()
+diff --git a/tests/test_step2b.py b/tests/test_step2b.py
+index b35d4c9..a3cc263 100644
+--- a/tests/test_step2b.py
++++ b/tests/test_step2b.py
+@@ -146,5 +146,5 @@ def test_offene_vorschlaege_werden_verworfen(client, world, dbs, tmp_path):
+         == {"rejected"}
+     # Titel der Session kommt aus dem Recap, wenn sie keinen hatte
+-    assert client.get(f"{API}/sessions/{s['id']}", headers=w["pl"]).json()["title"].startswith("Kapitel")
++    assert client.get(f"{API}/sessions/{s['id']}", headers=w["pl"]).json()["title"] == "Platzhalter"  # ohne Nummer
+ 
+ 
+diff --git a/tests/test_step5.py b/tests/test_step5.py
+index c2ed502..8ae1aa8 100644
+--- a/tests/test_step5.py
++++ b/tests/test_step5.py
+@@ -163,5 +163,5 @@ def test_api_spoilerschutz_und_ergebnis(client, world, dbs, tmp_path, api):
+ 
+     r = client.get(f"{API}/sessions/{s['id']}/recap", headers=w["gm"]).json()
+-    assert r["title"] == "Kapitel 1: Der Ritt" and r["openThreads"] == ["Wer hat den Brief geschrieben?"]
++    assert r["title"] == "Der Ritt" and r["openThreads"] == ["Wer hat den Brief geschrieben?"]
+     # Prüfteil: über die Cloud keine Nachbesserung (0.4.62) – der unbelegte Absatz bleibt und ist markiert
+     assert r["text"] == "Die Gruppe ritt nach Rabenfels.\n\nDort wartete Regen."
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index cb5f194..23383ca 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -113,5 +113,5 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.146"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.147"
+ 
+ 
+diff --git a/uv.lock b/uv.lock
+index 2cb2b26..3c86b51 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -2139,5 +2139,5 @@ wheels = [
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.146"
++version = "0.4.147"
+ source = { editable = "." }
+ dependencies = [
+-- 
+2.43.0
+
