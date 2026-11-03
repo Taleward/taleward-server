@@ -369,7 +369,7 @@ pyopenssl==26.4.0
     # via webauthn
 pyparsing==3.3.3
     # via matplotlib
-pypdf==6.21.2
+pypdf==6.21.4
     # via taleward-server
 python-dateutil==2.9.0.post0
     # via

@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # "attrappe" = Platzhaltertext, "aus" = Aufträge warten.
     summarizer: str = "attrappe"  # aus | attrappe | lokal (Worker mit Ollama) | api
     llm_api_url: str = "https://api.mistral.ai/v1"  # OpenAI-kompatibel
-    llm_api_model: str = "mistral-large-latest"
+    llm_api_model: str = "mistral-large-2512"  # 0.4.145: feste Fassung
     llm_api_key: str | None = None  # leer + Mistral: Schlüssel der externen Transkription
     llm_local_model: str = "auto"      # nach Grafikkarte des Workers (app/recapmodell.py)
     llm_local_context: int = 32768     # höchstens – bei festem Modell; „auto“ wählt selbst

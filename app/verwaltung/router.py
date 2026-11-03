@@ -772,7 +772,7 @@ def uebersicht(request: Request, user: User = Depends(verwalter), db: Session = 
     # Ohne Cloud-Abschrift braucht jede neue Runde einen Worker – dann ist „kein Worker“ auch ohne wartende Runde rot
     braucht_worker = not extern_konfig(db).anbieter
     return _seite(request, "uebersicht.html", user, db, zahlen=zahlen, speicher=speicher, api_version=API_VERSION,
-                  braucht_worker=braucht_worker,
+                  braucht_worker=braucht_worker, widersprueche=einrichtung.widersprueche(db),
                   db_datei=db_datei, knecht=KNECHT.zustand(), fehler=fehler, sicherungen=sicherung.liste()[:7],
                   sicherung_einst=sicherung.einstellungen(db), punkte=punkte, kosten=kosten_info,
                   eingebaut=_eingebaut_anzeige(db), aufbewahrung=aufbewahrung.lesen(db))
@@ -1503,8 +1503,10 @@ def zusammenfassung_speichern(request: Request, art: str = Form("aus"), anbieter
     if (not modell or not lokal or len(modell) > 100 or len(lokal) > 100 or len(fuer_vorschlaege) > 100
             or len(fuer_notizen) > 100):
         return fehler(_("Bitte die Modellnamen angeben."))
+    vorher = llm_konfig(db)  # 0.4.145: ein schon gespeichertes Modell bleibt wählbar, auch wenn es nicht mehr empfohlen ist
+    schon = {vorher.api_modell, vorher.api_modell_vorschlaege, vorher.api_modell_notizen} - {""}
     for m in (modell, fuer_vorschlaege, fuer_notizen):
-        if m and bekannt is not None and not modellwahl.erlaubt(db, url, bekannt, m):
+        if m and m not in schon and bekannt is not None and not modellwahl.erlaubt(db, url, bekannt, m):
             return fehler(_("Bitte ein Modell aus der Liste wählen."))
     if fuer_vorschlaege == modell:
         fuer_vorschlaege = ""

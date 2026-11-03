@@ -158,12 +158,12 @@ def test_einstellung_notizenmodell(client, dbs, admin):  # noqa: F811
     from app.zusammenfassung import api_klient_notizen
 
     daten = {"csrf": admin, "art": "api", "anbieter": "mistral", "api_modell": "mistral-medium-latest",
-             "api_modell_notizen": "mistral-large-latest", "lokal_modell": "auto", "lokal_kontext": "12288",
+             "api_modell_notizen": "mistral-large-2512", "lokal_modell": "auto", "lokal_kontext": "12288",
              "api_key": "sk-abcdefghijklmnop1234"}
     client.post("/verwaltung/zusammenfassung", data=daten)
     dbs.expire_all()
     k = llm_konfig(dbs)
-    assert k.api_modell_notizen == "mistral-large-latest" and api_klient_notizen(k).modell == "mistral-large-latest"
+    assert k.api_modell_notizen == "mistral-large-2512" and api_klient_notizen(k).modell == "mistral-large-2512"
     seite = client.get("/verwaltung/zusammenfassung").text
     assert 'name="api_modell_notizen"' in seite and "Modell für Notizen und Auswahl" in seite
     client.post("/verwaltung/zusammenfassung", data={**daten, "api_modell_notizen": "mistral-medium-latest"})

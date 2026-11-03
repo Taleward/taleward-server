@@ -237,6 +237,8 @@ class MemberOut(ApiModel):
     move_consent_at: datetime | None = None  # 0.4.8
     open_seat: bool = False
     character_pronouns: str | None = None  # 0.4.28, für alle Mitglieder
+    character_level: str | None = None  # 0.4.29, für alle Mitglieder, nie an ein Sprachmodell
+    character_classes: list["CharacterClass"] = []  # 0.4.29
     counters: list["CounterValue"] | None = None  # 0.4.28: nur Person selbst und SL, sonst fehlt das Feld
 
 
@@ -332,6 +334,12 @@ class AnalysisDecisionIn(ApiModel):
     approve: bool
 
 
+class CharacterClass(ApiModel):
+    """0.4.29: Klasse mit Stufe, z. B. Magier 3."""
+    name: str = Field(min_length=1, max_length=40)
+    level: int = Field(ge=1, le=30)
+
+
 class CharacterIn(ApiModel):
     """Serverkopie eines Charakters aus der Sammlung der App (0.4.7)."""
     id: str = Field(pattern=UUID_MUSTER)
@@ -342,6 +350,8 @@ class CharacterIn(ApiModel):
     backstory: str | None = Field(default=None, max_length=20000)
     system: str | None = Field(default=None, max_length=64)
     pronouns: str | None = Field(default=None, max_length=32)  # 0.4.28 → Member.characterPronouns
+    level: str | None = Field(default=None, max_length=64)  # 0.4.29 → Member.characterLevel
+    classes: list["CharacterClass"] | None = Field(default=None, max_length=4)  # 0.4.29 → Member.characterClasses
     status: CharacterStatus
     status_changed_at: datetime | None = None
 

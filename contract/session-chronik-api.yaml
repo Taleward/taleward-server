@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Taleward API
-  version: 0.4.28
+  version: 0.4.29
   description: |
     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
 
@@ -280,6 +280,11 @@ info:
     - Zähler am Charakter (LeP, AsP …): CampaignSettings.counterKinds (leer = aus, Standard), Stände je Mitglied über
       PUT /campaigns/{id}/members/me/counters, Member.counters nur für die Person selbst und die SL.
     Ältere Apps sehen davon nichts; ältere Server ignorieren pronouns und spans.
+    Änderungen in 0.4.29 (Stufe am Charakter): Character.classes → Member.characterClasses (Klassen mit Stufe, z. B.
+    Magier 3 und Schurke 2; die App nutzt sie bei D&D und Pathfinder) und Character.level → Member.characterLevel (freier
+    Text wie „Erfahren“ für Systeme ohne Klassen). Die App benennt das Feld je Spielsystem und rechnet nichts damit aus.
+    Sichtbar für alle Mitglieder; geht nie an ein Sprachmodell (Kapitel enthalten keine Regelangaben). Ältere Server
+    ignorieren beide Felder.
 
 servers:
   - url: https://taleward.example.org/api/v1
@@ -4385,6 +4390,18 @@ components:
           description: |
             Ab 0.4.28: wie über die Figur gesprochen wird (aus Character.pronouns), für alle Mitglieder sichtbar und für
             die Recap-Pipeline erlaubt (wie characterSummary).
+        characterLevel:
+          type: [string, "null"]
+          description: |
+            Ab 0.4.29: Stufe oder Erfahrungsgrad als freier Text (aus Character.level), für alle Mitglieder sichtbar. Nie
+            an ein Sprachmodell, nicht in Kapitel oder Vorschläge. Beim Umzug wie characterSummary (nur mit moveConsentAt).
+        characterClasses:
+          type: array
+          maxItems: 4
+          items: { $ref: "#/components/schemas/CharacterClass" }
+          description: |
+            Ab 0.4.29: Klassen mit Stufe (aus Character.classes), sichtbar und geschützt wie characterLevel. Leer, wenn
+            keine gesetzt sind; fehlt bei älteren Servern.
         counters:
           type: array
           items: { $ref: "#/components/schemas/CounterValue" }
@@ -5214,8 +5231,32 @@ components:
           description: |
             Ab 0.4.28, freiwillig: wie andere über die Figur sprechen („sie“, „er“ oder eigener Text). Wird zu
             Member.characterPronouns. Ältere Server ignorieren das Feld.
+        level:
+          type: [string, "null"]
+          maxLength: 64
+          description: |
+            Ab 0.4.29, freiwillig: Stufe oder Erfahrungsgrad als freier Text („Erfahren“, „Heldengrad 2“) für Systeme
+            ohne Klassen. Wird zu Member.characterLevel. Leerer Text = null. Der Server prüft nur die Länge und entfernt
+            Steuerzeichen. Ältere Server ignorieren das Feld.
+        classes:
+          type: array
+          maxItems: 4
+          items: { $ref: "#/components/schemas/CharacterClass" }
+          description: |
+            Ab 0.4.29, freiwillig: Klassen mit Stufe (D&D, Pathfinder), in der Reihenfolge der Spielerin. Wird zu
+            Member.characterClasses. Wie die übrigen Felder ersetzt PUT den ganzen Stand: fehlt das Feld oder ist die
+            Liste leer, hat die Figur keine Klassen. Mehr als 4 Einträge, leere Namen oder Stufen außerhalb 1–30 → 400 validation_error. Ältere Server ignorieren das Feld.
         status: { type: string, enum: [active, retired, deceased] }
         statusChangedAt: { type: [string, "null"], format: date-time }
+
+    CharacterClass:
+      type: object
+      additionalProperties: false
+      required: [name, level]
+      description: Ab 0.4.29. Klasse mit Stufe, z. B. Magier 3. Der Name ist freier Text (die App schlägt die Klassen der Grundregeln vor).
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40, description: "Steuerzeichen entfernt, getrimmt" }
+        level: { type: integer, minimum: 1, maximum: 30 }
 
     WorldEntryIn:
       type: object

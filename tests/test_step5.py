@@ -184,7 +184,7 @@ def test_api_spoilerschutz_und_ergebnis(client, world, dbs, tmp_path, api):
     assert vs["Rabenfels"]["suggestedVisibility"] == "gm_only"
     assert "geheimen Notizen" in vs["Rabenfels"]["visibilityReason"] and "low_confidence" in vs["Rabenfels"]["flags"]
     log = dbs.query(UsageLog).filter_by(session_id=s["id"], kind="summary").one()
-    assert (log.engine, log.model, log.tokens_in, log.tokens_out) == ("external", "mistral-large-latest",
+    assert (log.engine, log.model, log.tokens_in, log.tokens_out) == ("external", "mistral-large-2512",
                                                                      500_000, 20_000)  # 5 Aufrufe (0.4.62)
     assert log.cost_cents == round((500_000 * 50 + 20_000 * 150) / 1e6)  # Preistabelle Mistral Large
     # Spieler sehen weiterhin nichts davon
@@ -334,7 +334,7 @@ def test_verwaltung_zusammenfassung(client, dbs, admin):  # noqa: F811
     seite = client.get("/verwaltung/zusammenfassung").text
     assert "Wer fasst zusammen?" in seite and 'aria-current="page"' in seite
     url = "/verwaltung/zusammenfassung"
-    basis = {"csrf": admin, "art": "api", "anbieter": "mistral", "api_modell": "mistral-large-latest",
+    basis = {"csrf": admin, "art": "api", "anbieter": "mistral", "api_modell": "mistral-large-2512",
              "lokal_modell": "ministral-3:8b", "lokal_kontext": "12288"}
     r = client.post(url, data=basis)
     assert r.status_code == 400 and "API-Schlüssel eintragen" in r.text
@@ -447,7 +447,7 @@ def test_verwaltung_probelauf(client, world, dbs, tmp_path, admin, api):  # noqa
     w = world
     s = transkribiert(client, w, dbs, tmp_path)
     url = "/verwaltung/zusammenfassung"
-    basis = {"csrf": admin, "art": "api", "anbieter": "mistral", "api_modell": "mistral-large-latest",
+    basis = {"csrf": admin, "art": "api", "anbieter": "mistral", "api_modell": "mistral-large-2512",
              "lokal_modell": "auto", "lokal_kontext": "12288", "api_key": "sk-abcdefghijklmnop1234"}
     assert client.post(url, data=basis, follow_redirects=False).status_code == 303
     # Der Verwalter ist (noch) keine Spielleitung der Kampagne: Runde nicht in der Liste, Start abgelehnt
@@ -512,7 +512,7 @@ def test_verwaltung_probelauf(client, world, dbs, tmp_path, admin, api):  # noqa
     dbs.expire_all()
     assert dbs.get(GameSession, s["id"]).state == "awaiting_speakers"
     log = dbs.query(UsageLog).filter_by(session_id=s["id"], kind="probe").one()
-    assert log.engine == "external" and log.model == "mistral-large-latest"
+    assert log.engine == "external" and log.model == "mistral-large-2512"
     nutzung = client.get(f"{API}/campaigns/{w['cid']}/usage", headers=w["gm"]).json()
     assert nutzung["costEstimateCents"] == 0
     # Abschrift aus Datei ersetzt die Abschrift der Runde

@@ -328,7 +328,7 @@ def zusammenfassung_speichern(request: Request, wahl: str = Form(""), mistral_ke
         meta_schreiben(db, "llm.art", "api")
         meta_schreiben(db, "llm.api_url", MISTRAL_URL)
         if not meta_lesen(db, "llm.api_modell"):
-            meta_schreiben(db, "llm.api_modell", "mistral-large-latest")
+            meta_schreiben(db, "llm.api_modell", "mistral-large-2512")
     elif wahl == "lokal":
         meta_schreiben(db, "llm.art", "lokal")
     db.commit()

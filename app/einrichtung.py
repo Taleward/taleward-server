@@ -108,6 +108,46 @@ def betriebsart(db: Session) -> str | None:
     return wert if wert in BETRIEBSARTEN else None
 
 
+@dataclass
+class Widerspruch:
+    text: str  # deutscher Text = Übersetzungsschlüssel, Platzhalter {n}
+    link: str
+    n: float | None = None
+
+
+def widersprueche(db: Session) -> list[Widerspruch]:
+    """0.4.145: Passen die Einzel-Einstellungen nicht zur gewählten Betriebsart? (Test-Chat 29.10.: Übersicht zeigte
+    „Lokaler Server“, die Kapitel liefen über die Cloud-API.) Nur Hinweise – geändert wird nichts."""
+    from app.einstellungen import extern_konfig, llm_konfig
+
+    art = betriebsart(db)
+    if art is None:
+        return []
+    k, ext = llm_konfig(db), extern_konfig(db)
+    aus: list[Widerspruch] = []
+    if art == "lokal":
+        if k.art == "api":
+            aus.append(Widerspruch("Kapitel entstehen über die Cloud-API, nicht mit einem lokalen Modell.",
+                                   "/verwaltung/zusammenfassung"))
+        if ext.anbieter:
+            aus.append(Widerspruch("Aufnahmen werden in der Cloud abgeschrieben.", "/verwaltung/transkription#extern"))
+    elif art == "cloud":
+        if k.art == "lokal":
+            aus.append(Widerspruch("Kapitel entstehen mit einem lokalen Modell, nicht über die Cloud-API.",
+                                   "/verwaltung/zusammenfassung"))
+        if ext.anbieter and ext.stunden > 0:
+            aus.append(Widerspruch("Die Cloud schreibt erst nach {n} Stunden ab, sonst wartet die Runde auf einen "
+                                   "Worker.", "/verwaltung/transkription#extern", ext.stunden))
+    elif art == "beides":
+        if not ext.anbieter:
+            aus.append(Widerspruch("Die Cloud-Abschrift als Ausweichlösung ist nicht eingerichtet.",
+                                   "/verwaltung/transkription#extern"))
+        elif ext.stunden <= 0:
+            aus.append(Widerspruch("Die Cloud schreibt jede Aufnahme sofort ab, auch wenn ein Worker bereit ist.",
+                                   "/verwaltung/transkription#extern"))
+    return aus
+
+
 # ---------------------------------------------------------------- Stand der Einrichtung
 @dataclass
 class Punkt:

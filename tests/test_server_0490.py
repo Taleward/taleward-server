@@ -23,7 +23,7 @@ def _ohne_ausnahmen(text: str) -> str:
 
 def test_yaml_nennt_409_bei_unterlagen():
     spec = yaml.safe_load((WURZEL / "contract" / "session-chronik-api.yaml").read_text(encoding="utf-8"))
-    assert spec["info"]["version"] == "0.4.28"
+    assert spec["info"]["version"] == "0.4.29"
     assert "409" in spec["paths"]["/campaigns/{campaignId}/documents"]["post"]["responses"]
     from tests.contract import BEKANNTE_LUECKEN
     # 0.4.144: nur die beiden gemeldeten 429 (Merken, Vorschläge von Spielenden) – an den App-Chat gemeldet

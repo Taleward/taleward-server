@@ -95,6 +95,7 @@ def member_out(m: Member, viewer: Member | None) -> schemas.MemberOut:
         character_status=m.character_status, character_nickname=m.character_nickname,
         move_consent_at=m.move_consent_at, open_seat=m.open_seat,
         character_pronouns=m.character_pronouns,  # 0.4.28, öffentlich wie die Kurzbeschreibung
+        character_level=m.character_level, character_classes=m.klassen,  # 0.4.29, nie an ein Sprachmodell
     )
     if viewer is not None and may_see_backstory(viewer, m):
         # 0.4.28: Zählerstände nur für die Person selbst und die SL – für alle anderen fehlt das Feld

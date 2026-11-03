@@ -16,15 +16,15 @@ def test_abgelehnter_schluessel_ueberschreibt_nicht(client, dbs, admin, monkeypa
     assert r.status_code == 200
     monkeypatch.setattr(modellwahl, "schluessel_abgelehnt", lambda url, key: key.endswith("9999"))
     r = client.post("/verwaltung/zusammenfassung", data={**DATEN, "csrf": admin, "api_key": "browser-passwort-9999",
-                                                         "api_modell": "mistral-large-latest"})
+                                                         "api_modell": "mistral-large-2512"})
     assert r.status_code == 400 and "gespeichert wurde nichts" in r.text
     dbs.expire_all()
     k = llm_konfig(dbs)
     assert k.api_key.endswith("1111") and k.api_modell == "mistral-medium-latest"  # nichts geändert
     # leeres Feld: Modell wechseln ohne Probe, Schlüssel bleibt
-    client.post("/verwaltung/zusammenfassung", data={**DATEN, "csrf": admin, "api_modell": "mistral-large-latest"})
+    client.post("/verwaltung/zusammenfassung", data={**DATEN, "csrf": admin, "api_modell": "mistral-large-2512"})
     dbs.expire_all()
-    assert llm_konfig(dbs).api_key.endswith("1111") and llm_konfig(dbs).api_modell == "mistral-large-latest"
+    assert llm_konfig(dbs).api_key.endswith("1111") and llm_konfig(dbs).api_modell == "mistral-large-2512"
     # dasselbe für die Transkription
     url = "/verwaltung/transkription/extern"
     client.post(url, data={"csrf": admin, "anbieter": "mistral", "api_key": "sk-gueltig-abcdefgh2222", "stunden": "12"})

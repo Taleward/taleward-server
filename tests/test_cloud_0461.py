@@ -105,18 +105,18 @@ def test_modell_auswahl_in_der_verwaltung(client, dbs, admin):  # noqa: F811
              "api_key": "sk-abcdefghijklmnop1234"}
     seite = client.get(url).text
     assert '<select name="api_modell" id="anbieter-modell">' in seite
-    assert '<option value="mistral-medium-latest"' in seite and '<option value="mistral-large-latest"' in seite
+    assert '<option value="mistral-medium-latest"' in seite and '<option value="mistral-large-2512"' in seite
     assert 'name="api_modell_vorschlaege"' in seite
     # Kapitel Medium, Vorschläge Large
     r = client.post(url, data={**basis, "api_modell": "mistral-medium-latest",
-                               "api_modell_vorschlaege": "mistral-large-latest"}, follow_redirects=False)
+                               "api_modell_vorschlaege": "mistral-large-2512"}, follow_redirects=False)
     assert r.status_code == 303
     k = llm_konfig(dbs)
-    assert (k.api_modell, k.api_modell_vorschlaege) == ("mistral-medium-latest", "mistral-large-latest")
+    assert (k.api_modell, k.api_modell_vorschlaege) == ("mistral-medium-latest", "mistral-large-2512")
     seite = client.get(url).text
-    assert '<option value="mistral-large-latest" selected>' in seite
+    assert '<option value="mistral-large-2512" selected>' in seite
     # gleiches Modell zweimal → „wie für das Kapitel“
-    client.post(url, data={**basis, "api_modell": "mistral-large-latest", "api_modell_vorschlaege": "mistral-large-latest"})
+    client.post(url, data={**basis, "api_modell": "mistral-large-2512", "api_modell_vorschlaege": "mistral-large-2512"})
     dbs.expire_all()
     assert llm_konfig(dbs).api_modell_vorschlaege == ""
     # nur Modelle aus der Auswahl
@@ -153,7 +153,7 @@ def test_modellliste_wird_beim_anbieter_geholt(client, dbs, admin, monkeypatch):
     assert aufrufe == ["/v1/models"] and "mistral-medium-2508" in seite and "voxtral" not in seite
     client.get("/verwaltung/zusammenfassung")
     assert aufrufe == ["/v1/models"]  # nur einmal je Adresse
-    assert modellwahl.auswahl(dbs, llm_konfig(dbs))[:2] == ["mistral-medium-latest", "mistral-large-latest"]
+    assert modellwahl.auswahl(dbs, llm_konfig(dbs))[:2] == ["mistral-medium-latest", "mistral-large-2512"]
 
 
 # ---------------------------------------------------------------- 429 und Zeitgrenze

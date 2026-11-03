@@ -71,10 +71,26 @@ def _uebernehmen(me: Member, ch: schemas.CharacterIn) -> None:
     me.character_summary = (ch.summary or "").strip() or None
     me.character_backstory = (ch.backstory or "").strip() or None
     me.character_system = (ch.system or "").strip() or None
-    if "pronouns" in ch.model_fields_set:  # 0.4.28; ältere Apps schicken das Feld nicht – dann bleibt es
-        from app import aliasse
+    from app import aliasse
 
+    if "pronouns" in ch.model_fields_set:  # 0.4.28; ältere Apps schicken das Feld nicht – dann bleibt es
         me.character_pronouns = aliasse.zeichen_bereinigen(ch.pronouns or "")[:32].strip() or None
+    # 0.4.29: PUT ersetzt den ganzen Stand – fehlt das Feld, hat die Figur keine Stufe bzw. keine Klassen
+    me.character_level = aliasse.zeichen_bereinigen(ch.level or "")[:64].strip() or None
+    me.character_classes = klassen_json(ch.classes)
+
+
+def klassen_json(klassen) -> str | None:
+    """Namen ohne Steuerzeichen, getrimmt; ein danach leerer Name → 400 validation_error."""
+    from app import aliasse
+
+    aus = []
+    for k in klassen or []:
+        name = aliasse.zeichen_bereinigen(k.name)[:40].strip()
+        if not name:
+            raise errors.bad_request("validation_error", "validation_error.name")
+        aus.append({"name": name, "level": k.level})
+    return json.dumps(aus, ensure_ascii=False) if aus else None
 
 
 def setzen(db: Session, me: Member, ch: schemas.CharacterIn, beitritt: bool = False) -> None:
@@ -108,6 +124,7 @@ def loesen(db: Session, me: Member) -> None:
         e.updated_at = utcnow()
     me.character_id = me.character_version = me.character_status = None
     me.character_nickname = me.character_system = me.character_pronouns = None
+    me.character_level = me.character_classes = None  # 0.4.29
 
 
 # ---------------------------------------------------------------- Neuzugang

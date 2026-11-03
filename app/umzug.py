@@ -252,7 +252,8 @@ def packliste(db: Session, c: Campaign, zugestimmt: set[str]) -> tuple[dict, lis
             p["character"] = {"version": m.character_version, "status": m.character_status,
                               "nickname": m.character_nickname, "summary": m.character_summary,
                               "backstory": m.character_backstory, "system": m.character_system,
-                              "pronouns": m.character_pronouns}
+                              "pronouns": m.character_pronouns,
+                              "level": m.character_level, "classes": m.klassen}  # 0.4.29
             if m.portrait_updated_at:
                 for art, feld in (("full", "portrait"), ("thumb", "portraitThumb")):
                     pfad = finden(portrait_ordner(m.id), art)
@@ -490,6 +491,8 @@ class _Charakter(schemas.ApiModel):
     backstory: str | None = Field(default=None, max_length=50000)
     system: str | None = Field(default=None, max_length=64)
     pronouns: str | None = Field(default=None, max_length=200)  # 0.4.28
+    level: str | None = Field(default=None, max_length=200)  # 0.4.29
+    classes: list[dict] = Field(default=[], max_length=20)  # 0.4.29; geprüft und gekürzt beim Anlegen
 
 
 class _Platz(schemas.ApiModel):
@@ -839,6 +842,8 @@ def _anlegen(db: Session, user: User, z: zipfile.ZipFile, d: _Datei, angelegt: l
             m.character_backstory = (ch.backstory or "").strip() or None
             m.character_system = (ch.system or "").strip() or None
             m.character_pronouns = aliasse.zeichen_bereinigen(ch.pronouns or "")[:32].strip() or None
+            m.character_level = aliasse.zeichen_bereinigen(ch.level or "")[:64].strip() or None
+            m.character_classes = _klassen(ch.classes)  # 0.4.29
         db.add(m)
         db.flush()
         platz[p.key] = m
@@ -1064,6 +1069,18 @@ def nehmen(db: Session, c: Campaign, ich: Member, platz: Member) -> None:
     _zusammenlegen(db, ich, platz)
     platz_einnehmen(db, platz, user, "gm")
     c.imported_by_member_id = None
+
+
+def _klassen(roh: list[dict]) -> str | None:
+    """0.4.29: Klassen aus der Umzugsdatei – nur gültige (Name 1–40 Zeichen, Stufe 1–30), höchstens 4."""
+    aus = []
+    for k in roh or []:
+        if not isinstance(k, dict) or not isinstance(k.get("level"), int) or not 1 <= k["level"] <= 30:
+            continue
+        name = aliasse.zeichen_bereinigen(str(k.get("name") or ""))[:40].strip()
+        if name:
+            aus.append({"name": name, "level": k["level"]})
+    return json.dumps(aus[:4], ensure_ascii=False) if aus else None
 
 
 # 0.4.94: Was der Person gehört, nicht der Figur – geht beim Freigeben an ein „Ehemaliges Mitglied“

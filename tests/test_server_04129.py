@@ -210,7 +210,7 @@ def test_grundlage_vorn_gleicher_anfang_und_rolle_user(client, world, dbs, tmp_p
     s = transkribiert(client, world, dbs, tmp_path)
     basis = eingabe_bauen(dbs, dbs.get(GameSession, s["id"]))
     modell = _vorn_modell()
-    klient = sm.OpenAIKlient("https://api.mistral.ai/v1", "sk", "mistral-large-latest",
+    klient = sm.OpenAIKlient("https://api.mistral.ai/v1", "sk", "mistral-large-2512",
                              httpx.Client(transport=httpx.MockTransport(modell)))
     ablauf = sm.Ablauf(klient, schritt=lambda _n: None, stil="biograf", grundlage_vorn=True)
     d = ablauf.ausfuehren(recap_eingabe(basis), vorschlag_eingabe(dbs, dbs.get(GameSession, s["id"]), basis))
@@ -284,12 +284,12 @@ def test_probelauf_mit_stil_modell_und_grundlage_vorn(client, world, dbs, tmp_pa
 
     monkeypatch.setattr(zf, "api_klient", api_klient)
     seite = client.get("/verwaltung/zusammenfassung").text
-    assert "Stil des Kapitels" in seite and "mistral-large-latest" in seite and "Grundlage vorn" in seite
+    assert "Stil des Kapitels" in seite and "mistral-large-2512" in seite and "Grundlage vorn" in seite
     r = client.post("/verwaltung/probelauf", data={"csrf": admin, "session": s["id"], "weg": "abschrift",
                                                    "modell": "gibt-es-nicht"}, follow_redirects=False)
     assert "probe_modell" in r.headers["location"]
     r = client.post("/verwaltung/probelauf", data={"csrf": admin, "session": s["id"], "weg": "abschrift",
-                                                   "stil": "biograf", "vorn": "ja", "modell": "mistral-large-latest"},
+                                                   "stil": "biograf", "vorn": "ja", "modell": "mistral-large-2512"},
                     follow_redirects=False)
     pid = r.headers["location"].rsplit("/", 1)[1]
     for _ in range(200):
@@ -298,8 +298,8 @@ def test_probelauf_mit_stil_modell_und_grundlage_vorn(client, world, dbs, tmp_pa
         time.sleep(0.05)
     p = probelauf.lesen(pid)
     assert p.zustand == "fertig", p.fehler
-    assert p.stil == "biograf" and p.vorn and p.modell_probe == "mistral-large-latest"
-    assert p.modell.startswith("mistral-large-latest") and gesehen == [("mistral-large-latest", None)]
+    assert p.stil == "biograf" and p.vorn and p.modell_probe == "mistral-large-2512"
+    assert p.modell.startswith("mistral-large-2512") and gesehen == [("mistral-large-2512", None)]
     seite = client.get(f"/verwaltung/probelauf/{pid}").text
     assert "Biograf" in seite and "Grundlage vorn" in seite
     import json

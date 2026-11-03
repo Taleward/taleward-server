@@ -61,7 +61,8 @@ ANTWORT_RESERVE = 256
 
 # Cent je 1 Mio. Tokens (ein, aus) – Stand 09/2026, Dollarpreise ≈ Euro. Nur für die Verbrauchsanzeige.
 PREISE = {
-    "mistral-large-latest": (50, 150), "mistral-large-2512": (50, 150),
+    # 0.4.145: „mistral-large-latest“ zeigt ab 12.11.2026 auf Large 4 (teurer, mit Denkstufen) – fest bleibt 2512
+    "mistral-large-latest": (50, 150), "mistral-large-2512": (50, 150), "mistral-large-4-0": (70, 210),
     "mistral-medium-latest": (150, 750), "mistral-small-latest": (15, 60),
     "ministral-8b-latest": (15, 15), "ministral-14b-latest": (20, 20),
     # Anthropic (Stand 10/2026); Haiku kostet bis 100 000 Token Eingabe weniger – hier der höhere Satz, damit das
@@ -126,17 +127,37 @@ def wartezeit(r: httpx.Response, versuch: int) -> float:
     return max(1.0, min(sek, 120.0))
 
 
+DENKSTUFEN = ("low", "medium", "high")
+
+
+def modell_teilen(name: str) -> tuple[str, str | None]:
+    """0.4.145: „mistral-large-4-0:low“ → Modell und Denkstufe (reasoning_effort). Ohne Zusatz: Stufe des Anbieters."""
+    basis, _, stufe = (name or "").partition(":")
+    return (basis, stufe) if stufe in DENKSTUFEN else (name, None)
+
+
+def antwort_text(inhalt) -> str:
+    """0.4.145: Modelle mit Denkstufen liefern content als Liste von Teilen (thinking, text) statt als Text. Gedanken
+    fallen weg, nur die Textteile zählen."""
+    if isinstance(inhalt, str):
+        return inhalt
+    if isinstance(inhalt, list):
+        return "".join(str(t.get("text") or "") for t in inhalt if isinstance(t, dict) and t.get("type") == "text")
+    return ""
+
+
 class OpenAIKlient:
     """OpenAI-kompatible Schnittstelle (Mistral, OpenAI, viele andere): POST {url}/chat/completions."""
 
     def __init__(self, url: str, api_key: str, modell: str, client: httpx.Client | None = None,
                  cent_pro_mio: tuple[float, float] | None = None):
         self.url, self.modell = url.rstrip("/"), modell
+        self.modell_name, self.denkstufe = modell_teilen(modell)
         # Lesegrenze 5 min je Aufruf (Antworten kommen ohne Streaming am Stück; selbst lange Kapitel dauern bei den
         # Anbietern unter 2 min). Ein Anbieter, der gar nicht antwortet, kostet so höchstens 5 min statt 10.
         self.client = client or httpx.Client(timeout=httpx.Timeout(300.0, connect=20.0))
         self.headers = {"Authorization": f"Bearer {api_key}"}
-        self.cent_pro_mio = cent_pro_mio or PREISE.get(modell, (0, 0))
+        self.cent_pro_mio = cent_pro_mio or PREISE.get(modell) or PREISE.get(self.modell_name, (0, 0))
         # Mistral berechnet Eingabe-Token aus dem Zwischenspeicher (gleicher Anfang wie ein früherer Aufruf) mit 10 %
         # des Preises (docs.mistral.ai, Prompt caching, Stand 10/2026); bei anderen Anbietern rechnen wir vorsichtig
         # mit dem vollen Preis.
@@ -147,8 +168,10 @@ class OpenAIKlient:
 
     def nachrichten(self, messages: list[dict]) -> Antwort:
         """0.4.129: beliebige Folge von Nachrichten (für „Grundlage vorn“, siehe GrundlageVorn)."""
-        body = {"model": self.modell, "temperature": 0.3, "response_format": {"type": "json_object"},
+        body = {"model": self.modell_name, "temperature": 0.3, "response_format": {"type": "json_object"},
                 "messages": messages}
+        if self.denkstufe:
+            body["reasoning_effort"] = self.denkstufe
         for versuch in range(VERSUCHE):
             letzter = versuch == VERSUCHE - 1
             try:
@@ -182,7 +205,7 @@ class OpenAIKlient:
             details = u.get("prompt_tokens_details")
             gespeichert = details.get("cached_tokens") if isinstance(details, dict) else 0
             ein = int(u.get("prompt_tokens") or 0)
-            return Antwort(d["choices"][0]["message"]["content"] or "", ein, int(u.get("completion_tokens") or 0),
+            return Antwort(antwort_text(d["choices"][0]["message"]["content"]), ein, int(u.get("completion_tokens") or 0),
                            min(ein, max(0, int(gespeichert or 0))))
         raise SprachmodellFehler("Sprachmodell nicht erreichbar.")
 
@@ -215,7 +238,7 @@ class OpenAIKlient:
         try:
             a = self.chat('Antworte nur mit dem JSON-Objekt {"ok": true}.', 'Bitte {"ok": true} zurückgeben.')
         except SprachmodellFehler as e:
-            if modelle and self.modell not in modelle:
+            if modelle and self.modell_name not in modelle:
                 # Der Schlüssel hat die Modellliste geholt, ist also gültig – nur dieses Modell darf er nicht nutzen.
                 raise SprachmodellFehler(f"Der Schlüssel ist gültig, aber das Modell {self.modell} ist für ihn nicht "
                                          f"freigeschaltet. Bitte eines aus der Liste wählen. ({e})",

@@ -52,8 +52,10 @@ ANBIETER: tuple[Anbieter, ...] = (
              "(oft Fehler 429), und nicht jedes Modell ist freigeschaltet.",
              "Preise der Mistral-Modelle sind hinterlegt; der Schlüssel der externen Transkription gilt auch hier.",
              "https://docs.mistral.ai", anzeige="Mistral AI", land="FR",
-             modelle=("mistral-medium-latest", "mistral-large-latest", "mistral-small-latest"),
-             modell_vorschlaege="mistral-large-latest"),
+             # 0.4.145: feste Fassung statt „mistral-large-latest“ (wechselt am 12.11.2026 auf Large 4); Large 4 zum Messen
+             modelle=("mistral-medium-latest", "mistral-large-2512", "mistral-large-4-0:low", "mistral-large-4-0",
+                      "mistral-small-latest"),
+             modell_vorschlaege="mistral-large-2512"),
     Anbieter("ionos", "IONOS AI Model Hub (DE)", "https://openai.inference.de-txl.ionos.com/v1",
              "openai/gpt-oss-120b", True, "Deutschland (Berlin)",
              "Laut IONOS werden Kundendaten nie zum Training genutzt und nicht gespeichert; Vertrag zur "

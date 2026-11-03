@@ -173,10 +173,23 @@ class Member(Base):
     # 0.4.28: wie über die Figur gesprochen wird (öffentlich wie die Kurzbeschreibung) und Zählerstände als JSON
     # [{kindId, value, max}] – die Stände nur für die Person selbst und die SL (app/spielende.py)
     character_pronouns: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # 0.4.29: Klassen mit Stufe als JSON [{name, level}] und Stufe als freier Text – sichtbar wie die Kurzbeschreibung,
+    # nie an ein Sprachmodell
+    character_classes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    character_level: Mapped[str | None] = mapped_column(String(64), nullable=True)
     counters: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     campaign: Mapped[Campaign] = relationship(back_populates="members")
     user: Mapped[User | None] = relationship()
+
+    @property
+    def klassen(self) -> list[dict]:
+        try:
+            liste = json.loads(self.character_classes or "[]")
+        except ValueError:
+            return []
+        return [{"name": str(k["name"]), "level": int(k["level"])} for k in liste
+                if isinstance(k, dict) and k.get("name") and isinstance(k.get("level"), int)]
 
     @property
     def aktiv(self) -> bool:

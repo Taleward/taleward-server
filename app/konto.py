@@ -270,6 +270,7 @@ def exportieren(db: Session, u: User, basis_url: str) -> dict:
             "recordingConsentAt": _z(m.recording_consent_at), "moveConsentAt": _z(m.move_consent_at),
             "portrait": bilder(m),
             "characterPronouns": m.character_pronouns,  # 0.4.28
+            "characterLevel": m.character_level, "characterClasses": m.klassen,  # 0.4.29
             "counters": [w.model_dump(mode="json", by_alias=True) for w in (spielende.staende(m, kampagnen[m.campaign_id]) or [])],
         } for m in mitglieder],
         **spielende.export(db, member_ids),  # 0.4.28: eigene Vorschläge (wie die Person sie sieht) und Merkstellen
