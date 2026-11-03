@@ -50,6 +50,9 @@ def _wartung_starten() -> threading.Event | None:
                     from app import spielende
 
                     spielende.aufraeumen(db)  # 0.4.144: entschiedene Vorschläge von Spielenden nach 90 Tagen
+                    from app import aufbewahrung
+
+                    aufbewahrung.leere_runden_entfernen(db)  # 0.4.147: Runden ohne Aufnahme nach einer Woche
                     db.commit()
                 if any(ergebnis.values()):
                     log.info("Wartung: %s", ergebnis)

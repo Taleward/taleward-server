@@ -158,3 +158,30 @@ def _utc(t):
     from datetime import timezone
 
     return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+LEER_STUNDEN = 7 * 24  # eine Woche: wer offline aufnimmt und erst Tage später hochlädt, verliert seine Runde nicht
+
+
+def leere_runden_entfernen(db: Session) -> int:
+    """0.4.147 (Issue: „Noch keine Aufnahme“): Runden, für die nie etwas hochgeladen wurde – etwa weil das Hochladen
+    an einer fehlenden Zustimmung scheiterte oder das Mikrofon gesperrt war –, nach LEER_STUNDEN löschen, damit sie
+    nicht als „arbeitet“ stehen bleiben und ihre Nummer belegen. Bleibt stehen, was die SL dort schon hat (Notiz,
+    Kommentare) und was noch in der Zukunft gespielt wird."""
+    from datetime import timedelta
+
+    from sqlalchemy import exists
+
+    from app.models import Comment, GmNote
+    from app.routers.sessions import runde_entfernen
+
+    grenze = utcnow() - timedelta(hours=LEER_STUNDEN)
+    leer = list(db.scalars(select(GameSession).where(
+        GameSession.state == "created", GameSession.created_at < grenze, GameSession.played_at < grenze,
+        ~exists().where(Upload.session_id == GameSession.id),
+        ~exists().where(GmNote.session_id == GameSession.id),
+        ~exists().where(Comment.session_id == GameSession.id))
+        .order_by(GameSession.number.desc())))  # von hinten, damit das Aufrücken die übrigen nicht verschiebt
+    for s in leer:
+        runde_entfernen(db, s)
+    return len(leer)

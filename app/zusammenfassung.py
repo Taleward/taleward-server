@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
 from dataclasses import asdict, dataclass, field
@@ -408,6 +409,16 @@ def _teile_json(teile: list, text: str) -> str | None:
     return json.dumps(gut, ensure_ascii=False) if gut else None
 
 
+_NUMMER_VORN = re.compile(r"^\s*(?:kapitel|chapter|teil|part|session|sitzung|runde)\s*\d+\s*[:.–—-]\s*", re.I)
+
+
+def titel_ohne_nummer(titel: str) -> str:
+    """0.4.147: „Kapitel 2: Der Krater …“ → „Der Krater …“ – die App setzt die Nummer selbst davor."""
+    t = (titel or "").strip()
+    ohne = _NUMMER_VORN.sub("", t).strip()
+    return ohne or t
+
+
 def speichern(db: Session, s: GameSession, erg: Ergebnis, rechenzeit: float, engine: str = "local",
               worker_id: str | None = None) -> None:
     """Ersetzt Recap und Vorschläge dieser Session (bei Neustart) und stellt die Session zur Prüfung bereit."""
@@ -422,7 +433,7 @@ def speichern(db: Session, s: GameSession, erg: Ergebnis, rechenzeit: float, eng
                                         .order_by(TranscriptSegment.position))]
     stellen = pruefteil.Stellen(abschnitte)
     text = erg.text.strip()
-    db.add(Recap(session_id=s.id, title=erg.titel.strip()[:300] or f"Kapitel {s.number}", text=text,
+    db.add(Recap(session_id=s.id, title=titel_ohne_nummer(erg.titel)[:300] or f"Kapitel {s.number}", text=text,
                  open_threads=json.dumps([f.strip() for f in erg.offene_faeden if f.strip()], ensure_ascii=False),
                  model=erg.modell, review=pruefteil.als_json(pruefteil.bauen(erg.pruefung, text, stellen, sprache)),
                  parts=_teile_json(erg.teile, text)))
@@ -431,6 +442,7 @@ def speichern(db: Session, s: GameSession, erg: Ergebnis, rechenzeit: float, eng
     from app import dubletten, woerterbuch
 
     allgemein = woerterbuch.liste(sprache or "de")
+    welt_text = db.get(Campaign, s.campaign_id).world_info or ""
     # Qualitätsprüfung Stufe 1: Belege gegen das Transkript prüfen (erfundene Zitate fallen weg)
     transkript = stellen.woerter
     ohne_beleg = 0
@@ -452,6 +464,13 @@ def speichern(db: Session, s: GameSession, erg: Ergebnis, rechenzeit: float, eng
         sichtbar, grund, flags = v.suggested_visibility, v.visibility_reason, list(v.flags)
         sicherheit = max(0.0, min(1.0, v.confidence))
         geprueft = belege.pruefen(transkript, v.evidence)
+        # 0.4.147 (Issue: „Kaltenfurt“): Was nur aus der Weltbeschreibung stammt oder dessen Name in der Abschrift nie
+        # fällt, gilt nicht als belegt – auch wenn das Modell einen echten, aber fremden Satz als Beleg nennt.
+        fremd = erg.modell != "attrappe" and (  # Testmodus: Platzhalter-Namen kommen in keiner Abschrift vor
+            (v.action == "create" and not belege.name_vorkommt(transkript, v.title))
+            or belege.aus_text(v.detail, welt_text))
+        if fremd:
+            geprueft = []
         if not geprueft:
             ohne_beleg += 1
             sicherheit = min(sicherheit, belege.KEIN_BELEG_SICHERHEIT)

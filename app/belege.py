@@ -115,3 +115,37 @@ def pruefen(transkript: Transkript, evidence: list[dict]) -> list[dict]:
             gesehen.add(treffer)
             gut.append({"start": round(treffer[0], 2), "quote": treffer[1]})
     return gut
+
+
+# ---------------------------------------------------------------- 0.4.147: Herkunft eines Vorschlags
+NAME_MIN = 4          # Wörter eines Namens, die zählen („Alte Abtei“ → „abtei“)
+NAME_AEHNLICH = 0.8   # „Nostrid“ ≈ „Nostria“ – Erkennungsfehler der Abschrift
+_FUELL = {"der", "die", "das", "den", "dem", "des", "ein", "eine", "einer", "eines", "alte", "alter", "altes",
+          "neue", "neuer", "neues", "the", "old", "new", "von", "zum", "zur", "und", "and"}
+
+
+def name_vorkommt(transkript: Transkript, name: str) -> bool:
+    """Fällt der Name (oder ein tragendes Wort daraus, ähnlich geschrieben) irgendwo in der Abschrift? Namen ohne
+    tragendes Wort (kurz, nur Füllwörter) gelten als gefunden – geprüft wird nur, was sich sicher prüfen lässt."""
+    teile = [n for n in (normal(t) for t in _TOKEN.findall(name or "")) if len(n) >= NAME_MIN and n not in _FUELL]
+    if not teile:
+        return True
+    for t in teile:
+        if t in transkript.index:
+            return True
+        for w in transkript.index:
+            if w[:1] == t[:1] and abs(len(w) - len(t)) <= 2 and SequenceMatcher(None, t, w).ratio() >= NAME_AEHNLICH:
+                return True
+    return False
+
+
+def aus_text(detail: str, quelle: str, min_woerter: int = 4) -> bool:
+    """Steht ein Satz des Vorschlags (ab min_woerter Wörtern) wörtlich in der Quelle (z. B. der Weltbeschreibung)?"""
+    if not detail or not quelle:
+        return False
+    q = " " + " ".join(n for n in (normal(t) for t in _TOKEN.findall(quelle)) if n) + " "
+    for satz in re.split(r"(?<=[.!?])\s+|\n+", detail):
+        w = [n for n in (normal(t) for t in _TOKEN.findall(satz)) if n]
+        if len(w) >= min_woerter and f" {' '.join(w)} " in q:
+            return True
+    return False

@@ -162,7 +162,7 @@ def test_api_spoilerschutz_und_ergebnis(client, world, dbs, tmp_path, api):
         assert verboten not in roh and verboten not in recap["nutzer"]
 
     r = client.get(f"{API}/sessions/{s['id']}/recap", headers=w["gm"]).json()
-    assert r["title"] == "Kapitel 1: Der Ritt" and r["openThreads"] == ["Wer hat den Brief geschrieben?"]
+    assert r["title"] == "Der Ritt" and r["openThreads"] == ["Wer hat den Brief geschrieben?"]
     # Prüfteil: über die Cloud keine Nachbesserung (0.4.62) – der unbelegte Absatz bleibt und ist markiert
     assert r["text"] == "Die Gruppe ritt nach Rabenfels.\n\nDort wartete Regen."
     rv = r["review"]

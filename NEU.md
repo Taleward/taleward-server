@@ -1,7 +1,9 @@
-Fassung 0.4.146
+Fassung 0.4.147
 
 ## Was ist neu
 
-- Die Anleitungen für die Anmeldung mit Microsoft, Google und Discord sagen jetzt genau, welches Feld und welche Spalte gemeint ist und was freiwillig ist, mit Knopf zum Kopieren der Rückleitungsadresse und den Adressen für Startseite, Nutzungsbedingungen und Datenschutz.
-- Die Namen der Figuren und Gäste einer Runde helfen der Abschrift, sie richtig zu schreiben.
-- Seit 0.4.145: Vorschläge über Mistral bleiben fest bei Large 3, Large 4 lässt sich im Probelauf vergleichen; Klasse und Stufe am Charakter; Hinweis in der Übersicht, wenn Einstellungen nicht zur Betriebsart passen.
+- Vorschläge für die Bibel, die nur aus der Weltbeschreibung stammen oder deren Name in der Abschrift nie fällt, gelten nicht mehr als belegt. Sie stehen mit „Beleg nicht gefunden“ da und werden nicht mehr als unauffällig mit übernommen.
+- Kapiteltitel kommen ohne „Kapitel 2:“ davor, die Nummer setzt die App ohnehin.
+- Runden, für die nie eine Aufnahme ankam (etwa weil eine Zustimmung fehlte oder das Mikrofon gesperrt war), verschwinden nach einer Woche von selbst, und ihre Nummer wird wieder frei. Runden mit SL-Notiz bleiben.
+- Eigennamen aus dem Kampagnentitel und der Weltbeschreibung helfen der Abschrift beim Schreiben.
+- Seit 0.4.145: Mistral bleibt fest bei Large 3, Klasse und Stufe am Charakter, neue Anleitungen für die Anmeldedienste.

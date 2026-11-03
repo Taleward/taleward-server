@@ -1,5 +1,6 @@
 """Schritt 1b: Grundlagen aus Schnittstelle 0.3.3. Alle Antworten werden zusätzlich gegen die YAML geprüft."""
 import sqlite3
+from datetime import datetime, timezone
 import uuid
 
 import jwt
@@ -271,9 +272,10 @@ def test_migration_aus_schritt1(tmp_path, monkeypatch):
                 (uid, hash_password("altespasswort")))
     con.execute("INSERT INTO campaigns VALUES (?, 'Alte Kampagne', '', '2026-09-01 10:00:00')", (cid,))
     con.execute("INSERT INTO members VALUES (?, ?, ?, 'gm', NULL, '2026-09-01 10:00:00')", (mid, cid, uid))
+    # 0.4.147: Runden ohne Aufnahme räumt die Wartung nach einer Woche weg – diese ist frisch
+    jetzt = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0).isoformat(" ")
     con.execute("INSERT INTO sessions (id, campaign_id, number, played_at, state, state_updated_at, created_at) "
-                "VALUES (?, ?, 1, '2026-09-02 18:00:00', 'created', '2026-09-02 18:00:00', '2026-09-02 18:00:00')",
-                (sid, cid))
+                "VALUES (?, ?, 1, ?, 'created', ?, ?)", (sid, cid, jetzt, jetzt, jetzt))
     con.execute("INSERT INTO attendees VALUES (?, ?, 0, 1, '2026-09-02 18:00:00')", (sid, mid))
     con.commit()
     con.close()

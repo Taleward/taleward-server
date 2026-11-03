@@ -5,6 +5,8 @@ Nie enthalten: Charakter-Hintergründe, SL-Notizen, gmNotes, Kommentare (nur Nam
 """
 import json
 
+import re
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -72,7 +74,29 @@ def abgeleitet(db: Session, campaign: Campaign) -> list[str]:
         namen.append(e.name)
         namen.extend(e.aliases)  # 0.4.21: „Auch genannt“ direkt nach dem Namen
     namen.append(campaign.system_name)
+    namen += eigennamen(campaign)  # 0.4.147
     return _eindeutig(namen)
+
+
+WELT_NAMEN = 15
+_WORT = re.compile(r"[^\W\d_][\w'’-]{3,}")
+
+
+def eigennamen(campaign: Campaign) -> list[str]:
+    """0.4.147 (Issue: „Nostrid“ statt „Nostria“): Eigennamen aus Kampagnentitel und Weltbeschreibung – Wörter mit
+    großem Anfangsbuchstaben, die nicht in der allgemeinen Wortliste stehen. Ohne Wortliste nur aus dem Titel nichts
+    Allgemeines erkennbar, dann bleibt es leer (lieber keine Namen als Füllwörter wie „Fähre“ oder „Weg“)."""
+    from app import woerterbuch
+
+    allgemein = woerterbuch.liste(campaign.language if campaign.language in ("de", "en") else "de")
+    if not allgemein:
+        return []
+    aus: list[str] = []
+    for text in (campaign.title or "", (campaign.world_info or "")[:4000]):
+        for w in _WORT.findall(text):
+            if w[:1].isupper() and w.casefold() not in allgemein and w not in aus:
+                aus.append(w)
+    return aus[:WELT_NAMEN]
 
 
 def anzeige(db: Session, campaign: Campaign) -> list[str]:

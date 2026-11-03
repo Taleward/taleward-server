@@ -145,7 +145,7 @@ def test_offene_vorschlaege_werden_verworfen(client, world, dbs, tmp_path):
     assert {v["decision"] for v in client.get(f"{API}/sessions/{s['id']}/proposals", headers=w["gm"]).json()} \
         == {"rejected"}
     # Titel der Session kommt aus dem Recap, wenn sie keinen hatte
-    assert client.get(f"{API}/sessions/{s['id']}", headers=w["pl"]).json()["title"].startswith("Kapitel")
+    assert client.get(f"{API}/sessions/{s['id']}", headers=w["pl"]).json()["title"] == "Platzhalter"  # ohne Nummer
 
 
 # ---------------------------------------------------------------- Spoilerschutz der Eingabe

@@ -79,6 +79,24 @@ def create_session(
     return session_out(s)
 
 
+def runde_entfernen(db: Session, s: GameSession) -> None:
+    """Unveröffentlichte Runde samt Aufnahme, Hörproben und Entwürfen löschen; die Nummer wird wieder frei, spätere
+    Kapitel rücken auf (aufsteigend, damit die Eindeutigkeit hält). Ohne Commit."""
+    for up in db.scalars(select(Upload).where(Upload.session_id == s.id)):
+        storage.delete_upload_files(up.id)
+    storage.delete_samples(s.id)
+    from app import abrechnung
+
+    abrechnung.vor_loeschen(db, session_id=s.id)  # 0.4.87: Gestartetes wird vor dem Löschen gebucht
+    campaign_id, nummer = s.campaign_id, s.number
+    db.delete(s)
+    db.flush()
+    for spaeter in db.scalars(select(GameSession).where(GameSession.campaign_id == campaign_id,
+                                                        GameSession.number > nummer).order_by(GameSession.number)):
+        spaeter.number -= 1
+        db.flush()
+
+
 @router.delete("/sessions/{sessionId}", tags=["Sessions"], status_code=204)
 def delete_session(sessionId: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     """Unveröffentlichtes Kapitel verwerfen (0.4.5): Session mit Aufnahme, Transkript, Hörproben, Vorschlägen und
@@ -89,20 +107,7 @@ def delete_session(sessionId: str, user: User = Depends(current_user), db: Sessi
     s = acc.session
     if s.state == "published":
         raise errors.conflict("session_published")
-    for up in db.scalars(select(Upload).where(Upload.session_id == s.id)):
-        storage.delete_upload_files(up.id)
-    storage.delete_samples(s.id)
-    from app import abrechnung
-
-    abrechnung.vor_loeschen(db, session_id=s.id)  # 0.4.87: Gestartetes wird vor dem Löschen gebucht
-    campaign_id, nummer = s.campaign_id, s.number
-    db.delete(s)
-    db.flush()
-    # Die Nummer wird wieder frei: spätere Kapitel rücken auf (aufsteigend, damit die Eindeutigkeit hält)
-    for spaeter in db.scalars(select(GameSession).where(GameSession.campaign_id == campaign_id,
-                                                        GameSession.number > nummer).order_by(GameSession.number)):
-        spaeter.number -= 1
-        db.flush()
+    runde_entfernen(db, s)
     db.commit()
     return Response(status_code=204)
 
