@@ -1,9 +1,7 @@
-Fassung 0.4.145
+Fassung 0.4.146
 
 ## Was ist neu
 
-- Das Cloud-Sprachmodell für Vorschläge bleibt fest bei Mistral Large 3. Der bisher genutzte Name wechselt am 12.11. von selbst auf ein neues, teureres Modell; wer ihn eingestellt hatte, wird umgestellt. Mistral Large 4 lässt sich im Probelauf vergleichen, auch mit niedriger Denkstufe.
-- Klasse und Stufe am Charakter (für die App ab Schnittstelle 0.4.29), sichtbar für alle am Tisch. Sie gehen nie an ein Sprachmodell.
-- Die Übersicht der Verwaltung sagt Bescheid, wenn Einzel-Einstellungen nicht zur gewählten Betriebsart passen, zum Beispiel Kapitel über die Cloud bei „Lokaler Server“.
-- Kleinere Verbesserungen.
-- Seit 0.4.144: Spielende schlagen Einträge vor, merken sich Stellen während der Runde, Pronomen und Zähler am Charakter; seit 0.4.143 Windows Hello als zweiter Faktor.
+- Die Anleitungen für die Anmeldung mit Microsoft, Google und Discord sagen jetzt genau, welches Feld und welche Spalte gemeint ist und was freiwillig ist, mit Knopf zum Kopieren der Rückleitungsadresse und den Adressen für Startseite, Nutzungsbedingungen und Datenschutz.
+- Die Namen der Figuren und Gäste einer Runde helfen der Abschrift, sie richtig zu schreiben.
+- Seit 0.4.145: Vorschläge über Mistral bleiben fest bei Large 3, Large 4 lässt sich im Probelauf vergleichen; Klasse und Stufe am Charakter; Hinweis in der Übersicht, wenn Einstellungen nicht zur Betriebsart passen.

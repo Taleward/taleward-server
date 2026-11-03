@@ -16,25 +16,32 @@ from app.verwaltung.router import _seite, _zurueck, csrf_pruefen, faktor_frisch,
 
 router = APIRouter(prefix="/verwaltung", include_in_schema=False)
 
+# 0.4.146: Schritte nach Benjamins Durchgang (28.10.) – je Schritt genau das Feld bzw. die Spalte, die gemeint ist, und
+# was freiwillig ist. Stand der Beschriftungen: November 2026.
 ANLEITUNG = {
-    "google": ("https://console.cloud.google.com/apis/credentials", [
-        "In der Google Cloud Console ein Projekt anlegen (z. B. „Taleward Verein“).",
-        "„OAuth-Zustimmungsbildschirm“: Nutzertyp Extern, App-Name und Kontakt eintragen, Bereiche openid, email, profile.",
-        "„Anmeldedaten“ → „Anmeldedaten erstellen“ → „OAuth-Client-ID“ → Typ Webanwendung.",
-        "Bei „Autorisierte Weiterleitungs-URIs“ die Rückleitungsadresse unten eintragen.",
-        "Client-ID und Clientschlüssel hier eintragen.",
+    "google": ("https://console.cloud.google.com/auth/clients", [
+        "In der Google Cloud Console oben ein Projekt wählen oder anlegen (z. B. „Taleward Verein“).",
+        "Links „Google Auth Platform“ → „Branding“: App-Name und Support-E-Mail eintragen; Startseite, Datenschutz und Nutzungsbedingungen mit den Adressen unten (freiwillig).",
+        "„Zielgruppe“: Nutzertyp „Extern“. Danach „App veröffentlichen“ drücken – solange dort „Testen“ steht, können sich nur eingetragene Testnutzer anmelden. Eine Prüfung durch Google ist für Name und E-Mail nicht nötig.",
+        "„Clients“ → „Client erstellen“ → Anwendungstyp „Webanwendung“ → bei „Autorisierte Weiterleitungs-URIs“ die Rückleitungsadresse unten eintragen → „Erstellen“.",
+        "Im Fenster danach „Client-ID“ und „Clientschlüssel“ kopieren und hier eintragen. Den Clientschlüssel zeigt Google nur jetzt; verpasst → beim Client einen neuen Schlüssel hinzufügen und den alten löschen.",
     ]),
     "discord": ("https://discord.com/developers/applications", [
-        "Im Discord Developer Portal „New Application“ anlegen (z. B. „Taleward Verein“).",
-        "Unter „OAuth2“ bei „Redirects“ die Rückleitungsadresse unten eintragen.",
-        "Client ID und Client Secret („Reset Secret“) hier eintragen.",
+        "Im Discord Developer Portal „New Application“ → Name (z. B. „Taleward Verein“) → anlegen.",
+        "Links „OAuth2“ → bei „Redirects“ auf „Add Redirect“ → Rückleitungsadresse unten einfügen → unten in der Leiste „Save Changes“ (sonst ist die Adresse nicht gespeichert).",
+        "Auf derselben Seite „Client ID“ kopieren und hier eintragen.",
+        "„Client Secret“ → „Reset Secret“ → bestätigen → den angezeigten Schlüssel kopieren und hier eintragen. Er wird nur einmal angezeigt.",
+        "Bot, Intents und Bereiche (Scopes) braucht es dafür nicht – die wählt der Server selbst.",
     ]),
-    "microsoft": ("https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade", [
-        "Im Microsoft Entra Admin Center „App-Registrierungen“ → „Neue Registrierung“.",
-        "Kontotypen: „Konten in allen Organisationsverzeichnissen und persönliche Microsoft-Konten“.",
-        "Umleitungs-URI: Plattform Web, die Rückleitungsadresse unten.",
-        "Unter „Zertifikate & Geheimnisse“ einen geheimen Clientschlüssel erstellen.",
-        "Anwendungs-ID (Client) und den Wert des Geheimnisses hier eintragen.",
+    "microsoft": ("https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade", [
+        "Mit einem privaten Microsoft-Konto (Outlook, Hotmail) braucht es ein eigenes Verzeichnis. Ob es eins gibt, zeigt das Azure-Portal oben rechts: Profilbild → „Verzeichnis wechseln“ (meist „Standardverzeichnis“). Gibt es keins, ein kostenloses Azure-Konto anlegen (die Kreditkarte dient nur zur Prüfung). Der Link unten führt direkt zu den App-Registrierungen.",
+        "„Neue Registrierung“ → Name (z. B. „Taleward Verein“). Das Feld „Unterstützte Kontotypen“ steht auf „Nur ein Mandant“ – umstellen auf „Konten in allen Organisationsverzeichnissen … und persönliche Microsoft-Konten“. In der Übersicht steht danach „Alle Microsoft-Kontobenutzer“.",
+        "Bei „Umleitungs-URI“ die Plattform „Web“ wählen und die Rückleitungsadresse unten eintragen (so, ohne /api/v1) → „Registrieren“.",
+        "In der Übersicht stehen drei Kennungen untereinander. Nur „Anwendungs-ID (Client)“ kopieren und hier als Client-ID eintragen – nicht Objekt-ID, nicht Verzeichnis-ID.",
+        "„Zertifikate & Geheimnisse“ → „Neuer geheimer Clientschlüssel“ → Ablauf wählen (höchstens 24 Monate) → „Hinzufügen“. Aus der Spalte „Wert“ kopieren, nicht „Geheimnis-ID“. Der Wert wird nur jetzt angezeigt; verpasst → neuen Schlüssel anlegen, alten löschen.",
+        "Freiwillig: „Branding und Eigenschaften“ → Startseite, Nutzungsbedingungen und Datenschutz mit den Adressen unten; ein Logo braucht es nicht.",
+        "Steht dort orange „nicht überprüft“ (Herausgeber): Private Konten können sich trotzdem anmelden, nur manche Firmen- oder Schulkonten sind gesperrt. Die Herausgeberprüfung ist freiwillig.",
+        "Der Schlüssel läuft nach höchstens 24 Monaten ab, danach geht die Anmeldung mit Microsoft still nicht mehr. Den Tag notieren und rechtzeitig einen neuen Schlüssel anlegen und hier eintragen.",
     ]),
     "apple": ("https://developer.apple.com/account/resources/identifiers/list/serviceId", [
         "Braucht ein Apple-Entwicklerkonto (kostenpflichtig). Nötig erst mit einer iPhone-Fassung der App.",
@@ -43,11 +50,15 @@ ANLEITUNG = {
         "Services ID (als Client-ID), Team-ID, Key-ID und den Inhalt der .p8-Datei hier eintragen.",
     ]),
 }
+# Feldname für den Schlüssel, so wie ihn der Anbieter nennt
+SCHLUESSEL_NAME = {"google": "Clientschlüssel", "discord": "Client Secret",
+                   "microsoft": "Wert des geheimen Clientschlüssels"}
 
 
 def _dienste(db: Session, basis: str) -> list[dict]:
     return [{"id": d, "name": anmeldedienste.DIENSTE[d]["name"], "k": anmeldedienste.konfig(db, d),
-             "rueck": anmeldedienste.rueckleitung(basis, d), "link": ANLEITUNG[d][0], "schritte": ANLEITUNG[d][1]}
+             "rueck": anmeldedienste.rueckleitung(basis, d), "link": ANLEITUNG[d][0], "schritte": ANLEITUNG[d][1],
+             "schluessel_name": SCHLUESSEL_NAME.get(d, "Clientschlüssel (Secret)")}
             for d in anmeldedienste.REIHENFOLGE]
 
 

@@ -16,7 +16,13 @@
     <ol class="hilfe">{% for s in d.schritte %}<li>{{ _(s) }}</li>{% endfor %}</ol>
     <p class="hilfe"><a href="{{ d.link }}" rel="noopener noreferrer" target="_blank">{{ _("Zur Seite des Anbieters") }}</a></p>
   </details>
-  <p class="umbruch">{{ _("Rückleitungsadresse") }}: <code class="ganz">{{ d.rueck }}</code></p>
+  <p class="umbruch kopierzeile">{{ _("Rückleitungsadresse") }}: <code class="ganz" id="rueck-{{ d.id }}">{{ d.rueck }}</code>
+    <button class="tw-btn tw-btn--quiet" type="button" data-kopieren="rueck-{{ d.id }}" data-fertig="{{ _('Kopiert') }}" hidden>{{ _("Kopieren") }}</button></p>
+  {% if d.id != "apple" %}<details><summary>{{ _("Adressen für Startseite, Nutzungsbedingungen und Datenschutz (freiwillig)") }}</summary>
+    <p class="umbruch kopierzeile">{{ _("Startseite") }}: <code class="ganz">{{ basis }}</code></p>
+    <p class="umbruch kopierzeile">{{ _("Nutzungsbedingungen") }}: <code class="ganz">{{ basis }}/nutzungsbedingungen</code></p>
+    <p class="umbruch kopierzeile">{{ _("Datenschutz") }}: <code class="ganz">{{ basis }}/datenschutz</code></p>
+  </details>{% endif %}
   <form class="formular" method="post" action="/verwaltung/anmeldung/{{ d.id }}">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label>{{ _("Services ID") if d.id == "apple" else _("Client-ID") }} <input type="text" name="client_id" value="{{ d.k.client_id }}" maxlength="300" autocomplete="off"></label>
@@ -25,7 +31,7 @@
     <label>{{ _("Key-ID") }} <input type="text" name="key_id" value="{{ d.k.key_id }}" maxlength="40" autocomplete="off"></label>
     <label>{{ _("Privater Schlüssel (.p8)") }} <textarea name="private_key" rows="4" placeholder="{{ _('hinterlegt – leer lassen, um ihn zu behalten') if d.k.private_key else '-----BEGIN PRIVATE KEY-----' }}"></textarea></label>
     {% else %}
-    <label>{{ _("Clientschlüssel (Secret)") }} <input type="password" name="client_secret" autocomplete="new-password" data-lpignore="true" data-1p-ignore data-bwignore placeholder="{{ _('hinterlegt – leer lassen, um ihn zu behalten') if d.k.client_secret else '' }}"></label>
+    <label>{{ _(d.schluessel_name) }} <input type="password" name="client_secret" autocomplete="new-password" data-lpignore="true" data-1p-ignore data-bwignore placeholder="{{ _('hinterlegt – leer lassen, um ihn zu behalten') if d.k.client_secret else '' }}"></label>
     {% endif %}
     {% if d.k.eingerichtet %}<label class="haken"><input type="checkbox" name="entfernen" value="1"> {{ _("Diesen Dienst ausschalten und Schlüssel löschen") }}</label>{% endif %}
     <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Speichern") }}</button></div>
@@ -49,4 +55,5 @@
 </div>
 {% endif %}
 <p class="hilfe">{{ _("Jeder eingeschaltete Dienst gehört in den Datenschutzhinweis.") }} <a href="/verwaltung/assistent/datenschutz">{{ _("Datenschutzhinweis") }}</a></p>
+<script src="{{ statisch('kopieren.js') }}" defer></script>
 {% endblock %}

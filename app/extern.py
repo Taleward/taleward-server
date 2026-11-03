@@ -156,7 +156,7 @@ def verarbeiten(db: Session, job: Job, klient: MistralKlient | None = None) -> N
     klient = klient or MistralKlient(k)
     sitzung = db.get(GameSession, job.session_id)
     up = db.get(Upload, job.upload_id)
-    hotwords = fuer_kampagne(db, db.get(Campaign, sitzung.campaign_id), sitzung.number)
+    hotwords = fuer_kampagne(db, db.get(Campaign, sitzung.campaign_id), sitzung.number, sitzung)
     arbeit = Path(tempfile.mkdtemp(prefix="extern-", dir=str(storage.uploads_root().parent)))
     t0 = time.monotonic()
     job_id, campaign_id, session_id = job.id, sitzung.campaign_id, sitzung.id

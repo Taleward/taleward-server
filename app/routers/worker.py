@@ -210,7 +210,7 @@ def _auftrag(db: Session, job: Job) -> dict:
         "session": {
             "language": c.language, "system": c.system, "systemName": c.system_name, "source": up.source,
             "expectedSpeakers": len(anwesend) if up.source == "table" else len(up.files),
-            "hotwords": fuer_kampagne(db, c, s.number),
+            "hotwords": fuer_kampagne(db, c, s.number, s),
             # 0.4.6: erneute Transkription – nur der Text, Stimmen sind schon zugeordnet
             "nurText": bool(s.nachtranskription),
             # 0.4.99: mehr Audio verarbeitet der Worker nicht (nur mit Abrechnung gesetzt)

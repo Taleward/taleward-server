@@ -118,13 +118,29 @@ def ignoriert(campaign: Campaign) -> set[str]:
     return {x.casefold() for x in _gespeichert(campaign)["ignoriert"]}
 
 
-def fuer_kampagne(db: Session, campaign: Campaign, kapitel: int | None = None) -> list[str]:
-    """Was der Worker als hotwords bekommt: Namen aus dem Kapitelplan für dieses Kapitel (0.4.12, nur die Wörter),
-    dann die Namenshilfe der Kampagne, dann die Begriffsliste des Systems – begrenzt, weil Whisper nur einen kurzen
-    Vorspann nutzt. Die Plan-Namen stehen vorn, weil die SL sie ausdrücklich für diese Runde eingetragen hat."""
+def anwesende(db: Session, sitzung) -> list[str]:
+    """0.4.146: Namen der Anwesenden dieser Runde – Figur, Spitzname, Gast. Nur ganze Namen, keine Anzeigenamen der
+    Konten (die werden am Tisch selten gesagt). Test-Chat 29.10.: „Alekin Desch“ statt des hinterlegten Gasts."""
+    namen: list[str] = []
+    for a in getattr(sitzung, "attendees", None) or []:
+        if a.member_id:
+            m = db.get(Member, a.member_id)
+            if m is not None and m.role != "gm":
+                namen += [m.character_name, m.character_nickname]
+        elif a.guest_name:
+            namen.append(a.guest_name)
+    return _eindeutig(namen)
+
+
+def fuer_kampagne(db: Session, campaign: Campaign, kapitel: int | None = None, sitzung=None) -> list[str]:
+    """Was der Worker als hotwords bekommt: Namen der Anwesenden (0.4.146), Namen aus dem Kapitelplan für dieses
+    Kapitel (0.4.12, nur die Wörter), dann die Namenshilfe der Kampagne, dann die Begriffsliste des Systems – begrenzt,
+    weil Whisper nur einen kurzen Vorspann nutzt. Anwesende und Plan stehen vorn, weil sie zu genau dieser Runde
+    gehören."""
     from app.routers.plaene import namen_fuer
 
-    namen = _eindeutig(namen_fuer(db, campaign.id, kapitel) + anzeige(db, campaign)
+    vorn = anwesende(db, sitzung) if sitzung is not None else []
+    namen = _eindeutig(vorn + namen_fuer(db, campaign.id, kapitel) + anzeige(db, campaign)
                        + list(systembegriffe(campaign.system, campaign.language, campaign.system_name)))
     ergebnis, laenge = [], 0
     for n in namen[:MAX_BEGRIFFE]:
