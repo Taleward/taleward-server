@@ -1,0 +1,1176 @@
+From 59cfb2750e8dfa40365ffd0ae3ce6d0a36e7f5f1 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 13:09:36 +0100
+Subject: [PATCH] Server 0.4.149
+
+---
+ NEU.md                                        |  11 +-
+ app/cli.py                                    |  10 +-
+ app/models.py                                 |   3 +
+ app/passkeys.py                               |   4 +-
+ app/spielende.py                              |  30 +-
+ app/vertraut.py                               |  50 +++-
+ app/verwaltung/anmeldung.py                   |   5 +-
+ app/verwaltung/assistent.py                   |  15 +-
+ app/verwaltung/guthaben.py                    |  19 +-
+ app/verwaltung/router.py                      |  25 +-
+ app/verwaltung/zweiter_faktor.py              |  25 +-
+ ...e0a2b4d6f8_vorschlag_oeffentlicher_text.py |  29 ++
+ pyproject.toml                                |   2 +-
+ tests/faktor_hilfe.py                         |  20 ++
+ tests/test_abrechnung_0485.py                 |  12 +-
+ tests/test_aktualisierung.py                  |   2 +-
+ tests/test_assistent.py                       |   2 +-
+ tests/test_modellablage.py                    |   2 +-
+ tests/test_server_04143.py                    |  50 ++--
+ tests/test_server_04149.py                    | 270 ++++++++++++++++++
+ tests/test_server_0487.py                     |   4 +-
+ tests/test_worker_app.py                      |   2 +-
+ uv.lock                                       |   2 +-
+ 23 files changed, 512 insertions(+), 82 deletions(-)
+ create mode 100644 migrations/versions/c8e0a2b4d6f8_vorschlag_oeffentlicher_text.py
+ create mode 100644 tests/faktor_hilfe.py
+ create mode 100644 tests/test_server_04149.py
+
+diff --git a/NEU.md b/NEU.md
+index cc17b74..4e29835 100644
+--- a/NEU.md
++++ b/NEU.md
+@@ -1,8 +1,9 @@
+-Fassung 0.4.148
++Fassung 0.4.149
+ 
+ ## Was ist neu
+ 
+-- Kapitel teilen: Die Spielleitung kann ein freigegebenes Kapitel als Datei holen und in den Gruppenchat schicken. Öffnen können sie nur die Mitglieder der Kampagne, für alle anderen ist sie nutzlos. Gedacht für Gruppen, deren Server nicht aus dem Internet erreichbar ist. Braucht die nächste App-Fassung.
+-- In der Datei steht nur, was jedes Mitglied ohnehin sieht: das Kapitel und die allgemein bekannten Einträge der Bibel, keine Notizen, keine Kommentare, keine Vorschläge.
+-- Seit 0.4.147: Vorschläge ohne echten Beleg werden als solche gekennzeichnet, Kapiteltitel ohne doppelte Nummer, Runden ohne Aufnahme verschwinden nach einer Woche.
+-- Seit 0.4.141: Passkeys als zweiter Faktor, Spielende können Einträge vorschlagen und Stellen merken, Klasse und Stufe am Charakter, das Cloud-Sprachmodell wechselt nicht mehr von selbst auf eine neue Fassung.
++- Kleinere Verbesserungen bei der Anmeldung in der Verwaltung und auf der Guthaben-Seite.
++- Hinweis zu einem neu vertrauten Gerät erscheint jetzt beim nächsten Anmelden an einem anderen Gerät.
++- Spielende sehen bei ihren Vorschlägen genauer, ob ihr Text noch im Eintrag steht.
++- Seit 0.4.148: Kapitel teilen als Datei für den Gruppenchat.
++- Seit 0.4.141: Passkeys als zweiter Faktor, Spielende können Einträge vorschlagen und Stellen merken, Klasse und Stufe am Charakter, das Cloud-Sprachmodell wechselt nicht mehr von selbst auf eine neue Fassung, Korrekturen aus den gemeldeten Fehlern.
+diff --git a/app/cli.py b/app/cli.py
+index e3cf70d..679d0fd 100644
+--- a/app/cli.py
++++ b/app/cli.py
+@@ -678,8 +678,14 @@ def admin(
+         raise typer.Exit(1)
+     org = default_organization(db)
+     ensure_org_member(db, org.id, user)
+-    om = db.get(OrgMember, (org.id, user.id))
+-    om.role = "member" if entziehen else "admin"
++    if entziehen:  # 0.4.149 (S58): wie in der Verwaltung – in allen Organisationen, vertraute Geräte weg
++        from app import vertraut
++
++        for om in db.scalars(select(OrgMember).where(OrgMember.user_id == user.id)):
++            om.role = "member"
++        vertraut.entfernen(db, user.id)
++    else:
++        db.get(OrgMember, (org.id, user.id)).role = "admin"
+     db.commit()
+     typer.echo(f"'{user.username}' ist jetzt {'kein ' if entziehen else ''}Verwalter von „{org.name}“.")
+ 
+diff --git a/app/models.py b/app/models.py
+index 05cf6b3..66b487f 100644
+--- a/app/models.py
++++ b/app/models.py
+@@ -813,6 +813,9 @@ class PlayerProposal(Base):
+     state: Mapped[str] = mapped_column(String(16), default="open", index=True)  # open | accepted | rejected | withdrawn
+     result_entry_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+     text_sichtbar: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
++    # 0.4.149 (S56-Rest): der Text, der beim Übernehmen in den öffentlichen Teil kam – die Sicht der Urheberin prüft
++    # bei jedem Abruf, ob er dort noch steht (spätere Änderungen, Kürzen auf MAX_TEXT)
++    oeffentlicher_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
+     decided_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
+ 
+diff --git a/app/passkeys.py b/app/passkeys.py
+index 63e6597..eaf7986 100644
+--- a/app/passkeys.py
++++ b/app/passkeys.py
+@@ -126,7 +126,9 @@ def _challenge_verbrauchen(db: Session, user: User, art: str, bindung: str) -> b
+     row = db.get(ServerMeta, schluessel)
+     if row is not None:
+         db.delete(row)
+-        db.flush()
++        # 0.4.149 (S58): sofort festschreiben – bricht die Prüfung danach mit einem Fehler ab (500, Rollback), bliebe die
++        # Challenge sonst liegen und ließe sich noch einmal benutzen. Vorher ändert keiner der Wege etwas in der Sitzung.
++        db.commit()
+     try:
+         d = json.loads(wert) if wert else None
+     except ValueError:
+diff --git a/app/spielende.py b/app/spielende.py
+index aee72b9..d4ec7a7 100644
+--- a/app/spielende.py
++++ b/app/spielende.py
+@@ -135,11 +135,25 @@ def urheberin_sicht(db: Session, p: PlayerProposal) -> tuple[str, str | None]:
+     if p.state == "accepted" and p.text_sichtbar and p.result_entry_id:
+         e = db.get(Entry, p.result_entry_id)
+         if (e is not None and e.campaign_id == p.campaign_id and e.visibility == "public"
+-                and p.author_member_id not in e.hidden_member_ids):
++                and p.author_member_id not in e.hidden_member_ids and _steht_noch_da(p, e)):
+             return "accepted", e.id
+     return "closed", None
+ 
+ 
++def _vergleichbar(text: str | None) -> str:
++    return " ".join((text or "").split()).casefold()
++
++
++def _steht_noch_da(p: PlayerProposal, e: Entry) -> bool:
++    """0.4.149 (S56-Rest): Steht der übernommene Text noch im öffentlichen Teil? Schiebt die SL ihn später in die
++    SL-Notizen, schreibt sie den Eintrag um oder fiel er beim Anhängen über die Längengrenze, gilt für die Urheberin
++    `closed` – wie bei einem Vorschlag, der von Anfang an nur in die SL-Notizen ging. Ohne Text (neuer Eintrag nur mit
++    Titel) ist der Eintrag selbst das Ergebnis. Ältere Vorschläge bekommen ihren Vorschlagstext (Migration
++    c8e0a2b4d6f8)."""
++    text = _vergleichbar(p.oeffentlicher_text)
++    return not text or text in _vergleichbar(e.summary)  # ohne Text: der Eintrag selbst ist das Ergebnis
++
++
+ def vorschlag_out(db: Session, p: PlayerProposal, fuer_sl: bool) -> schemas.PlayerProposalOut:
+     if fuer_sl:
+         zustand, ergebnis = p.state, p.result_entry_id
+@@ -232,8 +246,9 @@ def entscheiden(db: Session, p: PlayerProposal, me: Member, body: schemas.Player
+     if body.decision == "reject":
+         p.state, p.decided_at = "rejected", utcnow()
+         return
+-    e, sichtbar = _uebernehmen(db, p, body)
++    e, sichtbar, text = _uebernehmen(db, p, body)
+     p.state, p.decided_at, p.result_entry_id, p.text_sichtbar = "accepted", utcnow(), e.id, sichtbar
++    p.oeffentlicher_text = text if sichtbar else None
+ 
+ 
+ def _halter(db: Session, campaign_id: str, holder_id: str | None) -> str | None:
+@@ -246,8 +261,9 @@ def _halter(db: Session, campaign_id: str, holder_id: str | None) -> str | None:
+     return m.id
+ 
+ 
+-def _uebernehmen(db: Session, p: PlayerProposal, body: schemas.PlayerProposalDecision) -> tuple[Entry, bool]:
+-    """Eintrag anlegen oder ergänzen. Rückgabe: Eintrag und ob der Text im öffentlichen Teil steht."""
++def _uebernehmen(db: Session, p: PlayerProposal,
++                 body: schemas.PlayerProposalDecision) -> tuple[Entry, bool, str]:
++    """Eintrag anlegen oder ergänzen. Rückgabe: Eintrag, ob der Text im öffentlichen Teil steht, und der Text."""
+     from app.services import apply_entry_input
+ 
+     f = body.model_fields_set
+@@ -282,14 +298,14 @@ def _uebernehmen(db: Session, p: PlayerProposal, body: schemas.PlayerProposalDec
+             vorher = e.updated_at
+             apply_entry_input(db, e, schemas.EntryInput(gm_notes=notiz))
+             e.updated_at = vorher
+-            return e, False
++            return e, False, ""
+         daten = dict(summary=_anhaengen(e.summary, text), gm_notes=_anhaengen(e.gm_notes, geheim))
+         if sicht == "public" and verborgen and e.visibility == "public":
+             daten["hidden_from_member_ids"] = sorted(e.hidden_member_ids | set(verborgen))
+         if halter and (e.type or typ) == "item":
+             daten["holder_member_id"] = halter
+         apply_entry_input(db, e, schemas.EntryInput(**daten))
+-        return e, bool(text.strip())
++        return e, bool(text.strip()) and _vergleichbar(text) in _vergleichbar(e.summary), text.strip()
+     e = Entry(campaign_id=p.campaign_id, type="", name="", summary="", visibility="gm_only")
+     db.add(e)
+     db.flush()
+@@ -298,7 +314,7 @@ def _uebernehmen(db: Session, p: PlayerProposal, body: schemas.PlayerProposalDec
+     if halter:
+         daten["holder_member_id"] = halter
+     apply_entry_input(db, e, schemas.EntryInput(**daten))
+-    return e, True
++    return e, True, ""  # neuer Eintrag: der Eintrag selbst ist das Ergebnis, auch wenn die SL ihn später umschreibt
+ 
+ 
+ # ================================================================ Merken
+diff --git a/app/vertraut.py b/app/vertraut.py
+index 7baad90..83e1b58 100644
+--- a/app/vertraut.py
++++ b/app/vertraut.py
+@@ -54,10 +54,18 @@ def _cookie_name(request: Request) -> str:
+ 
+ 
+ def _wert(request: Request) -> str:
+-    wert = request.cookies.get(COOKIE_SICHER) or request.cookies.get(COOKIE_LOKAL) or ""
++    """0.4.149 (S58): nur das Cookie, das zu dieser Verbindung gehört – unter https nur ``__Host-tw_vertraut``
++    (das kann keine Subdomain und kein http-Aufruf setzen), sonst nur ``tw_vertraut``."""
++    wert = request.cookies.get(_cookie_name(request)) or ""
+     return wert if 16 <= len(wert) <= 200 else ""
+ 
+ 
++def aktuelles(request: Request, bereich: str) -> str | None:
++    """Kennung (Hash) des Merkzeichens dieses Browsers für den Bereich, falls es eins mitschickt."""
++    wert = _wert(request)
++    return _hash(wert, bereich) if wert else None
++
++
+ def pruefen(request: Request, db: Session, user: User, bereich: str) -> bool:
+     """Gültiges Merkzeichen für dieses Konto und diesen Bereich? Nur nach richtigem Passwort aufrufen."""
+     from app.verwaltung import zweiter_faktor
+@@ -88,11 +96,26 @@ def merken(antwort: Response, request: Request, db: Session, user: User, bereich
+ 
+     if not angeboten(request) or bereich not in BEREICHE:
+         return None
+-    wert = _wert(request) or secrets.token_urlsafe(32)  # ein Browser, ein Merkzeichen – je Bereich ein Eintrag
++    # 0.4.149 (S58): immer ein neues Merkzeichen – ein vorhandenes Cookie könnte jemand untergeschoben haben. Der Eintrag
++    # desselben Kontos im anderen Bereich zieht auf den neuen Wert um (ein Browser, ein Cookie, je Bereich ein Eintrag).
++    alt_wert = _wert(request)
++    wert = secrets.token_urlsafe(32)
+     jetzt = utcnow()
+-    alt = db.get(VertrautesGeraet, _hash(wert, bereich))
+-    if alt is not None:
+-        db.delete(alt)
++    if alt_wert:
++        for b in BEREICHE:
++            alt = db.get(VertrautesGeraet, _hash(alt_wert, b))
++            if alt is None or alt.user_id != user.id:
++                continue
++            if b == bereich:
++                db.delete(alt)
++            else:
++                umzug = VertrautesGeraet(id=_hash(wert, b), user_id=alt.user_id, bereich=b,
++                                         token_version=alt.token_version, faktor_fassung=alt.faktor_fassung,
++                                         bezeichnung=alt.bezeichnung, created_at=alt.created_at,
++                                         expires_at=alt.expires_at, last_used_at=alt.last_used_at)
++                db.delete(alt)
++                db.flush()
++                db.add(umzug)
+         db.flush()
+     g = VertrautesGeraet(id=_hash(wert, bereich), user_id=user.id, bereich=bereich, token_version=user.token_version,
+                          faktor_fassung=zweiter_faktor.faktor_fassung(db, user.id),
+@@ -130,17 +153,26 @@ def _melden(db: Session, user: User, g: VertrautesGeraet) -> None:
+     except Exception:  # noqa: BLE001 – ein Hinweis darf das Anmelden nie stören
+         pass
+     if not gemeldet:
+-        meta_schreiben(db, f"vertraut.hinweis.{user.id}", f"{g.bezeichnung}|{g.created_at.isoformat()}")
++        meta_schreiben(db, f"vertraut.hinweis.{user.id}", f"{g.bezeichnung}|{g.created_at.isoformat()}|{g.id}")
+ 
+ 
+-def hinweis_abholen(db: Session, user_id: str) -> str | None:
+-    """Beim nächsten Anmelden einmal zeigen: „Neues vertrautes Gerät seit …“ (nur ohne Meldeweg gesetzt)."""
++def hinweis_abholen(db: Session, user_id: str, ueber: str | None = None) -> str | None:
++    """Beim nächsten Anmelden einmal zeigen: „Neues vertrautes Gerät seit …“ (nur ohne Meldeweg gesetzt).
++
++    0.4.149 (S58): ueber = Kennung des vertrauten Geräts, mit dem gerade angemeldet wird. Meldet sich genau das neue
++    Gerät an, bleibt der Hinweis liegen – er ist für die Person an einem anderen Gerät gedacht, nicht für den Browser,
++    um den es geht (sonst könnte, wer das Gerät eingetragen hat, den Hinweis mit der nächsten Anmeldung wegklicken)."""
+     schluessel = f"vertraut.hinweis.{user_id}"
+     wert = meta_lesen(db, schluessel)
++    if not wert:
++        return None
++    teile = wert.split("|")
++    if ueber and len(teile) >= 3 and teile[2] == ueber:
++        return None
+     row = db.get(ServerMeta, schluessel)
+     if row is not None:
+         db.delete(row)
+-    return wert or None
++    return "|".join(teile[:2])
+ 
+ 
+ def liste(db: Session, user_id: str) -> list[VertrautesGeraet]:
+diff --git a/app/verwaltung/anmeldung.py b/app/verwaltung/anmeldung.py
+index a56e977..b956901 100644
+--- a/app/verwaltung/anmeldung.py
++++ b/app/verwaltung/anmeldung.py
+@@ -12,7 +12,7 @@ from app import anmeldedienste, mail
+ from app.db import get_db
+ from app.einstellungen import meta_schreiben, oeffentliche_adresse
+ from app.models import User
+-from app.verwaltung.router import _seite, _zurueck, csrf_pruefen, faktor_frisch, tr, verwalter
++from app.verwaltung.router import _seite, _sitzungs_bindung, _zurueck, csrf_pruefen, faktor_frisch, tr, verwalter
+ 
+ router = APIRouter(prefix="/verwaltung", include_in_schema=False)
+ 
+@@ -80,7 +80,8 @@ def seite(request: Request, user: User, db: Session, fehler: str = "", faktor_ne
+               "neu": faktor_neu, "codes": faktor_codes,
+               # 0.4.143: Passkeys und vertraute Geräte (S44)
+               "passkeys": passkeys.anzeige(db, user.id), "passkeys_moeglich": passkeys.verfuegbar(db),
+-              "frisch": zweiter_faktor.frisch(db, user.id), "vertraute": vertraut.liste(db, user.id)}
++              "frisch": zweiter_faktor.frisch(db, user.id, sitzung=_sitzungs_bindung(request)),
++              "vertraute": vertraut.liste(db, user.id)}
+     return _seite(request, "anmeldung.html", user, db, dienste=_dienste(db, basis), basis=basis,
+                   https=basis.startswith("https://"), mail_bereit=mail.kann_senden(db), fehler=fehler, faktor=faktor)
+ 
+diff --git a/app/verwaltung/assistent.py b/app/verwaltung/assistent.py
+index a93d564..f1cc99c 100644
+--- a/app/verwaltung/assistent.py
++++ b/app/verwaltung/assistent.py
+@@ -234,6 +234,10 @@ def betrieb_art(art: str = Form(""), user: User = Depends(verwalter), db: Sessio
+ def betrieb_speichern(request: Request, mistral_key: str = Form(""), hf_token: str = Form(""),
+                       limit_euro: str = Form(""), stunden: str = Form("12"), user: User = Depends(verwalter),
+                       db: Session = Depends(get_db)):
++    from app.verwaltung.router import _frisch_verlangen
++
++    # 0.4.149 (S57): neue Schlüssel auch im Assistenten nur mit frischem Faktor – wie unter Transkription/Zusammenfassung
++    _frisch_verlangen(request, db, user, bool(mistral_key.strip() or hf_token.strip()))
+     _ = tr(request)
+     art = einrichtung.betriebsart(db)
+     ctx = _betrieb_ctx(db) | {"server_url": str(request.base_url).rstrip("/")}
+@@ -293,7 +297,8 @@ def betrieb_speichern(request: Request, mistral_key: str = Form(""), hf_token: s
+ 
+ 
+ @router.post("/assistent/koppeln", dependencies=[Depends(csrf_pruefen)])
+-def koppeln_code(weiter: str = Form(""), user: User = Depends(verwalter), db: Session = Depends(get_db)):
++def koppeln_code(weiter: str = Form(""), user: User = Depends(faktor_frisch),  # 0.4.149: ein Worker sieht Aufnahmen
++                 db: Session = Depends(get_db)):
+     from app.koppeln import code_erzeugen
+ 
+     code_erzeugen(db)
+@@ -313,6 +318,9 @@ def zusammenfassung(request: Request, hinweis: str = "", user: User = Depends(ve
+ @router.post("/assistent/zusammenfassung", dependencies=[Depends(csrf_pruefen)])
+ def zusammenfassung_speichern(request: Request, wahl: str = Form(""), mistral_key: str = Form(""),
+                               user: User = Depends(verwalter), db: Session = Depends(get_db)):
++    from app.verwaltung.router import _frisch_verlangen
++
++    _frisch_verlangen(request, db, user, bool(mistral_key.strip()))  # 0.4.149 (S57)
+     _ = tr(request)
+     if wahl == "api":
+         key = mistral_key.strip()
+@@ -574,7 +582,7 @@ def sicherung_schritt(request: Request, user: User = Depends(verwalter), db: Ses
+ 
+ 
+ @router.post("/assistent/sicherung/jetzt", dependencies=[Depends(csrf_pruefen)])
+-def sicherung_jetzt(user: User = Depends(verwalter), db: Session = Depends(get_db)):
++def sicherung_jetzt(user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):  # 0.4.149 (S57)
+     from app import sicherung
+ 
+     e = sicherung.einstellungen(db)
+@@ -593,7 +601,8 @@ def spielleitung(request: Request, angelegt: str = "", user: User = Depends(verw
+ 
+ @router.post("/assistent/spielleitung", dependencies=[Depends(csrf_pruefen)])
+ def spielleitung_anlegen(request: Request, username: str = Form(""), display_name: str = Form(""),
+-                         password: str = Form(""), user: User = Depends(verwalter), db: Session = Depends(get_db)):
++                         password: str = Form(""), user: User = Depends(faktor_frisch),  # 0.4.149 (S57)
++                         db: Session = Depends(get_db)):
+     from app.cli import _neues_konto
+     from app.konto import registrierung
+ 
+diff --git a/app/verwaltung/guthaben.py b/app/verwaltung/guthaben.py
+index 04a495c..e07217a 100644
+--- a/app/verwaltung/guthaben.py
++++ b/app/verwaltung/guthaben.py
+@@ -108,11 +108,12 @@ def _angemeldet(request: Request, db: Session = Depends(get_db)) -> User:
+     return user
+ 
+ 
+-def _frisch(user: User = Depends(_angemeldet), db: Session = Depends(get_db)) -> User:
+-    """0.4.143 (S44): Geld-Schritte nur mit frischem zweitem Faktor (höchstens 5 Minuten alt)."""
++def _frisch(request: Request, user: User = Depends(_angemeldet), db: Session = Depends(get_db)) -> User:
++    """0.4.143 (S44): Geld-Schritte nur mit frischem zweitem Faktor (höchstens 5 Minuten alt, 0.4.149: in dieser
++    Sitzung)."""
+     from app.verwaltung import zweiter_faktor
+ 
+-    if not zweiter_faktor.frisch(db, user.id, "guthaben"):
++    if not zweiter_faktor.frisch(db, user.id, "guthaben", sitzung=_jti(request.cookies.get(COOKIE, ""))):
+         raise _FaktorNoetig()
+     return user
+ 
+@@ -193,9 +194,10 @@ def _token(user: User, aud: str, dauer: timedelta) -> str:
+                        "jti": secrets.token_hex(8)}, get_settings().jwt_secret, algorithm="HS256")
+ 
+ 
+-def _sitzung(request: Request, user: User) -> RedirectResponse:
++def _sitzung(request: Request, user: User, token: str | None = None) -> RedirectResponse:
+     antwort = _zurueck()
+-    antwort.set_cookie(COOKIE, _token(user, _aud(), timedelta(hours=STUNDEN)), max_age=STUNDEN * 3600, httponly=True,
++    wert = token or _token(user, _aud(), timedelta(hours=STUNDEN))
++    antwort.set_cookie(COOKIE, wert, max_age=STUNDEN * 3600, httponly=True,
+                        samesite="strict", secure=request.url.scheme == "https", path="/guthaben")
+     antwort.delete_cookie(COOKIE_CODE, path="/guthaben")
+     return antwort
+@@ -250,8 +252,9 @@ def anmelden_code(request: Request, code: str = Form(""), passkey: str = Form(""
+             "Der Code stimmt nicht oder wurde schon benutzt. Nimm den nächsten aus deiner App." if not passkey.strip()
+             else "Der Passkey wurde nicht angenommen. Versuch es noch einmal oder nimm den Code."), 400, user, bindung)
+     ZAEHLER.freigeben(versuch)
+-    zweiter_faktor.frisch_merken(db, user.id, "guthaben")
+-    antwort = _sitzung(request, user)
++    token = _token(user, _aud(), timedelta(hours=STUNDEN))
++    zweiter_faktor.frisch_merken(db, user.id, "guthaben", sitzung=_jti(token))  # 0.4.149 (S57): nur diese Sitzung
++    antwort = _sitzung(request, user, token)
+     if vertrauen == "ja":
+         vertraut.merken(antwort, request, db, user, "guthaben")
+     geraete.anmeldung(antwort, request, db, user, "guthaben")  # 0.4.141: Mail nur bei neuem Gerät
+@@ -298,7 +301,7 @@ def bestaetigen(request: Request, code: str = Form(""), passkey: str = Form(""),
+     if (passkeys.anmeldung_pruefen(db, user, bindung, passkey) if passkey.strip()
+             else zweiter_faktor.pruefen(db, user.id, code)):
+         ZAEHLER.freigeben(versuch)
+-        zweiter_faktor.frisch_merken(db, user.id, "guthaben")
++        zweiter_faktor.frisch_merken(db, user.id, "guthaben", sitzung=bindung)
+         db.commit()
+         return _zurueck("bestaetigt")
+     db.commit()
+diff --git a/app/verwaltung/router.py b/app/verwaltung/router.py
+index 87f75bf..104187c 100644
+--- a/app/verwaltung/router.py
++++ b/app/verwaltung/router.py
+@@ -273,7 +273,7 @@ def _frisch_verlangen(request: Request, db: Session, user: User, noetig: bool =
+     """Innerhalb eines Schritts: nur bestimmte Eingaben (z. B. ein neuer Schlüssel) verlangen den frischen Faktor."""
+     from app.verwaltung import zweiter_faktor
+ 
+-    if noetig and not zweiter_faktor.frisch(db, user.id):
++    if noetig and not zweiter_faktor.frisch(db, user.id, sitzung=_sitzungs_bindung(request)):
+         raise FaktorNoetig(_weiter_pfad(request))
+ 
+ 
+@@ -282,7 +282,7 @@ def faktor_frisch(request: Request, user: User = Depends(verwalter), db: Session
+     zweiten Faktor geht es zur Bestätigungsseite; ohne eingerichteten zweiten Faktor gibt es nichts zu zeigen."""
+     from app.verwaltung import zweiter_faktor
+ 
+-    if not zweiter_faktor.frisch(db, user.id):
++    if not zweiter_faktor.frisch(db, user.id, sitzung=_sitzungs_bindung(request)):
+         raise FaktorNoetig(_weiter_pfad(request))
+     return user
+ 
+@@ -371,7 +371,8 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
+                                    samesite="strict", secure=request.url.scheme == "https", path="/verwaltung")
+                 db.commit()  # ein abgelaufenes Merkzeichen ist jetzt weg
+                 return antwort
+-            hinweis = vertraut.hinweis_abholen(db, user.id) if not user.setup_account else None
++            hinweis = (vertraut.hinweis_abholen(db, user.id, vertraut.aktuelles(request, "verwaltung"))
++                       if not user.setup_account else None)
+             antwort = _zurueck("/einrichtung" if user.setup_account else "/", "vertraut_neu" if hinweis else None)
+             _sitzung_setzen(antwort, request, db, user)
+             from app import geraete
+@@ -428,6 +429,13 @@ def _code_bindung(request: Request) -> str:
+         return "-"
+ 
+ 
++def _jti(wert: str) -> str:
++    try:
++        return jwt.decode(wert or "", options={"verify_signature": False}).get("jti") or "-"
++    except jwt.PyJWTError:
++        return "-"
++
++
+ def _sitzungs_bindung(request: Request) -> str:
+     """0.4.143: Kennung der Sitzung (jti des Sitzungs-Cookies) für Challenges beim Einrichten und Bestätigen."""
+     try:
+@@ -473,10 +481,12 @@ def code_pruefen(request: Request, code: str = Form(""), passkey: str = Form("")
+     elif (passkeys.anmeldung_pruefen(db, user, _code_bindung(request), passkey) if passkey.strip()
+           else zweiter_faktor.pruefen(db, user.id, code)):
+         ZAEHLER.freigeben(versuch)
+-        zweiter_faktor.frisch_merken(db, user.id)  # 0.4.143: Schritte mit frischem Faktor gehen jetzt 5 Minuten
++        wert = _cookie_wert(db, user)
++        # 0.4.143: Schritte mit frischem Faktor gehen jetzt 5 Minuten – 0.4.149 (S57): nur in dieser neuen Sitzung
++        zweiter_faktor.frisch_merken(db, user.id, sitzung=_jti(wert))
+         hinweis = vertraut.hinweis_abholen(db, user.id)
+         antwort = _zurueck("/", "vertraut_neu" if hinweis else None)
+-        _sitzung_setzen(antwort, request, db, user)
++        _sitzung_setzen(antwort, request, db, user, wert)
+         antwort.delete_cookie(COOKIE_CODE, path="/verwaltung")
+         if vertrauen == "ja":
+             vertraut.merken(antwort, request, db, user, "verwaltung")
+@@ -534,7 +544,7 @@ def bestaetigen(request: Request, code: str = Form(""), passkey: str = Form(""),
+     if (passkeys.anmeldung_pruefen(db, user, _sitzungs_bindung(request), passkey) if passkey.strip()
+             else zweiter_faktor.pruefen(db, user.id, code)):
+         ZAEHLER.freigeben(versuch)
+-        zweiter_faktor.frisch_merken(db, user.id)
++        zweiter_faktor.frisch_merken(db, user.id, sitzung=_sitzungs_bindung(request))
+         db.commit()
+         return _zurueck(_sicherer_pfad(weiter), "bestaetigt")
+     db.commit()  # ein verbrauchter Code bleibt verbraucht
+@@ -1099,7 +1109,7 @@ def _transkription_fehler(request: Request, user: User, db: Session, text: str)
+ 
+ 
+ @router.post("/worker", dependencies=[Depends(csrf_pruefen)])
+-def knecht_anlegen(request: Request, name: str = Form(""), user: User = Depends(verwalter),
++def knecht_anlegen(request: Request, name: str = Form(""), user: User = Depends(faktor_frisch),  # 0.4.149 (S57)
+                    db: Session = Depends(get_db)):
+     from app.routers.worker import token_hash
+ 
+@@ -1845,6 +1855,7 @@ def benachrichtigungen_speichern(request: Request, ntfy_url: str = Form(""), ntf
+                                  zeitzone: str = Form(""), user: User = Depends(verwalter),
+                                  db: Session = Depends(get_db)):
+     """ntfy und/oder E-Mail für Meldungen an den Betreiber. Token und Passwort sind nur schreibbar."""
++    _frisch_verlangen(request, db, user, bool(ntfy_token.strip() or smtp_pass))  # 0.4.149 (S57): neue Zugänge
+     _ = tr(request)
+ 
+     def fehler(text: str):
+diff --git a/app/verwaltung/zweiter_faktor.py b/app/verwaltung/zweiter_faktor.py
+index 629e052..cbb8b9f 100644
+--- a/app/verwaltung/zweiter_faktor.py
++++ b/app/verwaltung/zweiter_faktor.py
+@@ -230,18 +230,29 @@ def faktor_fassung_erhoehen(db: Session, user_id: str) -> int:
+     return neu
+ 
+ 
+-def frisch_merken(db: Session, user_id: str, bereich: str = "verwaltung") -> None:
++def _sitzung_ok(sitzung: str | None) -> bool:
++    return bool(sitzung) and sitzung != "-" and ":" not in sitzung and len(sitzung) <= 64
++
++
++def frisch_merken(db: Session, user_id: str, bereich: str = "verwaltung", *, sitzung: str) -> None:
+     """Der zweite Faktor (Code oder Passkey) wurde gerade gezeigt – Schritte, die ihn frisch verlangen, gehen jetzt
+-    FRISCH_SEKUNDEN lang. Auf einem vertrauten Gerät wird das beim Anmelden nicht gesetzt."""
+-    meta_schreiben(db, f"verwaltung.faktor_frisch.{bereich}.{user_id}", str(int(time.time())))
++    FRISCH_SEKUNDEN lang, und nur in genau dieser Sitzung (jti des Sitzungs-Cookies, 0.4.149: S57). Eine andere
++    Sitzung desselben Kontos – etwa über ein vertrautes Gerät – muss den Faktor selbst zeigen. Auf einem vertrauten
++    Gerät wird das beim Anmelden nicht gesetzt."""
++    if not _sitzung_ok(sitzung):
++        return
++    meta_schreiben(db, f"verwaltung.faktor_frisch.{bereich}.{user_id}", f"{int(time.time())}:{sitzung}")
+ 
+ 
+-def frisch(db: Session, user_id: str, bereich: str = "verwaltung") -> bool:
+-    """Gilt der zweite Faktor als frisch? Ohne eingerichteten zweiten Faktor immer (es gibt nichts zu zeigen)."""
++def frisch(db: Session, user_id: str, bereich: str = "verwaltung", *, sitzung: str | None) -> bool:
++    """Gilt der zweite Faktor in dieser Sitzung als frisch? Ohne eingerichteten zweiten Faktor immer (es gibt nichts
++    zu zeigen). Werte aus älteren Fassungen (nur die Zeit, ohne Sitzung) gelten nicht."""
+     if not aktiv(db, user_id):
+         return True
+-    wert = meta_lesen(db, f"verwaltung.faktor_frisch.{bereich}.{user_id}")
+-    return bool(wert and wert.isdigit() and int(wert) + FRISCH_SEKUNDEN > time.time())
++    wert = meta_lesen(db, f"verwaltung.faktor_frisch.{bereich}.{user_id}") or ""
++    zeit, _, gemerkt = wert.partition(":")
++    return bool(zeit.isdigit() and int(zeit) + FRISCH_SEKUNDEN > time.time() and _sitzung_ok(sitzung)
++                and hmac.compare_digest(gemerkt, sitzung or ""))
+ 
+ 
+ def frisch_vergessen(db: Session, user_id: str) -> None:
+diff --git a/migrations/versions/c8e0a2b4d6f8_vorschlag_oeffentlicher_text.py b/migrations/versions/c8e0a2b4d6f8_vorschlag_oeffentlicher_text.py
+new file mode 100644
+index 0000000..6bd7caf
+--- /dev/null
++++ b/migrations/versions/c8e0a2b4d6f8_vorschlag_oeffentlicher_text.py
+@@ -0,0 +1,29 @@
++"""Übernommener Text eines Vorschlags von Spielenden (Server 0.4.149)
++
++Revision ID: c8e0a2b4d6f8
++Revises: c6e8a0b2d4f6
++"""
++from typing import Sequence, Union
++
++import sqlalchemy as sa
++from alembic import op
++
++revision: str = 'c8e0a2b4d6f8'
++down_revision: Union[str, Sequence[str], None] = 'c6e8a0b2d4f6'
++branch_labels: Union[str, Sequence[str], None] = None
++depends_on: Union[str, Sequence[str], None] = None
++
++
++def upgrade() -> None:
++    op.add_column("player_proposals", sa.Column("oeffentlicher_text", sa.Text(), nullable=True))
++    # Bisher übernommene: der Vorschlagstext. Hat die SL ihn beim Übernehmen geändert, passt er nicht und die Urheberin
++    # sieht „closed“ – lieber zu vorsichtig als ein Hinweis auf Geheimes.
++    vorschlag = sa.table("player_proposals", sa.column("state", sa.String), sa.column("text_sichtbar", sa.Boolean),
++                         sa.column("detail", sa.Text), sa.column("oeffentlicher_text", sa.Text))
++    op.execute(vorschlag.update().where(vorschlag.c.state == "accepted", vorschlag.c.text_sichtbar.is_(True))
++               .values(oeffentlicher_text=vorschlag.c.detail))
++
++
++def downgrade() -> None:
++    with op.batch_alter_table("player_proposals") as b:
++        b.drop_column("oeffentlicher_text")
+diff --git a/pyproject.toml b/pyproject.toml
+index daae4ee..648a2d2 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,6 +1,6 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.148"
++version = "0.4.149"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+ license-files = ["LICENSE"]
+diff --git a/tests/faktor_hilfe.py b/tests/faktor_hilfe.py
+new file mode 100644
+index 0000000..4c53e79
+--- /dev/null
++++ b/tests/faktor_hilfe.py
+@@ -0,0 +1,20 @@
++"""0.4.149 (S57): Der frische zweite Faktor gilt nur in der Sitzung, in der er gezeigt wurde – Tests binden ihn an die
++Sitzung ihres Test-Clients."""
++import jwt
++
++
++def sitzung(client, bereich: str = "verwaltung") -> str:
++    wert = None
++    for c in client.cookies.jar:
++        if c.name == f"tw_{bereich}":
++            wert = c.value
++    try:
++        return jwt.decode(wert or "", options={"verify_signature": False}).get("jti") or "-"
++    except jwt.PyJWTError:
++        return "-"
++
++
++def frisch_merken(client, dbs, user_id: str, bereich: str = "verwaltung") -> None:
++    from app.verwaltung import zweiter_faktor
++
++    zweiter_faktor.frisch_merken(dbs, user_id, bereich, sitzung=sitzung(client, bereich))
+diff --git a/tests/test_abrechnung_0485.py b/tests/test_abrechnung_0485.py
+index a660ab2..036d830 100644
+--- a/tests/test_abrechnung_0485.py
++++ b/tests/test_abrechnung_0485.py
+@@ -410,7 +410,9 @@ def test_gutscheine_ende_zu_ende(client, world, dbs, admin):  # noqa: F811
+     chef = dbs.scalar(select(User).where(User.username == "chef"))
+     zf.beginnen(dbs, chef.id)
+     zf.bestaetigen(dbs, chef.id, _code(dbs, chef.id))
+-    zf.frisch_merken(dbs, chef.id)  # 0.4.143 (S44): Geld-Schritte verlangen den Faktor frisch
++    from tests.faktor_hilfe import frisch_merken
++
++    frisch_merken(client, dbs, chef.id)  # 0.4.143 (S44): Geld-Schritte verlangen den Faktor frisch
+     dbs.commit()
+     r = client.post("/verwaltung/abrechnung/gutscheine", data=daten)
+     assert r.status_code == 200
+@@ -462,7 +464,9 @@ def test_gutschrift_von_hand_mit_rueckfrage_und_storno(client, world, dbs, admin
+     chef = dbs.scalar(select(User).where(User.username == "chef"))
+     zf.beginnen(dbs, chef.id)
+     zf.bestaetigen(dbs, chef.id, _code(dbs, chef.id))
+-    zf.frisch_merken(dbs, chef.id)  # 0.4.143 (S44): Geld-Schritte verlangen den Faktor frisch
++    from tests.faktor_hilfe import frisch_merken
++
++    frisch_merken(client, dbs, chef.id)  # 0.4.143 (S44): Geld-Schritte verlangen den Faktor frisch
+     dbs.commit()
+     seite = client.get("/verwaltung/abrechnung")
+     assert seite.status_code == 200 and "Gutschrift von Hand" in seite.text
+@@ -500,7 +504,9 @@ def test_verwaltung_schalter_und_preise(client, dbs, admin):  # noqa: F811
+     chef = dbs.scalar(select(User).where(User.username == "chef"))  # seit 0.4.87 nur mit zweitem Faktor (N3)
+     zf.beginnen(dbs, chef.id)
+     zf.bestaetigen(dbs, chef.id, _code(dbs, chef.id))
+-    zf.frisch_merken(dbs, chef.id)  # 0.4.143 (S44): Geld-Schritte verlangen den Faktor frisch
++    from tests.faktor_hilfe import frisch_merken
++
++    frisch_merken(client, dbs, chef.id)  # 0.4.143 (S44): Geld-Schritte verlangen den Faktor frisch
+     dbs.commit()
+     r = client.post("/verwaltung/abrechnung/modus", data={"csrf": admin, "modus": "guthaben"}, follow_redirects=False)
+     assert r.status_code == 303 and abrechnung.modus(dbs) == "guthaben"
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index f4f79f4..34498a6 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -153,7 +153,7 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     monkeypatch.setattr(benachrichtigung, "melden", lambda db, art, **w: gemeldet.append((art, w)))
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.148"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.149"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+     monkeypatch.setenv("TALEWARD_DOCKER", "1")
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index 7e5ed7f..04dc6b7 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -134,7 +134,7 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     assert r.status_code == 201 and r.json()["name"] == "gaming-pc"
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.148"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.149"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+     assert "gaming-pc" in seite and "bereit" in seite
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index 7e26415..74ae4af 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -83,7 +83,7 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/models", params={"repo": REPO}, headers=h).status_code == 404
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.148"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.149"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+                headers=h)
+diff --git a/tests/test_server_04143.py b/tests/test_server_04143.py
+index 15688b4..3beb61b 100644
+--- a/tests/test_server_04143.py
++++ b/tests/test_server_04143.py
+@@ -21,6 +21,7 @@ from app.einstellungen import meta_schreiben
+ from tests.test_server_0484 import _code
+ from tests.test_server_04136 import post as konto_post  # noqa: F401
+ from tests.test_verwaltung import admin  # noqa: F401
++from tests.faktor_hilfe import sitzung as faktor_sitzung
+ 
+ HOST = "testserver"
+ HTTPS = f"https://{HOST}"
+@@ -92,12 +93,13 @@ def _https_an(dbs):
+     dbs.commit()
+ 
+ 
+-def _faktor_an(dbs, user_id) -> list[str]:
++def _faktor_an(client, dbs, user_id) -> list[str]:
+     from app.verwaltung import zweiter_faktor as zf
++    from tests.faktor_hilfe import frisch_merken
+ 
+     zf.beginnen(dbs, user_id)
+     codes = zf.bestaetigen(dbs, user_id, _code(dbs, user_id))
+-    zf.frisch_merken(dbs, user_id)
++    frisch_merken(client, dbs, user_id)
+     dbs.commit()
+     return codes
+ 
+@@ -131,7 +133,7 @@ def test_passkey_nur_mit_https_und_code(client, dbs, admin):  # noqa: F811
+     chef = _chef(dbs)
+     seite = client.get("/verwaltung/anmeldung").text
+     assert "Passkey hinzufügen" not in seite  # ohne zweiten Faktor keine Karte dafür
+-    _faktor_an(dbs, chef.id)
++    _faktor_an(client, dbs, chef.id)
+     seite = client.get("/verwaltung/anmeldung").text
+     assert "öffentliche Adresse des Servers mit https" in seite and "Passkey hinzufügen" not in seite
+     assert not passkeys.verfuegbar(dbs)
+@@ -151,7 +153,7 @@ def test_passkey_einrichten_und_anmelden(client, dbs, admin, konto_post):  # noq
+     chef = _chef(dbs)
+     chef.email = "chef@example.org"
+     _https_an(dbs)
+-    codes = _faktor_an(dbs, chef.id)
++    codes = _faktor_an(client, dbs, chef.id)
+     auth = Authenticator()
+     r, optionen = _passkey_anlegen(client, dbs, admin, auth)
+     assert r.status_code == 303 and r.headers["location"].endswith("ok=passkey_an#zweiter-faktor")
+@@ -195,7 +197,7 @@ def test_passkey_abgelehnt_bei_falscher_herkunft_rp_zaehler_und_flags(client, db
+ 
+     chef = _chef(dbs)
+     _https_an(dbs)
+-    _faktor_an(dbs, chef.id)
++    _faktor_an(client, dbs, chef.id)
+     auth = Authenticator()
+     r, _o = _passkey_anlegen(client, dbs, admin, auth)
+     assert r.status_code == 303
+@@ -244,7 +246,7 @@ def test_passkey_abgelehnt_bei_falscher_herkunft_rp_zaehler_und_flags(client, db
+ 
+     _neues_konto(dbs, "zwei", "Zwei", "geheim456", admin=True)
+     dbs.commit()
+-    _faktor_an(dbs, dbs.scalar(select(Passkey)).user_id)  # chef bleibt
++    _faktor_an(client, dbs, dbs.scalar(select(Passkey)).user_id)  # chef bleibt
+     client.cookies.clear()
+     client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "zwei", "password": "geheim456"}, follow_redirects=False)
+     assert passkeys.anmeldung_beginnen(dbs, _chef(dbs), "-") is not None
+@@ -252,7 +254,7 @@ def test_passkey_abgelehnt_bei_falscher_herkunft_rp_zaehler_und_flags(client, db
+     from app.models import User
+ 
+     zwei = dbs.scalar(select(User).where(User.username == "zwei"))
+-    _faktor_an(dbs, zwei.id)
++    _faktor_an(client, dbs, zwei.id)
+     client.cookies.clear()
+     client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "zwei", "password": "geheim456"}, follow_redirects=False)
+     seite = client.get(f"{HTTPS}/verwaltung/anmelden/code").text
+@@ -268,7 +270,7 @@ def test_passkey_einrichten_abgelehnt_und_grenzen(client, dbs, admin):  # noqa:
+ 
+     chef = _chef(dbs)
+     _https_an(dbs)
+-    _faktor_an(dbs, chef.id)
++    _faktor_an(client, dbs, chef.id)
+     auth = Authenticator()
+     # falscher type, crossOrigin, fremde Herkunft, alte Challenge
+     for kw in ({"typ": "webauthn.get"}, {"cross_origin": True}, {"origin": "https://boese.example"},
+@@ -297,7 +299,7 @@ def test_passkey_einrichten_abgelehnt_und_grenzen(client, dbs, admin):  # noqa:
+     _neues_konto(dbs, "zwei", "Zwei", "geheim456", admin=True)
+     dbs.commit()
+     zwei = dbs.scalar(select(User).where(User.username == "zwei"))
+-    _faktor_an(dbs, zwei.id)
++    _faktor_an(client, dbs, zwei.id)
+     o = passkeys.registrierung_beginnen(dbs, zwei, "-")
+     with pytest.raises(passkeys.PasskeyFehler):
+         passkeys.registrierung_abschliessen(dbs, zwei, "-", auth.registrieren(json.loads(o)), "x")
+@@ -326,7 +328,7 @@ def test_passkey_entfernen_faktor_aus_konto_loeschen_export(client, dbs, admin):
+ 
+     chef = _chef(dbs)
+     _https_an(dbs)
+-    _faktor_an(dbs, chef.id)
++    _faktor_an(client, dbs, chef.id)
+     auth = Authenticator()
+     _passkey_anlegen(client, dbs, admin, auth)
+     dbs.expire_all()
+@@ -354,7 +356,7 @@ def test_passkey_entfernen_faktor_aus_konto_loeschen_export(client, dbs, admin):
+     dbs.commit()
+     assert dbs.scalar(select(Passkey)) is None and vertraut.liste(dbs, chef.id)[0].faktor_fassung != zf.faktor_fassung(dbs, chef.id)
+     # Konto löschen räumt server_meta
+-    _faktor_an(dbs, chef.id)
++    _faktor_an(client, dbs, chef.id)
+     _passkey_anlegen(client, dbs, admin, Authenticator(), name="Weg")
+     from app.cli import _neues_konto
+     from app.konto import entfernen
+@@ -380,7 +382,7 @@ def test_heikle_schritte_verlangen_frischen_faktor(client, dbs, admin, monkeypat
+     r = client.post("/verwaltung/konten", data={"csrf": admin, "username": "neu1", "display_name": "N", "password": "sehrgeheim12"},
+                     follow_redirects=False)
+     assert r.status_code == 303 and "konto_angelegt" in r.headers["location"]
+-    _faktor_an(dbs, chef.id)  # frisch
++    _faktor_an(client, dbs, chef.id)  # frisch
+     r = client.post("/verwaltung/konten", data={"csrf": admin, "username": "neu2", "display_name": "N", "password": "sehrgeheim12"},
+                     follow_redirects=False)
+     assert "konto_angelegt" in r.headers["location"]
+@@ -400,7 +402,7 @@ def test_heikle_schritte_verlangen_frischen_faktor(client, dbs, admin, monkeypat
+     r = client.post("/verwaltung/bestaetigen", data={"csrf": admin, "code": _code(dbs, chef.id, time.time() + 30),
+                                                      "weiter": "https://boese.example/x"}, follow_redirects=False)
+     assert r.status_code == 303 and r.headers["location"] == "/verwaltung/?ok=bestaetigt"  # … fremde Ziele landen auf /
+-    assert zf.frisch(dbs, chef.id)
++    assert zf.frisch(dbs, chef.id, sitzung=faktor_sitzung(client))
+     r = client.post("/verwaltung/konten", data={"csrf": admin, "username": "neu3", "display_name": "N", "password": "sehrgeheim12"},
+                     follow_redirects=False)
+     assert "konto_angelegt" in r.headers["location"]
+@@ -435,7 +437,7 @@ def test_vertrautes_geraet_ueberspringt_den_code(client, dbs, admin, konto_post)
+ 
+     chef = _chef(dbs)
+     chef.email = "chef@example.org"
+-    codes = _faktor_an(dbs, chef.id)
++    codes = _faktor_an(client, dbs, chef.id)
+     # über http: kein Haken, kein Merkzeichen
+     client.cookies.clear()
+     client.post("/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"}, follow_redirects=False)
+@@ -460,15 +462,21 @@ def test_vertrautes_geraet_ueberspringt_den_code(client, dbs, admin, konto_post)
+     meta_schreiben(dbs, f"verwaltung.faktor_frisch.verwaltung.{chef.id}", "1")
+     dbs.commit()
+     r = client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"}, follow_redirects=False)
+-    # ohne Meldeweg an den Betreiber: einmal der Hinweis „Neues vertrautes Gerät“ auf der Übersicht
+-    assert r.status_code == 303 and r.headers["location"] == "/verwaltung/?ok=vertraut_neu"
++    # 0.4.149 (S58): ohne Meldeweg steht der Hinweis „Neues vertrautes Gerät“ beim nächsten Anmelden an einem
++    # ANDEREN Gerät – das neue Gerät selbst sieht ihn nicht und kann ihn so auch nicht wegklicken
++    assert r.status_code == 303 and r.headers["location"] == "/verwaltung/"
+     assert sitzung != client.cookies.get("tw_verwaltung")
++    merkzeichen = client.cookies.get("__Host-tw_vertraut")
++    client.cookies.delete("__Host-tw_vertraut")
++    r = _anmelden_mit_code(client, codes)  # anderer Browser: Passwort und Code
++    assert r.status_code == 303 and r.headers["location"] == "/verwaltung/?ok=vertraut_neu"
+     assert "als vertraut eingetragen" in client.get(f"{HTTPS}{r.headers['location']}").text
+-    client.cookies.delete("tw_verwaltung", path="/verwaltung")
++    client.cookies.clear()
++    client.cookies.set("__Host-tw_vertraut", merkzeichen)
+     r = client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"}, follow_redirects=False)
+-    assert r.headers["location"] == "/verwaltung/"  # Hinweis nur einmal
++    assert r.headers["location"] == "/verwaltung/"  # Hinweis nur einmal, das Gerät bleibt vertraut
+     assert client.get(f"{HTTPS}/verwaltung/", follow_redirects=False).status_code == 200
+-    assert not zf.frisch(dbs, chef.id)
++    assert not zf.frisch(dbs, chef.id, sitzung=faktor_sitzung(client))
+     csrf = client.get(f"{HTTPS}/verwaltung/konten").text.split('name="csrf" value="')[1].split('"')[0]
+     r = client.post(f"{HTTPS}/verwaltung/konten", data={"csrf": csrf, "username": "neu", "display_name": "N", "password": "sehrgeheim12"},
+                     follow_redirects=False)
+@@ -521,7 +529,7 @@ def test_guthaben_passkey_vertrauen_und_geldschritt(client, world, dbs):
+     _modus(dbs)
+     _https_an(dbs)
+     anna = dbs.scalar(select(User).where(User.username == "anna"))
+-    codes = _faktor_an(dbs, anna.id)
++    codes = _faktor_an(client, dbs, anna.id)
+     # Passkey direkt anlegen (die Guthaben-Seite hat keine Verwaltung dafür – das geht nur über die Verwaltung)
+     from app import passkeys
+ 
+@@ -557,4 +565,4 @@ def test_guthaben_passkey_vertrauen_und_geldschritt(client, world, dbs):
+     assert "Zweiten Faktor bestätigen" in seite and "Mit Passkey bestätigen" in seite
+     r = client.post(f"{HTTPS}/guthaben/bestaetigen", data={"csrf": csrf, "code": codes.pop()}, follow_redirects=False)
+     assert r.status_code == 303 and r.headers["location"] == "/guthaben?ok=bestaetigt"
+-    assert zf.frisch(dbs, anna.id, "guthaben")
++    assert zf.frisch(dbs, anna.id, "guthaben", sitzung=faktor_sitzung(client, "guthaben"))
+diff --git a/tests/test_server_04149.py b/tests/test_server_04149.py
+new file mode 100644
+index 0000000..54237a1
+--- /dev/null
++++ b/tests/test_server_04149.py
+@@ -0,0 +1,270 @@
++"""Server 0.4.149: frischer zweiter Faktor je Sitzung und auf allen Wegen zu Schlüsseln (S57), Merkzeichen und
++Challenge (S58), Sicht der Urheberin auf übernommene Vorschläge nach späteren Änderungen (S56-Rest)."""
++import time
++
++from sqlalchemy import select
++
++from app.einstellungen import meta_schreiben
++from tests.faktor_hilfe import sitzung
++from tests.test_server_04136 import post as konto_post  # noqa: F401
++from tests.test_server_04143 import HTTPS, _anmelden_mit_code, _chef, _faktor_an, _https_an
++from tests.test_step2a import API
++from tests.test_verwaltung import admin  # noqa: F401
++
++
++# ---------------------------------------------------------------- S57: frisch nur in dieser Sitzung
++def test_frisch_gilt_nur_fuer_die_sitzung(dbs, admin):  # noqa: F811
++    from app.verwaltung import zweiter_faktor as zf
++
++    chef = _chef(dbs)
++    zf.beginnen(dbs, chef.id)
++    from tests.test_server_0484 import _code
++
++    zf.bestaetigen(dbs, chef.id, _code(dbs, chef.id))
++    zf.frisch_merken(dbs, chef.id, sitzung="sitzung-a")
++    assert zf.frisch(dbs, chef.id, sitzung="sitzung-a")
++    assert not zf.frisch(dbs, chef.id, sitzung="sitzung-b")
++    assert not zf.frisch(dbs, chef.id, sitzung="-") and not zf.frisch(dbs, chef.id, sitzung=None)
++    assert not zf.frisch(dbs, chef.id, "guthaben", sitzung="sitzung-a")  # Bereiche getrennt
++    meta_schreiben(dbs, f"verwaltung.faktor_frisch.verwaltung.{chef.id}", str(int(time.time())))  # alte Form
++    assert not zf.frisch(dbs, chef.id, sitzung="sitzung-a")
++    zf.frisch_merken(dbs, chef.id, sitzung="-")  # ohne Sitzung wird nichts gemerkt
++    assert not zf.frisch(dbs, chef.id, sitzung="-")
++
++
++def test_vertrautes_geraet_erbt_den_frischen_faktor_nicht(client, dbs, admin):  # noqa: F811
++    """Wer mit Passwort und vertrautem Gerät hereinkommt, während die Person gerade woanders bestätigt hat, muss den
++    Faktor selbst zeigen."""
++    chef = _chef(dbs)
++    _https_an(dbs)
++    codes = _faktor_an(client, dbs, chef.id)
++    assert _anmelden_mit_code(client, codes, vertrauen=True).status_code == 303  # Sitzung A, frisch
++    sitzung_a = client.cookies.get("tw_verwaltung")
++    csrf_a = client.get(f"{HTTPS}/verwaltung/konten").text.split('name="csrf" value="')[1].split('"')[0]
++    # Sitzung B: dasselbe Konto über das vertraute Gerät (nur Passwort), innerhalb der fünf Minuten
++    client.cookies.delete("tw_verwaltung", path="/verwaltung")
++    r = client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"},
++                    follow_redirects=False)
++    assert r.status_code == 303 and "anmelden/code" not in r.headers["location"]
++    csrf_b = client.get(f"{HTTPS}/verwaltung/konten").text.split('name="csrf" value="')[1].split('"')[0]
++    r = client.post(f"{HTTPS}/verwaltung/konten", follow_redirects=False,
++                    data={"csrf": csrf_b, "username": "neu-b", "display_name": "N", "password": "sehrgeheim12"})
++    assert r.headers["location"].startswith("/verwaltung/bestaetigen")
++    # Sitzung A darf weiter
++    client.cookies.delete("tw_verwaltung", path="/verwaltung")
++    client.cookies.set("tw_verwaltung", sitzung_a, path="/verwaltung")
++    r = client.post(f"{HTTPS}/verwaltung/konten", follow_redirects=False,
++                    data={"csrf": csrf_a, "username": "neu-a", "display_name": "N", "password": "sehrgeheim12"})
++    assert "konto_angelegt" in r.headers["location"]
++
++
++def test_assistent_und_zugaenge_verlangen_frischen_faktor(client, dbs, admin, monkeypatch):  # noqa: F811
++    from app import einrichtung, schluessel
++
++    chef = _chef(dbs)
++    _faktor_an(client, dbs, chef.id)
++    meta_schreiben(dbs, f"verwaltung.faktor_frisch.verwaltung.{chef.id}", "1")  # nicht mehr frisch
++    meta_schreiben(dbs, "betrieb.art", "beides")
++    dbs.commit()
++    monkeypatch.setattr(schluessel, "mistral", lambda k: "ok")
++    monkeypatch.setattr(schluessel, "huggingface", lambda k: "ok")
++    assert einrichtung.betriebsart(dbs) == "beides"
++    ref = {"referer": "http://testserver/verwaltung/assistent/betrieb"}
++    wege = [
++        ("/verwaltung/assistent/betrieb", {"mistral_key": "sk-neu-1234567890", "limit_euro": "0", "stunden": "12"}),
++        ("/verwaltung/assistent/betrieb", {"hf_token": "hf_abcdefghijklmnop", "limit_euro": "0", "stunden": "12"}),
++        ("/verwaltung/assistent/zusammenfassung", {"wahl": "api", "mistral_key": "sk-neu-1234567890"}),
++        ("/verwaltung/assistent/sicherung/jetzt", {}),
++        ("/verwaltung/assistent/spielleitung", {"username": "sl1", "display_name": "SL", "password": "sehrgeheim12"}),
++        ("/verwaltung/assistent/koppeln", {"weiter": "/verwaltung/transkription"}),
++        ("/verwaltung/worker", {"name": "PC 3"}),
++        ("/verwaltung/benachrichtigungen", {"smtp_pass": "geheim", "zeitzone": "Europe/Berlin"}),
++        ("/verwaltung/benachrichtigungen", {"ntfy_token": "tk_neu", "zeitzone": "Europe/Berlin"}),
++    ]
++    for pfad, daten in wege:
++        r = client.post(pfad, data={"csrf": admin, **daten}, headers=ref, follow_redirects=False)
++        assert r.status_code == 303 and r.headers["location"].startswith("/verwaltung/bestaetigen"), (pfad, daten)
++    from app.einstellungen import meta_lesen
++
++    assert meta_lesen(dbs, "extern.api_key") in (None, "") and meta_lesen(dbs, "melden.smtp_pass") in (None, "")
++    # ohne neuen Schlüssel geht der Schritt wie bisher
++    r = client.post("/verwaltung/assistent/zusammenfassung", data={"csrf": admin, "wahl": "lokal"},
++                    follow_redirects=False)
++    assert "bestaetigen" not in r.headers["location"]
++
++
++# ---------------------------------------------------------------- S58
++def test_merkzeichen_nur_aus_dem_richtigen_cookie_und_immer_neu(client, dbs, admin, konto_post):  # noqa: F811
++    from app import vertraut
++    from app.models import VertrautesGeraet
++
++    chef = _chef(dbs)
++    chef.email = "chef@example.org"
++    _https_an(dbs)
++    codes = _faktor_an(client, dbs, chef.id)
++    # untergeschobenes Merkzeichen ohne __Host- (könnte eine Subdomain setzen): unter https nicht gelesen, nicht übernommen
++    client.cookies.clear()
++    client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"}, follow_redirects=False)
++    untergeschoben = "x" * 43
++    client.cookies.set("tw_vertraut", untergeschoben)
++    r = client.post(f"{HTTPS}/verwaltung/anmelden/code", data={"code": codes.pop(), "vertrauen": "ja"},
++                    follow_redirects=False)
++    assert r.status_code == 303
++    neu = client.cookies.get("__Host-tw_vertraut")
++    assert neu and neu != untergeschoben
++    dbs.expire_all()
++    eintraege = list(dbs.scalars(select(VertrautesGeraet)))
++    assert [g.id for g in eintraege] == [vertraut._hash(neu, "verwaltung")]
++    # vorhandenes __Host-Merkzeichen (etwa untergeschoben, bevor die Person „vertrauen“ ankreuzt): nie übernommen
++    client.cookies.clear()
++    client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"}, follow_redirects=False)
++    vorher = "y" * 43
++    client.cookies.set("__Host-tw_vertraut", vorher)
++    r = client.post(f"{HTTPS}/verwaltung/anmelden/code", data={"code": codes.pop(), "vertrauen": "ja"},
++                    follow_redirects=False)
++    assert r.status_code == 303
++    zweites = r.headers["set-cookie"].split("__Host-tw_vertraut=")[1].split(";")[0]
++    assert zweites not in (vorher, neu)
++    dbs.expire_all()
++    ids = {g.id for g in dbs.scalars(select(VertrautesGeraet))}
++    assert vertraut._hash(vorher, "verwaltung") not in ids and vertraut._hash(zweites, "verwaltung") in ids
++
++
++def test_merken_zieht_den_anderen_bereich_mit(dbs, admin):  # noqa: F811
++    from fastapi import Response
++    from starlette.requests import Request
++
++    from app import vertraut
++    from app.models import VertrautesGeraet
++
++    chef = _chef(dbs)
++
++    def anfrage(wert=None):
++        kopf = [(b"host", b"testserver")] + ([(b"cookie", f"__Host-tw_vertraut={wert}".encode())] if wert else [])
++        return Request({"type": "http", "scheme": "https", "server": ("testserver", 443), "path": "/", "headers": kopf,
++                        "query_string": b"", "method": "POST"})
++
++    a = Response()
++    vertraut.merken(a, anfrage(), dbs, chef, "verwaltung")
++    erster = a.headers["set-cookie"].split("__Host-tw_vertraut=")[1].split(";")[0]
++    b = Response()
++    vertraut.merken(b, anfrage(erster), dbs, chef, "guthaben")
++    zweiter = b.headers["set-cookie"].split("__Host-tw_vertraut=")[1].split(";")[0]
++    assert zweiter != erster
++    dbs.flush()
++    ids = {(g.id, g.bereich) for g in dbs.scalars(select(VertrautesGeraet))}
++    assert ids == {(vertraut._hash(zweiter, "verwaltung"), "verwaltung"), (vertraut._hash(zweiter, "guthaben"), "guthaben")}
++
++
++def test_challenge_bleibt_verbraucht_wenn_danach_etwas_scheitert(dbs, admin):  # noqa: F811
++    from app import passkeys
++    from app.models import ServerMeta
++
++    chef = _chef(dbs)
++    passkeys._challenge_merken(dbs, chef, "get", "bindung-1")
++    dbs.commit()
++    assert passkeys._challenge_verbrauchen(dbs, chef, "get", "bindung-1") is not None
++    dbs.rollback()  # wie nach einem Fehler 500 in der Prüfung
++    assert not list(dbs.scalars(select(ServerMeta).where(ServerMeta.key.like("passkey.challenge.%"))))
++    assert passkeys._challenge_verbrauchen(dbs, chef, "get", "bindung-1") is None
++
++
++def test_rechteentzug_ueber_die_kommandozeile_entfernt_vertraute_geraete(dbs, admin):  # noqa: F811
++    from datetime import timedelta
++
++    from typer.testing import CliRunner
++
++    from app.cli import app
++    from app.db import utcnow
++    from app.models import OrgMember, Organization, VertrautesGeraet
++
++    chef = _chef(dbs)
++    jetzt = utcnow()
++    dbs.add(VertrautesGeraet(id="a" * 64, user_id=chef.id, bereich="verwaltung", token_version=chef.token_version,
++                             faktor_fassung=0, bezeichnung="Browser", created_at=jetzt,
++                             expires_at=jetzt + timedelta(days=30), last_used_at=jetzt))
++    zweite = Organization(name="Zweiter Verein")
++    dbs.add(zweite)
++    dbs.flush()
++    dbs.add(OrgMember(organization_id=zweite.id, user_id=chef.id, role="admin"))
++    dbs.commit()
++    r = CliRunner().invoke(app, ["admin", "-u", "chef", "--entziehen"])
++    assert r.exit_code == 0, r.output
++    dbs.expire_all()
++    assert dbs.scalar(select(VertrautesGeraet)) is None
++    assert {om.role for om in dbs.scalars(select(OrgMember).where(OrgMember.user_id == chef.id))} == {"member"}
++
++
++# ---------------------------------------------------------------- S56-Rest
++def test_urheberin_sieht_spaetere_aenderungen(client, world):
++    from tests.test_server_04144 import _eigene, _eintrag, _vorschlagen
++
++    w = world
++    oeff = _eintrag(client, w, name="Burg Rabenstein", summary="Alte Burg.")
++    ids = {}
++    for name in ("verschoben", "gekuerzt", "neu"):
++        ids[name] = _vorschlagen(client, w, title=f"Vorschlag {name}", detail=f"Der Turm {name} ist eingestürzt.").json()["id"]
++    for name in ("verschoben", "gekuerzt"):
++        r = client.post(f"{API}/player-proposals/{ids[name]}/decision", headers=w["gm"],
++                        json={"decision": "accept", "mergeIntoEntryId": oeff["id"]})
++        assert r.status_code == 200, r.text
++    r = client.post(f"{API}/player-proposals/{ids['neu']}/decision", headers=w["gm"], json={"decision": "accept"})
++    neu_id = r.json()["resultEntryId"]
++    eigene = _eigene(client, w)
++    assert {eigene[i]["state"] for i in ids.values()} == {"accepted"}
++    # Die SL schiebt einen der Texte später in die SL-Notizen: für die Urheberin „closed“
++    e = client.get(f"{API}/entries/{oeff['id']}", headers=w["gm"]).json()
++    client.patch(f"{API}/entries/{oeff['id']}", headers=w["gm"],
++                 json={"summary": e["summary"].replace("Der Turm verschoben ist eingestürzt.", "").strip(),
++                       "gmNotes": "Der Turm verschoben ist eingestürzt."})
++    eigene = _eigene(client, w)
++    assert (eigene[ids["verschoben"]]["state"], eigene[ids["verschoben"]]["resultEntryId"]) == ("closed", None)
++    assert eigene[ids["gekuerzt"]]["state"] == "accepted"
++    # ein neuer Eintrag bleibt ihr Ergebnis, auch umformuliert – solange er für sie sichtbar ist
++    client.patch(f"{API}/entries/{neu_id}", headers=w["gm"], json={"summary": "Ganz anders beschrieben."})
++    assert _eigene(client, w)[ids["neu"]]["state"] == "accepted"
++    client.patch(f"{API}/entries/{neu_id}", headers=w["gm"], json={"hiddenFromMemberIds": [w["pl_member"]]})
++    assert _eigene(client, w)[ids["neu"]]["state"] == "closed"
++
++
++def test_ueber_die_laengengrenze_gilt_nicht_als_uebernommen(client, world, dbs):
++    from app import spielende
++    from app.models import Entry
++    from tests.test_server_04144 import _eigene, _eintrag, _vorschlagen
++
++    w = world
++    voll = _eintrag(client, w, name="Chronik", summary="Alt.")
++    dbs.get(Entry, voll["id"]).summary = "x" * (spielende.MAX_TEXT - 5)
++    dbs.commit()
++    pid = _vorschlagen(client, w, title="Nachtrag", detail="Ein langer Nachtrag zur Chronik.").json()["id"]
++    r = client.post(f"{API}/player-proposals/{pid}/decision", headers=w["gm"],
++                    json={"decision": "accept", "mergeIntoEntryId": voll["id"]})
++    assert r.status_code == 200
++    assert (_eigene(client, w)[pid]["state"], _eigene(client, w)[pid]["resultEntryId"]) == ("closed", None)
++
++
++def test_migration_fuellt_den_uebernommenen_text(tmp_path):
++    import sqlalchemy as sa
++    from alembic import command
++    from alembic.config import Config
++
++    url = f"sqlite:///{tmp_path / 'm.db'}"
++    cfg = Config("alembic.ini")
++    cfg.set_main_option("sqlalchemy.url", url)
++    command.upgrade(cfg, "c6e8a0b2d4f6")
++    e = sa.create_engine(url)
++    with e.begin() as c:
++        c.execute(sa.text("PRAGMA foreign_keys=OFF"))
++        for pid, state, sichtbar in (("p1", "accepted", 1), ("p2", "accepted", 0), ("p3", "open", 0)):
++            c.execute(sa.text("INSERT INTO player_proposals (id, campaign_id, entry_type, title, detail, state, "
++                              "text_sichtbar, created_at) VALUES (:id, 'c', 'npc', 'T', :d, :s, :v, '2026-11-01')"),
++                      {"id": pid, "d": f"Text {pid}", "s": state, "v": sichtbar})
++    command.upgrade(cfg, "c8e0a2b4d6f8")
++    with e.begin() as c:
++        werte = dict(c.execute(sa.text("SELECT id, oeffentlicher_text FROM player_proposals")).all())
++    assert werte == {"p1": "Text p1", "p2": None, "p3": None}
++
++
++def test_frisch_bindet_an_den_test_client(client, dbs, admin):  # noqa: F811
++    """Hilfe für die übrigen Tests: tests/faktor_hilfe.py liest die Sitzung des Test-Clients."""
++    assert sitzung(client) not in ("-", "")
+diff --git a/tests/test_server_0487.py b/tests/test_server_0487.py
+index f112325..8788671 100644
+--- a/tests/test_server_0487.py
++++ b/tests/test_server_0487.py
+@@ -148,7 +148,9 @@ def test_n3_schalter_und_preise_nur_mit_zweitem_faktor(client, dbs, admin):  # n
+     chef = dbs.scalar(select(User).where(User.username == "chef"))
+     zf.beginnen(dbs, chef.id)
+     zf.bestaetigen(dbs, chef.id, _code(dbs, chef.id))
+-    zf.frisch_merken(dbs, chef.id)  # 0.4.143 (S44)
++    from tests.faktor_hilfe import frisch_merken
++
++    frisch_merken(client, dbs, chef.id)  # 0.4.143 (S44)
+     dbs.commit()
+     r = client.post("/verwaltung/abrechnung/modus", data={"csrf": admin, "modus": "guthaben"}, follow_redirects=False)
+     assert r.status_code == 303 and abrechnung.modus(dbs) == "guthaben"
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index 6967011..723aa87 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -112,7 +112,7 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     code, _ = code_erzeugen(dbs)
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.148"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.149"
+ 
+ 
+ def test_engine_requirements_passen_zu_uv_lock(tmp_path):
+diff --git a/uv.lock b/uv.lock
+index 7d340d3..4ce9d80 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -2138,7 +2138,7 @@ wheels = [
+ 
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.148"
++version = "0.4.149"
+ source = { editable = "." }
+ dependencies = [
+     { name = "alembic" },
+-- 
+2.43.0
+
