@@ -1027,6 +1027,9 @@ def platz_einnehmen(db: Session, platz: Member, user: User, rolle: str, frueher:
         frueher.user_id = None
         db.flush()
         _zusammenlegen(db, frueher, platz)
+    from app import teilen
+
+    teilen.vergessen(db, platz.id)  # 0.4.30
     platz.user_id, platz.open_seat, platz.role = user.id, False, rolle
     platz.left_at, platz.deleted_at, platz.joined_at = None, None, utcnow()
     platz.chronicle_seen_at = platz.bible_seen_at = None
@@ -1142,6 +1145,9 @@ def freigeben(db: Session, platz: Member) -> None:
     set_move_consent(db, platz, False)
     _privates_abloesen(db, platz)  # 0.4.94
     platz.user_id, platz.open_seat, platz.role = None, True, "player"
+    from app import teilen
+
+    teilen.vergessen(db, platz.id)  # 0.4.30: der Schlüssel gehört der Person, nicht dem Platz
     platz.chronicle_seen_at = platz.bible_seen_at = None
     db.execute(SessionSeen.__table__.delete().where(SessionSeen.member_id == platz.id))
     db.execute(DateVote.__table__.delete().where(DateVote.member_id == platz.id))

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Taleward API
-  version: 0.4.29
+  version: 0.4.30
   description: |
     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
 
@@ -285,6 +285,12 @@ info:
     Text wie „Erfahren“ für Systeme ohne Klassen). Die App benennt das Feld je Spielsystem und rechnet nichts damit aus.
     Sichtbar für alle Mitglieder; geht nie an ein Sprachmodell (Kapitel enthalten keine Regelangaben). Ältere Server
     ignorieren beide Felder.
+    Änderungen in 0.4.30 (Kapitel teilen als verschlüsselte Datei, für Gruppen ohne Server im Internet): Die SL holt für
+    ein veröffentlichtes Kapitel eine Datei (POST /campaigns/{id}/shares) und schickt sie über den eigenen Gruppenchat.
+    Jedes aktive Mitglied hat je Kampagne einen eigenen Schlüssel (Campaign.shareKey, nur für sich selbst); damit öffnet
+    die App die Datei und legt den Inhalt in ihre Lesekopie. Der Server signiert jede Datei (ServerInfo.shareKeys). Inhalt
+    nur, was jedes Mitglied ohnehin sieht. Dateiformat und Prüfreihenfolge: Schema ShareFile. Ältere Apps ignorieren
+    shareKey und shareKeys; ältere Server bieten das Teilen nicht an.
 
 servers:
   - url: https://taleward.example.org/api/v1
@@ -1335,6 +1341,40 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /campaigns/{campaignId}/shares:
+    parameters: [{ $ref: "#/components/parameters/campaignId" }]
+    post:
+      tags: [Chronik]
+      summary: Kapitel als verschlüsselte Datei teilen (nur SL, ab 0.4.30)
+      description: |
+        Nur SL, sonst 404. Nur für ein veröffentlichtes Kapitel dieser Kampagne (sonst 409 `not_published`; fremde oder
+        unbekannte sessionId → 404). Der Server baut die Datei aus einer eigenen Positivliste (siehe ShareContent), mit
+        einem frischen Inhaltsschlüssel; Empfänger sind alle aktiven Mitglieder mit Schlüssel, die SL eingeschlossen, keine
+        offenen Plätze, keine Ehemaligen. `missingKeys` (nur an die SL) nennt aktive Mitglieder ohne Schlüssel (sie haben
+        die Kampagne seit dem Beitritt noch nicht geladen). Der Server speichert die Datei nicht; jeder Aufruf erzeugt eine
+        neue (neue shareId). Begrenzung: 30 Aufrufe je Kampagne und Stunde (429).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [sessionId]
+              properties:
+                sessionId: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" }
+      responses:
+        "200":
+          description: Datei als Text, die App speichert bzw. teilt sie
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ShareResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /campaigns/{campaignId}/members/me/world:
     parameters: [{ $ref: "#/components/parameters/campaignId" }]
@@ -3743,6 +3783,14 @@ components:
     ServerInfo:
       type: object
       properties:
+        shareKeys:
+          type: array
+          maxItems: 4
+          items: { $ref: "#/components/schemas/ShareServerKey" }
+          description: |
+            Ab 0.4.30: öffentliche Schlüssel, mit denen der Server geteilte Kapitel signiert. Fehlt oder leer = dieser Server
+            kann nicht teilen. Die App merkt sich die Schlüssel je serverId nur über eine Verbindung, auf der sie angemeldet
+            ist, und nimmt nie einen Schlüssel aus einer Datei an. Mehrere Einträge erlauben einen Wechsel.
         name: { type: string }
         operator: { type: string }
         contact: { type: [string, "null"] }
@@ -4474,6 +4522,15 @@ components:
         - $ref: "#/components/schemas/CampaignSummary"
         - type: object
           properties:
+            shareKey:
+              oneOf:
+                - $ref: "#/components/schemas/MemberShareKey"
+                - type: "null"
+              description: |
+                Ab 0.4.30: Schlüssel des anfragenden Mitglieds zum Öffnen geteilter Kapitel. Nur in GET /campaigns/{id} und
+                nur für genau dieses Mitglied; nie in Listen, Umzug, Export, Datenauskunft anderer, Benachrichtigungen oder
+                Protokollen. Fehlt bei Servern ohne shareKeys. Bleibt gleich, solange die Person Mitglied ist; neu erzeugt
+                (alter gelöscht) bei Austritt, Entfernen, Platz freigeben, Wiedereintritt und Konto löschen.
             description: { type: string }
             links:
               type: array
@@ -5248,6 +5305,91 @@ components:
             Liste leer, hat die Figur keine Klassen. Mehr als 4 Einträge, leere Namen oder Stufen außerhalb 1–30 → 400 validation_error. Ältere Server ignorieren das Feld.
         status: { type: string, enum: [active, retired, deceased] }
         statusChangedAt: { type: [string, "null"], format: date-time }
+
+    ShareServerKey:
+      type: object
+      additionalProperties: false
+      required: [id, spki]
+      description: Ab 0.4.30. Öffentlicher Signierschlüssel des Servers (ECDSA P-256), nur für geteilte Kapitel.
+      properties:
+        id: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" }
+        spki: { type: string, description: "SubjectPublicKeyInfo, base64url ohne Auffüllung" }
+
+    MemberShareKey:
+      type: object
+      additionalProperties: false
+      required: [id, key]
+      description: Ab 0.4.30. Schlüssel eines Mitglieds für geteilte Kapitel dieser Kampagne.
+      properties:
+        id: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$", description: "keyId in ShareFile.recipients" }
+        key: { type: string, description: "32 Byte, base64url ohne Auffüllung (AES-256)" }
+
+    ShareResponse:
+      type: object
+      required: [file, fileName, missingKeys]
+      description: Ab 0.4.30. Antwort auf POST /campaigns/{id}/shares.
+      properties:
+        file: { type: string, description: "Inhalt der Datei (JSON nach ShareFile) als Text" }
+        fileName:
+          type: string
+          description: Dateiname ohne Kampagnentitel (Gruppenchats zeigen ihn in der Vorschau), z. B. taleward-kapitel-7.taleward
+        missingKeys:
+          type: array
+          items: { type: string }
+          description: memberIds aktiver Mitglieder ohne Schlüssel; die App nennt ihre Figurennamen.
+
+    ShareFile:
+      type: object
+      additionalProperties: false
+      required: [format, signed, signature]
+      description: |
+        Ab 0.4.30. Datei „Kapitel teilen“ (Endung .taleward, MIME application/vnd.taleward.share+json; die App verlässt sich
+        nur auf `format`).
+        `signed` ist base64url (ohne Auffüllung) der UTF-8-Bytes eines JSON-Objekts:
+        { serverId, campaignId, shareId, createdAt, signKeyId, recipients: [{ keyId, nonce, wrapped }], nonce, ciphertext }
+        (nonce/wrapped/ciphertext base64url). `signature` ist ECDSA P-256 mit SHA-256 über genau die Bytes von `signed`
+        (nach dem base64url-Dekodieren), im Format r‖s (IEEE P1363, 64 Byte, wie WebCrypto), base64url; signKeyId nennt
+        den Schlüssel aus ServerInfo.shareKeys.
+        Kopf = UTF-8-Bytes von JSON { format, serverId, campaignId, shareId, createdAt } in genau dieser Reihenfolge, ohne
+        Leerzeichen.
+        Inhalt: ShareContent als JSON, mit gzip gepackt, dann AES-256-GCM mit frischem Inhaltsschlüssel, 12-Byte-Nonce,
+        AAD = Kopf. Verpackung je Empfänger: Inhaltsschlüssel mit dem MemberShareKey AES-256-GCM verschlüsselt, eigene
+        Nonce, AAD = Kopf gefolgt von den UTF-8-Bytes der keyId.
+        Prüfreihenfolge in der App: Datei höchstens 5 MB, entpackt höchstens 20 MB; `format` = taleward-kapitel/1;
+        Signatur gegen einen gespeicherten Schlüssel genau dieser serverId vor allem anderen; serverId und campaignId gegen
+        eigene Verbindung und Mitgliedschaft; entschlüsseln; Schema und Positivliste der Lesekopie. Jeder Fehlschlag zeigt
+        denselben Satz („Diese Datei ist nicht für dich bestimmt.“). Ältere Datei als die vorhandene Kopie überschreibt
+        nichts; die nächste Antwort des Servers gewinnt immer. Texte nur als Text, keine HTML-Darstellung.
+        Server und App prüfen dieselben Testvektoren (Signatur DER ↔ r‖s umrechnen).
+      properties:
+        format: { type: string, const: taleward-kapitel/1 }
+        signed: { type: string }
+        signature: { type: string }
+
+    ShareContent:
+      type: object
+      required: [campaignTitle, sessions, entries]
+      description: |
+        Ab 0.4.30. Entschlüsselter Inhalt. Nur über eine Positivliste im Server, nur was ein gerade beigetretenes Mitglied
+        sieht: veröffentlichte Kapitel (Recap ohne review, revision, gmWarnings), SessionSummary mit playedAt ohne
+        Anwesenheits- und Stimmdaten; Einträge nur öffentlich, vor niemandem verborgen und ohne Auswertungs-Marke, ohne
+        gmNotes, hiddenFromMemberIds, formerHolderMemberId und ungeteilte Links; aliases nur dieser Einträge; mentions nur
+        aus veröffentlichten Kapiteln. Nie: Vorschläge, match, Kommentare, Hintergründe, Charakterbögen, Abschrift, Stimmen,
+        Hörproben, Zähler, Merkstellen, Bilder – auch keine Anzahlen davon. Zum Start genau ein Kapitel.
+      properties:
+        campaignTitle: { type: string }
+        sessions:
+          type: array
+          maxItems: 1
+          items:
+            type: object
+            required: [session, recap]
+            properties:
+              session: { $ref: "#/components/schemas/SessionSummary" }
+              recap: { $ref: "#/components/schemas/Recap" }
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/Entry" }
 
     CharacterClass:
       type: object

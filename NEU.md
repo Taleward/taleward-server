@@ -1,9 +1,8 @@
-Fassung 0.4.147
+Fassung 0.4.148
 
 ## Was ist neu
 
-- Vorschläge für die Bibel, die nur aus der Weltbeschreibung stammen oder deren Name in der Abschrift nie fällt, gelten nicht mehr als belegt. Sie stehen mit „Beleg nicht gefunden“ da und werden nicht mehr als unauffällig mit übernommen.
-- Kapiteltitel kommen ohne „Kapitel 2:“ davor, die Nummer setzt die App ohnehin.
-- Runden, für die nie eine Aufnahme ankam (etwa weil eine Zustimmung fehlte oder das Mikrofon gesperrt war), verschwinden nach einer Woche von selbst, und ihre Nummer wird wieder frei. Runden mit SL-Notiz bleiben.
-- Eigennamen aus dem Kampagnentitel und der Weltbeschreibung helfen der Abschrift beim Schreiben.
-- Seit 0.4.145: Mistral bleibt fest bei Large 3, Klasse und Stufe am Charakter, neue Anleitungen für die Anmeldedienste.
+- Kapitel teilen: Die Spielleitung kann ein freigegebenes Kapitel als Datei holen und in den Gruppenchat schicken. Öffnen können sie nur die Mitglieder der Kampagne, für alle anderen ist sie nutzlos. Gedacht für Gruppen, deren Server nicht aus dem Internet erreichbar ist. Braucht die nächste App-Fassung.
+- In der Datei steht nur, was jedes Mitglied ohnehin sieht: das Kapitel und die allgemein bekannten Einträge der Bibel, keine Notizen, keine Kommentare, keine Vorschläge.
+- Seit 0.4.147: Vorschläge ohne echten Beleg werden als solche gekennzeichnet, Kapiteltitel ohne doppelte Nummer, Runden ohne Aufnahme verschwinden nach einer Woche.
+- Seit 0.4.141: Passkeys als zweiter Faktor, Spielende können Einträge vorschlagen und Stellen merken, Klasse und Stufe am Charakter, das Cloud-Sprachmodell wechselt nicht mehr von selbst auf eine neue Fassung.

@@ -369,6 +369,9 @@ def entfernen(db: Session, u: User) -> None:
         m.character_backstory = None
         m.chronicle_seen_at = m.bible_seen_at = None
         m.user_id, m.deleted_at = None, jetzt
+        from app import teilen
+
+        teilen.vergessen(db, m.id)  # 0.4.30
         charaktere.beitritt_vergessen(db, m.id)  # 0.4.14
         charakterauswertung.mitglied_weg(db, m.id)  # 0.4.18
         spielende.mitglied_weg(db, m.id)  # 0.4.28: offene Vorschläge, Merkstellen, Zähler

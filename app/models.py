@@ -1013,3 +1013,17 @@ class Bezahlvorgang(Base):
     # 0.4.138: Häkchen „sofort nutzbar“ (Widerruf) – Zeitpunkt und Fassung der Bedingungen und der Widerrufsbelehrung
     zustimmung_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     zustimmung_fassung: Mapped[str | None] = mapped_column(String(80), nullable=True)
+
+
+# ---------------------------------------------------------------- Kapitel teilen (0.4.30)
+class ShareKey(Base):
+    """Schlüssel eines Mitglieds zum Öffnen geteilter Kapitel (app/teilen.py). Gehört der Person, nicht dem Platz:
+    `bindung` = Konto und Beitrittszeit; passt sie nicht mehr, gilt der Schlüssel als gelöscht. Nie im Umzug, nie im
+    Export, nie in Listen."""
+
+    __tablename__ = "share_keys"
+    member_id: Mapped[str] = mapped_column(ForeignKey("members.id", ondelete="CASCADE"), primary_key=True)
+    key_id: Mapped[str] = mapped_column(String(64), unique=True)
+    key: Mapped[str] = mapped_column(String(64))
+    bindung: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)

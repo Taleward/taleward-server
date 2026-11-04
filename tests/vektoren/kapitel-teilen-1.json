@@ -1,0 +1,72 @@
+{
+ "beschreibung": "Gemeinsamer Testvektor Server und App für ShareFile (Schnittstelle 0.4.30). Der private Schlüssel gilt nur für diesen Test. Die Signatur ist ECDSA (zufällig) und lässt sich nicht nachrechnen, nur prüfen.",
+ "privateKeyPkcs8": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg6jjUUoNjhqfQY1vDRCKQadCLd-aUyyZVJgv9YaevfZmhRANCAATdlItVuFAdjnPPESiK6XByAWPoTGtmuKRddJ7PWcoey97vEEfkk5wk6ljp1o19pkD8pnvieRfPcXabVHSwQJTG",
+ "spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE3ZSLVbhQHY5zzxEoiulwcgFj6ExrZrikXXSez1nKHsve7xBH5JOcJOpY6daNfaZA_KZ74nkXz3F2m1R0sECUxg",
+ "signKeyId": "7RciPQvJAB2v4Dk2",
+ "serverId": "chronik-vektor",
+ "campaignId": "c-0001",
+ "shareId": "vektor-1",
+ "createdAt": "2026-11-01T09:30:00Z",
+ "contentKey": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
+ "contentNonce": "ZWZnaGlqa2xtbm9w",
+ "recipients": [
+  {
+   "keyId": "schluessel-sl",
+   "key": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8",
+   "nonce": "ycrLzM3Oz9DR0tPU"
+  },
+  {
+   "keyId": "schluessel-mira",
+   "key": "QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8",
+   "nonce": "l5iZmpucnZ6foKGi"
+  }
+ ],
+ "fremderSchluessel": {
+  "keyId": "schluessel-mira",
+  "key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+ },
+ "header": "{\"format\":\"taleward-kapitel/1\",\"serverId\":\"chronik-vektor\",\"campaignId\":\"c-0001\",\"shareId\":\"vektor-1\",\"createdAt\":\"2026-11-01T09:30:00Z\"}",
+ "signed": "{\"serverId\":\"chronik-vektor\",\"campaignId\":\"c-0001\",\"shareId\":\"vektor-1\",\"createdAt\":\"2026-11-01T09:30:00Z\",\"signKeyId\":\"7RciPQvJAB2v4Dk2\",\"recipients\":[{\"keyId\":\"schluessel-sl\",\"nonce\":\"ycrLzM3Oz9DR0tPU\",\"wrapped\":\"oldMQHHbbQaC6rGW-p7tEskKXMz9je1yBg9O3R8TXpCBTJVtzFZcHsf-k1Wgj368\"},{\"keyId\":\"schluessel-mira\",\"nonce\":\"l5iZmpucnZ6foKGi\",\"wrapped\":\"HWX5KU3yf1pL5I-Qu6y6EX0VMw_edN8o5WV3WBJy9g22C0jfMgN2aKg7XI_W3v9N\"}],\"nonce\":\"ZWZnaGlqa2xtbm9w\",\"ciphertext\":\"We5U_xyH7atYco4kMmyNxEX9nHfuU5muqC8p6qdjUyxM3tLwG5AxepGW9f7JJGLTsmpD1nKZq5K3Ze34qdLJ0GIdtUT5MOQ4SlMH1AOAe90z_zYW-sbEDDdCYYg2Rjay-7U6YCRvcEDxyoffBX9V2vALQyMlKceqwgLO_ZqBDd7wsKT1yS2Jks5wNXeNt92f_tpZSrQ3hQqquyutTrurC7qmiCp_JOqAh9UvQ_VJTcHnClKZsZnjfYRPIb1pVWuNJXgmrVuzme8Ln-T9SSbGgBjz_HohQHxFhcmbznj8o2BG9K6cy9TwSvoTkKadPu1yDHGyxq_US0DYYsvCrjI4zKOxd3__sv_7WyVFI6j7mjviZyuBG-DMBb_nTWSy7KpaOFescLhacob1pPy_e_CM5jY6uElWtAQez82YJXwAPkOolB3teIcPHBhT2xtbrXrNv-jLiO1qFSB0C4JQLNbaXaMPqBzVERSdkbIxdjgU9LKXBemyU2KSfcoIt5o4DFU\"}",
+ "derSignature": "MEYCIQCZS5lSrvaaAUikRSsFEU03jrkXnSq_Xl5NB6a-Rzs2BwIhAIvEjbS-Pv8qTi35B0S2F-NSSJYRj7zR8Soz-Or8OuT1",
+ "p1363Signature": "mUuZUq72mgFIpEUrBRFNN465F50qv15eTQemvkc7NgeLxI20vj7_Kk4t-QdEthfjUkiWEY-80fEqM_jq_Drk9Q",
+ "content": {
+  "campaignTitle": "Die Glocken von Vellmarsch",
+  "sessions": [
+   {
+    "session": {
+     "id": "s-0001",
+     "number": 7,
+     "title": "Nebel über dem Moor",
+     "playedAt": "2026-10-31T18:00:00Z",
+     "state": "published"
+    },
+    "recap": {
+     "sessionId": "s-0001",
+     "number": 7,
+     "title": "Nebel über dem Moor",
+     "text": "Die Gruppe erreicht Vellmarsch.\n\nIm Turm schweigt die Glocke.",
+     "openThreads": [
+      "Wer hat die Glocke angehalten?"
+     ],
+     "publishedAt": "2026-11-01T09:00:00Z",
+     "parts": []
+    }
+   }
+  ],
+  "entries": [
+   {
+    "id": "e-0001",
+    "campaignId": "c-0001",
+    "type": "location",
+    "name": "Vellmarsch",
+    "summary": "Dorf am Rand des Moors.",
+    "visibility": "public",
+    "aliases": [],
+    "mentions": [],
+    "updatedAt": "2026-11-01T09:00:00Z",
+    "links": []
+   }
+  ]
+ },
+ "file": "{\"format\":\"taleward-kapitel/1\",\"signed\":\"eyJzZXJ2ZXJJZCI6ImNocm9uaWstdmVrdG9yIiwiY2FtcGFpZ25JZCI6ImMtMDAwMSIsInNoYXJlSWQiOiJ2ZWt0b3ItMSIsImNyZWF0ZWRBdCI6IjIwMjYtMTEtMDFUMDk6MzA6MDBaIiwic2lnbktleUlkIjoiN1JjaVBRdkpBQjJ2NERrMiIsInJlY2lwaWVudHMiOlt7ImtleUlkIjoic2NobHVlc3NlbC1zbCIsIm5vbmNlIjoieWNyTHpNM096OURSMHRQVSIsIndyYXBwZWQiOiJvbGRNUUhIYmJRYUM2ckdXLXA3dEVza0tYTXo5amUxeUJnOU8zUjhUWHBDQlRKVnR6RlpjSHNmLWsxV2dqMzY4In0seyJrZXlJZCI6InNjaGx1ZXNzZWwtbWlyYSIsIm5vbmNlIjoibDVpWm1wdWNuWjZmb0tHaSIsIndyYXBwZWQiOiJIV1g1S1UzeWYxcEw1SS1RdTZ5NkVYMFZNd19lZE44bzVXVjNXQkp5OWcyMkMwamZNZ04yYUtnN1hJX1czdjlOIn1dLCJub25jZSI6IlpXWm5hR2xxYTJ4dGJtOXciLCJjaXBoZXJ0ZXh0IjoiV2U1VV94eUg3YXRZY280a01teU54RVg5bkhmdVU1bXVxQzhwNnFkalV5eE0zdEx3RzVBeGVwR1c5ZjdKSkdMVHNtcEQxbktacTVLM1plMzRxZExKMEdJZHRVVDVNT1E0U2xNSDFBT0FlOTB6X3pZVy1zYkVERGRDWVlnMlJqYXktN1U2WUNSdmNFRHh5b2ZmQlg5VjJ2QUxReU1sS2NlcXdnTE9fWnFCRGQ3d3NLVDF5UzJKa3M1d05YZU50OTJmX3RwWlNyUTNoUXFxdXl1dFRydXJDN3FtaUNwX0pPcUFoOVV2UV9WSlRjSG5DbEtac1puamZZUlBJYjFwVld1TkpYZ21yVnV6bWU4TG4tVDlTU2JHZ0Jqel9Ib2hRSHhGaGNtYnpuajhvMkJHOUs2Y3k5VHdTdm9Ua0thZFB1MXlESEd5eHFfVVMwRFlZc3ZDcmpJNHpLT3hkM19fc3ZfN1d5VkZJNmo3bWp2aVp5dUJHLURNQmJfblRXU3k3S3BhT0Zlc2NMaGFjb2IxcFB5X2VfQ001alk2dUVsV3RBUWV6ODJZSlh3QVBrT29sQjN0ZUljUEhCaFQyeHRiclhyTnYtakxpTzFxRlNCMEM0SlFMTmJhWGFNUHFCelZFUlNka2JJeGRqZ1U5TEtYQmVteVUyS1NmY29JdDVvNERGVSJ9\",\"signature\":\"mUuZUq72mgFIpEUrBRFNN465F50qv15eTQemvkc7NgeLxI20vj7_Kk4t-QdEthfjUkiWEY-80fEqM_jq_Drk9Q\"}"
+}

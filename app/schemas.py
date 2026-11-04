@@ -76,6 +76,29 @@ class ServerInfoOut(ApiModel):
     # 0.4.25: {mode, currency, topUpUrl} bei eingeschaltetem Guthaben, sonst null. topUpUrl fehlt ohne eingetragene
     # öffentliche Adresse (G15) – darum hier ein dict statt eines Modells.
     billing: dict | None = None
+    share_keys: list["ShareServerKeyOut"] | None = None  # 0.4.30: Signierschlüssel für geteilte Kapitel
+
+
+class ShareServerKeyOut(ApiModel):
+    id: str
+    spki: str
+
+
+class MemberShareKeyOut(ApiModel):
+    id: str
+    key: str
+
+
+class ShareIn(ApiModel):
+    """0.4.30: POST /campaigns/{id}/shares – nur sessionId, andere Felder → 400."""
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
+    session_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+
+
+class ShareOut(BaseModel):
+    file: str
+    fileName: str
+    missingKeys: list[str]
 
 
 class InvitePreviewOut(ApiModel):
@@ -292,6 +315,7 @@ class CampaignOut(CampaignSummaryOut):
     billing: "CampaignBillingOut | None" = None  # 0.4.25, nur für die SL bei eingeschaltetem Guthaben
     open_player_proposals: int | None = None  # 0.4.28, nur für die SL, für Spielende weggelassen
     live_session_id: str | None = None  # 0.4.28, nur SL und Anwesende der Runde, sonst null
+    share_key: MemberShareKeyOut | None = None  # 0.4.30, nur GET /campaigns/{id}, nur das eigene Mitglied
     members: list[MemberOut]
 
 

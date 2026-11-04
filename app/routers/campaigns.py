@@ -161,6 +161,9 @@ def join(body: schemas.JoinRequest, request: Request, user: User = Depends(curre
         elif frueher is not None:  # verlassen oder entfernt: mit neuer Einladung wieder aktiv (0.4.5), als Spieler
             me = frueher
             me.left_at, me.role, me.joined_at = None, "player", utcnow()
+            from app import teilen
+
+            teilen.vergessen(db, me.id)  # 0.4.30: Wiedereintritt = neuer Schlüssel
             from app import figuren
 
             figuren.aufraeumen(db, c.id)  # 0.4.9: die Figur hat ihren Halter wieder
@@ -191,7 +194,13 @@ def join(body: schemas.JoinRequest, request: Request, user: User = Depends(curre
 @router.get("/campaigns/{campaignId}", response_model=schemas.CampaignOut, response_model_exclude_unset=True)
 def get_campaign(campaignId: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     c, me = _load(db, campaignId, user)
-    return campaign_out(db, c, me)
+    out = campaign_out(db, c, me)
+    from app import teilen
+
+    schluessel = teilen.fuer_mich(db, me)  # 0.4.30: nur hier und nur der eigene
+    out.share_key = schluessel and schemas.MemberShareKeyOut(**schluessel)
+    db.commit()
+    return out
 
 
 _NUR_AUSSCHALTEN = {"allow_external_transcription", "allow_cloud_summary", "allow_character_analysis"}
@@ -393,6 +402,9 @@ def remove_member(campaignId: str, memberId: str, user: User = Depends(current_u
     set_move_consent(db, target, False)  # 0.4.8
     target.character_backstory = None
     target.left_at = utcnow()
+    from app import teilen
+
+    teilen.vergessen(db, target.id)  # 0.4.30
     from app import figuren
 
     figuren.verwaist_melden(db, target)  # 0.4.9: Hinweis an die SL, was aus der Figur wird

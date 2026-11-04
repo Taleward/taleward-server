@@ -34,6 +34,7 @@ OPTIONAL_FIELDS = {"characterBackstory", "gmNotes", "hiddenFromMemberIds", "memb
                    "assignedMemberId",  # 0.4.10: erst nach der Bestätigung der Stimmen
                    "gmWarnings",  # 0.4.21: nur für die SL, für Spieler weggelassen
                    "counters", "openPlayerProposals",  # 0.4.28: nur Person selbst bzw. SL, sonst weggelassen
+                   "shareKey",  # 0.4.30: nur GET /campaigns/{id}, nur das eigene Mitglied
                    "user",
                    "topUpUrl"}  # 0.4.25: fehlt ohne eingetragene öffentliche Adresse (G15)
 

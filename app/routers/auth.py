@@ -14,14 +14,14 @@ from app.models import AuthMethod, Organization, OrgMember, User
 from app.security import create_token, verify_password
 from app.services import user_out
 
-API_VERSION = "0.4.29"
+API_VERSION = "0.4.30"
 
 router = APIRouter(tags=["Auth"])
 
 
 @router.get("/info", response_model=schemas.ServerInfoOut)
 def info(request: Request, db: Session = Depends(get_db)):
-    from app import aktualisierung, anmeldedienste, aufbewahrung, mail, nutzungsbedingungen
+    from app import aktualisierung, anmeldedienste, aufbewahrung, mail, nutzungsbedingungen, teilen
     from app.einstellungen import oeffentliche_adresse
     from app.einrichtung import betriebsart
     from app import cloudanbieter
@@ -58,6 +58,7 @@ def info(request: Request, db: Session = Depends(get_db)):
         # 0.4.22: Nutzungsbedingungen (immer) und Impressum (Vorlage, Link oder null) dieses Servers
         terms_url=nutzungsbedingungen.adresse(db, basis), terms_version=nutzungsbedingungen.version(db),
         legal_notice_url=nutzungsbedingungen.impressum_adresse(db, basis),
+        share_keys=[schemas.ShareServerKeyOut(**k) for k in teilen.share_keys(db)],  # 0.4.30
         billing=server_billing(db),  # 0.4.25
     )
 
