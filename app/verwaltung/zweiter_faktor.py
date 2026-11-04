@@ -230,18 +230,29 @@ def faktor_fassung_erhoehen(db: Session, user_id: str) -> int:
     return neu
 
 
-def frisch_merken(db: Session, user_id: str, bereich: str = "verwaltung") -> None:
+def _sitzung_ok(sitzung: str | None) -> bool:
+    return bool(sitzung) and sitzung != "-" and ":" not in sitzung and len(sitzung) <= 64
+
+
+def frisch_merken(db: Session, user_id: str, bereich: str = "verwaltung", *, sitzung: str) -> None:
     """Der zweite Faktor (Code oder Passkey) wurde gerade gezeigt – Schritte, die ihn frisch verlangen, gehen jetzt
-    FRISCH_SEKUNDEN lang. Auf einem vertrauten Gerät wird das beim Anmelden nicht gesetzt."""
-    meta_schreiben(db, f"verwaltung.faktor_frisch.{bereich}.{user_id}", str(int(time.time())))
+    FRISCH_SEKUNDEN lang, und nur in genau dieser Sitzung (jti des Sitzungs-Cookies, 0.4.149: S57). Eine andere
+    Sitzung desselben Kontos – etwa über ein vertrautes Gerät – muss den Faktor selbst zeigen. Auf einem vertrauten
+    Gerät wird das beim Anmelden nicht gesetzt."""
+    if not _sitzung_ok(sitzung):
+        return
+    meta_schreiben(db, f"verwaltung.faktor_frisch.{bereich}.{user_id}", f"{int(time.time())}:{sitzung}")
 
 
-def frisch(db: Session, user_id: str, bereich: str = "verwaltung") -> bool:
-    """Gilt der zweite Faktor als frisch? Ohne eingerichteten zweiten Faktor immer (es gibt nichts zu zeigen)."""
+def frisch(db: Session, user_id: str, bereich: str = "verwaltung", *, sitzung: str | None) -> bool:
+    """Gilt der zweite Faktor in dieser Sitzung als frisch? Ohne eingerichteten zweiten Faktor immer (es gibt nichts
+    zu zeigen). Werte aus älteren Fassungen (nur die Zeit, ohne Sitzung) gelten nicht."""
     if not aktiv(db, user_id):
         return True
-    wert = meta_lesen(db, f"verwaltung.faktor_frisch.{bereich}.{user_id}")
-    return bool(wert and wert.isdigit() and int(wert) + FRISCH_SEKUNDEN > time.time())
+    wert = meta_lesen(db, f"verwaltung.faktor_frisch.{bereich}.{user_id}") or ""
+    zeit, _, gemerkt = wert.partition(":")
+    return bool(zeit.isdigit() and int(zeit) + FRISCH_SEKUNDEN > time.time() and _sitzung_ok(sitzung)
+                and hmac.compare_digest(gemerkt, sitzung or ""))
 
 
 def frisch_vergessen(db: Session, user_id: str) -> None:

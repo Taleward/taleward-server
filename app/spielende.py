@@ -135,9 +135,23 @@ def urheberin_sicht(db: Session, p: PlayerProposal) -> tuple[str, str | None]:
     if p.state == "accepted" and p.text_sichtbar and p.result_entry_id:
         e = db.get(Entry, p.result_entry_id)
         if (e is not None and e.campaign_id == p.campaign_id and e.visibility == "public"
-                and p.author_member_id not in e.hidden_member_ids):
+                and p.author_member_id not in e.hidden_member_ids and _steht_noch_da(p, e)):
             return "accepted", e.id
     return "closed", None
+
+
+def _vergleichbar(text: str | None) -> str:
+    return " ".join((text or "").split()).casefold()
+
+
+def _steht_noch_da(p: PlayerProposal, e: Entry) -> bool:
+    """0.4.149 (S56-Rest): Steht der übernommene Text noch im öffentlichen Teil? Schiebt die SL ihn später in die
+    SL-Notizen, schreibt sie den Eintrag um oder fiel er beim Anhängen über die Längengrenze, gilt für die Urheberin
+    `closed` – wie bei einem Vorschlag, der von Anfang an nur in die SL-Notizen ging. Ohne Text (neuer Eintrag nur mit
+    Titel) ist der Eintrag selbst das Ergebnis. Ältere Vorschläge bekommen ihren Vorschlagstext (Migration
+    c8e0a2b4d6f8)."""
+    text = _vergleichbar(p.oeffentlicher_text)
+    return not text or text in _vergleichbar(e.summary)  # ohne Text: der Eintrag selbst ist das Ergebnis
 
 
 def vorschlag_out(db: Session, p: PlayerProposal, fuer_sl: bool) -> schemas.PlayerProposalOut:
@@ -232,8 +246,9 @@ def entscheiden(db: Session, p: PlayerProposal, me: Member, body: schemas.Player
     if body.decision == "reject":
         p.state, p.decided_at = "rejected", utcnow()
         return
-    e, sichtbar = _uebernehmen(db, p, body)
+    e, sichtbar, text = _uebernehmen(db, p, body)
     p.state, p.decided_at, p.result_entry_id, p.text_sichtbar = "accepted", utcnow(), e.id, sichtbar
+    p.oeffentlicher_text = text if sichtbar else None
 
 
 def _halter(db: Session, campaign_id: str, holder_id: str | None) -> str | None:
@@ -246,8 +261,9 @@ def _halter(db: Session, campaign_id: str, holder_id: str | None) -> str | None:
     return m.id
 
 
-def _uebernehmen(db: Session, p: PlayerProposal, body: schemas.PlayerProposalDecision) -> tuple[Entry, bool]:
-    """Eintrag anlegen oder ergänzen. Rückgabe: Eintrag und ob der Text im öffentlichen Teil steht."""
+def _uebernehmen(db: Session, p: PlayerProposal,
+                 body: schemas.PlayerProposalDecision) -> tuple[Entry, bool, str]:
+    """Eintrag anlegen oder ergänzen. Rückgabe: Eintrag, ob der Text im öffentlichen Teil steht, und der Text."""
     from app.services import apply_entry_input
 
     f = body.model_fields_set
@@ -282,14 +298,14 @@ def _uebernehmen(db: Session, p: PlayerProposal, body: schemas.PlayerProposalDec
             vorher = e.updated_at
             apply_entry_input(db, e, schemas.EntryInput(gm_notes=notiz))
             e.updated_at = vorher
-            return e, False
+            return e, False, ""
         daten = dict(summary=_anhaengen(e.summary, text), gm_notes=_anhaengen(e.gm_notes, geheim))
         if sicht == "public" and verborgen and e.visibility == "public":
             daten["hidden_from_member_ids"] = sorted(e.hidden_member_ids | set(verborgen))
         if halter and (e.type or typ) == "item":
             daten["holder_member_id"] = halter
         apply_entry_input(db, e, schemas.EntryInput(**daten))
-        return e, bool(text.strip())
+        return e, bool(text.strip()) and _vergleichbar(text) in _vergleichbar(e.summary), text.strip()
     e = Entry(campaign_id=p.campaign_id, type="", name="", summary="", visibility="gm_only")
     db.add(e)
     db.flush()
@@ -298,7 +314,7 @@ def _uebernehmen(db: Session, p: PlayerProposal, body: schemas.PlayerProposalDec
     if halter:
         daten["holder_member_id"] = halter
     apply_entry_input(db, e, schemas.EntryInput(**daten))
-    return e, True
+    return e, True, ""  # neuer Eintrag: der Eintrag selbst ist das Ergebnis, auch wenn die SL ihn später umschreibt
 
 
 # ================================================================ Merken

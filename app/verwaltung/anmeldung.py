@@ -12,7 +12,7 @@ from app import anmeldedienste, mail
 from app.db import get_db
 from app.einstellungen import meta_schreiben, oeffentliche_adresse
 from app.models import User
-from app.verwaltung.router import _seite, _zurueck, csrf_pruefen, faktor_frisch, tr, verwalter
+from app.verwaltung.router import _seite, _sitzungs_bindung, _zurueck, csrf_pruefen, faktor_frisch, tr, verwalter
 
 router = APIRouter(prefix="/verwaltung", include_in_schema=False)
 
@@ -80,7 +80,8 @@ def seite(request: Request, user: User, db: Session, fehler: str = "", faktor_ne
               "neu": faktor_neu, "codes": faktor_codes,
               # 0.4.143: Passkeys und vertraute Geräte (S44)
               "passkeys": passkeys.anzeige(db, user.id), "passkeys_moeglich": passkeys.verfuegbar(db),
-              "frisch": zweiter_faktor.frisch(db, user.id), "vertraute": vertraut.liste(db, user.id)}
+              "frisch": zweiter_faktor.frisch(db, user.id, sitzung=_sitzungs_bindung(request)),
+              "vertraute": vertraut.liste(db, user.id)}
     return _seite(request, "anmeldung.html", user, db, dienste=_dienste(db, basis), basis=basis,
                   https=basis.startswith("https://"), mail_bereit=mail.kann_senden(db), fehler=fehler, faktor=faktor)
 

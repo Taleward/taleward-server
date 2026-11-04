@@ -813,6 +813,9 @@ class PlayerProposal(Base):
     state: Mapped[str] = mapped_column(String(16), default="open", index=True)  # open | accepted | rejected | withdrawn
     result_entry_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     text_sichtbar: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # 0.4.149 (S56-Rest): der Text, der beim Übernehmen in den öffentlichen Teil kam – die Sicht der Urheberin prüft
+    # bei jedem Abruf, ob er dort noch steht (spätere Änderungen, Kürzen auf MAX_TEXT)
+    oeffentlicher_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
     decided_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True, index=True)
 

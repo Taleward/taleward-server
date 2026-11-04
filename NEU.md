@@ -1,8 +1,9 @@
-Fassung 0.4.148
+Fassung 0.4.149
 
 ## Was ist neu
 
-- Kapitel teilen: Die Spielleitung kann ein freigegebenes Kapitel als Datei holen und in den Gruppenchat schicken. Öffnen können sie nur die Mitglieder der Kampagne, für alle anderen ist sie nutzlos. Gedacht für Gruppen, deren Server nicht aus dem Internet erreichbar ist. Braucht die nächste App-Fassung.
-- In der Datei steht nur, was jedes Mitglied ohnehin sieht: das Kapitel und die allgemein bekannten Einträge der Bibel, keine Notizen, keine Kommentare, keine Vorschläge.
-- Seit 0.4.147: Vorschläge ohne echten Beleg werden als solche gekennzeichnet, Kapiteltitel ohne doppelte Nummer, Runden ohne Aufnahme verschwinden nach einer Woche.
-- Seit 0.4.141: Passkeys als zweiter Faktor, Spielende können Einträge vorschlagen und Stellen merken, Klasse und Stufe am Charakter, das Cloud-Sprachmodell wechselt nicht mehr von selbst auf eine neue Fassung.
+- Kleinere Verbesserungen bei der Anmeldung in der Verwaltung und auf der Guthaben-Seite.
+- Hinweis zu einem neu vertrauten Gerät erscheint jetzt beim nächsten Anmelden an einem anderen Gerät.
+- Spielende sehen bei ihren Vorschlägen genauer, ob ihr Text noch im Eintrag steht.
+- Seit 0.4.148: Kapitel teilen als Datei für den Gruppenchat.
+- Seit 0.4.141: Passkeys als zweiter Faktor, Spielende können Einträge vorschlagen und Stellen merken, Klasse und Stufe am Charakter, das Cloud-Sprachmodell wechselt nicht mehr von selbst auf eine neue Fassung, Korrekturen aus den gemeldeten Fehlern.

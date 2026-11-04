@@ -273,7 +273,7 @@ def _frisch_verlangen(request: Request, db: Session, user: User, noetig: bool = 
     """Innerhalb eines Schritts: nur bestimmte Eingaben (z. B. ein neuer Schlüssel) verlangen den frischen Faktor."""
     from app.verwaltung import zweiter_faktor
 
-    if noetig and not zweiter_faktor.frisch(db, user.id):
+    if noetig and not zweiter_faktor.frisch(db, user.id, sitzung=_sitzungs_bindung(request)):
         raise FaktorNoetig(_weiter_pfad(request))
 
 
@@ -282,7 +282,7 @@ def faktor_frisch(request: Request, user: User = Depends(verwalter), db: Session
     zweiten Faktor geht es zur Bestätigungsseite; ohne eingerichteten zweiten Faktor gibt es nichts zu zeigen."""
     from app.verwaltung import zweiter_faktor
 
-    if not zweiter_faktor.frisch(db, user.id):
+    if not zweiter_faktor.frisch(db, user.id, sitzung=_sitzungs_bindung(request)):
         raise FaktorNoetig(_weiter_pfad(request))
     return user
 
@@ -371,7 +371,8 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
                                    samesite="strict", secure=request.url.scheme == "https", path="/verwaltung")
                 db.commit()  # ein abgelaufenes Merkzeichen ist jetzt weg
                 return antwort
-            hinweis = vertraut.hinweis_abholen(db, user.id) if not user.setup_account else None
+            hinweis = (vertraut.hinweis_abholen(db, user.id, vertraut.aktuelles(request, "verwaltung"))
+                       if not user.setup_account else None)
             antwort = _zurueck("/einrichtung" if user.setup_account else "/", "vertraut_neu" if hinweis else None)
             _sitzung_setzen(antwort, request, db, user)
             from app import geraete
@@ -428,6 +429,13 @@ def _code_bindung(request: Request) -> str:
         return "-"
 
 
+def _jti(wert: str) -> str:
+    try:
+        return jwt.decode(wert or "", options={"verify_signature": False}).get("jti") or "-"
+    except jwt.PyJWTError:
+        return "-"
+
+
 def _sitzungs_bindung(request: Request) -> str:
     """0.4.143: Kennung der Sitzung (jti des Sitzungs-Cookies) für Challenges beim Einrichten und Bestätigen."""
     try:
@@ -473,10 +481,12 @@ def code_pruefen(request: Request, code: str = Form(""), passkey: str = Form("")
     elif (passkeys.anmeldung_pruefen(db, user, _code_bindung(request), passkey) if passkey.strip()
           else zweiter_faktor.pruefen(db, user.id, code)):
         ZAEHLER.freigeben(versuch)
-        zweiter_faktor.frisch_merken(db, user.id)  # 0.4.143: Schritte mit frischem Faktor gehen jetzt 5 Minuten
+        wert = _cookie_wert(db, user)
+        # 0.4.143: Schritte mit frischem Faktor gehen jetzt 5 Minuten – 0.4.149 (S57): nur in dieser neuen Sitzung
+        zweiter_faktor.frisch_merken(db, user.id, sitzung=_jti(wert))
         hinweis = vertraut.hinweis_abholen(db, user.id)
         antwort = _zurueck("/", "vertraut_neu" if hinweis else None)
-        _sitzung_setzen(antwort, request, db, user)
+        _sitzung_setzen(antwort, request, db, user, wert)
         antwort.delete_cookie(COOKIE_CODE, path="/verwaltung")
         if vertrauen == "ja":
             vertraut.merken(antwort, request, db, user, "verwaltung")
@@ -534,7 +544,7 @@ def bestaetigen(request: Request, code: str = Form(""), passkey: str = Form(""),
     if (passkeys.anmeldung_pruefen(db, user, _sitzungs_bindung(request), passkey) if passkey.strip()
             else zweiter_faktor.pruefen(db, user.id, code)):
         ZAEHLER.freigeben(versuch)
-        zweiter_faktor.frisch_merken(db, user.id)
+        zweiter_faktor.frisch_merken(db, user.id, sitzung=_sitzungs_bindung(request))
         db.commit()
         return _zurueck(_sicherer_pfad(weiter), "bestaetigt")
     db.commit()  # ein verbrauchter Code bleibt verbraucht
@@ -1099,7 +1109,7 @@ def _transkription_fehler(request: Request, user: User, db: Session, text: str) 
 
 
 @router.post("/worker", dependencies=[Depends(csrf_pruefen)])
-def knecht_anlegen(request: Request, name: str = Form(""), user: User = Depends(verwalter),
+def knecht_anlegen(request: Request, name: str = Form(""), user: User = Depends(faktor_frisch),  # 0.4.149 (S57)
                    db: Session = Depends(get_db)):
     from app.routers.worker import token_hash
 
@@ -1845,6 +1855,7 @@ def benachrichtigungen_speichern(request: Request, ntfy_url: str = Form(""), ntf
                                  zeitzone: str = Form(""), user: User = Depends(verwalter),
                                  db: Session = Depends(get_db)):
     """ntfy und/oder E-Mail für Meldungen an den Betreiber. Token und Passwort sind nur schreibbar."""
+    _frisch_verlangen(request, db, user, bool(ntfy_token.strip() or smtp_pass))  # 0.4.149 (S57): neue Zugänge
     _ = tr(request)
 
     def fehler(text: str):

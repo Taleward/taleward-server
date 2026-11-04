@@ -54,8 +54,16 @@ def _cookie_name(request: Request) -> str:
 
 
 def _wert(request: Request) -> str:
-    wert = request.cookies.get(COOKIE_SICHER) or request.cookies.get(COOKIE_LOKAL) or ""
+    """0.4.149 (S58): nur das Cookie, das zu dieser Verbindung gehört – unter https nur ``__Host-tw_vertraut``
+    (das kann keine Subdomain und kein http-Aufruf setzen), sonst nur ``tw_vertraut``."""
+    wert = request.cookies.get(_cookie_name(request)) or ""
     return wert if 16 <= len(wert) <= 200 else ""
+
+
+def aktuelles(request: Request, bereich: str) -> str | None:
+    """Kennung (Hash) des Merkzeichens dieses Browsers für den Bereich, falls es eins mitschickt."""
+    wert = _wert(request)
+    return _hash(wert, bereich) if wert else None
 
 
 def pruefen(request: Request, db: Session, user: User, bereich: str) -> bool:
@@ -88,11 +96,26 @@ def merken(antwort: Response, request: Request, db: Session, user: User, bereich
 
     if not angeboten(request) or bereich not in BEREICHE:
         return None
-    wert = _wert(request) or secrets.token_urlsafe(32)  # ein Browser, ein Merkzeichen – je Bereich ein Eintrag
+    # 0.4.149 (S58): immer ein neues Merkzeichen – ein vorhandenes Cookie könnte jemand untergeschoben haben. Der Eintrag
+    # desselben Kontos im anderen Bereich zieht auf den neuen Wert um (ein Browser, ein Cookie, je Bereich ein Eintrag).
+    alt_wert = _wert(request)
+    wert = secrets.token_urlsafe(32)
     jetzt = utcnow()
-    alt = db.get(VertrautesGeraet, _hash(wert, bereich))
-    if alt is not None:
-        db.delete(alt)
+    if alt_wert:
+        for b in BEREICHE:
+            alt = db.get(VertrautesGeraet, _hash(alt_wert, b))
+            if alt is None or alt.user_id != user.id:
+                continue
+            if b == bereich:
+                db.delete(alt)
+            else:
+                umzug = VertrautesGeraet(id=_hash(wert, b), user_id=alt.user_id, bereich=b,
+                                         token_version=alt.token_version, faktor_fassung=alt.faktor_fassung,
+                                         bezeichnung=alt.bezeichnung, created_at=alt.created_at,
+                                         expires_at=alt.expires_at, last_used_at=alt.last_used_at)
+                db.delete(alt)
+                db.flush()
+                db.add(umzug)
         db.flush()
     g = VertrautesGeraet(id=_hash(wert, bereich), user_id=user.id, bereich=bereich, token_version=user.token_version,
                          faktor_fassung=zweiter_faktor.faktor_fassung(db, user.id),
@@ -130,17 +153,26 @@ def _melden(db: Session, user: User, g: VertrautesGeraet) -> None:
     except Exception:  # noqa: BLE001 – ein Hinweis darf das Anmelden nie stören
         pass
     if not gemeldet:
-        meta_schreiben(db, f"vertraut.hinweis.{user.id}", f"{g.bezeichnung}|{g.created_at.isoformat()}")
+        meta_schreiben(db, f"vertraut.hinweis.{user.id}", f"{g.bezeichnung}|{g.created_at.isoformat()}|{g.id}")
 
 
-def hinweis_abholen(db: Session, user_id: str) -> str | None:
-    """Beim nächsten Anmelden einmal zeigen: „Neues vertrautes Gerät seit …“ (nur ohne Meldeweg gesetzt)."""
+def hinweis_abholen(db: Session, user_id: str, ueber: str | None = None) -> str | None:
+    """Beim nächsten Anmelden einmal zeigen: „Neues vertrautes Gerät seit …“ (nur ohne Meldeweg gesetzt).
+
+    0.4.149 (S58): ueber = Kennung des vertrauten Geräts, mit dem gerade angemeldet wird. Meldet sich genau das neue
+    Gerät an, bleibt der Hinweis liegen – er ist für die Person an einem anderen Gerät gedacht, nicht für den Browser,
+    um den es geht (sonst könnte, wer das Gerät eingetragen hat, den Hinweis mit der nächsten Anmeldung wegklicken)."""
     schluessel = f"vertraut.hinweis.{user_id}"
     wert = meta_lesen(db, schluessel)
+    if not wert:
+        return None
+    teile = wert.split("|")
+    if ueber and len(teile) >= 3 and teile[2] == ueber:
+        return None
     row = db.get(ServerMeta, schluessel)
     if row is not None:
         db.delete(row)
-    return wert or None
+    return "|".join(teile[:2])
 
 
 def liste(db: Session, user_id: str) -> list[VertrautesGeraet]:

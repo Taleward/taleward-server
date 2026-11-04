@@ -21,6 +21,7 @@ from app.einstellungen import meta_schreiben
 from tests.test_server_0484 import _code
 from tests.test_server_04136 import post as konto_post  # noqa: F401
 from tests.test_verwaltung import admin  # noqa: F401
+from tests.faktor_hilfe import sitzung as faktor_sitzung
 
 HOST = "testserver"
 HTTPS = f"https://{HOST}"
@@ -92,12 +93,13 @@ def _https_an(dbs):
     dbs.commit()
 
 
-def _faktor_an(dbs, user_id) -> list[str]:
+def _faktor_an(client, dbs, user_id) -> list[str]:
     from app.verwaltung import zweiter_faktor as zf
+    from tests.faktor_hilfe import frisch_merken
 
     zf.beginnen(dbs, user_id)
     codes = zf.bestaetigen(dbs, user_id, _code(dbs, user_id))
-    zf.frisch_merken(dbs, user_id)
+    frisch_merken(client, dbs, user_id)
     dbs.commit()
     return codes
 
@@ -131,7 +133,7 @@ def test_passkey_nur_mit_https_und_code(client, dbs, admin):  # noqa: F811
     chef = _chef(dbs)
     seite = client.get("/verwaltung/anmeldung").text
     assert "Passkey hinzufügen" not in seite  # ohne zweiten Faktor keine Karte dafür
-    _faktor_an(dbs, chef.id)
+    _faktor_an(client, dbs, chef.id)
     seite = client.get("/verwaltung/anmeldung").text
     assert "öffentliche Adresse des Servers mit https" in seite and "Passkey hinzufügen" not in seite
     assert not passkeys.verfuegbar(dbs)
@@ -151,7 +153,7 @@ def test_passkey_einrichten_und_anmelden(client, dbs, admin, konto_post):  # noq
     chef = _chef(dbs)
     chef.email = "chef@example.org"
     _https_an(dbs)
-    codes = _faktor_an(dbs, chef.id)
+    codes = _faktor_an(client, dbs, chef.id)
     auth = Authenticator()
     r, optionen = _passkey_anlegen(client, dbs, admin, auth)
     assert r.status_code == 303 and r.headers["location"].endswith("ok=passkey_an#zweiter-faktor")
@@ -195,7 +197,7 @@ def test_passkey_abgelehnt_bei_falscher_herkunft_rp_zaehler_und_flags(client, db
 
     chef = _chef(dbs)
     _https_an(dbs)
-    _faktor_an(dbs, chef.id)
+    _faktor_an(client, dbs, chef.id)
     auth = Authenticator()
     r, _o = _passkey_anlegen(client, dbs, admin, auth)
     assert r.status_code == 303
@@ -244,7 +246,7 @@ def test_passkey_abgelehnt_bei_falscher_herkunft_rp_zaehler_und_flags(client, db
 
     _neues_konto(dbs, "zwei", "Zwei", "geheim456", admin=True)
     dbs.commit()
-    _faktor_an(dbs, dbs.scalar(select(Passkey)).user_id)  # chef bleibt
+    _faktor_an(client, dbs, dbs.scalar(select(Passkey)).user_id)  # chef bleibt
     client.cookies.clear()
     client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "zwei", "password": "geheim456"}, follow_redirects=False)
     assert passkeys.anmeldung_beginnen(dbs, _chef(dbs), "-") is not None
@@ -252,7 +254,7 @@ def test_passkey_abgelehnt_bei_falscher_herkunft_rp_zaehler_und_flags(client, db
     from app.models import User
 
     zwei = dbs.scalar(select(User).where(User.username == "zwei"))
-    _faktor_an(dbs, zwei.id)
+    _faktor_an(client, dbs, zwei.id)
     client.cookies.clear()
     client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "zwei", "password": "geheim456"}, follow_redirects=False)
     seite = client.get(f"{HTTPS}/verwaltung/anmelden/code").text
@@ -268,7 +270,7 @@ def test_passkey_einrichten_abgelehnt_und_grenzen(client, dbs, admin):  # noqa: 
 
     chef = _chef(dbs)
     _https_an(dbs)
-    _faktor_an(dbs, chef.id)
+    _faktor_an(client, dbs, chef.id)
     auth = Authenticator()
     # falscher type, crossOrigin, fremde Herkunft, alte Challenge
     for kw in ({"typ": "webauthn.get"}, {"cross_origin": True}, {"origin": "https://boese.example"},
@@ -297,7 +299,7 @@ def test_passkey_einrichten_abgelehnt_und_grenzen(client, dbs, admin):  # noqa: 
     _neues_konto(dbs, "zwei", "Zwei", "geheim456", admin=True)
     dbs.commit()
     zwei = dbs.scalar(select(User).where(User.username == "zwei"))
-    _faktor_an(dbs, zwei.id)
+    _faktor_an(client, dbs, zwei.id)
     o = passkeys.registrierung_beginnen(dbs, zwei, "-")
     with pytest.raises(passkeys.PasskeyFehler):
         passkeys.registrierung_abschliessen(dbs, zwei, "-", auth.registrieren(json.loads(o)), "x")
@@ -326,7 +328,7 @@ def test_passkey_entfernen_faktor_aus_konto_loeschen_export(client, dbs, admin):
 
     chef = _chef(dbs)
     _https_an(dbs)
-    _faktor_an(dbs, chef.id)
+    _faktor_an(client, dbs, chef.id)
     auth = Authenticator()
     _passkey_anlegen(client, dbs, admin, auth)
     dbs.expire_all()
@@ -354,7 +356,7 @@ def test_passkey_entfernen_faktor_aus_konto_loeschen_export(client, dbs, admin):
     dbs.commit()
     assert dbs.scalar(select(Passkey)) is None and vertraut.liste(dbs, chef.id)[0].faktor_fassung != zf.faktor_fassung(dbs, chef.id)
     # Konto löschen räumt server_meta
-    _faktor_an(dbs, chef.id)
+    _faktor_an(client, dbs, chef.id)
     _passkey_anlegen(client, dbs, admin, Authenticator(), name="Weg")
     from app.cli import _neues_konto
     from app.konto import entfernen
@@ -380,7 +382,7 @@ def test_heikle_schritte_verlangen_frischen_faktor(client, dbs, admin, monkeypat
     r = client.post("/verwaltung/konten", data={"csrf": admin, "username": "neu1", "display_name": "N", "password": "sehrgeheim12"},
                     follow_redirects=False)
     assert r.status_code == 303 and "konto_angelegt" in r.headers["location"]
-    _faktor_an(dbs, chef.id)  # frisch
+    _faktor_an(client, dbs, chef.id)  # frisch
     r = client.post("/verwaltung/konten", data={"csrf": admin, "username": "neu2", "display_name": "N", "password": "sehrgeheim12"},
                     follow_redirects=False)
     assert "konto_angelegt" in r.headers["location"]
@@ -400,7 +402,7 @@ def test_heikle_schritte_verlangen_frischen_faktor(client, dbs, admin, monkeypat
     r = client.post("/verwaltung/bestaetigen", data={"csrf": admin, "code": _code(dbs, chef.id, time.time() + 30),
                                                      "weiter": "https://boese.example/x"}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/verwaltung/?ok=bestaetigt"  # … fremde Ziele landen auf /
-    assert zf.frisch(dbs, chef.id)
+    assert zf.frisch(dbs, chef.id, sitzung=faktor_sitzung(client))
     r = client.post("/verwaltung/konten", data={"csrf": admin, "username": "neu3", "display_name": "N", "password": "sehrgeheim12"},
                     follow_redirects=False)
     assert "konto_angelegt" in r.headers["location"]
@@ -435,7 +437,7 @@ def test_vertrautes_geraet_ueberspringt_den_code(client, dbs, admin, konto_post)
 
     chef = _chef(dbs)
     chef.email = "chef@example.org"
-    codes = _faktor_an(dbs, chef.id)
+    codes = _faktor_an(client, dbs, chef.id)
     # über http: kein Haken, kein Merkzeichen
     client.cookies.clear()
     client.post("/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"}, follow_redirects=False)
@@ -460,15 +462,21 @@ def test_vertrautes_geraet_ueberspringt_den_code(client, dbs, admin, konto_post)
     meta_schreiben(dbs, f"verwaltung.faktor_frisch.verwaltung.{chef.id}", "1")
     dbs.commit()
     r = client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"}, follow_redirects=False)
-    # ohne Meldeweg an den Betreiber: einmal der Hinweis „Neues vertrautes Gerät“ auf der Übersicht
-    assert r.status_code == 303 and r.headers["location"] == "/verwaltung/?ok=vertraut_neu"
+    # 0.4.149 (S58): ohne Meldeweg steht der Hinweis „Neues vertrautes Gerät“ beim nächsten Anmelden an einem
+    # ANDEREN Gerät – das neue Gerät selbst sieht ihn nicht und kann ihn so auch nicht wegklicken
+    assert r.status_code == 303 and r.headers["location"] == "/verwaltung/"
     assert sitzung != client.cookies.get("tw_verwaltung")
+    merkzeichen = client.cookies.get("__Host-tw_vertraut")
+    client.cookies.delete("__Host-tw_vertraut")
+    r = _anmelden_mit_code(client, codes)  # anderer Browser: Passwort und Code
+    assert r.status_code == 303 and r.headers["location"] == "/verwaltung/?ok=vertraut_neu"
     assert "als vertraut eingetragen" in client.get(f"{HTTPS}{r.headers['location']}").text
-    client.cookies.delete("tw_verwaltung", path="/verwaltung")
+    client.cookies.clear()
+    client.cookies.set("__Host-tw_vertraut", merkzeichen)
     r = client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"}, follow_redirects=False)
-    assert r.headers["location"] == "/verwaltung/"  # Hinweis nur einmal
+    assert r.headers["location"] == "/verwaltung/"  # Hinweis nur einmal, das Gerät bleibt vertraut
     assert client.get(f"{HTTPS}/verwaltung/", follow_redirects=False).status_code == 200
-    assert not zf.frisch(dbs, chef.id)
+    assert not zf.frisch(dbs, chef.id, sitzung=faktor_sitzung(client))
     csrf = client.get(f"{HTTPS}/verwaltung/konten").text.split('name="csrf" value="')[1].split('"')[0]
     r = client.post(f"{HTTPS}/verwaltung/konten", data={"csrf": csrf, "username": "neu", "display_name": "N", "password": "sehrgeheim12"},
                     follow_redirects=False)
@@ -521,7 +529,7 @@ def test_guthaben_passkey_vertrauen_und_geldschritt(client, world, dbs):
     _modus(dbs)
     _https_an(dbs)
     anna = dbs.scalar(select(User).where(User.username == "anna"))
-    codes = _faktor_an(dbs, anna.id)
+    codes = _faktor_an(client, dbs, anna.id)
     # Passkey direkt anlegen (die Guthaben-Seite hat keine Verwaltung dafür – das geht nur über die Verwaltung)
     from app import passkeys
 
@@ -557,4 +565,4 @@ def test_guthaben_passkey_vertrauen_und_geldschritt(client, world, dbs):
     assert "Zweiten Faktor bestätigen" in seite and "Mit Passkey bestätigen" in seite
     r = client.post(f"{HTTPS}/guthaben/bestaetigen", data={"csrf": csrf, "code": codes.pop()}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/guthaben?ok=bestaetigt"
-    assert zf.frisch(dbs, anna.id, "guthaben")
+    assert zf.frisch(dbs, anna.id, "guthaben", sitzung=faktor_sitzung(client, "guthaben"))

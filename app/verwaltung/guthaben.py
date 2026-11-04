@@ -108,11 +108,12 @@ def _angemeldet(request: Request, db: Session = Depends(get_db)) -> User:
     return user
 
 
-def _frisch(user: User = Depends(_angemeldet), db: Session = Depends(get_db)) -> User:
-    """0.4.143 (S44): Geld-Schritte nur mit frischem zweitem Faktor (höchstens 5 Minuten alt)."""
+def _frisch(request: Request, user: User = Depends(_angemeldet), db: Session = Depends(get_db)) -> User:
+    """0.4.143 (S44): Geld-Schritte nur mit frischem zweitem Faktor (höchstens 5 Minuten alt, 0.4.149: in dieser
+    Sitzung)."""
     from app.verwaltung import zweiter_faktor
 
-    if not zweiter_faktor.frisch(db, user.id, "guthaben"):
+    if not zweiter_faktor.frisch(db, user.id, "guthaben", sitzung=_jti(request.cookies.get(COOKIE, ""))):
         raise _FaktorNoetig()
     return user
 
@@ -193,9 +194,10 @@ def _token(user: User, aud: str, dauer: timedelta) -> str:
                        "jti": secrets.token_hex(8)}, get_settings().jwt_secret, algorithm="HS256")
 
 
-def _sitzung(request: Request, user: User) -> RedirectResponse:
+def _sitzung(request: Request, user: User, token: str | None = None) -> RedirectResponse:
     antwort = _zurueck()
-    antwort.set_cookie(COOKIE, _token(user, _aud(), timedelta(hours=STUNDEN)), max_age=STUNDEN * 3600, httponly=True,
+    wert = token or _token(user, _aud(), timedelta(hours=STUNDEN))
+    antwort.set_cookie(COOKIE, wert, max_age=STUNDEN * 3600, httponly=True,
                        samesite="strict", secure=request.url.scheme == "https", path="/guthaben")
     antwort.delete_cookie(COOKIE_CODE, path="/guthaben")
     return antwort
@@ -250,8 +252,9 @@ def anmelden_code(request: Request, code: str = Form(""), passkey: str = Form(""
             "Der Code stimmt nicht oder wurde schon benutzt. Nimm den nächsten aus deiner App." if not passkey.strip()
             else "Der Passkey wurde nicht angenommen. Versuch es noch einmal oder nimm den Code."), 400, user, bindung)
     ZAEHLER.freigeben(versuch)
-    zweiter_faktor.frisch_merken(db, user.id, "guthaben")
-    antwort = _sitzung(request, user)
+    token = _token(user, _aud(), timedelta(hours=STUNDEN))
+    zweiter_faktor.frisch_merken(db, user.id, "guthaben", sitzung=_jti(token))  # 0.4.149 (S57): nur diese Sitzung
+    antwort = _sitzung(request, user, token)
     if vertrauen == "ja":
         vertraut.merken(antwort, request, db, user, "guthaben")
     geraete.anmeldung(antwort, request, db, user, "guthaben")  # 0.4.141: Mail nur bei neuem Gerät
@@ -298,7 +301,7 @@ def bestaetigen(request: Request, code: str = Form(""), passkey: str = Form(""),
     if (passkeys.anmeldung_pruefen(db, user, bindung, passkey) if passkey.strip()
             else zweiter_faktor.pruefen(db, user.id, code)):
         ZAEHLER.freigeben(versuch)
-        zweiter_faktor.frisch_merken(db, user.id, "guthaben")
+        zweiter_faktor.frisch_merken(db, user.id, "guthaben", sitzung=bindung)
         db.commit()
         return _zurueck("bestaetigt")
     db.commit()

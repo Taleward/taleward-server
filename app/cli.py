@@ -678,8 +678,14 @@ def admin(
         raise typer.Exit(1)
     org = default_organization(db)
     ensure_org_member(db, org.id, user)
-    om = db.get(OrgMember, (org.id, user.id))
-    om.role = "member" if entziehen else "admin"
+    if entziehen:  # 0.4.149 (S58): wie in der Verwaltung – in allen Organisationen, vertraute Geräte weg
+        from app import vertraut
+
+        for om in db.scalars(select(OrgMember).where(OrgMember.user_id == user.id)):
+            om.role = "member"
+        vertraut.entfernen(db, user.id)
+    else:
+        db.get(OrgMember, (org.id, user.id)).role = "admin"
     db.commit()
     typer.echo(f"'{user.username}' ist jetzt {'kein ' if entziehen else ''}Verwalter von „{org.name}“.")
 

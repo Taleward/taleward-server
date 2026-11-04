@@ -126,7 +126,9 @@ def _challenge_verbrauchen(db: Session, user: User, art: str, bindung: str) -> b
     row = db.get(ServerMeta, schluessel)
     if row is not None:
         db.delete(row)
-        db.flush()
+        # 0.4.149 (S58): sofort festschreiben – bricht die Prüfung danach mit einem Fehler ab (500, Rollback), bliebe die
+        # Challenge sonst liegen und ließe sich noch einmal benutzen. Vorher ändert keiner der Wege etwas in der Sitzung.
+        db.commit()
     try:
         d = json.loads(wert) if wert else None
     except ValueError:

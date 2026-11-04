@@ -234,6 +234,10 @@ def betrieb_art(art: str = Form(""), user: User = Depends(verwalter), db: Sessio
 def betrieb_speichern(request: Request, mistral_key: str = Form(""), hf_token: str = Form(""),
                       limit_euro: str = Form(""), stunden: str = Form("12"), user: User = Depends(verwalter),
                       db: Session = Depends(get_db)):
+    from app.verwaltung.router import _frisch_verlangen
+
+    # 0.4.149 (S57): neue Schlüssel auch im Assistenten nur mit frischem Faktor – wie unter Transkription/Zusammenfassung
+    _frisch_verlangen(request, db, user, bool(mistral_key.strip() or hf_token.strip()))
     _ = tr(request)
     art = einrichtung.betriebsart(db)
     ctx = _betrieb_ctx(db) | {"server_url": str(request.base_url).rstrip("/")}
@@ -293,7 +297,8 @@ def betrieb_speichern(request: Request, mistral_key: str = Form(""), hf_token: s
 
 
 @router.post("/assistent/koppeln", dependencies=[Depends(csrf_pruefen)])
-def koppeln_code(weiter: str = Form(""), user: User = Depends(verwalter), db: Session = Depends(get_db)):
+def koppeln_code(weiter: str = Form(""), user: User = Depends(faktor_frisch),  # 0.4.149: ein Worker sieht Aufnahmen
+                 db: Session = Depends(get_db)):
     from app.koppeln import code_erzeugen
 
     code_erzeugen(db)
@@ -313,6 +318,9 @@ def zusammenfassung(request: Request, hinweis: str = "", user: User = Depends(ve
 @router.post("/assistent/zusammenfassung", dependencies=[Depends(csrf_pruefen)])
 def zusammenfassung_speichern(request: Request, wahl: str = Form(""), mistral_key: str = Form(""),
                               user: User = Depends(verwalter), db: Session = Depends(get_db)):
+    from app.verwaltung.router import _frisch_verlangen
+
+    _frisch_verlangen(request, db, user, bool(mistral_key.strip()))  # 0.4.149 (S57)
     _ = tr(request)
     if wahl == "api":
         key = mistral_key.strip()
@@ -574,7 +582,7 @@ def sicherung_schritt(request: Request, user: User = Depends(verwalter), db: Ses
 
 
 @router.post("/assistent/sicherung/jetzt", dependencies=[Depends(csrf_pruefen)])
-def sicherung_jetzt(user: User = Depends(verwalter), db: Session = Depends(get_db)):
+def sicherung_jetzt(user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):  # 0.4.149 (S57)
     from app import sicherung
 
     e = sicherung.einstellungen(db)
@@ -593,7 +601,8 @@ def spielleitung(request: Request, angelegt: str = "", user: User = Depends(verw
 
 @router.post("/assistent/spielleitung", dependencies=[Depends(csrf_pruefen)])
 def spielleitung_anlegen(request: Request, username: str = Form(""), display_name: str = Form(""),
-                         password: str = Form(""), user: User = Depends(verwalter), db: Session = Depends(get_db)):
+                         password: str = Form(""), user: User = Depends(faktor_frisch),  # 0.4.149 (S57)
+                         db: Session = Depends(get_db)):
     from app.cli import _neues_konto
     from app.konto import registrierung
 
