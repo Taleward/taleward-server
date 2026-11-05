@@ -33,12 +33,19 @@
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="antwort" value="">
     <label>{{ _("Name für den Passkey (optional)") }} <input type="text" name="name" maxlength="40" placeholder="{{ _('zum Beispiel Arbeitsrechner') }}"></label>
+    {% if faktor.frisch %}
     <button class="tw-btn tw-btn--primary" type="button" hidden data-passkey-einrichten="/verwaltung/passkeys/beginnen" data-meldung="passkey-neu-meldung"
             data-warte="{{ _('Bestätige am Gerät – mit Windows Hello, Fingerabdruck, Gesicht oder PIN.') }}"
-            data-fehler="{{ _('Das hat nicht geklappt. Prüfe, ob Windows Hello bzw. die Gerätesperre eingerichtet ist, und versuch es noch einmal.') }}"
+            data-fehler="{{ _('Das hat nicht geklappt. Versuch es noch einmal.') }}"
+            data-abgebrochen="{{ _('Abgebrochen oder zu lange gewartet. Versuch es noch einmal.') }}"
+            data-schon-da="{{ _('Dieses Gerät hat schon einen Passkey für dein Konto.') }}"
             data-zu-viele="{{ _('Zu viele Versuche. Bitte in einer Stunde noch einmal.') }}">{{ _("Passkey hinzufügen") }}</button>
+    {% else %}
+    {# 0.4.151: ohne frischen Faktor zuerst die Bestätigung – ein Link statt des Knopfs, der dann ins Leere lief #}
+    <a class="tw-btn tw-btn--primary" href="/verwaltung/bestaetigen?weiter=/anmeldung">{{ _("Passkey hinzufügen") }}</a>
+    {% endif %}
   </form>
-  <p class="hilfe" id="passkey-neu-meldung" role="status">{% if not faktor.frisch %}{{ _("Zum Hinzufügen oder Entfernen fragt der Server zuerst noch einmal nach Code oder Passkey.") }}{% endif %}</p>
+  <p class="hilfe" id="passkey-neu-meldung" role="status"></p>
   <noscript><p class="hilfe">{{ _("Passkeys brauchen JavaScript im Browser.") }}</p></noscript>
   <script src="{{ statisch('passkey.js') }}" defer></script>
   {% else %}

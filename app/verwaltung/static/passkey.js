@@ -91,7 +91,14 @@
       daten.append("csrf", form.querySelector("input[name=csrf]").value);
       fetch(knopf.getAttribute("data-passkey-einrichten"), { method: "POST", body: daten, credentials: "same-origin",
                                                              headers: { "Accept": "application/json" } })
-        .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw j; return j; }); })
+        .then(function (r) {
+          // Fragt der Server zuerst noch einmal nach dem Faktor, leitet er auf die Bestätigungsseite um – dorthin gehen
+          if (r.redirected && new URL(r.url).origin === window.location.origin) {
+            window.location.href = r.url;
+            throw { umgeleitet: true };
+          }
+          return r.json().then(function (j) { if (!r.ok) throw j; return j; });
+        })
         .then(function (j) {
           var o = optionenLesen(JSON.stringify(j), "create");
           return navigator.credentials.create({ publicKey: o });
@@ -102,8 +109,11 @@
         })
         .catch(function (f) {
           knopf.disabled = false;
+          if (f && f.umgeleitet) return;
           var text = knopf.getAttribute("data-fehler") || "";
           if (f && f.fehler === "zu_viele") text = knopf.getAttribute("data-zu-viele") || text;
+          if (f && f.name === "NotAllowedError") text = knopf.getAttribute("data-abgebrochen") || text;
+          if (f && f.name === "InvalidStateError") text = knopf.getAttribute("data-schon-da") || text;
           melden(knopf, text);
         });
     });
