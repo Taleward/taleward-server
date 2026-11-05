@@ -1,7 +1,8 @@
-Fassung 0.4.149
+Fassung 0.4.150
 
 ## Was ist neu
 
+- Die Code-Eingabe bei der Anmeldung kommt ohne Erklärtexte aus.
 - Kleinere Verbesserungen bei der Anmeldung in der Verwaltung und auf der Guthaben-Seite.
 - Hinweis zu einem neu vertrauten Gerät erscheint jetzt beim nächsten Anmelden an einem anderen Gerät.
 - Spielende sehen bei ihren Vorschlägen genauer, ob ihr Text noch im Eintrag steht.

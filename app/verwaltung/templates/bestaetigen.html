@@ -6,7 +6,6 @@
   {% if not user %}{% include "_kopf_marke.html" %}{% endif %}
   <div class="karte">
     <h2>{{ _("Zweiten Faktor bestätigen") }}</h2>
-    <p>{{ _("Dieser Schritt ist heikel. Bitte bestätige noch einmal mit deinem Passkey oder dem Code aus der Authenticator-App; danach gilt die Bestätigung fünf Minuten.") }}</p>
     <form class="formular" method="post" action="{{ ziel or '/verwaltung/bestaetigen' }}">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <input type="hidden" name="weiter" value="{{ weiter }}">
