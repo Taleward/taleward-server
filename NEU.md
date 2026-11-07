@@ -1,8 +1,8 @@
-Fassung 0.4.153
+Fassung 0.4.154
 
 ## Was ist neu
 
-- Guthaben: Was aus Zahlungen übrig ist, steht jetzt auf der Guthaben-Seite und lässt sich voll auf die ursprüngliche Zahlung erstatten. Gutschriften und Gutscheine werden nicht ausgezahlt.
-- Wer sein Konto löscht, bekommt den Rest aus Zahlungen erstattet. Bis dahin bleiben nur Betrag und bestätigte E-Mail-Adresse stehen, höchstens 90 Tage.
-- Verwaltung, Abrechnung: neuer Bereich „Erstattungen“ zeigt je Konto, welcher Betrag auf welche Zahlung zurückgeht, und die offenen Fälle nach Kontolöschungen.
-- Verwaltung, Abrechnung: Liste der Meldungen, die beim Zahlungsanbieter abonniert sein müssen.
+- Namen einmal berichtigen: Eine falsche Schreibweise lässt sich für die ganze Kampagne auf einmal richtigstellen – in Kapiteln, Bibel, offenen Vorschlägen und Abschriften. Vorher zeigt eine Vorschau jede Stelle, 24 Stunden lang lässt es sich rückgängig machen.
+- Auf Wunsch merkt sich die Kampagne die Berichtigung und schlägt sie bei späteren Runden unter „Namen prüfen“ vor.
+- Charaktere, Kommentare und Vorschläge von Spielenden bleiben dabei unverändert.
+- Seit 0.4.153: Rest aus Zahlungen lässt sich erstatten, auch nach dem Löschen des Kontos.

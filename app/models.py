@@ -1047,3 +1047,40 @@ class OffeneErstattung(Base):
     angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     erledigt_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     erledigt_wie: Mapped[str | None] = mapped_column(String(16), nullable=True)  # erstattet | von_hand
+
+
+# ---------------------------------------------------------------- Namen einmal berichtigen (0.4.31)
+class NameFix(Base):
+    """Berichtigung einer Schreibweise in einer Kampagne (app/namen_berichtigen.py) und – solange `rule` – die
+    Verhörer-Regel von → nach. Protokoll nur für die SL der Kampagne. Im Umzug nur die Regeln (von, nach)."""
+
+    __tablename__ = "name_fixes"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    campaign_id: Mapped[str] = mapped_column(ForeignKey("campaigns.id", ondelete="CASCADE"), index=True)
+    von: Mapped[str] = mapped_column(String(64))
+    nach: Mapped[str] = mapped_column(String(64))
+    changed: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    rule: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    orte: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON [{place, id}] – nur Kennungen
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    created_by_member_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    undo_until: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    undone_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
+
+class NameFixUndo(Base):
+    """Alte Texte eines berichtigten Ortes für „Rückgängig“ – nur 24 Stunden (Wartung), nie im Umzug, nie in einer
+    Antwort. Gelöschte Runden, Einträge oder Vorschläge nehmen ihre Zeilen mit."""
+
+    __tablename__ = "name_fix_undo"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    fix_id: Mapped[str] = mapped_column(ForeignKey("name_fixes.id", ondelete="CASCADE"), index=True)
+    place: Mapped[str] = mapped_column(String(32))
+    oid: Mapped[str] = mapped_column(String(36))
+    label_de: Mapped[str] = mapped_column(String(300))
+    label_en: Mapped[str] = mapped_column(String(300))
+    alt: Mapped[str] = mapped_column(Text)
+    pruefsumme: Mapped[str] = mapped_column(String(64))
+    session_id: Mapped[str | None] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=True)
+    entry_id: Mapped[str | None] = mapped_column(ForeignKey("entries.id", ondelete="CASCADE"), nullable=True)
+    proposal_id: Mapped[str | None] = mapped_column(ForeignKey("proposals.id", ondelete="CASCADE"), nullable=True)

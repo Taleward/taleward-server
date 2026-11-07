@@ -521,6 +521,7 @@ class AttendeeIn(ApiModel):
 
 
 class AttendeeOut(ApiModel):
+    id: str = ""  # 0.4.32: Kennung des Anwesenden in dieser Runde
     member_id: str | None = None  # genau eines von beiden wird ausgegeben
     guest_name: str | None = None
     consent: bool

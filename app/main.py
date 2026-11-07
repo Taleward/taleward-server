@@ -56,6 +56,9 @@ def _wartung_starten() -> threading.Event | None:
                     from app import erstattung
 
                     erstattung.wartung(db)  # 0.4.153: erstattete Fälle schließen, E-Mail nach 90 Tagen weg
+                    from app import namen_berichtigen
+
+                    namen_berichtigen.wartung(db)  # 0.4.154: Rückgängig-Texte nach 24 Stunden weg
                     db.commit()
                 if any(ergebnis.values()):
                     log.info("Wartung: %s", ergebnis)
@@ -251,9 +254,10 @@ def create_app() -> FastAPI:
 
     from app.routers import spielende as spielende_router
 
+    from app.routers import namen as namen_router
     from app.routers import teilen as teilen_router
 
-    for r in (guthaben_router.router, auth.router, anmeldung.router, voice_profile.router, charaktere.router, umzug_router.router, campaigns.router, sessions.router, pruefung.router, uploads.router, entries.router, miteinander.router, unterlagen.router, plaene.router, spielende_router.router, teilen_router.router):
+    for r in (guthaben_router.router, auth.router, anmeldung.router, voice_profile.router, charaktere.router, umzug_router.router, campaigns.router, sessions.router, pruefung.router, uploads.router, entries.router, miteinander.router, unterlagen.router, plaene.router, spielende_router.router, teilen_router.router, namen_router.router):
         api.include_router(r)
     app.include_router(api)
     app.include_router(worker.router)

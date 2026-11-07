@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Taleward API
-  version: 0.4.30
+  version: 0.4.32
   description: |
     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
 
@@ -291,6 +291,24 @@ info:
     die App die Datei und legt den Inhalt in ihre Lesekopie. Der Server signiert jede Datei (ServerInfo.shareKeys). Inhalt
     nur, was jedes Mitglied ohnehin sieht. Dateiformat und Prüfreihenfolge: Schema ShareFile. Ältere Apps ignorieren
     shareKey und shareKeys; ältere Server bieten das Teilen nicht an.
+    Änderungen in 0.4.31 (Namen einmal berichtigen): Die SL berichtigt eine Schreibweise kampagnenweit
+    (/campaigns/{id}/name-fixes): erst Vorschau mit allen Fundstellen, dann Berichtigen, 24 Stunden lang rückgängig.
+    Geändert werden Kapitel (auch veröffentlichte, ohne Benachrichtigung), Bibel, offene Vorschläge aus Runden und
+    Abschriften; nie Charaktere, Kommentare, Vorschläge von Spielenden, Merkstellen oder Unterlagen. Daraus entsteht auf
+    Wunsch eine Verhörer-Regel: „Namen prüfen“ späterer Runden schlägt die richtige Schreibweise vor
+    (UncertainTerm.suggestedCorrect, suggestionSource rule), ersetzt aber nie still. Nur SL, kein Sprachmodell.
+    Ältere Apps sehen davon nur die berichtigten Texte; ältere Server bieten es nicht an.
+    Änderungen in 0.4.32 (Discord-Bot, Aufnahme online): Ein Bot nimmt Online-Runden im Sprachkanal je Person als eigene
+    Spur auf. Alles standardmäßig aus (Schalter „Discord-Bot“ in der Verwaltung, ServerInfo.discordBot). Der Bot hat einen
+    eigenen Schlüssel (Schema botKey) und nur die Wege unter /bot/… plus den vorhandenen Upload; er liest nie Inhalte.
+    Die SL verbindet ihre Kampagne mit genau einem Discord-Server über einen Link vom Bot (/discord-links/…), nur wenn ihr
+    Konto per Discord-Anmeldung mit genau der Discord-ID verknüpft ist, die den Befehl getippt hat. Vor der Aufnahme fragt
+    der Bot je Person nur einen Zustand ab (ready | link_required | consent_required); Zustimmen geht über einen Link, der
+    an Discord-ID und Runde gebunden ist (/consent-links/…). Gäste stimmen dort nur für diese Runde zu (consentSource
+    link). Neu: Zustand recording („Aufnahme läuft“) und no_recording („ohne Aufnahme“, nach 30 Stunden ohne Ton),
+    Spuren je Mitglied oder Gast (trackAttendeeId), Pausen, Widerruf einer Spur, Hinweis „unterbrochen“, Einstellung
+    CampaignSettings.discordPauseOnUnconsented. Ältere Apps müssen die neuen Zustände und consentSource link vertragen
+    (die App zeigt Unbekanntes als „in Arbeit“); ältere Server melden kein discordBot.
 
 servers:
   - url: https://taleward.example.org/api/v1
@@ -318,6 +336,8 @@ tags:
   - name: Charaktere
   - name: Umzug
   - name: Guthaben
+  - name: Namen
+  - name: Discord
 
 paths:
   /auth/login:
@@ -682,7 +702,12 @@ paths:
     post:
       tags: [Auth]
       summary: Dienst mit dem eigenen Konto verbinden – linkToken für /auth/oidc/…/start holen (ab 0.4.0)
-      description: linkToken gilt 5 min. Danach wie beim Anmelden, nur mit purpose=link; exchange liefert status ok.
+      description: |
+        linkToken gilt 5 min. Danach wie beim Anmelden, nur mit purpose=link; exchange liefert status ok.
+        Ab 0.4.32 für discord: je Konto höchstens eine Discord-ID und je Discord-ID höchstens ein Konto auf diesem Server
+        (exchange → 409 `provider_in_use`, ohne zu sagen, welches Konto). Neue Verknüpfung → Hinweis-Mail an das Konto
+        (falls E-Mail hinterlegt). Nur über diesen Weg entsteht die Verknüpfung, die der Discord-Bot nutzt – nie über
+        Bot-Links. Trennen löst auch die Verbindungen der Kampagnen dieses Kontos zu Discord-Servern.
       responses:
         "200":
           description: OK
@@ -2445,7 +2470,14 @@ paths:
         Für source=table: Mehrere Dateien sind aufeinanderfolgende Abschnitte EINER Aufnahme
         (die Android-App teilt alle ~5 Minuten). Der Server hängt sie in der Reihenfolge des
         files-Arrays lückenlos aneinander, bevor er transkribiert.
-        Für source=discord: eine Datei pro Spur, jeweils mit `trackMemberId`.
+        Für source=discord: eine Datei pro Spur, jeweils mit `trackMemberId` oder (ab 0.4.32) `trackAttendeeId`.
+        Ab 0.4.32 auch mit dem Bot-Schlüssel (botKey), nur für Runden, die dieser Bot angelegt hat (in recording bzw. nach
+        `stopped`, nie nach no_recording), nur mit `trackAttendeeId` (`trackMemberId` mit Bot-Schlüssel → 400) und nur
+        Spuren von Anwesenden mit Zustimmung (sonst 409 `consent_missing` bzw. `consent_revoked`). Der Server prüft die
+        Zustimmung selbst beim Anlegen, bei jedem Teil und beim Abschluss; wer widerrufen hat, verliert alle Teile seiner
+        Spur. Alle Spuren beginnen beim Startton und sind gleich lang (Pausen und Lücken mit Stille
+        aufgefüllt). Höchstens 12 Spuren, 6 Stunden; jede Datei einzeln gegen die Upload-Grenze (413), gedacht sind etwa
+        25 MB je Person und Stunde.
       requestBody:
         required: true
         content:
@@ -2467,6 +2499,9 @@ paths:
                       trackMemberId:
                         type: string
                         description: Nur bei source=discord – welches Mitglied auf dieser Spur spricht
+                      trackAttendeeId:
+                        type: string
+                        description: Ab 0.4.32, nur bei source=discord – Anwesender (Mitglied oder Gast, Attendee.id)
                 spans:
                   type: array
                   maxItems: 500
@@ -3019,6 +3054,636 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+
+  /campaigns/{campaignId}/name-fixes/preview:
+    parameters: [{ $ref: "#/components/parameters/campaignId" }]
+    post:
+      tags: [Namen]
+      summary: Vorschau einer Berichtigung – alle Fundstellen einer Schreibweise (nur SL, ab 0.4.31; sonst 404)
+      description: |
+        Sucht `from` als ganzes Wort (wörtlich, keine regulären Ausdrücke, Groß-/Kleinschreibung wie eingegeben; deutsche
+        Endungen mit: „Orasilas’“, „Orasilas’ Schwur“, „Orasilas'“) in:
+        - Kapiteln (veröffentlicht und Entwürfe; Titel und Text),
+        - Bibel-Einträgen (Name, „Auch genannt“, Beschreibung, SL-Notiz),
+        - offenen Vorschlägen aus Runden (Titel, Text) – nicht in Vorschlägen von Spielenden,
+        - Abschriften aller Runden, solange vorhanden (reine Wortersetzung, Zeitmarken bleiben).
+        Nur gezählt bzw. als Ort genannt, nie geändert und nie im Wortlaut (`untouched`): Charaktere (nur Name,
+        Kurzbeschreibung, Hintergrund – Felder, die die SL ohnehin sieht), Kommentare, die die SL sehen kann (private
+        Kommentare unter anderen zählen nicht), offene Vorschläge von Spielenden. Nie durchsucht, auch nicht gezählt:
+        Merkstellen und ihre Notizen, Zähler, Teilen-Schlüssel, Stimmen und Hörproben, Unterlagen, Mails, Protokolle.
+
+        Warnung bei geheimen Namen: Ist `to` der Name oder ein „Auch genannt“ eines Eintrags, den nicht alle Spielenden
+        sehen, und sind unter den Treffern Orte, die Spielende lesen (veröffentlichte Kapitel, Einträge für alle oder
+        einzelne), steht `secretWarning: true`, und diese Treffer tragen `preselected: false`. Die App zeigt dann oben:
+        „‚Horasilas‘ steht bisher nur in Geheimem. In veröffentlichten Kapiteln lesen ihn danach alle.“
+
+        Eingabe: beide Seiten bereinigt (Steuerzeichen, Leerraum an den Enden), 3–64 Zeichen, kein Zeilenumbruch,
+        `from` ≠ `to` (sonst 400 `invalid_name_fix`). Mehr als 2 000 Stellen → 409 `too_many_hits` (message sagt, es
+        lieber in kleineren Schritten zu tun). Keine Treffer → 200 mit leerer Liste. Höchstens 60 Vorschauen je Konto und
+        Stunde (429).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NameFixInput" }
+      responses:
+        "200":
+          description: Fundstellen
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NameFixPreview" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /campaigns/{campaignId}/name-fixes:
+    parameters: [{ $ref: "#/components/parameters/campaignId" }]
+    get:
+      tags: [Namen]
+      summary: Berichtigungen und Verhörer-Regeln der Kampagne (nur SL, ab 0.4.31; sonst 404)
+      description: |
+        Neueste zuerst. Für alle SL der Kampagne sichtbar (Protokoll: wer, wann, von → nach, Anzahl), nie für
+        Spielende, nie in Mails oder Push. `undoUntil` nur, solange Rückgängig möglich ist.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [fixes]
+                properties:
+                  fixes:
+                    type: array
+                    items: { $ref: "#/components/schemas/NameFix" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [Namen]
+      summary: Berichtigen (nur SL, ab 0.4.31; sonst 404)
+      description: |
+        Führt die Berichtigung aus der Vorschau aus, in einer Transaktion. `previewVersion` und `skipHitIds` stammen aus
+        der eigenen Vorschau. Hat sich ein Treffer-Ort seit der Vorschau geändert (Prüfsumme je Ort), passiert nichts →
+        409 `preview_stale` (die App holt die Vorschau neu). Unbekannte `skipHitIds` → 400.
+        Veröffentlichte Kapitel ändern sich als Bearbeitung der SL (in der vorhandenen Fassungsgeschichte, nur SL
+        sichtbar), ohne Benachrichtigung an die Spielenden. Bibel-Änderungen laufen wie PATCH /entries (Säubern,
+        „Auch genannt“ ohne Doppel). Sichtbarkeiten ändern sich nie. Die Abschrift-Ersetzung ist eine ausdrückliche
+        Handlung der SL, die Zeitmarken bleiben.
+        `rule: true` (Standard) legt zusätzlich eine Verhörer-Regel `from → to` an und nimmt `to` in die Namenshilfe der
+        Kampagne. Die Regel gilt nur in dieser Kampagne und wirkt nur als Vorschlag in „Namen prüfen“ (siehe
+        UncertainTerm.suggestionSource); höchstens 200 Regeln je Kampagne (409 `rule_limit`).
+        Höchstens 20 Berichtigungen je Kampagne und Stunde (429).
+        Umzug: Verhörer-Regeln gehen mit (ohne Person, ohne Protokoll), Rückgängig-Texte nie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - { $ref: "#/components/schemas/NameFixInput" }
+                - type: object
+                  required: [previewVersion]
+                  properties:
+                    previewVersion: { type: string, description: "Aus NameFixPreview.previewVersion" }
+                    skipHitIds:
+                      type: array
+                      items: { type: string }
+                      description: "Abgewählte Treffer aus der Vorschau"
+                    rule: { type: boolean, default: true, description: "Künftig erkennen (Verhörer-Regel)" }
+      responses:
+        "201":
+          description: Berichtigt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NameFix" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /name-fixes/{fixId}:
+    parameters: [{ name: fixId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }]
+    delete:
+      tags: [Namen]
+      summary: Verhörer-Regel löschen (nur SL der Kampagne, ab 0.4.31; sonst 404)
+      description: |
+        Entfernt nur die Regel (künftige Vorschläge). Schon berichtigte Texte bleiben, der Eintrag im Protokoll bleibt
+        (`rule: false`). Der Name bleibt in der Namenshilfe.
+      responses:
+        "204": { description: Gelöscht }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /name-fixes/{fixId}/undo:
+    parameters: [{ name: fixId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }]
+    post:
+      tags: [Namen]
+      summary: Berichtigung rückgängig machen (nur SL der Kampagne, 24 Stunden, ab 0.4.31; sonst 404)
+      description: |
+        Setzt nur Stellen zurück, die seit der Berichtigung unverändert sind; die anderen werden übersprungen und in
+        `skipped` genannt. Die Regel wird mit gelöscht. Nach 24 Stunden → 409 `undo_expired`; schon rückgängig → 409
+        `already_undone`.
+        Die alten Texte liegen nur auf dem Server und nur 24 Stunden (danach löscht die Wartung sie), nie im Umzug und
+        in keiner Antwort. Wird die Runde, der Eintrag oder die Kampagne gelöscht, werden sie mit gelöscht.
+      responses:
+        "200":
+          description: Rückgängig gemacht
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [restored, skipped]
+                properties:
+                  restored: { type: integer, description: "Zurückgesetzte Stellen" }
+                  skipped:
+                    type: array
+                    description: "Seitdem bearbeitete Orte, die so bleiben"
+                    items:
+                      type: object
+                      required: [place, label]
+                      properties:
+                        place: { $ref: "#/components/schemas/NameFixPlace" }
+                        label: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /discord-links/preview:
+    post:
+      tags: [Discord]
+      summary: Verbindungslink oder Code ansehen, bevor die SL verbindet (ab 0.4.32)
+      description: |
+        Die App öffnet den Link vom Bot (`<publicUrl>/discord/<token>`, gleicher Weg wie Einladungen: Server unbekannt →
+        dieselbe Rückfrage und dieselben Regeln wie bei Einladungen) oder die SL tippt den Drei-Wörter-Code ein (in
+        „Kampagne verwalten → Discord“ des richtigen Servers). Das Token nimmt die App sofort aus der Adresse, speichert es
+        nie und schickt es nur im Anfragekörper an diesen Server. Angemeldet nötig. Antwort nur, wenn das Konto per Discord-Anmeldung mit genau der
+        Discord-ID verknüpft ist, die den Link angefordert hat; sonst `linked: false` ohne weitere Angaben (die App bietet
+        dann „Mit Discord verknüpfen“ an und fragt danach erneut). Ungültig, abgelaufen oder verbraucht → 404.
+        `campaigns` nur Kampagnen, in denen das Konto SL ist. Höchstens 10 Versuche je Konto und 30 je Adresse in 15
+        Minuten (429), Codes ohne Groß-/Kleinschreibung und Bindestriche verglichen.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DiscordLinkSecret" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [linked]
+                properties:
+                  linked: { type: boolean, description: "Konto passt zur Discord-ID des Befehls" }
+                  guildName: { type: string, description: "Anzeigename des Discord-Servers (vom Bot, bereinigt, ≤ 100 Zeichen)" }
+                  expiresAt: { type: string, format: date-time }
+                  campaigns:
+                    type: array
+                    items:
+                      type: object
+                      required: [campaignId, title]
+                      properties:
+                        campaignId: { type: string }
+                        title: { type: string }
+                        connectedGuildName: { type: [string, "null"], description: "Schon verbunden mit (wird ersetzt)" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /discord-links/redeem:
+    post:
+      tags: [Discord]
+      summary: Kampagne mit dem Discord-Server verbinden (nur SL dieser Kampagne, ab 0.4.32)
+      description: |
+        Prüft dasselbe wie die Vorschau und verbraucht den Link (einmalig). Genau ein Discord-Server je Kampagne; eine
+        bestehende Verbindung wird ersetzt. Konto nicht (mehr) mit der Discord-ID verknüpft → 409
+        `discord_link_required`; nicht SL der Kampagne → 404. Grenzen wie bei der Vorschau.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - { $ref: "#/components/schemas/DiscordLinkSecret" }
+                - type: object
+                  required: [campaignId]
+                  properties:
+                    campaignId: { type: string }
+      responses:
+        "200":
+          description: Verbunden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DiscordConnection" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /campaigns/{campaignId}/discord:
+    parameters: [{ $ref: "#/components/parameters/campaignId" }]
+    get:
+      tags: [Discord]
+      summary: Verbundener Discord-Server (nur SL, ab 0.4.32; Spielende 404)
+      responses:
+        "200":
+          description: OK (connection null = nicht verbunden)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    oneOf:
+                      - type: "null"
+                      - $ref: "#/components/schemas/DiscordConnection"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Discord]
+      summary: Verbindung lösen (nur SL, ab 0.4.32)
+      description: Laufende Bot-Aufnahmen dieser Kampagne enden (der Bot erfährt es bei der nächsten Abfrage).
+      responses:
+        "204": { description: Gelöst }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /consent-links/{token}:
+    parameters:
+      - { name: token, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{20,128}$" } }
+    get:
+      tags: [Discord]
+      summary: Zustimmungslink ansehen (ab 0.4.32)
+      description: |
+        Link vom Bot, nur für eine Discord-ID und eine Runde, einmalig, 15 Minuten (`<publicUrl>/zustimmen/<token>`, Weg wie
+        bei Einladungen; das Token kommt sofort aus der Adresse und nur an diesen Server).
+        Ohne Anmeldung nutzbar (für Gäste). Ungültig, abgelaufen, verbraucht oder Runde nicht mehr in recording → 404.
+        Antwort ohne Namen anderer Personen. `memberAllowed`: Mit Anmeldung als Mitglied der Kampagne zustimmen (gilt
+        dann bis zum Widerruf wie consentSource app). Ist ein Konto verknüpft, dessen Discord-ID nicht zum Link passt,
+        zählt die Zustimmung nicht als Mitglied (409 `discord_mismatch` beim Zustimmen).
+        Begrenzt je Adresse (429).
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [campaignTitle, language, expiresAt, memberAllowed, guestAllowed]
+                properties:
+                  campaignTitle: { type: string }
+                  gmName: { type: string, description: "Anzeigename der SL in der Kampagne" }
+                  language: { type: string, example: "de" }
+                  expiresAt: { type: string, format: date-time }
+                  memberAllowed: { type: boolean }
+                  guestAllowed: { type: boolean }
+                  suggestedGuestName: { type: [string, "null"], description: "Discord-Anzeigename (bereinigt), änderbar" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+    post:
+      tags: [Discord]
+      summary: Über den Link zustimmen – als Mitglied oder als Gast (ab 0.4.32)
+      description: |
+        Gleicher Zustimmungstext wie am Tisch, nur die Person selbst, nie durch die SL.
+        - Mit Anmeldung (Bearer) als Mitglied der Kampagne: setzt die Zustimmung zu **allen Aufnahmen dieser Kampagne bis
+          zum Widerruf** (wie PUT …/members/me/recording-consent und wie am Tisch) und nimmt die Person in die Runde auf
+          (consentSource app). Die App sagt das vor dem Knopf ausdrücklich und nennt, wo man widerruft („Kampagne
+          verwalten → Deine Daten“). Die Discord-ID
+          des Links muss die verknüpfte des Kontos sein (sonst 409 `discord_mismatch`); ohne Verknüpfung verknüpft dieser
+          Weg nicht, er sagt 409 `discord_link_required`.
+        - Ohne Anmeldung als Gast: `guestName` (1–40 Zeichen, bereinigt), `characterName` freiwillig; gilt nur für diese
+          Runde (consentSource link), keine Stimmprofile, protokolliert mit Zeitpunkt.
+        Danach meldet der Bot die Person bei der nächsten Bereitschaftsabfrage als ready. Widerruf: Mitglieder wie bisher
+        in der App (wirkt sofort, auch für die laufende Runde); Gäste mit `/taleward leave` im Discord – der Bot verwirft
+        dann die Spur (DELETE /bot/sessions/{id}/tracks/{attendeeId}).
+      security: [{}, { bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [consent]
+              properties:
+                consent: { type: boolean, const: true }
+                guestName: { type: string, maxLength: 40 }
+                characterName: { type: string, maxLength: 60 }
+      responses:
+        "200":
+          description: Zugestimmt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Attendee" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /bot/links:
+    post:
+      tags: [Discord]
+      summary: "Bot: Verbindungslink und Drei-Wörter-Code anfordern (ab 0.4.32)"
+      description: |
+        Nach `/taleward link` der SL im Discord. `guildId` und `discordUserId` nur aus der Interaktion. Link und Code sind
+        dasselbe Geheimnis: einmalig, 15 Minuten, gespeichert nur als Prüfsumme; Code aus einer festen Wortliste im Server
+        (≥ 1024 Wörter, sicherer Zufall). Ein neuer Link für dieselbe Discord-ID und Gilde macht den alten ungültig.
+        Höchstens 10 je Discord-ID und Stunde (429). Der Bot zeigt Link und Code nur der Person selbst (ephemeral).
+      security: [{ botKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [guildId, discordUserId, guildName]
+              properties:
+                guildId: { $ref: "#/components/schemas/DiscordSnowflake" }
+                discordUserId: { $ref: "#/components/schemas/DiscordSnowflake" }
+                guildName: { type: string, maxLength: 100 }
+      responses:
+        "201":
+          description: Angelegt
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, code, expiresAt]
+                properties:
+                  url:
+                    type: string
+                    example: "https://taleward.example.org/discord/…"
+                    description: |
+                      `<publicUrl>/discord/<token>` – wie Einladungen: Die Seite des Servers öffnet die App
+                      (`taleward://discord?url=<Link>`) oder die Web-App; so nennt der Link immer seinen Server.
+                  code: { type: string, example: "laterne-moor-krug" }
+                  expiresAt: { type: string, format: date-time }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /bot/guilds/{guildId}/campaigns:
+    parameters:
+      - { name: guildId, in: path, required: true, schema: { $ref: "#/components/schemas/DiscordSnowflake" } }
+      - { name: discordUserId, in: query, required: true, schema: { $ref: "#/components/schemas/DiscordSnowflake" } }
+    get:
+      tags: [Discord]
+      summary: "Bot: Kampagnen dieser SL, die an dieser Gilde hängen (ab 0.4.32)"
+      description: |
+        Nur Kampagnen, deren SL per Discord-Anmeldung mit `discordUserId` verknüpft ist und die mit `guildId` verbunden
+        sind. Für alle anderen IDs eine leere Liste (kein Unterschied zwischen „unbekannt“ und „nicht SL“). Titel nur zur
+        Anzeige für diese Person (ephemeral). Fremde Gilden ohne Kampagne bekommen immer eine leere Liste.
+      security: [{ botKey: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [campaigns]
+                properties:
+                  campaigns:
+                    type: array
+                    items:
+                      type: object
+                      required: [campaignId, title, language, pauseOnUnconsented]
+                      properties:
+                        campaignId: { type: string }
+                        title: { type: string }
+                        language: { type: string, example: "de", description: "Sprache der Bot-Nachrichten" }
+                        pauseOnUnconsented: { type: boolean, description: "CampaignSettings.discordPauseOnUnconsented" }
+                        liveSessionId: { type: [string, "null"], description: "Laufende Bot-Runde dieser Kampagne" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /bot/guilds/{guildId}/campaigns/{campaignId}:
+    parameters:
+      - { name: guildId, in: path, required: true, schema: { $ref: "#/components/schemas/DiscordSnowflake" } }
+      - { $ref: "#/components/parameters/campaignId" }
+      - { name: discordUserId, in: query, required: true, schema: { $ref: "#/components/schemas/DiscordSnowflake" } }
+    delete:
+      tags: [Discord]
+      summary: "Bot: Verbindung lösen (`/taleward unlink`, nur die verknüpfte SL; ab 0.4.32)"
+      security: [{ botKey: [] }]
+      responses:
+        "204": { description: Gelöst }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /bot/campaigns/{campaignId}/readiness:
+    parameters: [{ $ref: "#/components/parameters/campaignId" }]
+    post:
+      tags: [Discord]
+      summary: "Bot: Bereitschaft je Discord-ID (ab 0.4.32)"
+      description: |
+        Je ID genau ein Zustand, keine Namen, nichts über andere Kampagnen:
+        - `ready`: Mitglied mit verknüpfter Discord-ID und Zustimmung zu Aufnahmen, oder Gast mit Zustimmung über einen
+          Link dieser Runde (nur mit `sessionId`).
+        - `consent_required`: Mitglied mit verknüpfter Discord-ID ohne Zustimmung.
+        - `link_required`: alle anderen, auch unbekannte IDs (der Bot schickt einen Zustimmungslink; dort geht es als
+          Gast oder nach dem Verknüpfen als Mitglied).
+        Nur für Kampagnen, die mit einer Gilde verbunden sind, sonst 404. Höchstens 25 IDs je Anfrage, 120 Anfragen je
+        Kampagne und Stunde (429). Der Bot fragt während der Aufnahme alle 30 Sekunden; ein Wechsel von ready weg heißt
+        Widerruf: Spur sofort verwerfen (DELETE …/tracks/{attendeeId}).
+      security: [{ botKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [discordUserIds]
+              properties:
+                discordUserIds:
+                  type: array
+                  minItems: 1
+                  maxItems: 25
+                  items: { $ref: "#/components/schemas/DiscordSnowflake" }
+                sessionId: { type: string, description: "Laufende Bot-Runde (für Gäste und attendeeId)" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [states]
+                properties:
+                  states:
+                    type: object
+                    description: "Schlüssel = Discord-ID"
+                    additionalProperties:
+                      type: object
+                      required: [state]
+                      properties:
+                        state: { type: string, enum: [ready, consent_required, link_required] }
+                        attendeeId: { type: [string, "null"], description: "Nur bei ready mit sessionId und nachdem der Bot die Person angemeldet hat" }
+                  sessionState: { type: [string, "null"], description: "ProcessingState der Runde (z. B. beendet, weil die SL gelöst hat)" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /bot/campaigns/{campaignId}/sessions:
+    parameters: [{ $ref: "#/components/parameters/campaignId" }]
+    post:
+      tags: [Discord]
+      summary: "Bot: Runde anlegen, Zustand recording (`/taleward start`, nur die verknüpfte SL; ab 0.4.32)"
+      description: |
+        Nur wenn `discordUserId` die verknüpfte SL dieser Kampagne ist und `guildId` die verbundene Gilde (sonst 404).
+        Eine laufende Bot-Runde je Kampagne (409 `already_recording`). Die Runde erscheint in der App sofort als
+        „Online-Runde, Aufnahme läuft“ (source discord); die SL kann Notizen schreiben. Kommt binnen 30 Stunden kein
+        Upload, setzt der Server sie auf no_recording. Höchstens 6 Stunden Aufnahme.
+      security: [{ botKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [guildId, discordUserId, startedAt]
+              properties:
+                guildId: { $ref: "#/components/schemas/DiscordSnowflake" }
+                discordUserId: { $ref: "#/components/schemas/DiscordSnowflake" }
+                startedAt: { type: string, format: date-time, description: "Zeit des Starttons" }
+      responses:
+        "201":
+          description: Angelegt
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessionId, number]
+                properties:
+                  sessionId: { type: string }
+                  number: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /bot/sessions/{sessionId}/attendees:
+    parameters: [{ $ref: "#/components/parameters/sessionId" }]
+    post:
+      tags: [Discord]
+      summary: "Bot: Person mit Zustimmung in die Runde aufnehmen, auch während der Aufnahme (ab 0.4.32)"
+      description: |
+        Nur Personen, die gerade `ready` sind (sonst 409 `consent_missing`). Gibt die attendeeId für die Spur. Doppelt
+        gemeldet → dieselbe attendeeId. Höchstens 12 Anwesende mit Spur (409 `too_many_tracks`).
+      security: [{ botKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [discordUserId]
+              properties:
+                discordUserId: { $ref: "#/components/schemas/DiscordSnowflake" }
+      responses:
+        "200":
+          description: Aufgenommen
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [attendeeId]
+                properties:
+                  attendeeId: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /bot/sessions/{sessionId}/consent-links:
+    parameters: [{ $ref: "#/components/parameters/sessionId" }]
+    post:
+      tags: [Discord]
+      summary: "Bot: Zustimmungslink für eine Discord-ID (ab 0.4.32)"
+      description: |
+        Für Personen mit link_required oder consent_required. Gebunden an Discord-ID und Runde, einmalig, 15 Minuten, nur
+        als Prüfsumme gespeichert. Ein neuer Link für dieselbe ID macht den alten ungültig. Der Bot zeigt ihn nur der
+        Person selbst (ephemeral) und schreibt Zuhörer ohne Zustimmung nie von sich aus an. Höchstens 5 je ID und Runde.
+      security: [{ botKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [discordUserId]
+              properties:
+                discordUserId: { $ref: "#/components/schemas/DiscordSnowflake" }
+                displayName: { type: string, maxLength: 40, description: "Discord-Anzeigename, Vorschlag für den Gastnamen" }
+      responses:
+        "201":
+          description: Angelegt
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, expiresAt]
+                properties:
+                  url:
+                    type: string
+                    example: "https://taleward.example.org/zustimmen/…"
+                    description: |
+                      `<publicUrl>/zustimmen/<token>` – wie Einladungen; die Seite bietet „In Taleward öffnen“ und für Gäste
+                      ohne App „Im Browser zustimmen“ (Web-App des Servers).
+                  expiresAt: { type: string, format: date-time }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /bot/sessions/{sessionId}/events:
+    parameters: [{ $ref: "#/components/parameters/sessionId" }]
+    post:
+      tags: [Discord]
+      summary: "Bot: Pause, Weiter, Unterbrechung, Ende melden (ab 0.4.32)"
+      description: |
+        `pause`/`resume` mit Zeit (der Server kennt so die Pausen; die Spuren sind trotzdem gleich lang und dort still),
+        `interrupted` (Neustart oder Verbindungsabbruch, setzt Session.interrupted), `stopped` (Ende; Zustand bleibt
+        recording, bis der Upload beginnt), `discarded` (die SL bricht ab: die Runde wird gelöscht, falls noch keine Spur
+        angekommen ist; hat sie schon eine SL-Notiz oder einen Kommentar, wird sie stattdessen no_recording und bleibt).
+        Zeiten zwischen startedAt und startedAt + 6 h, sonst 400.
+      security: [{ botKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, at]
+              properties:
+                type: { type: string, enum: [pause, resume, interrupted, stopped, discarded] }
+                at: { type: string, format: date-time }
+      responses:
+        "204": { description: Gemerkt }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /bot/sessions/{sessionId}/tracks/{attendeeId}:
+    parameters:
+      - { $ref: "#/components/parameters/sessionId" }
+      - { name: attendeeId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
+    delete:
+      tags: [Discord]
+      summary: "Bot: Spur einer Person verwerfen (Widerruf; ab 0.4.32)"
+      description: |
+        Der Bot hat die Spur bei sich schon gelöscht; der Server verwirft zusätzlich alles, was von dieser Spur schon
+        angekommen ist (auch Teile), und nimmt sie nie mehr an. Die Person verschwindet aus den Anwesenden mit Spur;
+        im Kapitel kommt sie nicht vor. Keine Nachricht an andere.
+      security: [{ botKey: [] }]
+      responses:
+        "204": { description: Verworfen }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /sessions/{sessionId}/transcript:
     parameters: [{ $ref: "#/components/parameters/sessionId" }]
@@ -3734,6 +4399,19 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    botKey:
+      type: apiKey
+      in: header
+      name: X-Taleward-Bot
+      description: |
+        Ab 0.4.32. Schlüssel des Discord-Bots, in der Verwaltung erzeugt (einmal angezeigt, gespeichert nur als
+        Prüfsumme, widerrufbar, mehrere möglich). Gilt nur für /bot/… und POST/PUT des Uploads von Runden, die dieser Bot
+        angelegt hat. Kein Nutzerkonto, keine Nutzerrechte, kein X-Taleward-App nötig. Grenzen je Schlüssel und Kampagne
+        (429). Ist der Schalter „Discord-Bot“ aus, antworten alle Bot-Wege mit 404.
+        Eine Verbindung Kampagne ↔ Discord-Server gehört zu dem Schlüssel, der den Verbindungslink ausgestellt hat: Alle
+        /bot/…-Wege dieser Kampagne (und der Upload ihrer Runden) gehen nur mit genau diesem Schlüssel, sonst 404. Wird der
+        Schlüssel widerrufen, ruht die Verbindung, bis die SL neu verbindet. Bot-Schlüssel auf anderen Wegen → 401,
+        Nutzer-Token auf /bot/… → 401.
 
   parameters:
     campaignId: { name: campaignId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
@@ -3783,6 +4461,11 @@ components:
     ServerInfo:
       type: object
       properties:
+        discordBot:
+          type: boolean
+          description: |
+            Ab 0.4.32: Der Betreiber hat den Discord-Bot eingeschaltet. Nur dann zeigt die App „Kampagne verwalten →
+            Discord“ und nimmt Verbindungs- und Zustimmungslinks an. Fehlt = aus.
         shareKeys:
           type: array
           maxItems: 4
@@ -4068,6 +4751,7 @@ components:
         allowExternalTranscription: { type: boolean }
         allowCharacterAnalysis: { type: boolean }
         playerProposals: { type: boolean, description: "Ab 0.4.28" }
+        discordPauseOnUnconsented: { type: boolean, description: "Ab 0.4.32" }
         counterKinds:
           type: array
           maxItems: 8
@@ -4091,6 +4775,11 @@ components:
           description: |
             Ab 0.4.28: Spielende dürfen Einträge für die Bibel vorschlagen. Standard true. Fehlt bei älteren Servern
             (dann gibt es die Funktion nicht).
+        discordPauseOnUnconsented:
+          type: boolean
+          description: |
+            Ab 0.4.32: Der Discord-Bot hält die Aufnahme an, wenn jemand ohne Zustimmung in den Sprachkanal kommt (die
+            Person wird ohnehin nie aufgenommen). Standard false. Fehlt, wenn der Server keinen Bot anbietet.
         counterKinds:
           type: array
           maxItems: 8
@@ -4717,13 +5406,17 @@ components:
       description: |
         Genau eines von memberId (Mitglied) oder guestName (Gast ohne Konto).
         consentSource app: nur zulässig, wenn das Mitglied `recordingConsentAt` hat (sonst 409 `consent_missing`).
-        Gäste nur mit on_site (sonst 400 `invalid_attendee`).
+        Gäste nur mit on_site (sonst 400 `invalid_attendee`). Ab 0.4.32 zusätzlich consentSource link: Zustimmung über
+        einen Zustimmungslink des Discord-Bots (nur diese Runde; nur der Server setzt diesen Wert, nie die App).
+        Unbekannte Werte zeigt die App wie on_site.
       required: [consent, consentSource]
       properties:
+        id: { type: string, description: "Ab 0.4.32: Kennung des Anwesenden in dieser Runde (für trackAttendeeId)" }
         memberId: { type: string }
         guestName: { type: string }
+        characterName: { type: [string, "null"], description: "Ab 0.4.32, nur Gäste per Link: Figur (freiwillig)" }
         consent: { type: boolean }
-        consentSource: { type: string, enum: [app, on_site] }
+        consentSource: { type: string, enum: [app, on_site, link] }
         consentAt: { type: [string, "null"], format: date-time, description: "Bei on_site der Zeitpunkt der Bestätigung vor Ort" }
 
     SessionSummary:
@@ -4743,6 +5436,10 @@ components:
           properties:
             campaignId: { type: string }
             source: { type: [string, "null"], enum: [table, discord, null] }
+            interrupted:
+              type: boolean
+              description: "Ab 0.4.32: Die Bot-Aufnahme wurde unterbrochen (Neustart, Verbindung); Spuren können Lücken haben"
+            recordingStartedAt: { type: [string, "null"], format: date-time, description: "Ab 0.4.32, Bot-Runden" }
             attendees:
               type: array
               items: { $ref: "#/components/schemas/Attendee" }
@@ -4758,6 +5455,8 @@ components:
       type: string
       enum:
         - created            # angelegt, noch kein Audio
+        - recording          # ab 0.4.32: der Discord-Bot nimmt gerade auf (SL-Notizen erlaubt)
+        - no_recording       # ab 0.4.32: Bot-Runde ohne Ton nach 30 Stunden; Notizen bleiben, Hochladen von Hand geht
         - uploading
         - queued
         - transcribing
@@ -5186,6 +5885,117 @@ components:
               quote: { type: string }
         suggestedEntryId: { type: [string, "null"], description: "Ähnlich klingender Bibel-Eintrag" }
         suggestedMemberId: { type: [string, "null"], description: "Ähnlich klingender Charaktername" }
+        suggestedCorrect:
+          type: [string, "null"]
+          description: |
+            Ab 0.4.31: vorgeschlagene richtige Schreibweise. Bei suggestionSource `rule` aus einer Verhörer-Regel der
+            Kampagne – die App wählt sie in „Namen prüfen“ vor, übernommen wird sie erst mit POST …/corrections.
+        suggestionSource:
+          type: [string, "null"]
+          enum: [rule, entry, member, null]
+          description: "Ab 0.4.31: Herkunft von suggestedCorrect (Verhörer-Regel, Bibel-Eintrag, Charaktername)"
+        ruleId: { type: [string, "null"], description: "Ab 0.4.31: Regel bei suggestionSource rule (NameFix.id)" }
+
+    DiscordSnowflake:
+      type: string
+      pattern: "^[0-9]{15,21}$"
+      description: "Kennung bei Discord (Gilde oder Person), als Text"
+
+    DiscordLinkSecret:
+      type: object
+      description: "Genau eines von token (aus dem Link) oder code (drei Wörter)"
+      properties:
+        token: { type: string, pattern: "^[A-Za-z0-9_-]{20,128}$" }
+        code: { type: string, maxLength: 64, example: "laterne-moor-krug" }
+
+    DiscordConnection:
+      type: object
+      required: [guildName, connectedAt]
+      properties:
+        guildName: { type: string }
+        connectedAt: { type: string, format: date-time }
+        connectedBy: { type: [string, "null"], description: "Mitglied (SL)" }
+
+    NameFixInput:
+      type: object
+      required: [from, to]
+      properties:
+        from: { type: string, minLength: 3, maxLength: 64, example: "Orasilas", description: "Falsch geschrieben" }
+        to: { type: string, minLength: 3, maxLength: 64, example: "Horasilas", description: "Richtig" }
+
+    NameFixPlace:
+      type: string
+      description: |
+        Ort eines Treffers. Unbekannte Werte (neuere Server) zeigt die App als allgemeinen Ort.
+      enum: [chapter, chapter_title, entry_name, entry_alias, entry_summary, entry_gm_notes, session_proposal, transcript]
+
+    NameFixHit:
+      type: object
+      required: [id, place, label, count, preselected]
+      properties:
+        id: { type: string, description: "Nur innerhalb dieser Vorschau gültig (für skipHitIds)" }
+        place: { $ref: "#/components/schemas/NameFixPlace" }
+        label: { type: string, example: "Kapitel 3 · Am Hungerstein", description: "Für die SL lesbar, in der Sprache aus Accept-Language" }
+        sessionId: { type: [string, "null"] }
+        sessionNumber: { type: [integer, "null"] }
+        entryId: { type: [string, "null"] }
+        proposalId: { type: [string, "null"] }
+        count: { type: integer, minimum: 1 }
+        readByPlayers:
+          type: boolean
+          description: "Spielende lesen diesen Ort (veröffentlichtes Kapitel, Eintrag für alle oder einzelne)"
+        preselected: { type: boolean, description: "false bei secretWarning für Orte, die Spielende lesen" }
+        excerpts:
+          type: array
+          maxItems: 3
+          description: "Der Satz um die Stelle, höchstens 200 Zeichen, das Wort markiert als [[…]]"
+          items: { type: string, example: "Dann trat [[Orasilas]] aus dem Schilf." }
+
+    NameFixPreview:
+      type: object
+      required: [from, to, previewVersion, hits, total, secretWarning, untouched]
+      properties:
+        from: { type: string }
+        to: { type: string }
+        previewVersion: { type: string, description: "Prüfsummen aller Treffer-Orte; beim Berichtigen mitschicken" }
+        total: { type: integer, description: "Stellen insgesamt (Summe der count)" }
+        secretWarning: { type: boolean }
+        hits:
+          type: array
+          description: "Nach Ort sortiert: Kapitel (nach Nummer), Bibel, Vorschläge, Abschriften"
+          items: { $ref: "#/components/schemas/NameFixHit" }
+        untouched:
+          type: object
+          description: "Wird nicht geändert; nur als Ort bzw. Anzahl, nie im Wortlaut"
+          required: [characters, comments, playerProposals]
+          properties:
+            characters:
+              type: array
+              items:
+                type: object
+                required: [memberId, field]
+                properties:
+                  memberId: { type: string }
+                  field: { type: string, enum: [name, summary, background] }
+            comments: { type: integer, description: "Nur Kommentare, die die SL sehen kann" }
+            playerProposals: { type: integer, description: "Offene Vorschläge von Spielenden" }
+        existingRule:
+          type: [string, "null"]
+          description: "Es gibt schon eine Regel für from (NameFix.id); Berichtigen ersetzt deren Ziel"
+
+    NameFix:
+      type: object
+      required: [id, from, to, changed, rule, createdAt, createdBy]
+      properties:
+        id: { type: string }
+        from: { type: string }
+        to: { type: string }
+        changed: { type: integer, description: "Geänderte Stellen" }
+        rule: { type: boolean, description: "Verhörer-Regel aktiv" }
+        createdAt: { type: string, format: date-time }
+        createdBy: { type: string, description: "Mitglied (SL), das berichtigt hat" }
+        undoUntil: { type: [string, "null"], format: date-time, description: "Bis wann Rückgängig geht; null = nicht mehr" }
+        undoneAt: { type: [string, "null"], format: date-time }
 
     EntryInput:
       type: object

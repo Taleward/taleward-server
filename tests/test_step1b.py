@@ -23,7 +23,7 @@ def test_info_ist_oeffentlich(client):
     r = client.get(f"{API}/info")
     assert r.status_code == 200
     i = r.json()
-    assert i["apiVersion"] == "0.4.30" and i["externalTranscription"] is None and i["authMethods"] == ["password"] and i["registration"] == "invite_only"
+    assert i["apiVersion"] == "0.4.31" and i["externalTranscription"] is None and i["authMethods"] == ["password"] and i["registration"] == "invite_only"
 
 
 def test_registrierung_geschlossen(client, dbs):
@@ -148,8 +148,8 @@ def test_anwesende_regeln(client, world):
     assert r.status_code == 201
     att = r.json()["attendees"]
     assert att[1]["consentSource"] == "app" and att[1]["consentAt"]
-    assert att[2] == {"guestName": "Tante Erna", "consent": True, "consentSource": "on_site",
-                      "consentAt": att[2]["consentAt"]}
+    assert att[2] == {"id": att[2]["id"], "guestName": "Tante Erna", "consent": True, "consentSource": "on_site",
+                      "consentAt": att[2]["consentAt"]}  # 0.4.32: mit Kennung des Anwesenden
     for falsch, code in [
         ({"guestName": "Gast", "consent": True, "consentSource": "app"}, "invalid_attendee"),
         ({"memberId": w["gm_member"], "guestName": "X", "consent": True, "consentSource": "on_site"}, "invalid_attendee"),
@@ -289,8 +289,8 @@ def test_migration_aus_schritt1(tmp_path, monkeypatch):
         camp = c.get(f"{API}/campaigns/{cid}", headers=h).json()
         assert camp["organization"]["name"] == "Rollenspielverein" and camp["language"] == "de"
         s = c.get(f"{API}/sessions/{sid}", headers=h).json()
-        assert s["attendees"] == [{"memberId": mid, "consent": True, "consentSource": "on_site",
-                                   "consentAt": "2026-09-02T18:00:00Z"}]
+        assert [{k: v for k, v in a.items() if k != "id"} for a in s["attendees"]] == [
+            {"memberId": mid, "consent": True, "consentSource": "on_site", "consentAt": "2026-09-02T18:00:00Z"}]
     db.reset_engine()
     config.get_settings.cache_clear()
 

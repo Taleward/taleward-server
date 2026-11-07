@@ -290,7 +290,7 @@ def session_summary_out(s: GameSession, ungelesen: int = 0) -> schemas.SessionSu
 
 
 def attendee_out(a: Attendee) -> schemas.AttendeeOut:
-    daten = dict(consent=a.consent, consent_source=a.consent_source, consent_at=a.consent_at)
+    daten = dict(id=a.id or "", consent=a.consent, consent_source=a.consent_source, consent_at=a.consent_at)
     if a.member_id:
         daten["member_id"] = a.member_id
     else:

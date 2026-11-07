@@ -99,6 +99,15 @@ def _bekannt(wort: str, bekannt, namen) -> bool:
     return not any(n.casefold() != wort.casefold() and aehnlich(wort, n) >= 0.85 for n, _, _ in namen)
 
 
+def _vorschlag(regel, bester) -> dict:
+    """0.4.31: suggestedCorrect mit Herkunft – Verhörer-Regel vor Bibel-Eintrag vor Charaktername."""
+    if regel is not None:
+        return {"suggestedCorrect": regel.nach, "suggestionSource": "rule", "ruleId": regel.id}
+    if bester is not None and (bester[2] or bester[3]):
+        return {"suggestedCorrect": bester[1], "suggestionSource": "entry" if bester[2] else "member", "ruleId": None}
+    return {"suggestedCorrect": None, "suggestionSource": None, "ruleId": None}
+
+
 def begriffe(db: Session, s: GameSession) -> list[dict]:
     from app import woerterbuch
 
@@ -106,6 +115,9 @@ def begriffe(db: Session, s: GameSession) -> list[dict]:
     bekannt = woerterbuch.kampagne(db, c, ausser_session_id=s.id)
     namen = _namen(db, c, bekannt)
     weg = namenshilfe.ignoriert(c)
+    from app import namen_berichtigen
+
+    regeln = namen_berichtigen.regeln(db, c)  # 0.4.31: Verhörer-Regeln der Kampagne – nur als Vorschlag
     gruppen: dict[str, dict] = {}
     for seg in db.scalars(select(TranscriptSegment).where(TranscriptSegment.session_id == s.id,
                                                           TranscriptSegment.unsicher.is_not(None))
@@ -118,7 +130,8 @@ def begriffe(db: Session, s: GameSession) -> list[dict]:
         for w in woerter:
             wort = _wort(str(w.get("word") or ""))
             if (len(wort) < 3 or not wort[0].isupper() or wort.isupper() or w.get("anfang")
-                    or wort.casefold() in weg or wort not in text_woerter or _bekannt(wort, bekannt, namen)):
+                    or wort.casefold() in weg or wort not in text_woerter
+                    or (wort not in regeln and _bekannt(wort, bekannt, namen))):
                 continue  # nicht (mehr) im Text: schon korrigiert
             g = gruppen.setdefault(phonetik(wort) or wort.casefold(), {"schreibweisen": {}, "werte": [], "beispiele": []})
             g["schreibweisen"][wort] = g["schreibweisen"].get(wort, 0) + 1
@@ -136,7 +149,10 @@ def begriffe(db: Session, s: GameSession) -> list[dict]:
         andere = [k for k in sorted(g["schreibweisen"], key=lambda k: -g["schreibweisen"][k]) if k != heard]
         # 0.4.140: bekannter Verhörer des Systems („Tschummer“ → „Chummer“) als erster Vorschlag – nie still ersetzt
         verhoert = [bekannte_verhoerer[n] for n in (begriffe.norm(k) for k in g["schreibweisen"]) if n in bekannte_verhoerer]
-        alternativen = list(dict.fromkeys(verhoert + [v[1] for v in passend[:2]] + andere))[:4]
+        regel = next((regeln[k] for k in sorted(g["schreibweisen"], key=lambda k: -g["schreibweisen"][k])
+                      if k in regeln), None)
+        alternativen = list(dict.fromkeys(([regel.nach] if regel else []) + verhoert + [v[1] for v in passend[:2]]
+                                          + andere))[:4]
         vorkommen = sum(g["schreibweisen"].values())
         sicherheit = round(sum(g["werte"]) / len(g["werte"]), 3)
         bester = passend[0] if passend else None
@@ -145,6 +161,7 @@ def begriffe(db: Session, s: GameSession) -> list[dict]:
             "heard": heard, "alternatives": alternativen, "occurrences": vorkommen,
             "confidence": max(0.0, min(1.0, sicherheit)), "examples": g["beispiele"],
             "suggestedEntryId": bester[2] if bester else None, "suggestedMemberId": bester[3] if bester else None,
+            **_vorschlag(regel, bester),
             "_rang": (bool(passend), vorkommen * (1 - sicherheit)),
         })
     aus.sort(key=lambda t: t["_rang"], reverse=True)

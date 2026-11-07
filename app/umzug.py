@@ -232,7 +232,7 @@ def _datei_der_unterlage(doc: CampaignDocument) -> Path | None:
 
 def packliste(db: Session, c: Campaign, zugestimmt: set[str]) -> tuple[dict, list[tuple[str, Path]]]:
     """kampagne.json und die Dateien, die in die ZIP gehören (Name in der ZIP, Pfad auf dem Server)."""
-    from app import namenshilfe
+    from app import namen_berichtigen, namenshilfe
     from app.bilder import cover_ordner, finden, portrait_ordner
     from app.einstellungen import angaben
     from app.routers.auth import API_VERSION
@@ -366,6 +366,7 @@ def packliste(db: Session, c: Campaign, zugestimmt: set[str]) -> tuple[dict, lis
                      "coverPreset": c.cover_preset, "coverImage": titelbild,
                      "hotwords": namenshilfe._gespeichert(c), "nextSessionAt": _z(c.next_session_at),
                      "links": links.lesen(c.links),
+                     "nameRules": namen_berichtigen.fuer_umzug(db, c),  # 0.4.31: nur Regeln, nie Rückgängig-Texte
                      "createdAt": _z(c.created_at)},
         "seats": plaetze, "sessions": kapitel, "entries": eintraege, "documents": unterlagen, "plans": plaene,
     }
@@ -629,6 +630,7 @@ class _Kampagne(schemas.ApiModel):
     hotwords: dict | None = None
     next_session_at: datetime | None = None
     links: list = Field(default=[], max_length=200)  # 0.4.13
+    name_rules: list = Field(default=[], max_length=1000)  # 0.4.31: Verhörer-Regeln (from, to)
 
 
 class _Datei(schemas.ApiModel):
@@ -791,7 +793,7 @@ def _lesen(z: zipfile.ZipFile, name: str | None) -> bytes | None:
 
 def _anlegen(db: Session, user: User, z: zipfile.ZipFile, d: _Datei, angelegt: list[Path],
              imp: CampaignImport) -> tuple[Campaign, int]:
-    from app import namenshilfe
+    from app import namen_berichtigen, namenshilfe
     from app.bilder import cover_ordner, cover_speichern, portrait_ordner, portrait_uebernehmen, typ_aus_endung
     from app.einrichtung import betriebsart
     from app.services import choose_organization, ensure_org_member, user_org_ids
@@ -818,6 +820,7 @@ def _anlegen(db: Session, user: User, z: zipfile.ZipFile, d: _Datei, angelegt: l
     db.add(ich)
     db.flush()
     c.imported_by_member_id = ich.id
+    namen_berichtigen.aus_umzug(db, c, k.name_rules)
     ensure_org_member(db, org_id, user)
 
     # Plätze
