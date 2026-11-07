@@ -1,0 +1,1814 @@
+From 4002fafcab9ff08cb13d7cf496927628ccde854f Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Sat, 7 Nov 2026 11:39:34 +0100
+Subject: [PATCH] Server 0.4.154
+
+---
+ NEU.md                                        |  10 +-
+ app/errors.py                                 |  13 +
+ app/main.py                                   |   6 +-
+ app/models.py                                 |  37 +
+ app/routers/auth.py                           |   2 +-
+ app/schemas.py                                |   1 +
+ app/services.py                               |   2 +-
+ app/umzug.py                                  |   7 +-
+ app/unsicher.py                               |  21 +-
+ contract/session-chronik-api.yaml             | 820 +++++++++++++++++-
+ .../e2a4c6e8f0b3_namen_berichtigen.py         |  52 ++
+ pyproject.toml                                |   2 +-
+ tests/contract.py                             |   5 +
+ tests/test_aktualisierung.py                  |   2 +-
+ tests/test_assistent.py                       |   2 +-
+ tests/test_modellablage.py                    |   2 +-
+ tests/test_schnittstelle_0410.py              |   2 +-
+ tests/test_schnittstelle_0422.py              |   2 +-
+ tests/test_server_04128.py                    |   2 +-
+ tests/test_server_04139.py                    |   2 +-
+ tests/test_server_04148.py                    |   2 +-
+ tests/test_server_04154.py                    | 246 ++++++
+ tests/test_server_0464.py                     |   4 +-
+ tests/test_server_0484.py                     |   2 +-
+ tests/test_server_0490.py                     |   2 +-
+ tests/test_step1b.py                          |  10 +-
+ tests/test_umzug_048.py                       |   2 +-
+ tests/test_verwaltung2.py                     |   2 +-
+ tests/test_webapp.py                          |   2 +-
+ tests/test_worker_app.py                      |   2 +-
+ uv.lock                                       |   2 +-
+ 31 files changed, 1228 insertions(+), 40 deletions(-)
+ create mode 100644 migrations/versions/e2a4c6e8f0b3_namen_berichtigen.py
+ create mode 100644 tests/test_server_04154.py
+
+diff --git a/NEU.md b/NEU.md
+index 545c508..c79f66c 100644
+--- a/NEU.md
++++ b/NEU.md
+@@ -1,8 +1,8 @@
+-Fassung 0.4.153
++Fassung 0.4.154
+ 
+ ## Was ist neu
+ 
+-- Guthaben: Was aus Zahlungen übrig ist, steht jetzt auf der Guthaben-Seite und lässt sich voll auf die ursprüngliche Zahlung erstatten. Gutschriften und Gutscheine werden nicht ausgezahlt.
+-- Wer sein Konto löscht, bekommt den Rest aus Zahlungen erstattet. Bis dahin bleiben nur Betrag und bestätigte E-Mail-Adresse stehen, höchstens 90 Tage.
+-- Verwaltung, Abrechnung: neuer Bereich „Erstattungen“ zeigt je Konto, welcher Betrag auf welche Zahlung zurückgeht, und die offenen Fälle nach Kontolöschungen.
+-- Verwaltung, Abrechnung: Liste der Meldungen, die beim Zahlungsanbieter abonniert sein müssen.
++- Namen einmal berichtigen: Eine falsche Schreibweise lässt sich für die ganze Kampagne auf einmal richtigstellen – in Kapiteln, Bibel, offenen Vorschlägen und Abschriften. Vorher zeigt eine Vorschau jede Stelle, 24 Stunden lang lässt es sich rückgängig machen.
++- Auf Wunsch merkt sich die Kampagne die Berichtigung und schlägt sie bei späteren Runden unter „Namen prüfen“ vor.
++- Charaktere, Kommentare und Vorschläge von Spielenden bleiben dabei unverändert.
++- Seit 0.4.153: Rest aus Zahlungen lässt sich erstatten, auch nach dem Löschen des Kontos.
+diff --git a/app/errors.py b/app/errors.py
+index 6f03126..0cbe1f9 100644
+--- a/app/errors.py
++++ b/app/errors.py
+@@ -488,6 +488,19 @@ MESSAGES: dict[str, tuple[str, str]] = {
+     "seat_not_open": ("Dieser Platz ist nicht (mehr) frei.", "This seat is not open (any more)."),
+     "share_unavailable": ("Teilen geht auf diesem Server gerade nicht. Bitte die Verwaltung des Servers fragen.",
+                           "Sharing is not available on this server right now. Please ask the server's operator."),
++    # Namen einmal berichtigen (0.4.31)
++    "invalid_name_fix": ("Bitte beide Schreibweisen angeben: verschieden, je 3 bis 64 Zeichen, ohne Zeilenumbruch.",
++                         "Please enter both spellings: different, 3 to 64 characters each, without line breaks."),
++    "invalid_name_fix.skip": ("Die Auswahl passt nicht zur Vorschau. Bitte die Vorschau neu laden.",
++                              "The selection does not match the preview. Please reload the preview."),
++    "too_many_hits": ("Das sind mehr als {n} Stellen. Berichtige es lieber in kleineren Schritten.",
++                      "That is more than {n} places. Better fix it in smaller steps."),
++    "preview_stale": ("Seit der Vorschau hat sich etwas geändert. Bitte die Vorschau neu laden.",
++                      "Something changed since the preview. Please reload the preview."),
++    "rule_limit": ("Diese Kampagne hat schon {n} Verhörer-Regeln. Lösche zuerst eine.",
++                   "This campaign already has {n} mishearing rules. Delete one first."),
++    "undo_expired": ("Rückgängig geht nur 24 Stunden lang.", "Undo only works for 24 hours."),
++    "already_undone": ("Das ist schon rückgängig gemacht.", "This has already been undone."),
+     "not_published": ("Teilen geht erst, wenn das Kapitel freigegeben ist.",
+                       "You can share a chapter once it is published."),
+     "not_importer": ("Das kann nur die Person, die die Kampagne aus der Datei übernommen hat.",
+diff --git a/app/main.py b/app/main.py
+index 8e01dca..466639e 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -56,6 +56,9 @@ def _wartung_starten() -> threading.Event | None:
+                     from app import erstattung
+ 
+                     erstattung.wartung(db)  # 0.4.153: erstattete Fälle schließen, E-Mail nach 90 Tagen weg
++                    from app import namen_berichtigen
++
++                    namen_berichtigen.wartung(db)  # 0.4.154: Rückgängig-Texte nach 24 Stunden weg
+                     db.commit()
+                 if any(ergebnis.values()):
+                     log.info("Wartung: %s", ergebnis)
+@@ -251,9 +254,10 @@ def create_app() -> FastAPI:
+ 
+     from app.routers import spielende as spielende_router
+ 
++    from app.routers import namen as namen_router
+     from app.routers import teilen as teilen_router
+ 
+-    for r in (guthaben_router.router, auth.router, anmeldung.router, voice_profile.router, charaktere.router, umzug_router.router, campaigns.router, sessions.router, pruefung.router, uploads.router, entries.router, miteinander.router, unterlagen.router, plaene.router, spielende_router.router, teilen_router.router):
++    for r in (guthaben_router.router, auth.router, anmeldung.router, voice_profile.router, charaktere.router, umzug_router.router, campaigns.router, sessions.router, pruefung.router, uploads.router, entries.router, miteinander.router, unterlagen.router, plaene.router, spielende_router.router, teilen_router.router, namen_router.router):
+         api.include_router(r)
+     app.include_router(api)
+     app.include_router(worker.router)
+diff --git a/app/models.py b/app/models.py
+index ed13e11..7f64fa0 100644
+--- a/app/models.py
++++ b/app/models.py
+@@ -1047,3 +1047,40 @@ class OffeneErstattung(Base):
+     angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+     erledigt_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+     erledigt_wie: Mapped[str | None] = mapped_column(String(16), nullable=True)  # erstattet | von_hand
++
++
++# ---------------------------------------------------------------- Namen einmal berichtigen (0.4.31)
++class NameFix(Base):
++    """Berichtigung einer Schreibweise in einer Kampagne (app/namen_berichtigen.py) und – solange `rule` – die
++    Verhörer-Regel von → nach. Protokoll nur für die SL der Kampagne. Im Umzug nur die Regeln (von, nach)."""
++
++    __tablename__ = "name_fixes"
++    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
++    campaign_id: Mapped[str] = mapped_column(ForeignKey("campaigns.id", ondelete="CASCADE"), index=True)
++    von: Mapped[str] = mapped_column(String(64))
++    nach: Mapped[str] = mapped_column(String(64))
++    changed: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
++    rule: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
++    orte: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON [{place, id}] – nur Kennungen
++    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
++    created_by_member_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
++    undo_until: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
++    undone_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
++
++
++class NameFixUndo(Base):
++    """Alte Texte eines berichtigten Ortes für „Rückgängig“ – nur 24 Stunden (Wartung), nie im Umzug, nie in einer
++    Antwort. Gelöschte Runden, Einträge oder Vorschläge nehmen ihre Zeilen mit."""
++
++    __tablename__ = "name_fix_undo"
++    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
++    fix_id: Mapped[str] = mapped_column(ForeignKey("name_fixes.id", ondelete="CASCADE"), index=True)
++    place: Mapped[str] = mapped_column(String(32))
++    oid: Mapped[str] = mapped_column(String(36))
++    label_de: Mapped[str] = mapped_column(String(300))
++    label_en: Mapped[str] = mapped_column(String(300))
++    alt: Mapped[str] = mapped_column(Text)
++    pruefsumme: Mapped[str] = mapped_column(String(64))
++    session_id: Mapped[str | None] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=True)
++    entry_id: Mapped[str | None] = mapped_column(ForeignKey("entries.id", ondelete="CASCADE"), nullable=True)
++    proposal_id: Mapped[str | None] = mapped_column(ForeignKey("proposals.id", ondelete="CASCADE"), nullable=True)
+diff --git a/app/routers/auth.py b/app/routers/auth.py
+index 0190a6e..23bc176 100644
+--- a/app/routers/auth.py
++++ b/app/routers/auth.py
+@@ -14,7 +14,7 @@ from app.models import AuthMethod, Organization, OrgMember, User
+ from app.security import create_token, verify_password
+ from app.services import user_out
+ 
+-API_VERSION = "0.4.30"
++API_VERSION = "0.4.31"
+ 
+ router = APIRouter(tags=["Auth"])
+ 
+diff --git a/app/schemas.py b/app/schemas.py
+index 591b9e9..c6d71c6 100644
+--- a/app/schemas.py
++++ b/app/schemas.py
+@@ -521,6 +521,7 @@ class AttendeeIn(ApiModel):
+ 
+ 
+ class AttendeeOut(ApiModel):
++    id: str = ""  # 0.4.32: Kennung des Anwesenden in dieser Runde
+     member_id: str | None = None  # genau eines von beiden wird ausgegeben
+     guest_name: str | None = None
+     consent: bool
+diff --git a/app/services.py b/app/services.py
+index c83ad0d..6808ea0 100644
+--- a/app/services.py
++++ b/app/services.py
+@@ -290,7 +290,7 @@ def session_summary_out(s: GameSession, ungelesen: int = 0) -> schemas.SessionSu
+ 
+ 
+ def attendee_out(a: Attendee) -> schemas.AttendeeOut:
+-    daten = dict(consent=a.consent, consent_source=a.consent_source, consent_at=a.consent_at)
++    daten = dict(id=a.id or "", consent=a.consent, consent_source=a.consent_source, consent_at=a.consent_at)
+     if a.member_id:
+         daten["member_id"] = a.member_id
+     else:
+diff --git a/app/umzug.py b/app/umzug.py
+index 4bf833b..91f6822 100644
+--- a/app/umzug.py
++++ b/app/umzug.py
+@@ -232,7 +232,7 @@ def _datei_der_unterlage(doc: CampaignDocument) -> Path | None:
+ 
+ def packliste(db: Session, c: Campaign, zugestimmt: set[str]) -> tuple[dict, list[tuple[str, Path]]]:
+     """kampagne.json und die Dateien, die in die ZIP gehören (Name in der ZIP, Pfad auf dem Server)."""
+-    from app import namenshilfe
++    from app import namen_berichtigen, namenshilfe
+     from app.bilder import cover_ordner, finden, portrait_ordner
+     from app.einstellungen import angaben
+     from app.routers.auth import API_VERSION
+@@ -366,6 +366,7 @@ def packliste(db: Session, c: Campaign, zugestimmt: set[str]) -> tuple[dict, lis
+                      "coverPreset": c.cover_preset, "coverImage": titelbild,
+                      "hotwords": namenshilfe._gespeichert(c), "nextSessionAt": _z(c.next_session_at),
+                      "links": links.lesen(c.links),
++                     "nameRules": namen_berichtigen.fuer_umzug(db, c),  # 0.4.31: nur Regeln, nie Rückgängig-Texte
+                      "createdAt": _z(c.created_at)},
+         "seats": plaetze, "sessions": kapitel, "entries": eintraege, "documents": unterlagen, "plans": plaene,
+     }
+@@ -629,6 +630,7 @@ class _Kampagne(schemas.ApiModel):
+     hotwords: dict | None = None
+     next_session_at: datetime | None = None
+     links: list = Field(default=[], max_length=200)  # 0.4.13
++    name_rules: list = Field(default=[], max_length=1000)  # 0.4.31: Verhörer-Regeln (from, to)
+ 
+ 
+ class _Datei(schemas.ApiModel):
+@@ -791,7 +793,7 @@ def _lesen(z: zipfile.ZipFile, name: str | None) -> bytes | None:
+ 
+ def _anlegen(db: Session, user: User, z: zipfile.ZipFile, d: _Datei, angelegt: list[Path],
+              imp: CampaignImport) -> tuple[Campaign, int]:
+-    from app import namenshilfe
++    from app import namen_berichtigen, namenshilfe
+     from app.bilder import cover_ordner, cover_speichern, portrait_ordner, portrait_uebernehmen, typ_aus_endung
+     from app.einrichtung import betriebsart
+     from app.services import choose_organization, ensure_org_member, user_org_ids
+@@ -818,6 +820,7 @@ def _anlegen(db: Session, user: User, z: zipfile.ZipFile, d: _Datei, angelegt: l
+     db.add(ich)
+     db.flush()
+     c.imported_by_member_id = ich.id
++    namen_berichtigen.aus_umzug(db, c, k.name_rules)
+     ensure_org_member(db, org_id, user)
+ 
+     # Plätze
+diff --git a/app/unsicher.py b/app/unsicher.py
+index 42a6184..df10c9d 100644
+--- a/app/unsicher.py
++++ b/app/unsicher.py
+@@ -99,6 +99,15 @@ def _bekannt(wort: str, bekannt, namen) -> bool:
+     return not any(n.casefold() != wort.casefold() and aehnlich(wort, n) >= 0.85 for n, _, _ in namen)
+ 
+ 
++def _vorschlag(regel, bester) -> dict:
++    """0.4.31: suggestedCorrect mit Herkunft – Verhörer-Regel vor Bibel-Eintrag vor Charaktername."""
++    if regel is not None:
++        return {"suggestedCorrect": regel.nach, "suggestionSource": "rule", "ruleId": regel.id}
++    if bester is not None and (bester[2] or bester[3]):
++        return {"suggestedCorrect": bester[1], "suggestionSource": "entry" if bester[2] else "member", "ruleId": None}
++    return {"suggestedCorrect": None, "suggestionSource": None, "ruleId": None}
++
++
+ def begriffe(db: Session, s: GameSession) -> list[dict]:
+     from app import woerterbuch
+ 
+@@ -106,6 +115,9 @@ def begriffe(db: Session, s: GameSession) -> list[dict]:
+     bekannt = woerterbuch.kampagne(db, c, ausser_session_id=s.id)
+     namen = _namen(db, c, bekannt)
+     weg = namenshilfe.ignoriert(c)
++    from app import namen_berichtigen
++
++    regeln = namen_berichtigen.regeln(db, c)  # 0.4.31: Verhörer-Regeln der Kampagne – nur als Vorschlag
+     gruppen: dict[str, dict] = {}
+     for seg in db.scalars(select(TranscriptSegment).where(TranscriptSegment.session_id == s.id,
+                                                           TranscriptSegment.unsicher.is_not(None))
+@@ -118,7 +130,8 @@ def begriffe(db: Session, s: GameSession) -> list[dict]:
+         for w in woerter:
+             wort = _wort(str(w.get("word") or ""))
+             if (len(wort) < 3 or not wort[0].isupper() or wort.isupper() or w.get("anfang")
+-                    or wort.casefold() in weg or wort not in text_woerter or _bekannt(wort, bekannt, namen)):
++                    or wort.casefold() in weg or wort not in text_woerter
++                    or (wort not in regeln and _bekannt(wort, bekannt, namen))):
+                 continue  # nicht (mehr) im Text: schon korrigiert
+             g = gruppen.setdefault(phonetik(wort) or wort.casefold(), {"schreibweisen": {}, "werte": [], "beispiele": []})
+             g["schreibweisen"][wort] = g["schreibweisen"].get(wort, 0) + 1
+@@ -136,7 +149,10 @@ def begriffe(db: Session, s: GameSession) -> list[dict]:
+         andere = [k for k in sorted(g["schreibweisen"], key=lambda k: -g["schreibweisen"][k]) if k != heard]
+         # 0.4.140: bekannter Verhörer des Systems („Tschummer“ → „Chummer“) als erster Vorschlag – nie still ersetzt
+         verhoert = [bekannte_verhoerer[n] for n in (begriffe.norm(k) for k in g["schreibweisen"]) if n in bekannte_verhoerer]
+-        alternativen = list(dict.fromkeys(verhoert + [v[1] for v in passend[:2]] + andere))[:4]
++        regel = next((regeln[k] for k in sorted(g["schreibweisen"], key=lambda k: -g["schreibweisen"][k])
++                      if k in regeln), None)
++        alternativen = list(dict.fromkeys(([regel.nach] if regel else []) + verhoert + [v[1] for v in passend[:2]]
++                                          + andere))[:4]
+         vorkommen = sum(g["schreibweisen"].values())
+         sicherheit = round(sum(g["werte"]) / len(g["werte"]), 3)
+         bester = passend[0] if passend else None
+@@ -145,6 +161,7 @@ def begriffe(db: Session, s: GameSession) -> list[dict]:
+             "heard": heard, "alternatives": alternativen, "occurrences": vorkommen,
+             "confidence": max(0.0, min(1.0, sicherheit)), "examples": g["beispiele"],
+             "suggestedEntryId": bester[2] if bester else None, "suggestedMemberId": bester[3] if bester else None,
++            **_vorschlag(regel, bester),
+             "_rang": (bool(passend), vorkommen * (1 - sicherheit)),
+         })
+     aus.sort(key=lambda t: t["_rang"], reverse=True)
+diff --git a/contract/session-chronik-api.yaml b/contract/session-chronik-api.yaml
+index 55b7cb0..7d78099 100644
+--- a/contract/session-chronik-api.yaml
++++ b/contract/session-chronik-api.yaml
+@@ -1,7 +1,7 @@
+ openapi: 3.1.0
+ info:
+   title: Taleward API
+-  version: 0.4.30
++  version: 0.4.32
+   description: |
+     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
+ 
+@@ -291,6 +291,24 @@ info:
+     die App die Datei und legt den Inhalt in ihre Lesekopie. Der Server signiert jede Datei (ServerInfo.shareKeys). Inhalt
+     nur, was jedes Mitglied ohnehin sieht. Dateiformat und Prüfreihenfolge: Schema ShareFile. Ältere Apps ignorieren
+     shareKey und shareKeys; ältere Server bieten das Teilen nicht an.
++    Änderungen in 0.4.31 (Namen einmal berichtigen): Die SL berichtigt eine Schreibweise kampagnenweit
++    (/campaigns/{id}/name-fixes): erst Vorschau mit allen Fundstellen, dann Berichtigen, 24 Stunden lang rückgängig.
++    Geändert werden Kapitel (auch veröffentlichte, ohne Benachrichtigung), Bibel, offene Vorschläge aus Runden und
++    Abschriften; nie Charaktere, Kommentare, Vorschläge von Spielenden, Merkstellen oder Unterlagen. Daraus entsteht auf
++    Wunsch eine Verhörer-Regel: „Namen prüfen“ späterer Runden schlägt die richtige Schreibweise vor
++    (UncertainTerm.suggestedCorrect, suggestionSource rule), ersetzt aber nie still. Nur SL, kein Sprachmodell.
++    Ältere Apps sehen davon nur die berichtigten Texte; ältere Server bieten es nicht an.
++    Änderungen in 0.4.32 (Discord-Bot, Aufnahme online): Ein Bot nimmt Online-Runden im Sprachkanal je Person als eigene
++    Spur auf. Alles standardmäßig aus (Schalter „Discord-Bot“ in der Verwaltung, ServerInfo.discordBot). Der Bot hat einen
++    eigenen Schlüssel (Schema botKey) und nur die Wege unter /bot/… plus den vorhandenen Upload; er liest nie Inhalte.
++    Die SL verbindet ihre Kampagne mit genau einem Discord-Server über einen Link vom Bot (/discord-links/…), nur wenn ihr
++    Konto per Discord-Anmeldung mit genau der Discord-ID verknüpft ist, die den Befehl getippt hat. Vor der Aufnahme fragt
++    der Bot je Person nur einen Zustand ab (ready | link_required | consent_required); Zustimmen geht über einen Link, der
++    an Discord-ID und Runde gebunden ist (/consent-links/…). Gäste stimmen dort nur für diese Runde zu (consentSource
++    link). Neu: Zustand recording („Aufnahme läuft“) und no_recording („ohne Aufnahme“, nach 30 Stunden ohne Ton),
++    Spuren je Mitglied oder Gast (trackAttendeeId), Pausen, Widerruf einer Spur, Hinweis „unterbrochen“, Einstellung
++    CampaignSettings.discordPauseOnUnconsented. Ältere Apps müssen die neuen Zustände und consentSource link vertragen
++    (die App zeigt Unbekanntes als „in Arbeit“); ältere Server melden kein discordBot.
+ 
+ servers:
+   - url: https://taleward.example.org/api/v1
+@@ -318,6 +336,8 @@ tags:
+   - name: Charaktere
+   - name: Umzug
+   - name: Guthaben
++  - name: Namen
++  - name: Discord
+ 
+ paths:
+   /auth/login:
+@@ -682,7 +702,12 @@ paths:
+     post:
+       tags: [Auth]
+       summary: Dienst mit dem eigenen Konto verbinden – linkToken für /auth/oidc/…/start holen (ab 0.4.0)
+-      description: linkToken gilt 5 min. Danach wie beim Anmelden, nur mit purpose=link; exchange liefert status ok.
++      description: |
++        linkToken gilt 5 min. Danach wie beim Anmelden, nur mit purpose=link; exchange liefert status ok.
++        Ab 0.4.32 für discord: je Konto höchstens eine Discord-ID und je Discord-ID höchstens ein Konto auf diesem Server
++        (exchange → 409 `provider_in_use`, ohne zu sagen, welches Konto). Neue Verknüpfung → Hinweis-Mail an das Konto
++        (falls E-Mail hinterlegt). Nur über diesen Weg entsteht die Verknüpfung, die der Discord-Bot nutzt – nie über
++        Bot-Links. Trennen löst auch die Verbindungen der Kampagnen dieses Kontos zu Discord-Servern.
+       responses:
+         "200":
+           description: OK
+@@ -2445,7 +2470,14 @@ paths:
+         Für source=table: Mehrere Dateien sind aufeinanderfolgende Abschnitte EINER Aufnahme
+         (die Android-App teilt alle ~5 Minuten). Der Server hängt sie in der Reihenfolge des
+         files-Arrays lückenlos aneinander, bevor er transkribiert.
+-        Für source=discord: eine Datei pro Spur, jeweils mit `trackMemberId`.
++        Für source=discord: eine Datei pro Spur, jeweils mit `trackMemberId` oder (ab 0.4.32) `trackAttendeeId`.
++        Ab 0.4.32 auch mit dem Bot-Schlüssel (botKey), nur für Runden, die dieser Bot angelegt hat (in recording bzw. nach
++        `stopped`, nie nach no_recording), nur mit `trackAttendeeId` (`trackMemberId` mit Bot-Schlüssel → 400) und nur
++        Spuren von Anwesenden mit Zustimmung (sonst 409 `consent_missing` bzw. `consent_revoked`). Der Server prüft die
++        Zustimmung selbst beim Anlegen, bei jedem Teil und beim Abschluss; wer widerrufen hat, verliert alle Teile seiner
++        Spur. Alle Spuren beginnen beim Startton und sind gleich lang (Pausen und Lücken mit Stille
++        aufgefüllt). Höchstens 12 Spuren, 6 Stunden; jede Datei einzeln gegen die Upload-Grenze (413), gedacht sind etwa
++        25 MB je Person und Stunde.
+       requestBody:
+         required: true
+         content:
+@@ -2467,6 +2499,9 @@ paths:
+                       trackMemberId:
+                         type: string
+                         description: Nur bei source=discord – welches Mitglied auf dieser Spur spricht
++                      trackAttendeeId:
++                        type: string
++                        description: Ab 0.4.32, nur bei source=discord – Anwesender (Mitglied oder Gast, Attendee.id)
+                 spans:
+                   type: array
+                   maxItems: 500
+@@ -3020,6 +3055,636 @@ paths:
+         "404": { $ref: "#/components/responses/NotFound" }
+         "409": { $ref: "#/components/responses/Conflict" }
+ 
++  /campaigns/{campaignId}/name-fixes/preview:
++    parameters: [{ $ref: "#/components/parameters/campaignId" }]
++    post:
++      tags: [Namen]
++      summary: Vorschau einer Berichtigung – alle Fundstellen einer Schreibweise (nur SL, ab 0.4.31; sonst 404)
++      description: |
++        Sucht `from` als ganzes Wort (wörtlich, keine regulären Ausdrücke, Groß-/Kleinschreibung wie eingegeben; deutsche
++        Endungen mit: „Orasilas’“, „Orasilas’ Schwur“, „Orasilas'“) in:
++        - Kapiteln (veröffentlicht und Entwürfe; Titel und Text),
++        - Bibel-Einträgen (Name, „Auch genannt“, Beschreibung, SL-Notiz),
++        - offenen Vorschlägen aus Runden (Titel, Text) – nicht in Vorschlägen von Spielenden,
++        - Abschriften aller Runden, solange vorhanden (reine Wortersetzung, Zeitmarken bleiben).
++        Nur gezählt bzw. als Ort genannt, nie geändert und nie im Wortlaut (`untouched`): Charaktere (nur Name,
++        Kurzbeschreibung, Hintergrund – Felder, die die SL ohnehin sieht), Kommentare, die die SL sehen kann (private
++        Kommentare unter anderen zählen nicht), offene Vorschläge von Spielenden. Nie durchsucht, auch nicht gezählt:
++        Merkstellen und ihre Notizen, Zähler, Teilen-Schlüssel, Stimmen und Hörproben, Unterlagen, Mails, Protokolle.
++
++        Warnung bei geheimen Namen: Ist `to` der Name oder ein „Auch genannt“ eines Eintrags, den nicht alle Spielenden
++        sehen, und sind unter den Treffern Orte, die Spielende lesen (veröffentlichte Kapitel, Einträge für alle oder
++        einzelne), steht `secretWarning: true`, und diese Treffer tragen `preselected: false`. Die App zeigt dann oben:
++        „‚Horasilas‘ steht bisher nur in Geheimem. In veröffentlichten Kapiteln lesen ihn danach alle.“
++
++        Eingabe: beide Seiten bereinigt (Steuerzeichen, Leerraum an den Enden), 3–64 Zeichen, kein Zeilenumbruch,
++        `from` ≠ `to` (sonst 400 `invalid_name_fix`). Mehr als 2 000 Stellen → 409 `too_many_hits` (message sagt, es
++        lieber in kleineren Schritten zu tun). Keine Treffer → 200 mit leerer Liste. Höchstens 60 Vorschauen je Konto und
++        Stunde (429).
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema: { $ref: "#/components/schemas/NameFixInput" }
++      responses:
++        "200":
++          description: Fundstellen
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/NameFixPreview" }
++        "400": { $ref: "#/components/responses/BadRequest" }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "409": { $ref: "#/components/responses/Conflict" }
++        "429": { $ref: "#/components/responses/TooManyRequests" }
++
++  /campaigns/{campaignId}/name-fixes:
++    parameters: [{ $ref: "#/components/parameters/campaignId" }]
++    get:
++      tags: [Namen]
++      summary: Berichtigungen und Verhörer-Regeln der Kampagne (nur SL, ab 0.4.31; sonst 404)
++      description: |
++        Neueste zuerst. Für alle SL der Kampagne sichtbar (Protokoll: wer, wann, von → nach, Anzahl), nie für
++        Spielende, nie in Mails oder Push. `undoUntil` nur, solange Rückgängig möglich ist.
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema:
++                type: object
++                required: [fixes]
++                properties:
++                  fixes:
++                    type: array
++                    items: { $ref: "#/components/schemas/NameFix" }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++    post:
++      tags: [Namen]
++      summary: Berichtigen (nur SL, ab 0.4.31; sonst 404)
++      description: |
++        Führt die Berichtigung aus der Vorschau aus, in einer Transaktion. `previewVersion` und `skipHitIds` stammen aus
++        der eigenen Vorschau. Hat sich ein Treffer-Ort seit der Vorschau geändert (Prüfsumme je Ort), passiert nichts →
++        409 `preview_stale` (die App holt die Vorschau neu). Unbekannte `skipHitIds` → 400.
++        Veröffentlichte Kapitel ändern sich als Bearbeitung der SL (in der vorhandenen Fassungsgeschichte, nur SL
++        sichtbar), ohne Benachrichtigung an die Spielenden. Bibel-Änderungen laufen wie PATCH /entries (Säubern,
++        „Auch genannt“ ohne Doppel). Sichtbarkeiten ändern sich nie. Die Abschrift-Ersetzung ist eine ausdrückliche
++        Handlung der SL, die Zeitmarken bleiben.
++        `rule: true` (Standard) legt zusätzlich eine Verhörer-Regel `from → to` an und nimmt `to` in die Namenshilfe der
++        Kampagne. Die Regel gilt nur in dieser Kampagne und wirkt nur als Vorschlag in „Namen prüfen“ (siehe
++        UncertainTerm.suggestionSource); höchstens 200 Regeln je Kampagne (409 `rule_limit`).
++        Höchstens 20 Berichtigungen je Kampagne und Stunde (429).
++        Umzug: Verhörer-Regeln gehen mit (ohne Person, ohne Protokoll), Rückgängig-Texte nie.
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              allOf:
++                - { $ref: "#/components/schemas/NameFixInput" }
++                - type: object
++                  required: [previewVersion]
++                  properties:
++                    previewVersion: { type: string, description: "Aus NameFixPreview.previewVersion" }
++                    skipHitIds:
++                      type: array
++                      items: { type: string }
++                      description: "Abgewählte Treffer aus der Vorschau"
++                    rule: { type: boolean, default: true, description: "Künftig erkennen (Verhörer-Regel)" }
++      responses:
++        "201":
++          description: Berichtigt
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/NameFix" }
++        "400": { $ref: "#/components/responses/BadRequest" }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "409": { $ref: "#/components/responses/Conflict" }
++        "429": { $ref: "#/components/responses/TooManyRequests" }
++
++  /name-fixes/{fixId}:
++    parameters: [{ name: fixId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }]
++    delete:
++      tags: [Namen]
++      summary: Verhörer-Regel löschen (nur SL der Kampagne, ab 0.4.31; sonst 404)
++      description: |
++        Entfernt nur die Regel (künftige Vorschläge). Schon berichtigte Texte bleiben, der Eintrag im Protokoll bleibt
++        (`rule: false`). Der Name bleibt in der Namenshilfe.
++      responses:
++        "204": { description: Gelöscht }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++
++  /name-fixes/{fixId}/undo:
++    parameters: [{ name: fixId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }]
++    post:
++      tags: [Namen]
++      summary: Berichtigung rückgängig machen (nur SL der Kampagne, 24 Stunden, ab 0.4.31; sonst 404)
++      description: |
++        Setzt nur Stellen zurück, die seit der Berichtigung unverändert sind; die anderen werden übersprungen und in
++        `skipped` genannt. Die Regel wird mit gelöscht. Nach 24 Stunden → 409 `undo_expired`; schon rückgängig → 409
++        `already_undone`.
++        Die alten Texte liegen nur auf dem Server und nur 24 Stunden (danach löscht die Wartung sie), nie im Umzug und
++        in keiner Antwort. Wird die Runde, der Eintrag oder die Kampagne gelöscht, werden sie mit gelöscht.
++      responses:
++        "200":
++          description: Rückgängig gemacht
++          content:
++            application/json:
++              schema:
++                type: object
++                required: [restored, skipped]
++                properties:
++                  restored: { type: integer, description: "Zurückgesetzte Stellen" }
++                  skipped:
++                    type: array
++                    description: "Seitdem bearbeitete Orte, die so bleiben"
++                    items:
++                      type: object
++                      required: [place, label]
++                      properties:
++                        place: { $ref: "#/components/schemas/NameFixPlace" }
++                        label: { type: string }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "409": { $ref: "#/components/responses/Conflict" }
++
++  /discord-links/preview:
++    post:
++      tags: [Discord]
++      summary: Verbindungslink oder Code ansehen, bevor die SL verbindet (ab 0.4.32)
++      description: |
++        Die App öffnet den Link vom Bot (`<publicUrl>/discord/<token>`, gleicher Weg wie Einladungen: Server unbekannt →
++        dieselbe Rückfrage und dieselben Regeln wie bei Einladungen) oder die SL tippt den Drei-Wörter-Code ein (in
++        „Kampagne verwalten → Discord“ des richtigen Servers). Das Token nimmt die App sofort aus der Adresse, speichert es
++        nie und schickt es nur im Anfragekörper an diesen Server. Angemeldet nötig. Antwort nur, wenn das Konto per Discord-Anmeldung mit genau der
++        Discord-ID verknüpft ist, die den Link angefordert hat; sonst `linked: false` ohne weitere Angaben (die App bietet
++        dann „Mit Discord verknüpfen“ an und fragt danach erneut). Ungültig, abgelaufen oder verbraucht → 404.
++        `campaigns` nur Kampagnen, in denen das Konto SL ist. Höchstens 10 Versuche je Konto und 30 je Adresse in 15
++        Minuten (429), Codes ohne Groß-/Kleinschreibung und Bindestriche verglichen.
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema: { $ref: "#/components/schemas/DiscordLinkSecret" }
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema:
++                type: object
++                required: [linked]
++                properties:
++                  linked: { type: boolean, description: "Konto passt zur Discord-ID des Befehls" }
++                  guildName: { type: string, description: "Anzeigename des Discord-Servers (vom Bot, bereinigt, ≤ 100 Zeichen)" }
++                  expiresAt: { type: string, format: date-time }
++                  campaigns:
++                    type: array
++                    items:
++                      type: object
++                      required: [campaignId, title]
++                      properties:
++                        campaignId: { type: string }
++                        title: { type: string }
++                        connectedGuildName: { type: [string, "null"], description: "Schon verbunden mit (wird ersetzt)" }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "429": { $ref: "#/components/responses/TooManyRequests" }
++
++  /discord-links/redeem:
++    post:
++      tags: [Discord]
++      summary: Kampagne mit dem Discord-Server verbinden (nur SL dieser Kampagne, ab 0.4.32)
++      description: |
++        Prüft dasselbe wie die Vorschau und verbraucht den Link (einmalig). Genau ein Discord-Server je Kampagne; eine
++        bestehende Verbindung wird ersetzt. Konto nicht (mehr) mit der Discord-ID verknüpft → 409
++        `discord_link_required`; nicht SL der Kampagne → 404. Grenzen wie bei der Vorschau.
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              allOf:
++                - { $ref: "#/components/schemas/DiscordLinkSecret" }
++                - type: object
++                  required: [campaignId]
++                  properties:
++                    campaignId: { type: string }
++      responses:
++        "200":
++          description: Verbunden
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/DiscordConnection" }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "409": { $ref: "#/components/responses/Conflict" }
++        "429": { $ref: "#/components/responses/TooManyRequests" }
++
++  /campaigns/{campaignId}/discord:
++    parameters: [{ $ref: "#/components/parameters/campaignId" }]
++    get:
++      tags: [Discord]
++      summary: Verbundener Discord-Server (nur SL, ab 0.4.32; Spielende 404)
++      responses:
++        "200":
++          description: OK (connection null = nicht verbunden)
++          content:
++            application/json:
++              schema:
++                type: object
++                properties:
++                  connection:
++                    oneOf:
++                      - type: "null"
++                      - $ref: "#/components/schemas/DiscordConnection"
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++    delete:
++      tags: [Discord]
++      summary: Verbindung lösen (nur SL, ab 0.4.32)
++      description: Laufende Bot-Aufnahmen dieser Kampagne enden (der Bot erfährt es bei der nächsten Abfrage).
++      responses:
++        "204": { description: Gelöst }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++
++  /consent-links/{token}:
++    parameters:
++      - { name: token, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{20,128}$" } }
++    get:
++      tags: [Discord]
++      summary: Zustimmungslink ansehen (ab 0.4.32)
++      description: |
++        Link vom Bot, nur für eine Discord-ID und eine Runde, einmalig, 15 Minuten (`<publicUrl>/zustimmen/<token>`, Weg wie
++        bei Einladungen; das Token kommt sofort aus der Adresse und nur an diesen Server).
++        Ohne Anmeldung nutzbar (für Gäste). Ungültig, abgelaufen, verbraucht oder Runde nicht mehr in recording → 404.
++        Antwort ohne Namen anderer Personen. `memberAllowed`: Mit Anmeldung als Mitglied der Kampagne zustimmen (gilt
++        dann bis zum Widerruf wie consentSource app). Ist ein Konto verknüpft, dessen Discord-ID nicht zum Link passt,
++        zählt die Zustimmung nicht als Mitglied (409 `discord_mismatch` beim Zustimmen).
++        Begrenzt je Adresse (429).
++      security: []
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema:
++                type: object
++                required: [campaignTitle, language, expiresAt, memberAllowed, guestAllowed]
++                properties:
++                  campaignTitle: { type: string }
++                  gmName: { type: string, description: "Anzeigename der SL in der Kampagne" }
++                  language: { type: string, example: "de" }
++                  expiresAt: { type: string, format: date-time }
++                  memberAllowed: { type: boolean }
++                  guestAllowed: { type: boolean }
++                  suggestedGuestName: { type: [string, "null"], description: "Discord-Anzeigename (bereinigt), änderbar" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "429": { $ref: "#/components/responses/TooManyRequests" }
++    post:
++      tags: [Discord]
++      summary: Über den Link zustimmen – als Mitglied oder als Gast (ab 0.4.32)
++      description: |
++        Gleicher Zustimmungstext wie am Tisch, nur die Person selbst, nie durch die SL.
++        - Mit Anmeldung (Bearer) als Mitglied der Kampagne: setzt die Zustimmung zu **allen Aufnahmen dieser Kampagne bis
++          zum Widerruf** (wie PUT …/members/me/recording-consent und wie am Tisch) und nimmt die Person in die Runde auf
++          (consentSource app). Die App sagt das vor dem Knopf ausdrücklich und nennt, wo man widerruft („Kampagne
++          verwalten → Deine Daten“). Die Discord-ID
++          des Links muss die verknüpfte des Kontos sein (sonst 409 `discord_mismatch`); ohne Verknüpfung verknüpft dieser
++          Weg nicht, er sagt 409 `discord_link_required`.
++        - Ohne Anmeldung als Gast: `guestName` (1–40 Zeichen, bereinigt), `characterName` freiwillig; gilt nur für diese
++          Runde (consentSource link), keine Stimmprofile, protokolliert mit Zeitpunkt.
++        Danach meldet der Bot die Person bei der nächsten Bereitschaftsabfrage als ready. Widerruf: Mitglieder wie bisher
++        in der App (wirkt sofort, auch für die laufende Runde); Gäste mit `/taleward leave` im Discord – der Bot verwirft
++        dann die Spur (DELETE /bot/sessions/{id}/tracks/{attendeeId}).
++      security: [{}, { bearerAuth: [] }]
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [consent]
++              properties:
++                consent: { type: boolean, const: true }
++                guestName: { type: string, maxLength: 40 }
++                characterName: { type: string, maxLength: 60 }
++      responses:
++        "200":
++          description: Zugestimmt
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/Attendee" }
++        "400": { $ref: "#/components/responses/BadRequest" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "409": { $ref: "#/components/responses/Conflict" }
++        "429": { $ref: "#/components/responses/TooManyRequests" }
++
++  /bot/links:
++    post:
++      tags: [Discord]
++      summary: "Bot: Verbindungslink und Drei-Wörter-Code anfordern (ab 0.4.32)"
++      description: |
++        Nach `/taleward link` der SL im Discord. `guildId` und `discordUserId` nur aus der Interaktion. Link und Code sind
++        dasselbe Geheimnis: einmalig, 15 Minuten, gespeichert nur als Prüfsumme; Code aus einer festen Wortliste im Server
++        (≥ 1024 Wörter, sicherer Zufall). Ein neuer Link für dieselbe Discord-ID und Gilde macht den alten ungültig.
++        Höchstens 10 je Discord-ID und Stunde (429). Der Bot zeigt Link und Code nur der Person selbst (ephemeral).
++      security: [{ botKey: [] }]
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [guildId, discordUserId, guildName]
++              properties:
++                guildId: { $ref: "#/components/schemas/DiscordSnowflake" }
++                discordUserId: { $ref: "#/components/schemas/DiscordSnowflake" }
++                guildName: { type: string, maxLength: 100 }
++      responses:
++        "201":
++          description: Angelegt
++          content:
++            application/json:
++              schema:
++                type: object
++                required: [url, code, expiresAt]
++                properties:
++                  url:
++                    type: string
++                    example: "https://taleward.example.org/discord/…"
++                    description: |
++                      `<publicUrl>/discord/<token>` – wie Einladungen: Die Seite des Servers öffnet die App
++                      (`taleward://discord?url=<Link>`) oder die Web-App; so nennt der Link immer seinen Server.
++                  code: { type: string, example: "laterne-moor-krug" }
++                  expiresAt: { type: string, format: date-time }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "429": { $ref: "#/components/responses/TooManyRequests" }
++
++  /bot/guilds/{guildId}/campaigns:
++    parameters:
++      - { name: guildId, in: path, required: true, schema: { $ref: "#/components/schemas/DiscordSnowflake" } }
++      - { name: discordUserId, in: query, required: true, schema: { $ref: "#/components/schemas/DiscordSnowflake" } }
++    get:
++      tags: [Discord]
++      summary: "Bot: Kampagnen dieser SL, die an dieser Gilde hängen (ab 0.4.32)"
++      description: |
++        Nur Kampagnen, deren SL per Discord-Anmeldung mit `discordUserId` verknüpft ist und die mit `guildId` verbunden
++        sind. Für alle anderen IDs eine leere Liste (kein Unterschied zwischen „unbekannt“ und „nicht SL“). Titel nur zur
++        Anzeige für diese Person (ephemeral). Fremde Gilden ohne Kampagne bekommen immer eine leere Liste.
++      security: [{ botKey: [] }]
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema:
++                type: object
++                required: [campaigns]
++                properties:
++                  campaigns:
++                    type: array
++                    items:
++                      type: object
++                      required: [campaignId, title, language, pauseOnUnconsented]
++                      properties:
++                        campaignId: { type: string }
++                        title: { type: string }
++                        language: { type: string, example: "de", description: "Sprache der Bot-Nachrichten" }
++                        pauseOnUnconsented: { type: boolean, description: "CampaignSettings.discordPauseOnUnconsented" }
++                        liveSessionId: { type: [string, "null"], description: "Laufende Bot-Runde dieser Kampagne" }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "429": { $ref: "#/components/responses/TooManyRequests" }
++
++  /bot/guilds/{guildId}/campaigns/{campaignId}:
++    parameters:
++      - { name: guildId, in: path, required: true, schema: { $ref: "#/components/schemas/DiscordSnowflake" } }
++      - { $ref: "#/components/parameters/campaignId" }
++      - { name: discordUserId, in: query, required: true, schema: { $ref: "#/components/schemas/DiscordSnowflake" } }
++    delete:
++      tags: [Discord]
++      summary: "Bot: Verbindung lösen (`/taleward unlink`, nur die verknüpfte SL; ab 0.4.32)"
++      security: [{ botKey: [] }]
++      responses:
++        "204": { description: Gelöst }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++
++  /bot/campaigns/{campaignId}/readiness:
++    parameters: [{ $ref: "#/components/parameters/campaignId" }]
++    post:
++      tags: [Discord]
++      summary: "Bot: Bereitschaft je Discord-ID (ab 0.4.32)"
++      description: |
++        Je ID genau ein Zustand, keine Namen, nichts über andere Kampagnen:
++        - `ready`: Mitglied mit verknüpfter Discord-ID und Zustimmung zu Aufnahmen, oder Gast mit Zustimmung über einen
++          Link dieser Runde (nur mit `sessionId`).
++        - `consent_required`: Mitglied mit verknüpfter Discord-ID ohne Zustimmung.
++        - `link_required`: alle anderen, auch unbekannte IDs (der Bot schickt einen Zustimmungslink; dort geht es als
++          Gast oder nach dem Verknüpfen als Mitglied).
++        Nur für Kampagnen, die mit einer Gilde verbunden sind, sonst 404. Höchstens 25 IDs je Anfrage, 120 Anfragen je
++        Kampagne und Stunde (429). Der Bot fragt während der Aufnahme alle 30 Sekunden; ein Wechsel von ready weg heißt
++        Widerruf: Spur sofort verwerfen (DELETE …/tracks/{attendeeId}).
++      security: [{ botKey: [] }]
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [discordUserIds]
++              properties:
++                discordUserIds:
++                  type: array
++                  minItems: 1
++                  maxItems: 25
++                  items: { $ref: "#/components/schemas/DiscordSnowflake" }
++                sessionId: { type: string, description: "Laufende Bot-Runde (für Gäste und attendeeId)" }
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema:
++                type: object
++                required: [states]
++                properties:
++                  states:
++                    type: object
++                    description: "Schlüssel = Discord-ID"
++                    additionalProperties:
++                      type: object
++                      required: [state]
++                      properties:
++                        state: { type: string, enum: [ready, consent_required, link_required] }
++                        attendeeId: { type: [string, "null"], description: "Nur bei ready mit sessionId und nachdem der Bot die Person angemeldet hat" }
++                  sessionState: { type: [string, "null"], description: "ProcessingState der Runde (z. B. beendet, weil die SL gelöst hat)" }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "429": { $ref: "#/components/responses/TooManyRequests" }
++
++  /bot/campaigns/{campaignId}/sessions:
++    parameters: [{ $ref: "#/components/parameters/campaignId" }]
++    post:
++      tags: [Discord]
++      summary: "Bot: Runde anlegen, Zustand recording (`/taleward start`, nur die verknüpfte SL; ab 0.4.32)"
++      description: |
++        Nur wenn `discordUserId` die verknüpfte SL dieser Kampagne ist und `guildId` die verbundene Gilde (sonst 404).
++        Eine laufende Bot-Runde je Kampagne (409 `already_recording`). Die Runde erscheint in der App sofort als
++        „Online-Runde, Aufnahme läuft“ (source discord); die SL kann Notizen schreiben. Kommt binnen 30 Stunden kein
++        Upload, setzt der Server sie auf no_recording. Höchstens 6 Stunden Aufnahme.
++      security: [{ botKey: [] }]
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [guildId, discordUserId, startedAt]
++              properties:
++                guildId: { $ref: "#/components/schemas/DiscordSnowflake" }
++                discordUserId: { $ref: "#/components/schemas/DiscordSnowflake" }
++                startedAt: { type: string, format: date-time, description: "Zeit des Starttons" }
++      responses:
++        "201":
++          description: Angelegt
++          content:
++            application/json:
++              schema:
++                type: object
++                required: [sessionId, number]
++                properties:
++                  sessionId: { type: string }
++                  number: { type: integer }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "409": { $ref: "#/components/responses/Conflict" }
++        "429": { $ref: "#/components/responses/TooManyRequests" }
++
++  /bot/sessions/{sessionId}/attendees:
++    parameters: [{ $ref: "#/components/parameters/sessionId" }]
++    post:
++      tags: [Discord]
++      summary: "Bot: Person mit Zustimmung in die Runde aufnehmen, auch während der Aufnahme (ab 0.4.32)"
++      description: |
++        Nur Personen, die gerade `ready` sind (sonst 409 `consent_missing`). Gibt die attendeeId für die Spur. Doppelt
++        gemeldet → dieselbe attendeeId. Höchstens 12 Anwesende mit Spur (409 `too_many_tracks`).
++      security: [{ botKey: [] }]
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [discordUserId]
++              properties:
++                discordUserId: { $ref: "#/components/schemas/DiscordSnowflake" }
++      responses:
++        "200":
++          description: Aufgenommen
++          content:
++            application/json:
++              schema:
++                type: object
++                required: [attendeeId]
++                properties:
++                  attendeeId: { type: string }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "409": { $ref: "#/components/responses/Conflict" }
++
++  /bot/sessions/{sessionId}/consent-links:
++    parameters: [{ $ref: "#/components/parameters/sessionId" }]
++    post:
++      tags: [Discord]
++      summary: "Bot: Zustimmungslink für eine Discord-ID (ab 0.4.32)"
++      description: |
++        Für Personen mit link_required oder consent_required. Gebunden an Discord-ID und Runde, einmalig, 15 Minuten, nur
++        als Prüfsumme gespeichert. Ein neuer Link für dieselbe ID macht den alten ungültig. Der Bot zeigt ihn nur der
++        Person selbst (ephemeral) und schreibt Zuhörer ohne Zustimmung nie von sich aus an. Höchstens 5 je ID und Runde.
++      security: [{ botKey: [] }]
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [discordUserId]
++              properties:
++                discordUserId: { $ref: "#/components/schemas/DiscordSnowflake" }
++                displayName: { type: string, maxLength: 40, description: "Discord-Anzeigename, Vorschlag für den Gastnamen" }
++      responses:
++        "201":
++          description: Angelegt
++          content:
++            application/json:
++              schema:
++                type: object
++                required: [url, expiresAt]
++                properties:
++                  url:
++                    type: string
++                    example: "https://taleward.example.org/zustimmen/…"
++                    description: |
++                      `<publicUrl>/zustimmen/<token>` – wie Einladungen; die Seite bietet „In Taleward öffnen“ und für Gäste
++                      ohne App „Im Browser zustimmen“ (Web-App des Servers).
++                  expiresAt: { type: string, format: date-time }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "429": { $ref: "#/components/responses/TooManyRequests" }
++
++  /bot/sessions/{sessionId}/events:
++    parameters: [{ $ref: "#/components/parameters/sessionId" }]
++    post:
++      tags: [Discord]
++      summary: "Bot: Pause, Weiter, Unterbrechung, Ende melden (ab 0.4.32)"
++      description: |
++        `pause`/`resume` mit Zeit (der Server kennt so die Pausen; die Spuren sind trotzdem gleich lang und dort still),
++        `interrupted` (Neustart oder Verbindungsabbruch, setzt Session.interrupted), `stopped` (Ende; Zustand bleibt
++        recording, bis der Upload beginnt), `discarded` (die SL bricht ab: die Runde wird gelöscht, falls noch keine Spur
++        angekommen ist; hat sie schon eine SL-Notiz oder einen Kommentar, wird sie stattdessen no_recording und bleibt).
++        Zeiten zwischen startedAt und startedAt + 6 h, sonst 400.
++      security: [{ botKey: [] }]
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [type, at]
++              properties:
++                type: { type: string, enum: [pause, resume, interrupted, stopped, discarded] }
++                at: { type: string, format: date-time }
++      responses:
++        "204": { description: Gemerkt }
++        "400": { $ref: "#/components/responses/BadRequest" }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++        "409": { $ref: "#/components/responses/Conflict" }
++
++  /bot/sessions/{sessionId}/tracks/{attendeeId}:
++    parameters:
++      - { $ref: "#/components/parameters/sessionId" }
++      - { name: attendeeId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
++    delete:
++      tags: [Discord]
++      summary: "Bot: Spur einer Person verwerfen (Widerruf; ab 0.4.32)"
++      description: |
++        Der Bot hat die Spur bei sich schon gelöscht; der Server verwirft zusätzlich alles, was von dieser Spur schon
++        angekommen ist (auch Teile), und nimmt sie nie mehr an. Die Person verschwindet aus den Anwesenden mit Spur;
++        im Kapitel kommt sie nicht vor. Keine Nachricht an andere.
++      security: [{ botKey: [] }]
++      responses:
++        "204": { description: Verworfen }
++        "401": { $ref: "#/components/responses/Unauthorized" }
++        "404": { $ref: "#/components/responses/NotFound" }
++
+   /sessions/{sessionId}/transcript:
+     parameters: [{ $ref: "#/components/parameters/sessionId" }]
+     get:
+@@ -3734,6 +4399,19 @@ components:
+       type: http
+       scheme: bearer
+       bearerFormat: JWT
++    botKey:
++      type: apiKey
++      in: header
++      name: X-Taleward-Bot
++      description: |
++        Ab 0.4.32. Schlüssel des Discord-Bots, in der Verwaltung erzeugt (einmal angezeigt, gespeichert nur als
++        Prüfsumme, widerrufbar, mehrere möglich). Gilt nur für /bot/… und POST/PUT des Uploads von Runden, die dieser Bot
++        angelegt hat. Kein Nutzerkonto, keine Nutzerrechte, kein X-Taleward-App nötig. Grenzen je Schlüssel und Kampagne
++        (429). Ist der Schalter „Discord-Bot“ aus, antworten alle Bot-Wege mit 404.
++        Eine Verbindung Kampagne ↔ Discord-Server gehört zu dem Schlüssel, der den Verbindungslink ausgestellt hat: Alle
++        /bot/…-Wege dieser Kampagne (und der Upload ihrer Runden) gehen nur mit genau diesem Schlüssel, sonst 404. Wird der
++        Schlüssel widerrufen, ruht die Verbindung, bis die SL neu verbindet. Bot-Schlüssel auf anderen Wegen → 401,
++        Nutzer-Token auf /bot/… → 401.
+ 
+   parameters:
+     campaignId: { name: campaignId, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" } }
+@@ -3783,6 +4461,11 @@ components:
+     ServerInfo:
+       type: object
+       properties:
++        discordBot:
++          type: boolean
++          description: |
++            Ab 0.4.32: Der Betreiber hat den Discord-Bot eingeschaltet. Nur dann zeigt die App „Kampagne verwalten →
++            Discord“ und nimmt Verbindungs- und Zustimmungslinks an. Fehlt = aus.
+         shareKeys:
+           type: array
+           maxItems: 4
+@@ -4068,6 +4751,7 @@ components:
+         allowExternalTranscription: { type: boolean }
+         allowCharacterAnalysis: { type: boolean }
+         playerProposals: { type: boolean, description: "Ab 0.4.28" }
++        discordPauseOnUnconsented: { type: boolean, description: "Ab 0.4.32" }
+         counterKinds:
+           type: array
+           maxItems: 8
+@@ -4091,6 +4775,11 @@ components:
+           description: |
+             Ab 0.4.28: Spielende dürfen Einträge für die Bibel vorschlagen. Standard true. Fehlt bei älteren Servern
+             (dann gibt es die Funktion nicht).
++        discordPauseOnUnconsented:
++          type: boolean
++          description: |
++            Ab 0.4.32: Der Discord-Bot hält die Aufnahme an, wenn jemand ohne Zustimmung in den Sprachkanal kommt (die
++            Person wird ohnehin nie aufgenommen). Standard false. Fehlt, wenn der Server keinen Bot anbietet.
+         counterKinds:
+           type: array
+           maxItems: 8
+@@ -4717,13 +5406,17 @@ components:
+       description: |
+         Genau eines von memberId (Mitglied) oder guestName (Gast ohne Konto).
+         consentSource app: nur zulässig, wenn das Mitglied `recordingConsentAt` hat (sonst 409 `consent_missing`).
+-        Gäste nur mit on_site (sonst 400 `invalid_attendee`).
++        Gäste nur mit on_site (sonst 400 `invalid_attendee`). Ab 0.4.32 zusätzlich consentSource link: Zustimmung über
++        einen Zustimmungslink des Discord-Bots (nur diese Runde; nur der Server setzt diesen Wert, nie die App).
++        Unbekannte Werte zeigt die App wie on_site.
+       required: [consent, consentSource]
+       properties:
++        id: { type: string, description: "Ab 0.4.32: Kennung des Anwesenden in dieser Runde (für trackAttendeeId)" }
+         memberId: { type: string }
+         guestName: { type: string }
++        characterName: { type: [string, "null"], description: "Ab 0.4.32, nur Gäste per Link: Figur (freiwillig)" }
+         consent: { type: boolean }
+-        consentSource: { type: string, enum: [app, on_site] }
++        consentSource: { type: string, enum: [app, on_site, link] }
+         consentAt: { type: [string, "null"], format: date-time, description: "Bei on_site der Zeitpunkt der Bestätigung vor Ort" }
+ 
+     SessionSummary:
+@@ -4743,6 +5436,10 @@ components:
+           properties:
+             campaignId: { type: string }
+             source: { type: [string, "null"], enum: [table, discord, null] }
++            interrupted:
++              type: boolean
++              description: "Ab 0.4.32: Die Bot-Aufnahme wurde unterbrochen (Neustart, Verbindung); Spuren können Lücken haben"
++            recordingStartedAt: { type: [string, "null"], format: date-time, description: "Ab 0.4.32, Bot-Runden" }
+             attendees:
+               type: array
+               items: { $ref: "#/components/schemas/Attendee" }
+@@ -4758,6 +5455,8 @@ components:
+       type: string
+       enum:
+         - created            # angelegt, noch kein Audio
++        - recording          # ab 0.4.32: der Discord-Bot nimmt gerade auf (SL-Notizen erlaubt)
++        - no_recording       # ab 0.4.32: Bot-Runde ohne Ton nach 30 Stunden; Notizen bleiben, Hochladen von Hand geht
+         - uploading
+         - queued
+         - transcribing
+@@ -5186,6 +5885,117 @@ components:
+               quote: { type: string }
+         suggestedEntryId: { type: [string, "null"], description: "Ähnlich klingender Bibel-Eintrag" }
+         suggestedMemberId: { type: [string, "null"], description: "Ähnlich klingender Charaktername" }
++        suggestedCorrect:
++          type: [string, "null"]
++          description: |
++            Ab 0.4.31: vorgeschlagene richtige Schreibweise. Bei suggestionSource `rule` aus einer Verhörer-Regel der
++            Kampagne – die App wählt sie in „Namen prüfen“ vor, übernommen wird sie erst mit POST …/corrections.
++        suggestionSource:
++          type: [string, "null"]
++          enum: [rule, entry, member, null]
++          description: "Ab 0.4.31: Herkunft von suggestedCorrect (Verhörer-Regel, Bibel-Eintrag, Charaktername)"
++        ruleId: { type: [string, "null"], description: "Ab 0.4.31: Regel bei suggestionSource rule (NameFix.id)" }
++
++    DiscordSnowflake:
++      type: string
++      pattern: "^[0-9]{15,21}$"
++      description: "Kennung bei Discord (Gilde oder Person), als Text"
++
++    DiscordLinkSecret:
++      type: object
++      description: "Genau eines von token (aus dem Link) oder code (drei Wörter)"
++      properties:
++        token: { type: string, pattern: "^[A-Za-z0-9_-]{20,128}$" }
++        code: { type: string, maxLength: 64, example: "laterne-moor-krug" }
++
++    DiscordConnection:
++      type: object
++      required: [guildName, connectedAt]
++      properties:
++        guildName: { type: string }
++        connectedAt: { type: string, format: date-time }
++        connectedBy: { type: [string, "null"], description: "Mitglied (SL)" }
++
++    NameFixInput:
++      type: object
++      required: [from, to]
++      properties:
++        from: { type: string, minLength: 3, maxLength: 64, example: "Orasilas", description: "Falsch geschrieben" }
++        to: { type: string, minLength: 3, maxLength: 64, example: "Horasilas", description: "Richtig" }
++
++    NameFixPlace:
++      type: string
++      description: |
++        Ort eines Treffers. Unbekannte Werte (neuere Server) zeigt die App als allgemeinen Ort.
++      enum: [chapter, chapter_title, entry_name, entry_alias, entry_summary, entry_gm_notes, session_proposal, transcript]
++
++    NameFixHit:
++      type: object
++      required: [id, place, label, count, preselected]
++      properties:
++        id: { type: string, description: "Nur innerhalb dieser Vorschau gültig (für skipHitIds)" }
++        place: { $ref: "#/components/schemas/NameFixPlace" }
++        label: { type: string, example: "Kapitel 3 · Am Hungerstein", description: "Für die SL lesbar, in der Sprache aus Accept-Language" }
++        sessionId: { type: [string, "null"] }
++        sessionNumber: { type: [integer, "null"] }
++        entryId: { type: [string, "null"] }
++        proposalId: { type: [string, "null"] }
++        count: { type: integer, minimum: 1 }
++        readByPlayers:
++          type: boolean
++          description: "Spielende lesen diesen Ort (veröffentlichtes Kapitel, Eintrag für alle oder einzelne)"
++        preselected: { type: boolean, description: "false bei secretWarning für Orte, die Spielende lesen" }
++        excerpts:
++          type: array
++          maxItems: 3
++          description: "Der Satz um die Stelle, höchstens 200 Zeichen, das Wort markiert als [[…]]"
++          items: { type: string, example: "Dann trat [[Orasilas]] aus dem Schilf." }
++
++    NameFixPreview:
++      type: object
++      required: [from, to, previewVersion, hits, total, secretWarning, untouched]
++      properties:
++        from: { type: string }
++        to: { type: string }
++        previewVersion: { type: string, description: "Prüfsummen aller Treffer-Orte; beim Berichtigen mitschicken" }
++        total: { type: integer, description: "Stellen insgesamt (Summe der count)" }
++        secretWarning: { type: boolean }
++        hits:
++          type: array
++          description: "Nach Ort sortiert: Kapitel (nach Nummer), Bibel, Vorschläge, Abschriften"
++          items: { $ref: "#/components/schemas/NameFixHit" }
++        untouched:
++          type: object
++          description: "Wird nicht geändert; nur als Ort bzw. Anzahl, nie im Wortlaut"
++          required: [characters, comments, playerProposals]
++          properties:
++            characters:
++              type: array
++              items:
++                type: object
++                required: [memberId, field]
++                properties:
++                  memberId: { type: string }
++                  field: { type: string, enum: [name, summary, background] }
++            comments: { type: integer, description: "Nur Kommentare, die die SL sehen kann" }
++            playerProposals: { type: integer, description: "Offene Vorschläge von Spielenden" }
++        existingRule:
++          type: [string, "null"]
++          description: "Es gibt schon eine Regel für from (NameFix.id); Berichtigen ersetzt deren Ziel"
++
++    NameFix:
++      type: object
++      required: [id, from, to, changed, rule, createdAt, createdBy]
++      properties:
++        id: { type: string }
++        from: { type: string }
++        to: { type: string }
++        changed: { type: integer, description: "Geänderte Stellen" }
++        rule: { type: boolean, description: "Verhörer-Regel aktiv" }
++        createdAt: { type: string, format: date-time }
++        createdBy: { type: string, description: "Mitglied (SL), das berichtigt hat" }
++        undoUntil: { type: [string, "null"], format: date-time, description: "Bis wann Rückgängig geht; null = nicht mehr" }
++        undoneAt: { type: [string, "null"], format: date-time }
+ 
+     EntryInput:
+       type: object
+diff --git a/migrations/versions/e2a4c6e8f0b3_namen_berichtigen.py b/migrations/versions/e2a4c6e8f0b3_namen_berichtigen.py
+new file mode 100644
+index 0000000..03f7d51
+--- /dev/null
++++ b/migrations/versions/e2a4c6e8f0b3_namen_berichtigen.py
+@@ -0,0 +1,52 @@
++"""Namen einmal berichtigen (Server 0.4.154, Schnittstelle 0.4.31)
++
++Revision ID: e2a4c6e8f0b3
++Revises: d0f2a4c6e8b1
++"""
++from typing import Sequence, Union
++
++import sqlalchemy as sa
++from alembic import op
++
++revision: str = 'e2a4c6e8f0b3'
++down_revision: Union[str, Sequence[str], None] = 'd0f2a4c6e8b1'
++branch_labels: Union[str, Sequence[str], None] = None
++depends_on: Union[str, Sequence[str], None] = None
++
++
++def upgrade() -> None:
++    op.create_table(
++        "name_fixes",
++        sa.Column("id", sa.String(36), primary_key=True),
++        sa.Column("campaign_id", sa.String(36), sa.ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False,
++                  index=True),
++        sa.Column("von", sa.String(64), nullable=False),
++        sa.Column("nach", sa.String(64), nullable=False),
++        sa.Column("changed", sa.Integer(), nullable=False, server_default="0"),
++        sa.Column("rule", sa.Boolean(), nullable=False, server_default="0"),
++        sa.Column("orte", sa.Text(), nullable=True),
++        sa.Column("created_at", sa.DateTime(), nullable=False),
++        sa.Column("created_by_member_id", sa.String(36), nullable=True),
++        sa.Column("undo_until", sa.DateTime(), nullable=True),
++        sa.Column("undone_at", sa.DateTime(), nullable=True),
++    )
++    op.create_table(
++        "name_fix_undo",
++        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
++        sa.Column("fix_id", sa.String(36), sa.ForeignKey("name_fixes.id", ondelete="CASCADE"), nullable=False,
++                  index=True),
++        sa.Column("place", sa.String(32), nullable=False),
++        sa.Column("oid", sa.String(36), nullable=False),
++        sa.Column("label_de", sa.String(300), nullable=False),
++        sa.Column("label_en", sa.String(300), nullable=False),
++        sa.Column("alt", sa.Text(), nullable=False),
++        sa.Column("pruefsumme", sa.String(64), nullable=False),
++        sa.Column("session_id", sa.String(36), sa.ForeignKey("sessions.id", ondelete="CASCADE"), nullable=True),
++        sa.Column("entry_id", sa.String(36), sa.ForeignKey("entries.id", ondelete="CASCADE"), nullable=True),
++        sa.Column("proposal_id", sa.String(36), sa.ForeignKey("proposals.id", ondelete="CASCADE"), nullable=True),
++    )
++
++
++def downgrade() -> None:
++    op.drop_table("name_fix_undo")
++    op.drop_table("name_fixes")
+diff --git a/pyproject.toml b/pyproject.toml
+index aab7251..c19d079 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,6 +1,6 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.153"
++version = "0.4.154"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+ license-files = ["LICENSE"]
+diff --git a/tests/contract.py b/tests/contract.py
+index 269bc9a..1675d19 100644
+--- a/tests/contract.py
++++ b/tests/contract.py
+@@ -35,6 +35,11 @@ OPTIONAL_FIELDS = {"characterBackstory", "gmNotes", "hiddenFromMemberIds", "memb
+                    "gmWarnings",  # 0.4.21: nur für die SL, für Spieler weggelassen
+                    "counters", "openPlayerProposals",  # 0.4.28: nur Person selbst bzw. SL, sonst weggelassen
+                    "shareKey",  # 0.4.30: nur GET /campaigns/{id}, nur das eigene Mitglied
++                   # 0.4.32 (Discord-Bot): erst mit dem Bau des Bots; bis dahin fehlt = aus bzw. keine Bot-Runde
++                   "interrupted", "recordingStartedAt", "characterName", "discordBot", "discordPauseOnUnconsented",
++                   # 0.4.31: nur, wo es zutrifft (Treffer-Ort, Rückgängig, vorhandene Regel)
++                   "sessionId", "sessionNumber", "entryId", "proposalId", "readByPlayers", "excerpts", "undoUntil",
++                   "undoneAt", "existingRule", "suggestedCorrect", "suggestionSource", "ruleId",
+                    "user",
+                    "topUpUrl"}  # 0.4.25: fehlt ohne eingetragene öffentliche Adresse (G15)
+ 
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index a3ceb4b..46fb61d 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -153,7 +153,7 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     monkeypatch.setattr(benachrichtigung, "melden", lambda db, art, **w: gemeldet.append((art, w)))
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.153"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.154"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+     monkeypatch.setenv("TALEWARD_DOCKER", "1")
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index 9776cb9..4237641 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -134,7 +134,7 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     assert r.status_code == 201 and r.json()["name"] == "gaming-pc"
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.153"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.154"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+     assert "gaming-pc" in seite and "bereit" in seite
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index 41b71b7..b1f36c9 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -83,7 +83,7 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/models", params={"repo": REPO}, headers=h).status_code == 404
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.153"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.154"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+                headers=h)
+diff --git a/tests/test_schnittstelle_0410.py b/tests/test_schnittstelle_0410.py
+index 468d0bc..ea2ec7c 100644
+--- a/tests/test_schnittstelle_0410.py
++++ b/tests/test_schnittstelle_0410.py
+@@ -190,4 +190,4 @@ def test_stimmen_vor_bestaetigung_ohne_zuordnung(client, world, dbs, tmp_path):
+ 
+ 
+ def test_info_meldet_schnittstelle_0411(client):
+-    assert client.get(f"{API}/info").json()["apiVersion"] == "0.4.30"
++    assert client.get(f"{API}/info").json()["apiVersion"] == "0.4.31"
+diff --git a/tests/test_schnittstelle_0422.py b/tests/test_schnittstelle_0422.py
+index a0d98bd..8ee84c0 100644
+--- a/tests/test_schnittstelle_0422.py
++++ b/tests/test_schnittstelle_0422.py
+@@ -10,7 +10,7 @@ API = "/api/v1"
+ def test_info_und_oeffentliche_seite(client, world, dbs, admin):  # noqa: F811
+     info = client.get(f"{API}/info").json()
+     assert info["termsUrl"] == "http://testserver/nutzungsbedingungen" and info["termsVersion"] == 1
+-    assert info["legalNoticeUrl"] is None and info["apiVersion"] == "0.4.30"
++    assert info["legalNoticeUrl"] is None and info["apiVersion"] == "0.4.31"
+     seite = client.get("/nutzungsbedingungen")
+     assert seite.status_code == 200 and "<h1>Nutzungsbedingungen</h1>" in seite.text and "Fassung 1" in seite.text
+     assert "jede für sich selbst" in seite.text and "nicht Vertragspartner" in seite.text
+diff --git a/tests/test_server_04128.py b/tests/test_server_04128.py
+index bb7b183..4f343d7 100644
+--- a/tests/test_server_04128.py
++++ b/tests/test_server_04128.py
+@@ -53,7 +53,7 @@ def mit_adresse(dbs, name: str, adresse: str):
+ # ---------------------------------------------------------------- Regel gmApproval
+ def test_gm_approval_nach_registrierung_einstellung_und_abrechnung(client, dbs):
+     info = client.get(f"{API}/info").json()
+-    assert info["apiVersion"] == "0.4.30" and info["registration"] == "invite_only" and info["gmApproval"] == "none"
++    assert info["apiVersion"] == "0.4.31" and info["registration"] == "invite_only" and info["gmApproval"] == "none"
+     for registrierung, freigabe, modus, erwartet in [
+         ("open", "offen", "aus", "required"), ("code", "offen", "aus", "none"), ("invite_only", "immer", "aus", "required"),
+         ("closed", "immer", "topf", "required"), ("open", "immer", "guthaben", "none"), ("open", "offen", "topf", "required"),
+diff --git a/tests/test_server_04139.py b/tests/test_server_04139.py
+index aec7a62..6fb3ae6 100644
+--- a/tests/test_server_04139.py
++++ b/tests/test_server_04139.py
+@@ -197,4 +197,4 @@ def test_umzugsdatei_kennt_mehrere_empfaenger():
+ def test_api_version():
+     from app.routers.auth import API_VERSION
+ 
+-    assert API_VERSION == "0.4.30"
++    assert API_VERSION == "0.4.31"
+diff --git a/tests/test_server_04148.py b/tests/test_server_04148.py
+index cda6f9b..bd38837 100644
+--- a/tests/test_server_04148.py
++++ b/tests/test_server_04148.py
+@@ -91,7 +91,7 @@ def test_server_schluessel_in_info_und_geschuetzt(client, dbs):
+     from app import dpapi, teilen
+ 
+     a = client.get(f"{API}/info").json()
+-    assert a["apiVersion"] == "0.4.30" and len(a["shareKeys"]) == 1
++    assert a["apiVersion"] == "0.4.31" and len(a["shareKeys"]) == 1
+     assert client.get(f"{API}/info").json()["shareKeys"] == a["shareKeys"]  # bleibt gleich
+     assert dpapi.geheim(teilen.META_SCHLUESSEL)
+     assert teilen.signierer(dbs).id == a["shareKeys"][0]["id"]
+diff --git a/tests/test_server_04154.py b/tests/test_server_04154.py
+new file mode 100644
+index 0000000..21167a0
+--- /dev/null
++++ b/tests/test_server_04154.py
+@@ -0,0 +1,246 @@
++"""Server 0.4.154: Schnittstelle 0.4.31 – Namen einmal berichtigen (S62, Prüfkriterien des Sicherheits-Chats)."""
++import json
++from datetime import timedelta
++
++from sqlalchemy import select
++
++from app.db import utcnow
++from tests.test_step2a import API, neue_session
++
++
++def _kapitel(client, w, dbs, text, title="Am Hungerstein", published=True):
++    from app.models import GameSession, Recap
++
++    s = neue_session(client, w)
++    g = dbs.get(GameSession, s["id"])
++    if published:
++        g.state, g.published_at = "published", utcnow()
++    else:
++        g.state = "awaiting_review"
++    dbs.add(Recap(session_id=s["id"], title=title, text=text, open_threads=json.dumps(["Wo ist Orasilas?"])))
++    dbs.commit()
++    return s
++
++
++def _eintrag(dbs, w, name, summary="", visibility="public", gm_notes=None, aliases=None):
++    from app.models import Entry
++
++    e = Entry(campaign_id=w["cid"], type="npc", name=name, summary=summary, visibility=visibility, gm_notes=gm_notes,
++              aliases_json=json.dumps(aliases) if aliases else None)
++    dbs.add(e)
++    dbs.commit()
++    return e
++
++
++def _vorschau(client, w, von="Orasilas", nach="Horasilas", h=None):
++    return client.post(f"{API}/campaigns/{w['cid']}/name-fixes/preview", json={"from": von, "to": nach},
++                       headers=h or w["gm"])
++
++
++def _berichtigen(client, w, v, **mehr):
++    return client.post(f"{API}/campaigns/{w['cid']}/name-fixes",
++                       json={"from": v["from"], "to": v["to"], "previewVersion": v["previewVersion"], **mehr},
++                       headers=w["gm"])
++
++
++def test_vorschau_berichtigen_und_was_unberuehrt_bleibt(client, world, dbs):
++    from app.models import (Bookmark, Comment, CommentRecipient, Entry, Member, PlayerProposal, Proposal, Recap,
++                            TranscriptSegment)
++
++    w = world
++    s = _kapitel(client, w, dbs, "Dann trat Orasilas aus dem Schilf. Orasilas’ Schwur galt. Orasilasse nicht.")
++    e = _eintrag(dbs, w, "Orasilas", "Der Elf Orasilas.", gm_notes="Orasilas lügt.", aliases=["Orasilas der Alte"])
++    dbs.add(TranscriptSegment(session_id=s["id"], position=0, start=1.5, end=3.0, text="ich bin Orasilas"))
++    p = Proposal(campaign_id=w["cid"], session_id=s["id"], entry_type="npc", action="create", title="Orasilas",
++                 detail="Orasilas kam")
++    dbs.add(p)
++    pp = PlayerProposal(campaign_id=w["cid"], author_member_id=w["pl_member"], entry_type="npc", title="Orasilas",
++                        detail="mag Orasilas")
++    dbs.add(pp)
++    m = dbs.get(Member, w["pl_member"])
++    m.character_backstory = "Ich kenne Orasilas."
++    dbs.add(Comment(session_id=s["id"], author_member_id=w["pl_member"], text="Orasilas!"))  # öffentlich
++    privat = Comment(session_id=s["id"], author_member_id=w["pl_member"], recipient_member_id=w["pl_member"],
++                     text="Orasilas geheim")  # an sich selbst: die SL sieht ihn nicht
++    dbs.add(privat)
++    dbs.flush()
++    dbs.add(CommentRecipient(comment_id=privat.id, member_id=w["pl_member"]))
++    dbs.add(Bookmark(session_id=s["id"], member_id=w["gm_member"], at=utcnow(), note="Orasilas"))
++    dbs.commit()
++    r = _vorschau(client, w)
++    assert r.status_code == 200, r.text
++    v = r.json()
++    orte = {h["place"] for h in v["hits"]}
++    assert orte == {"chapter", "entry_name", "entry_alias", "entry_summary", "entry_gm_notes", "session_proposal",
++                    "transcript"}
++    kap = next(h for h in v["hits"] if h["place"] == "chapter")
++    assert kap["count"] == 3 and kap["readByPlayers"] and kap["preselected"]  # Text 2 + offener Faden 1
++    assert "[[Orasilas]]" in kap["excerpts"][0]
++    assert v["untouched"] == {"characters": [{"memberId": w["pl_member"], "field": "background"}], "comments": 1,
++                              "playerProposals": 1}
++    assert v["secretWarning"] is False and v["existingRule"] is None
++    r = _berichtigen(client, w, v)
++    assert r.status_code == 201, r.text
++    fix = r.json()
++    assert fix["rule"] is True and fix["changed"] == v["total"] and fix["undoUntil"]
++    dbs.expire_all()
++    rc = dbs.get(Recap, s["id"])
++    assert rc.text == "Dann trat Horasilas aus dem Schilf. Horasilas’ Schwur galt. Orasilasse nicht."
++    assert json.loads(rc.open_threads) == ["Wo ist Horasilas?"] and rc.edited_at is not None
++    e = dbs.get(Entry, e.id)
++    assert (e.name, e.summary, e.gm_notes, e.aliases) == ("Horasilas", "Der Elf Horasilas.", "Horasilas lügt.",
++                                                          ["Horasilas der Alte"])
++    assert e.visibility == "public"
++    seg = dbs.scalar(select(TranscriptSegment).where(TranscriptSegment.session_id == s["id"]))
++    assert seg.text == "ich bin Horasilas" and seg.start == 1.5
++    assert dbs.get(Proposal, p.id).detail == "Horasilas kam"
++    assert dbs.get(PlayerProposal, pp.id).detail == "mag Orasilas"  # Worte der Spielenden bleiben
++    assert dbs.get(Member, w["pl_member"]).character_backstory == "Ich kenne Orasilas."
++    assert dbs.scalar(select(Bookmark)).note == "Orasilas"
++    # Liste nur für die SL, Spielende überall 404
++    assert client.get(f"{API}/campaigns/{w['cid']}/name-fixes", headers=w["gm"]).json()["fixes"][0]["id"] == fix["id"]
++    for antwort in (_vorschau(client, w, h=w["pl"]),
++                    client.get(f"{API}/campaigns/{w['cid']}/name-fixes", headers=w["pl"]),
++                    client.post(f"{API}/name-fixes/{fix['id']}/undo", headers=w["pl"]),
++                    client.delete(f"{API}/name-fixes/{fix['id']}", headers=w["pl"]),
++                    _vorschau(client, w, h=w["out"])):
++        assert antwort.status_code == 404
++
++
++def test_eingabe_und_sonderzeichen(client, world, dbs):
++    w = world
++    _kapitel(client, w, dbs, "Ein a.*+ steht hier, aber nicht abc.")
++    assert _vorschau(client, w, "er", "sie").status_code == 400
++    assert _vorschau(client, w, "Orasilas", "Orasilas").status_code == 400
++    assert _vorschau(client, w, "Ora\nsilas", "Horasilas").status_code == 400
++    assert _vorschau(client, w, "x" * 65, "Horasilas").status_code == 400
++    v = _vorschau(client, w, "a.*+", "bcd").json()
++    assert v["total"] == 1
++    assert _vorschau(client, w, "Nichtda", "Sonstwas").json()["hits"] == []
++
++
++def test_geheimer_name_warnt_und_waehlt_ab(client, world, dbs):
++    w = world
++    _kapitel(client, w, dbs, "Orasilas sprach.")
++    _eintrag(dbs, w, "Horasilas", "Der wahre Name", visibility="gm_only")
++    v = _vorschau(client, w).json()
++    assert v["secretWarning"] is True
++    assert [h["preselected"] for h in v["hits"]] == [False]
++
++
++def test_veraltete_vorschau_und_unbekannte_treffer(client, world, dbs):
++    from app.models import Recap
++
++    w = world
++    s = _kapitel(client, w, dbs, "Orasilas sprach.")
++    v = _vorschau(client, w).json()
++    assert _berichtigen(client, w, v, skipHitIds=["unbekannt"]).status_code == 400
++    dbs.get(Recap, s["id"]).text = "Orasilas sprach lange."
++    dbs.commit()
++    r = _berichtigen(client, w, v)
++    assert r.status_code == 409 and r.json()["code"] == "preview_stale"
++    assert dbs.get(Recap, s["id"]).text == "Orasilas sprach lange."
++
++
++def test_abgewaehlte_treffer_bleiben(client, world, dbs):
++    from app.models import Entry, Recap
++
++    w = world
++    s = _kapitel(client, w, dbs, "Orasilas sprach.")
++    e = _eintrag(dbs, w, "Orasilas")
++    v = _vorschau(client, w).json()
++    weg = [h["id"] for h in v["hits"] if h["place"] == "entry_name"]
++    assert _berichtigen(client, w, v, skipHitIds=weg, rule=False).status_code == 201
++    dbs.expire_all()
++    assert dbs.get(Entry, e.id).name == "Orasilas" and dbs.get(Recap, s["id"]).text == "Horasilas sprach."
++
++
++def test_rueckgaengig_ueberspringt_bearbeitetes(client, world, dbs):
++    from app.models import Entry, NameFix, NameFixUndo, Recap
++
++    w = world
++    s = _kapitel(client, w, dbs, "Orasilas sprach.")
++    e = _eintrag(dbs, w, "Orasilas")
++    v = _vorschau(client, w).json()
++    fix = _berichtigen(client, w, v).json()
++    dbs.expire_all()
++    dbs.get(Recap, s["id"]).text = "Horasilas sprach laut."
++    dbs.commit()
++    r = client.post(f"{API}/name-fixes/{fix['id']}/undo", headers=w["gm"])
++    assert r.status_code == 200, r.text
++    assert r.json()["restored"] == 1 and [x["place"] for x in r.json()["skipped"]] == ["chapter"]
++    dbs.expire_all()
++    assert dbs.get(Entry, e.id).name == "Orasilas" and dbs.get(Recap, s["id"]).text == "Horasilas sprach laut."
++    assert dbs.get(NameFix, fix["id"]).rule is False and dbs.scalar(select(NameFixUndo)) is None
++    r = client.post(f"{API}/name-fixes/{fix['id']}/undo", headers=w["gm"])
++    assert r.status_code == 409 and r.json()["code"] == "already_undone"
++
++
++def test_nach_24_stunden_keine_alten_texte(client, world, dbs):
++    from app import namen_berichtigen as nb
++    from app.models import NameFix, NameFixUndo
++
++    w = world
++    _kapitel(client, w, dbs, "Orasilas sprach.")
++    fix = _berichtigen(client, w, _vorschau(client, w).json()).json()
++    f = dbs.get(NameFix, fix["id"])
++    f.created_at = utcnow() - timedelta(hours=25)
++    f.undo_until = utcnow() - timedelta(hours=1)
++    dbs.commit()
++    assert nb.wartung(dbs) == 1
++    dbs.commit()
++    assert dbs.scalar(select(NameFixUndo)) is None
++    r = client.post(f"{API}/name-fixes/{fix['id']}/undo", headers=w["gm"])
++    assert r.status_code == 409 and r.json()["code"] == "undo_expired"
++    assert client.get(f"{API}/campaigns/{w['cid']}/name-fixes", headers=w["gm"]).json()["fixes"][0]["undoUntil"] is None
++
++
++def test_regel_schlaegt_vor_und_laesst_sich_loeschen(client, world, dbs):
++    from app import namen_berichtigen as nb, unsicher
++    from app.models import Campaign, GameSession, TranscriptSegment
++
++    w = world
++    _kapitel(client, w, dbs, "Orasilas sprach.")
++    fix = _berichtigen(client, w, _vorschau(client, w).json()).json()
++    c = dbs.get(Campaign, w["cid"])
++    assert "Horasilas" in __import__("app.namenshilfe", fromlist=["x"]).anzeige(dbs, c)
++    s2 = neue_session(client, w)
++    g = dbs.get(GameSession, s2["id"])
++    g.state = "awaiting_review"
++    dbs.add(TranscriptSegment(session_id=g.id, position=0, start=0, end=1, text="da kommt Orasilas",
++                              unsicher=json.dumps([{"word": "Orasilas", "score": 0.3}])))
++    dbs.commit()
++    t = [x for x in unsicher.begriffe(dbs, g) if x["heard"] == "Orasilas"]
++    assert t and t[0]["suggestedCorrect"] == "Horasilas" and t[0]["suggestionSource"] == "rule"
++    assert t[0]["ruleId"] == fix["id"]
++    seg = dbs.scalar(select(TranscriptSegment).where(TranscriptSegment.session_id == g.id))
++    assert seg.text == "da kommt Orasilas"  # nie still ersetzt
++    assert client.delete(f"{API}/name-fixes/{fix['id']}", headers=w["gm"]).status_code == 204
++    assert nb.regeln(dbs, c) == {}
++    assert client.get(f"{API}/campaigns/{w['cid']}/name-fixes", headers=w["gm"]).json()["fixes"][0]["rule"] is False
++
++
++def test_umzug_nur_regeln(client, world, dbs):
++    from app import namen_berichtigen as nb
++    from app.models import Campaign
++
++    w = world
++    _kapitel(client, w, dbs, "Orasilas sprach.")
++    _berichtigen(client, w, _vorschau(client, w).json())
++    c = dbs.get(Campaign, w["cid"])
++    assert nb.fuer_umzug(dbs, c) == [{"from": "Orasilas", "to": "Horasilas"}]
++    from app import umzug
++
++    daten, _dateien = umzug.packliste(dbs, c, set())
++    assert daten["campaign"]["nameRules"] == [{"from": "Orasilas", "to": "Horasilas"}]
++    assert "Orasilas sprach" not in json.dumps(daten, ensure_ascii=False).split("sessions")[0]
++
++
++def test_zu_viele_stellen(client, world, dbs, monkeypatch):
++    from app import namen_berichtigen as nb
++
++    w = world
++    _kapitel(client, w, dbs, "Orasilas " * 5)
++    monkeypatch.setattr(nb, "MAX_STELLEN", 4)
++    r = _vorschau(client, w)
++    assert r.status_code == 409 and r.json()["code"] == "too_many_hits"
+diff --git a/tests/test_server_0464.py b/tests/test_server_0464.py
+index 03f551c..1d98f0b 100644
+--- a/tests/test_server_0464.py
++++ b/tests/test_server_0464.py
+@@ -55,9 +55,9 @@ def test_schnittstelle_0414(client):
+     from app.routers.auth import API_VERSION
+     from app.verwaltung.router import MELDUNGEN
+ 
+-    assert API_VERSION == "0.4.30"
++    assert API_VERSION == "0.4.31"
+     vertrag = Path(__file__).resolve().parents[1] / "contract" / "session-chronik-api.yaml"
+-    assert "version: 0.4.30" in vertrag.read_text(encoding="utf-8")
++    assert "version: 0.4.32" in vertrag.read_text(encoding="utf-8")
+     assert "„Kampagne verwalten“ → „Cloud-Dienste“" in MELDUNGEN["probe_cloud"]
+ 
+ 
+diff --git a/tests/test_server_0484.py b/tests/test_server_0484.py
+index e52b5d8..ab7f971 100644
+--- a/tests/test_server_0484.py
++++ b/tests/test_server_0484.py
+@@ -77,7 +77,7 @@ def test_info_mit_public_url_und_server_id(client, dbs):
+     from app.routers.auth import oeffentliche_herkunft
+ 
+     i = client.get(f"{API}/info").json()
+-    assert i["apiVersion"] == "0.4.30" and i["serverId"] == server_id() and i["publicUrl"] is None
++    assert i["apiVersion"] == "0.4.31" and i["serverId"] == server_id() and i["publicUrl"] is None
+     meta_schreiben(dbs, "angabe.public_url", "https://taleward.example.org/pfad/")
+     dbs.commit()
+     assert client.get(f"{API}/info").json()["publicUrl"] == "https://taleward.example.org"
+diff --git a/tests/test_server_0490.py b/tests/test_server_0490.py
+index 0ff16ab..32fe1af 100644
+--- a/tests/test_server_0490.py
++++ b/tests/test_server_0490.py
+@@ -23,7 +23,7 @@ def _ohne_ausnahmen(text: str) -> str:
+ 
+ def test_yaml_nennt_409_bei_unterlagen():
+     spec = yaml.safe_load((WURZEL / "contract" / "session-chronik-api.yaml").read_text(encoding="utf-8"))
+-    assert spec["info"]["version"] == "0.4.30"
++    assert spec["info"]["version"] == "0.4.32"
+     assert "409" in spec["paths"]["/campaigns/{campaignId}/documents"]["post"]["responses"]
+     from tests.contract import BEKANNTE_LUECKEN
+     # 0.4.144: nur die beiden gemeldeten 429 (Merken, Vorschläge von Spielenden) – an den App-Chat gemeldet
+diff --git a/tests/test_step1b.py b/tests/test_step1b.py
+index f0308f8..f07830e 100644
+--- a/tests/test_step1b.py
++++ b/tests/test_step1b.py
+@@ -23,7 +23,7 @@ def test_info_ist_oeffentlich(client):
+     r = client.get(f"{API}/info")
+     assert r.status_code == 200
+     i = r.json()
+-    assert i["apiVersion"] == "0.4.30" and i["externalTranscription"] is None and i["authMethods"] == ["password"] and i["registration"] == "invite_only"
++    assert i["apiVersion"] == "0.4.31" and i["externalTranscription"] is None and i["authMethods"] == ["password"] and i["registration"] == "invite_only"
+ 
+ 
+ def test_registrierung_geschlossen(client, dbs):
+@@ -148,8 +148,8 @@ def test_anwesende_regeln(client, world):
+     assert r.status_code == 201
+     att = r.json()["attendees"]
+     assert att[1]["consentSource"] == "app" and att[1]["consentAt"]
+-    assert att[2] == {"guestName": "Tante Erna", "consent": True, "consentSource": "on_site",
+-                      "consentAt": att[2]["consentAt"]}
++    assert att[2] == {"id": att[2]["id"], "guestName": "Tante Erna", "consent": True, "consentSource": "on_site",
++                      "consentAt": att[2]["consentAt"]}  # 0.4.32: mit Kennung des Anwesenden
+     for falsch, code in [
+         ({"guestName": "Gast", "consent": True, "consentSource": "app"}, "invalid_attendee"),
+         ({"memberId": w["gm_member"], "guestName": "X", "consent": True, "consentSource": "on_site"}, "invalid_attendee"),
+@@ -289,8 +289,8 @@ def test_migration_aus_schritt1(tmp_path, monkeypatch):
+         camp = c.get(f"{API}/campaigns/{cid}", headers=h).json()
+         assert camp["organization"]["name"] == "Rollenspielverein" and camp["language"] == "de"
+         s = c.get(f"{API}/sessions/{sid}", headers=h).json()
+-        assert s["attendees"] == [{"memberId": mid, "consent": True, "consentSource": "on_site",
+-                                   "consentAt": "2026-09-02T18:00:00Z"}]
++        assert [{k: v for k, v in a.items() if k != "id"} for a in s["attendees"]] == [
++            {"memberId": mid, "consent": True, "consentSource": "on_site", "consentAt": "2026-09-02T18:00:00Z"}]
+     db.reset_engine()
+     config.get_settings.cache_clear()
+ 
+diff --git a/tests/test_umzug_048.py b/tests/test_umzug_048.py
+index bfbbdfe..094b588 100644
+--- a/tests/test_umzug_048.py
++++ b/tests/test_umzug_048.py
+@@ -150,7 +150,7 @@ def test_export_inhalt_und_zugang(client, world, dbs, make_user, login):
+     namen = set(z.namelist())
+     alles = b"".join(z.read(n) for n in namen)
+     k = json.loads(z.read("kampagne.json"))
+-    assert k["format"] == "taleward-kampagne/1" and k["apiVersion"] == "0.4.30"
++    assert k["format"] == "taleward-kampagne/1" and k["apiVersion"] == "0.4.31"
+     # nie in der Datei
+     for verboten in (GEHEIM, PRUEF, "Anna", "Ben", "Dora", "anna", "HINTERGRUND-DORIN", "DORA-BOGEN",
+                      "DORA-OEFFENTLICH", "BEN-AN-ANNA", "Dorin, Kurzbeschreibung."):
+diff --git a/tests/test_verwaltung2.py b/tests/test_verwaltung2.py
+index 3a378d5..568c7a6 100644
+--- a/tests/test_verwaltung2.py
++++ b/tests/test_verwaltung2.py
+@@ -176,7 +176,7 @@ def test_mindestversion(client, world, admin):  # noqa: F811
+     assert "Gespeichert" in r.text
+     info = client.get(f"{API}/info").json()  # /info bleibt immer erreichbar
+     assert info["minAppVersion"] == "0.9.0" and info["latestAppVersion"] == "0.9.1"
+-    assert info["releaseNotes"] == "Neue Einladungen." and info["apiVersion"] == "0.4.30"
++    assert info["releaseNotes"] == "Neue Einladungen." and info["apiVersion"] == "0.4.31"
+     url = f"{API}/campaigns"
+     r = client.get(url, headers=world["gm"])
+     assert r.status_code == 426 and "0.9.0" in r.json()["message"]
+diff --git a/tests/test_webapp.py b/tests/test_webapp.py
+index 828da50..4214f6c 100644
+--- a/tests/test_webapp.py
++++ b/tests/test_webapp.py
+@@ -106,7 +106,7 @@ def test_info_mit_pruefsumme(client, dbs):
+     aktualisierung.pruefen(dbs, gh)
+     info = client.get(f"{API}/info").json()
+     assert info["appDownloadSha256"] == hashlib.sha256(APK).hexdigest() and info["appDownloadSizeBytes"] == len(APK)
+-    assert info["apiVersion"] == "0.4.30"
++    assert info["apiVersion"] == "0.4.31"
+ 
+ 
+ def _web_zip(dateien: dict) -> bytes:
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index 5c6dd3b..98af7ed 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -112,7 +112,7 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     code, _ = code_erzeugen(dbs)
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.153"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.154"
+ 
+ 
+ def test_engine_requirements_passen_zu_uv_lock(tmp_path):
+diff --git a/uv.lock b/uv.lock
+index 32c0600..0835f5e 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -2138,7 +2138,7 @@ wheels = [
+ 
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.153"
++version = "0.4.154"
+ source = { editable = "." }
+ dependencies = [
+     { name = "alembic" },
+-- 
+2.43.0
+
