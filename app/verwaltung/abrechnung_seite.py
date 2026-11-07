@@ -37,6 +37,16 @@ PREISFELDER = [
 ]
 
 
+# 0.4.153: Meldungen, die beim Anbieter abonniert sein müssen (sonst fehlen z. B. Erstattungen und Rückbuchungen)
+EREIGNISSE = {
+    "stripe": ("checkout.session.completed", "checkout.session.async_payment_succeeded",
+               "checkout.session.async_payment_failed", "checkout.session.expired", "charge.refunded",
+               "charge.dispute.created"),
+    "paypal": ("PAYMENT.CAPTURE.COMPLETED", "PAYMENT.CAPTURE.REFUNDED", "PAYMENT.CAPTURE.REVERSED",
+               "CUSTOMER.DISPUTE.CREATED"),
+}
+
+
 def _euro_lesen(text: str) -> int | None:
     t = (text or "").strip().replace("€", "").replace(" ", "").replace(".", "").replace(",", ".")
     try:
@@ -96,9 +106,16 @@ def _seite_abrechnung(request: Request, user: User, db: Session, status: int = 2
         abrechnung.offene_abrechnen(db)
     p = abrechnung.preise(db)
     werte = {f.name: getattr(p, f.name) for f in fields(p)}
+    from app import erstattung
+
     konten = []
     for g in db.scalars(select(Guthaben).order_by(Guthaben.angelegt)):
-        konten.append({"g": g, "name": _name(db, g), "saldo": abrechnung.saldo(db, g.id)})
+        konten.append({"g": g, "name": _name(db, g), "saldo": abrechnung.saldo(db, g.id),
+                       "erstattbar": erstattung.erstattbar(db, g)})
+    offen_e = []
+    for z in erstattung.offene(db):  # 0.4.153: nach Kontolöschung
+        offen_e.append({"z": z, "teile": json.loads(z.zahlungen or "[]"),
+                        "jetzt": erstattung.erstattbar(db, db.get(Guthaben, z.guthaben_id))})
     aktionen = db.execute(select(Gutschein.aktion, Gutschein.betrag_cent, func.count(),
                                  func.count(Gutschein.eingeloest_at), func.max(Gutschein.gueltig_bis))
                           .group_by(Gutschein.aktion, Gutschein.betrag_cent).order_by(Gutschein.aktion)).all()
@@ -118,7 +135,9 @@ def _seite_abrechnung(request: Request, user: User, db: Session, status: int = 2
     # 0.4.93: was „0 = automatisch“ gerade bedeutet (Mittelwert der Läufe, sonst aus den Preisen des Anbieters)
     automatisch = {a: abrechnung.euro_genau(abrechnung._mittelwert_cloud(db, a) or abrechnung.preis_aus_anbieter(db, a))
                    for a in abrechnung.KOSTENPFLICHTIG}
-    daten = {"bestaetigen": None, "codes": None, "cloud_ohne_schaetzung": ", ".join(ohne), "automatisch": automatisch,
+    daten = {"bestaetigen": None, "codes": None, "offene_erstattungen": offen_e, "erstattung_fall": None,
+             "frist_tage": erstattung.ANBIETER_FRIST_TAGE, "aufbewahrung_tage": erstattung.AUFBEWAHRUNG_TAGE,
+             "ereignisse": EREIGNISSE, "cloud_ohne_schaetzung": ", ".join(ohne), "automatisch": automatisch,
              **ctx}
     from app import rechtstexte, zahlung
     from app.einstellungen import meta_lesen
@@ -141,8 +160,36 @@ def _seite_abrechnung(request: Request, user: User, db: Session, status: int = 2
 
 
 @router.get("/abrechnung", response_class=HTMLResponse)
-def seite(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)):
-    return _seite_abrechnung(request, user, db)
+def seite(request: Request, erstattung: str = "", user: User = Depends(verwalter), db: Session = Depends(get_db)):
+    from app import erstattung as e
+
+    fall, gesucht = None, erstattung.strip().lower()[:64]
+    if gesucht:  # 0.4.153: Erstattung für ein Konto – was geht auf welche Zahlung zurück
+        konto = db.scalar(select(User).where(User.username == gesucht))
+        g = abrechnung.guthaben_konto(db, konto.id, anlegen=False) if konto else None
+        fall = {"name": gesucht, "gefunden": konto is not None, "a": e.aufteilen(db, g) if g is not None and g.id
+                else e.Aufteilung(0)}
+    return _seite_abrechnung(request, user, db, erstattung_fall=fall)
+
+
+@router.post("/abrechnung/erstattung/{zeile_id}/erledigt", dependencies=[Depends(csrf_pruefen)])
+def erstattung_erledigt(request: Request, zeile_id: str, bestaetigt: str = Form(""),
+                        user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):
+    """0.4.153: von Hand erstattet (Überweisung) – die E-Mail-Adresse wird gelöscht."""
+    from app import erstattung as e
+    from app.models import OffeneErstattung
+
+    if not _faktor(db, user):
+        return _ohne_faktor(request, user, db)
+    z = db.get(OffeneErstattung, zeile_id[:64])
+    if z is None or z.erledigt_at is not None:
+        raise errors.not_found()
+    if not bestaetigt:
+        return _seite_abrechnung(request, user, db, status=400,
+                                 fehler=tr(request)("Bitte bestätigen, dass der Betrag erstattet ist."))
+    e.erledigen(db, z, "von_hand", user.id)
+    db.commit()
+    return _zurueck("/abrechnung#erstattungen", "gespeichert")
 
 
 @router.post("/abrechnung/modus", dependencies=[Depends(csrf_pruefen)])

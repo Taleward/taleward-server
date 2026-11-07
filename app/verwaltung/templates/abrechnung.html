@@ -74,6 +74,11 @@
   <p>{{ _("Adressen für die Meldungen der Anbieter (beim Anbieter als Webhook eintragen):") }}</p>
   <p class="kopierzeile"><span>Stripe</span> <code class="ganz">{{ zahl_basis }}/zahlung/stripe</code></p>
   <p class="kopierzeile"><span>PayPal</span> <code class="ganz">{{ zahl_basis }}/zahlung/paypal</code></p>
+  <details><summary>{{ _("Diese Meldungen beim Anbieter abonnieren") }}</summary>
+    <p>Stripe: {% for e in ereignisse.stripe %}<code>{{ e }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+    <p>PayPal: {% for e in ereignisse.paypal %}<code>{{ e }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+    <p class="hilfe">{{ _("Fehlt eine, kommen Erstattungen oder Rückbuchungen nicht an. Stripe sendet nachträglich abonnierte Meldungen nicht noch einmal.") }}</p>
+  </details>
   {% else %}
   <p class="meldung meldung--fehler">{{ _("Zuerst die öffentliche Adresse des Servers eintragen (Einstellungen → Einrichtung → Angaben für die App). Ohne sie gibt es kein Aufladen.") }}</p>
   {% endif %}
@@ -101,18 +106,65 @@
 <div class="karte">
   <h2>{{ _("Guthaben") }}</h2>
   <div class="tabelle-huelle"><table>
-    <thead><tr><th>{{ _("Wer") }}</th><th>{{ _("Saldo") }}</th></tr></thead>
+    <thead><tr><th>{{ _("Wer") }}</th><th>{{ _("Saldo") }}</th><th>{{ _("davon erstattbar") }}</th></tr></thead>
     <tbody>
     {% for k in konten %}
       <tr><td data-label="{{ _('Wer') }}">{{ k.name }}{% if k.g.art == "organisation" %} <span class="leise">({{ _("Organisation") }})</span>{% endif %}
         {% if k.g.gesperrt_at %}<br><span class="marke-status marke-status--fehler">{{ _("gesperrt seit {zeit}", zeit=zeit(k.g.gesperrt_at)) }}</span>
         <form method="post" action="/verwaltung/abrechnung/entsperren/{{ k.g.id }}"><input type="hidden" name="csrf" value="{{ csrf }}">
-          <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Sperre aufheben") }}</button></form>{% endif %}</td><td data-label="{{ _('Saldo') }}">{{ euro(k.saldo) }}</td></tr>
+          <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Sperre aufheben") }}</button></form>{% endif %}</td><td data-label="{{ _('Saldo') }}">{{ euro(k.saldo) }}</td>
+        <td data-label="{{ _('davon erstattbar') }}">{{ euro(k.erstattbar) if k.erstattbar else "–" }}</td></tr>
     {% else %}
-      <tr><td colspan="2" class="leise">{{ _("Noch kein Guthaben angelegt.") }}</td></tr>
+      <tr><td colspan="3" class="leise">{{ _("Noch kein Guthaben angelegt.") }}</td></tr>
     {% endfor %}
     </tbody>
   </table></div>
+</div>
+
+{% macro aufteilung_zeigen(teile) %}
+  <ul class="liste">
+  {% for t in teile %}
+    <li>{{ "Stripe" if t.anbieter == "stripe" else "PayPal" }} · <code>{{ t.zahlung_ref or t.ref }}</code>{% if t.bezahlt_am %} · {{ zeit(t.bezahlt_am) }}{% endif %} ·
+      {{ _("beim Anbieter erstatten: {betrag}", betrag=euro(t.beim_anbieter_cent)) }} <span class="leise">({{ _("Guthaben {betrag}", betrag=euro(t.credit_cent if t.credit_cent is defined else t.cent)) }})</span>
+      {% if t.frist_vorbei %}<span class="marke-status marke-status--warten">{{ _("älter als {n} Tage", n=frist_tage) }}</span>{% endif %}</li>
+  {% endfor %}
+  </ul>
+{% endmacro %}
+<div class="karte" id="erstattungen">
+  <h2>{{ _("Erstattungen") }}</h2>
+  <p class="hilfe">{{ _("Erstattet wird nur, was aus Zahlungen übrig ist – voll, auf die ursprünglichen Zahlungen, die neueste zuerst. Gutschriften und Gutscheine nie. Erstatte im Dashboard des Anbieters; seine Meldung bucht die Gegenbuchung.") }}</p>
+  <form class="formular formular--zeile" method="get" action="/verwaltung/abrechnung#erstattungen">
+    <label>{{ _("Benutzername") }} <input type="text" name="erstattung" maxlength="64" autocomplete="off" value="{{ erstattung_fall.name if erstattung_fall else '' }}"></label>
+    <button class="tw-btn tw-btn--secondary" type="submit">{{ _("Anzeigen") }}</button>
+  </form>
+  {% if erstattung_fall %}
+    {% if not erstattung_fall.gefunden %}<p class="meldung meldung--fehler">{{ _("Kein Konto mit diesem Benutzernamen.") }}</p>
+    {% elif not erstattung_fall.a.betrag_cent %}<p>{{ _("Nichts zu erstatten.") }}</p>
+    {% else %}
+      <p><strong>{{ _("Erstattbar: {betrag}", betrag=euro(erstattung_fall.a.betrag_cent)) }}</strong></p>
+      {{ aufteilung_zeigen(erstattung_fall.a.teile) }}
+      {% if erstattung_fall.a.ueberweisung_noetig %}<p class="meldung">{{ _("Geht eine Zahlung nicht mehr zu erstatten (Frist des Anbieters, Karte erloschen): per Mail nach einer Kontoverbindung fragen und von Hand überweisen. Die Kontoverbindung nie in Taleward eintragen.") }}{% if erstattung_fall.a.von_hand_cent %} {{ _("Ohne passende Zahlung: {betrag}.", betrag=euro(erstattung_fall.a.von_hand_cent)) }}{% endif %}</p>{% endif %}
+    {% endif %}
+  {% endif %}
+  <h3>{{ _("Offen nach Kontolöschung") }}</h3>
+  {% if offene_erstattungen %}
+  <ul class="liste-av">
+  {% for o in offene_erstattungen %}
+    <li><span>{{ zeit(o.z.angelegt) }} · <strong>{{ euro(o.z.betrag_cent) }}</strong>{% if o.jetzt != o.z.betrag_cent %} <span class="leise">({{ _("noch offen: {betrag}", betrag=euro(o.jetzt)) }})</span>{% endif %} ·
+      {% if o.z.email %}<code>{{ o.z.email }}</code>{% else %}<span class="leise">{{ _("keine E-Mail-Adresse") }}</span>{% endif %}</span>
+      {{ aufteilung_zeigen(o.teile) }}
+      <details><summary>{{ _("Von Hand erstattet") }}</summary>
+        <form class="formular formular--zeile" method="post" action="/verwaltung/abrechnung/erstattung/{{ o.z.id }}/erledigt">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <label class="haken"><input type="checkbox" name="bestaetigt" value="1" required> {{ _("Betrag ist überwiesen – E-Mail-Adresse jetzt löschen") }}</label>
+          <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Erledigt") }}</button>
+        </form></details></li>
+  {% endfor %}
+  </ul>
+  <p class="hilfe">{{ _("Meldet der Anbieter die Erstattung, schließt sich der Fall von selbst. Die E-Mail-Adresse wird spätestens nach {n} Tagen gelöscht.", n=aufbewahrung_tage) }}</p>
+  {% else %}
+  <p class="leise">{{ _("Keine.") }}</p>
+  {% endif %}
 </div>
 
 <div class="karte">

@@ -387,5 +387,8 @@ def entfernen(db: Session, u: User) -> None:
     from app import kapitelprobe
 
     kapitelprobe.konto_entfernt(u.id)  # 0.4.62: Probeläufe der Verwaltung
+    from app import erstattung
+
+    erstattung.bei_kontoloeschung(db, u)  # 0.4.153: Rest aus Zahlungen wird erstattet („Erstattung offen“)
     db.flush()
     db.delete(u)

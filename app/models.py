@@ -1030,3 +1030,20 @@ class ShareKey(Base):
     key: Mapped[str] = mapped_column(String(64))
     bindung: Mapped[str] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+# ---------------------------------------------------------------- Erstattung offen (0.4.153)
+class OffeneErstattung(Base):
+    """Nach einer Kontolöschung mit erstattbarem Rest: Betrag, Zahlungsbezüge (JSON: anbieter, ref, cent,
+    beim_anbieter_cent) und die E-Mail-Adresse – ohne Namen. Die Adresse wird gelöscht, sobald erstattet ist,
+    spätestens nach 90 Tagen (app/erstattung.py). Nie eine Kontoverbindung."""
+
+    __tablename__ = "offene_erstattungen"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    guthaben_id: Mapped[str] = mapped_column(ForeignKey("guthaben.id"), index=True)
+    betrag_cent: Mapped[int] = mapped_column(Integer)
+    zahlungen: Mapped[str] = mapped_column(Text, default="[]")
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    erledigt_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    erledigt_wie: Mapped[str | None] = mapped_column(String(16), nullable=True)  # erstattet | von_hand

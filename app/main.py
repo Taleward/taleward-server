@@ -53,6 +53,9 @@ def _wartung_starten() -> threading.Event | None:
                     from app import aufbewahrung
 
                     aufbewahrung.leere_runden_entfernen(db)  # 0.4.147: Runden ohne Aufnahme nach einer Woche
+                    from app import erstattung
+
+                    erstattung.wartung(db)  # 0.4.153: erstattete Fälle schließen, E-Mail nach 90 Tagen weg
                     db.commit()
                 if any(ergebnis.values()):
                     log.info("Wartung: %s", ergebnis)

@@ -185,7 +185,10 @@ def konto_loeschen_seite(request: Request, db: Session = Depends(get_db)):
     Bestätigungslogik wie DELETE /me (app/konto.py); Fehlversuche zählen wie beim Anmelden."""
     from app.verwaltung.router import _seite as seite
 
-    return seite(request, "konto_loeschen.html", None, db, fertig=False, konto="", fehler="")
+    from app import abrechnung
+
+    return seite(request, "konto_loeschen.html", None, db, fertig=False, konto="", fehler="",
+                 abrechnung_an=abrechnung.an(db))
 
 
 @seiten.post("/konto-loeschen", response_class=HTMLResponse)
@@ -202,7 +205,10 @@ def konto_loeschen_ausfuehren(request: Request, username: str = Form(""), passwo
 
     def fehler(text: str, status: int = 400) -> HTMLResponse:
         db.rollback()
-        antwort = seite(request, "konto_loeschen.html", None, db, fertig=False, konto=name, fehler=text)
+        from app import abrechnung
+
+        antwort = seite(request, "konto_loeschen.html", None, db, fertig=False, konto=name, fehler=text,
+                        abrechnung_an=abrechnung.an(db))
         antwort.status_code = status
         return antwort
 

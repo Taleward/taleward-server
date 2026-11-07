@@ -357,6 +357,7 @@ def _ohne_fremde_titel(db: Session, user: User, g: Guthaben) -> list[dict]:
 
 def _hauptseite(request: Request, db: Session, user: User, meldung: str | None = None, fehler: str | None = None,
                 status: int = 200, gutschein_offen: bool = False) -> HTMLResponse:
+    from app import erstattung
     from app.models import Organization
 
     abrechnung.offene_abrechnen(db)
@@ -366,7 +367,8 @@ def _hauptseite(request: Request, db: Session, user: User, meldung: str | None =
         toepfe.append({"g": g, "name": (org.name if org else "?") if g.art == "organisation" else None,
                        "saldo": abrechnung.saldo(db, g.id), "stand": abrechnung.stand(db, g),
                        "buchungen": abrechnung.buchungen(db, g, 50), "wartend": _ohne_fremde_titel(db, user, g),
-                       "offen": zahlung.offene(db, g) if g.id else []})
+                       "offen": zahlung.offene(db, g) if g.id else [],
+                       "erstattbar": erstattung.erstattbar(db, g) if g.art != "organisation" else 0})
     db.commit()  # neu angelegte Guthaben-Zeilen
     antwort = _seite(request, "guthaben.html", None, db, person=user, toepfe=toepfe,
                      kampagnen=_sl_kampagnen(db, user), euro=abrechnung.euro, topf=abrechnung.modus(db) == "topf",

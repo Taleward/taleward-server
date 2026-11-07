@@ -14,6 +14,7 @@
     <p>{{ _("Du kannst dein Konto auch in der App löschen: Konto → „Daten und Konto löschen“. Hier geht es ohne App, mit Benutzername und Passwort.") }}</p>
     <h3>{{ _("Was gelöscht wird") }}</h3>
     <p>{{ _("Dein Konto mit Anmeldungen, E-Mail-Adresse, Charakterbildern, Charakter-Hintergründen, Zustimmungen und Stimmprofil. Kampagnen, in denen sonst niemand mehr ist, werden mitgelöscht.") }}</p>
+    {% if abrechnung_an %}<p class="hilfe">{{ _("Ist auf deinem Guthaben noch Geld aus Zahlungen übrig, erstattet der Betreiber es dir auf die ursprüngliche Zahlung. Dafür bleibt nur der Betrag mit deiner bestätigten E-Mail-Adresse stehen, bis erstattet ist, höchstens 90 Tage.") }}</p>{% endif %}
     <h3>{{ _("Was bleibt") }}</h3>
     <p>{{ _("In gemeinsamen Kampagnen bleibt dein Platz als „Gelöschtes Konto“ stehen, damit Kapitel, Anwesenheitslisten und Kommentare stimmig bleiben; der Name deiner Figur bleibt Teil der Geschichte. Der Widerruf deiner Zustimmungen bleibt als Nachweis im Protokoll.") }}</p>
     <p class="hilfe">{{ _("Leitest du eine Kampagne als einzige Spielleitung, in der noch andere sind, ernenne dort zuerst in der App eine andere Spielleitung. Vorher solltest du deine Daten in der App exportieren (Konto → „Meine Daten“).") }}</p>

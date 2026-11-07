@@ -26,6 +26,7 @@
     {% else %}{{ _("Reicht für die nächsten Verarbeitungen.") }}{% endif %}
   </p>
   {% if t.g.gesperrt_at %}<p class="meldung meldung--fehler">{{ _("Eine Zahlung wurde zurückgebucht oder angefochten. Bis die Verwaltung das geprüft hat, starten keine neuen Verarbeitungen und Aufladen geht nicht.") }}{% if angaben.server_contact %} {{ angaben.server_contact }}{% endif %}</p>{% endif %}
+  {% if t.erstattbar %}<p class="hilfe">{{ _("Davon aus Zahlungen übrig: {betrag}. Diesen Teil bekommst du auf Wunsch zurück, voll und auf die ursprüngliche Zahlung – auch, wenn du dein Konto löschst. Gutschriften und Gutscheine werden nicht ausgezahlt.", betrag=euro(t.erstattbar)) }}{% if angaben.server_contact %} {{ _("Melde dich dafür bei {kontakt}.", kontakt=angaben.server_contact) }}{% endif %}</p>{% endif %}
   {% if t.offen %}<p class="meldung" role="status">{{ _("Eine Zahlung ist begonnen und noch nicht bestätigt. Das Guthaben erscheint, sobald der Zahlungsanbieter sie bestätigt. Seite später neu laden.") }}</p>{% endif %}
 
   {% if zahlwege_an and not t.g.gesperrt_at %}

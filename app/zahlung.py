@@ -313,6 +313,8 @@ def _gegenbuchen(db: Session, v: Bezahlvorgang, art: str, brutto_cent: int, erei
     except IntegrityError:
         return False
     abrechnung.protokoll(db, "system", art, g.id, vorgang=v.id, brutto_cent=brutto_cent)
+    if v.anbieter == "paypal":  # 0.4.153: PayPal meldet je Erstattung den Betrag (Stripe die Summe, siehe dort)
+        v.erstattet_cent = (v.erstattet_cent or 0) + brutto_cent
     return True
 
 
