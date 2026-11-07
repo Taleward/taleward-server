@@ -1400,6 +1400,12 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503":
+          description: |
+            `share_unavailable` (ab Server 0.4.152): Der Signierschlüssel ist gerade nicht lesbar (z. B. Schutz der
+            Schlüsselablage des Betriebssystems). Nichts wurde erzeugt; später noch einmal versuchen. Die App zeigt die
+            Meldung des Servers.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
 
   /campaigns/{campaignId}/members/me/world:
     parameters: [{ $ref: "#/components/parameters/campaignId" }]

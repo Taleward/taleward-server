@@ -301,7 +301,7 @@ def test_updates_nur_ueber_das_programm(ep):
                 follow_redirects=False)
     assert r.status_code == 303
     seite = ep.get("/verwaltung/updates")
-    assert seite.status_code == 200 and "aktualisiert das Taleward-Programm selbst" in seite.text
+    assert seite.status_code == 200 and "aktualisiert sich selbst" in seite.text
     assert "server-jetzt" not in seite.text
     csrf = csrf_von(ep.get("/verwaltung/").text)
     assert ep.post("/verwaltung/updates/server-jetzt", data={"csrf": csrf}).status_code == 404

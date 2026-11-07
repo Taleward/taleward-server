@@ -8,11 +8,13 @@
 {% elif zahlen.fehlgeschlagen %}<p class="lage lage--achtung"><span>{{ _("Eine Runde ist fehlgeschlagen.") if zahlen.fehlgeschlagen == 1 else _("{n} Runden sind fehlgeschlagen.", n=zahlen.fehlgeschlagen) }}</span> <a href="/verwaltung/warteschlange">{{ _("Warteschlange ansehen") }}</a></p>
 {% elif zahlen.bei_sl %}<p class="lage"><span>{{ _("Alles läuft. Eine Runde wartet auf die Spielleitung.") if zahlen.bei_sl == 1 else _("Alles läuft. {n} Runden warten auf die Spielleitung.", n=zahlen.bei_sl) }}</span></p>
 {% else %}<p class="lage"><span>{{ _("Alles läuft.") }}</span></p>{% endif %}
+{% for s in schluessel_ablauf %}<p class="lage lage--achtung"><span>{% if s.tage < 0 %}{{ _("Der Schlüssel für {dienst} ist abgelaufen – die Anmeldung damit geht nicht mehr.", dienst=s.name) }}{% else %}{{ _("Der Schlüssel für {dienst} läuft in {n} Tagen ab.", dienst=s.name, n=s.tage) }}{% endif %}</span> <a href="/verwaltung/anmeldung#{{ s.id }}">{{ _("Erneuern") }}</a></p>{% endfor %}
+{% if datenschutz_neuer %}<p class="lage lage--achtung"><span>{{ _("Die Vorlage für den Datenschutzhinweis hat sich geändert.") }}</span> <a href="/verwaltung/assistent/datenschutz">{{ _("Ansehen") }}</a></p>{% endif %}
 {% if widersprueche %}
 <div class="karte karte--hinweis" role="note">
   <h2>{{ _("Einstellungen passen nicht zur Betriebsart „{art}“", art={"cloud": _("Nur Cloud"), "lokal": _("Lokaler Server"), "beides": _("Lokaler Server, Cloud als Ausweichlösung")}[betrieb]) }}</h2>
   <ul>{% for w in widersprueche %}<li>{{ _(w.text, n='%g'|format(w.n) if w.n is not none else '') }} <a href="{{ w.link }}">{{ _("Ansehen") }}</a></li>{% endfor %}</ul>
-  <p class="hilfe">{{ _("Gewollt? Dann kannst du das so lassen. Sonst die Einstellung ändern oder die Betriebsart anpassen.") }} <a href="/verwaltung/einstellungen">{{ _("Betriebsart ändern") }}</a></p>
+  <p class="hilfe">{{ _("Gewollt? Dann passt es. Sonst Einstellung oder Betriebsart ändern.") }} <a href="/verwaltung/einstellungen">{{ _("Betriebsart ändern") }}</a></p>
 </div>
 {% endif %}
 {% set offen = punkte|selectattr("erledigt", "equalto", false)|list %}

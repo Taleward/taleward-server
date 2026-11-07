@@ -208,6 +208,6 @@ def test_von_hand_erledigt_braucht_faktor_und_haken(client, dbs, admin):  # noqa
 def test_guthabenseite_und_kontoloeschung_nennen_erstattung(client, dbs):
     _modus(dbs)
     r = client.get("/konto-loeschen")
-    assert "erstattet der Betreiber" in r.text
+    assert "auf die ursprüngliche Zahlung zurück" in r.text
     _modus(dbs, "aus")
-    assert "erstattet der Betreiber" not in client.get("/konto-loeschen").text
+    assert "auf die ursprüngliche Zahlung zurück" not in client.get("/konto-loeschen").text

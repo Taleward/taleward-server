@@ -41,7 +41,7 @@ ANLEITUNG = {
         "„Zertifikate & Geheimnisse“ → „Neuer geheimer Clientschlüssel“ → Ablauf wählen (höchstens 24 Monate) → „Hinzufügen“. Aus der Spalte „Wert“ kopieren, nicht „Geheimnis-ID“. Der Wert wird nur jetzt angezeigt; verpasst → neuen Schlüssel anlegen, alten löschen.",
         "Freiwillig: „Branding und Eigenschaften“ → Startseite, Nutzungsbedingungen und Datenschutz mit den Adressen unten; ein Logo braucht es nicht.",
         "Steht dort orange „nicht überprüft“ (Herausgeber): Private Konten können sich trotzdem anmelden, nur manche Firmen- oder Schulkonten sind gesperrt. Die Herausgeberprüfung ist freiwillig.",
-        "Der Schlüssel läuft nach höchstens 24 Monaten ab, danach geht die Anmeldung mit Microsoft still nicht mehr. Den Tag notieren und rechtzeitig einen neuen Schlüssel anlegen und hier eintragen.",
+        "Der Schlüssel läuft nach höchstens 24 Monaten ab, danach geht die Anmeldung mit Microsoft still nicht mehr. Den Tag unten bei „Schlüssel läuft ab am“ eintragen, dann kommt rechtzeitig eine Erinnerung.",
     ]),
     "apple": ("https://developer.apple.com/account/resources/identifiers/list/serviceId", [
         "Braucht ein Apple-Entwicklerkonto (kostenpflichtig). Nötig erst mit einer iPhone-Fassung der App.",
@@ -55,10 +55,18 @@ SCHLUESSEL_NAME = {"google": "Clientschlüssel", "discord": "Client Secret",
                    "microsoft": "Wert des geheimen Clientschlüssels"}
 
 
+def _tage(ablauf) -> int | None:
+    from app.db import utcnow
+
+    return None if ablauf is None else (ablauf - utcnow().date()).days
+
+
 def _dienste(db: Session, basis: str) -> list[dict]:
     return [{"id": d, "name": anmeldedienste.DIENSTE[d]["name"], "k": anmeldedienste.konfig(db, d),
              "rueck": anmeldedienste.rueckleitung(basis, d), "link": ANLEITUNG[d][0], "schritte": ANLEITUNG[d][1],
-             "schluessel_name": SCHLUESSEL_NAME.get(d, "Clientschlüssel (Secret)")}
+             "schluessel_name": SCHLUESSEL_NAME.get(d, "Clientschlüssel (Secret)"),
+             "ablauf": anmeldedienste.ablauf(db, d), "mit_ablauf": d in anmeldedienste.ABLAUF_DIENSTE,
+             "tage": _tage(anmeldedienste.ablauf(db, d))}
             for d in anmeldedienste.REIHENFOLGE]
 
 
@@ -94,9 +102,9 @@ async def anmeldung_speichern(dienst: str, request: Request, user: User = Depend
         return _zurueck("/anmeldung")
     form = await request.form()
     wert = {k: str(form.get(k, "")).strip() for k in ("client_id", "client_secret", "team_id", "key_id",
-                                                        "private_key", "entfernen")}
+                                                        "private_key", "entfernen", "ablauf")}
     if wert["entfernen"]:
-        for k in ("client_id", "client_secret", "team_id", "key_id", "private_key"):
+        for k in ("client_id", "client_secret", "team_id", "key_id", "private_key", "ablauf"):
             meta_schreiben(db, f"oidc.{dienst}.{k}", "")
         db.commit()
         return _zurueck(f"/anmeldung#{dienst}", "gespeichert")
@@ -104,6 +112,17 @@ async def anmeldung_speichern(dienst: str, request: Request, user: User = Depend
         antwort = anmeldung(request, user, db, fehler=_("Bitte den ganzen Inhalt der .p8-Datei einfügen (mit BEGIN/END PRIVATE KEY)."))
         antwort.status_code = 400
         return antwort
+    if dienst in anmeldedienste.ABLAUF_DIENSTE and "ablauf" in form:  # 0.4.157: leer = kein Datum
+        from datetime import date
+
+        try:
+            tag = date.fromisoformat(wert["ablauf"]) if wert["ablauf"] else None
+        except ValueError:
+            antwort = anmeldung(request, user, db, fehler=_("Bitte ein gültiges Datum eintragen."))
+            antwort.status_code = 400
+            return antwort
+        meta_schreiben(db, f"oidc.{dienst}.ablauf", tag.isoformat() if tag else "")
+        meta_schreiben(db, f"melden.anmeldeschluessel.{dienst}", "")
     for k in ("client_id", "team_id", "key_id"):
         if wert[k] or k == "client_id":
             meta_schreiben(db, f"oidc.{dienst}.{k}", wert[k][:300])

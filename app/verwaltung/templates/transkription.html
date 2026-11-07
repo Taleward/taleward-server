@@ -85,7 +85,7 @@
   <p>{{ _("Lokale Kapitel: Ollama läuft mit") }} ({{ _("nur Prozessor") if e.ollama == "cpu" else _("Grafikkarte") }}){% if e.llm_bereit %} · <span class="marke-status marke-status--gut">{{ _("vom Worker erkannt") }}</span>{% endif %}.
     {% if e.llm_lokal %}{{ _("Kapitel schreibt der Worker hier mit dem lokalen Sprachmodell.") }}
     {% else %}<a href="/verwaltung/zusammenfassung">{{ _("Damit er Kapitel schreibt, unter „Zusammenfassung“ „Lokales Modell“ wählen.") }}</a>{% endif %}</p>
-  <p class="hilfe">{{ _("Das Sprachmodell (etwa 5 GB) lädt der Worker beim ersten Kapitel. Transkription und Kapitel wechseln sich auf der Grafikkarte ab; reicht der Grafikspeicher nicht für beides, rechnet Ollama teilweise mit dem Prozessor – langsamer, aber es geht.") }}</p>
+  <p class="hilfe">{{ _("Das Sprachmodell (etwa 5 GB) lädt der Worker beim ersten Kapitel. Reicht der Grafikspeicher nicht, rechnet er teilweise mit dem Prozessor – langsamer, aber es geht.") }}</p>
   {% endif %}
   <form class="formular" method="post" action="/verwaltung/worker/eingebaut">
     <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -127,7 +127,7 @@
   </div>
   <details><summary>{{ _("Protokoll und Hilfe") }}</summary>
     <p class="hilfe">{{ _("Protokoll auf dem Server:") }} <code>cd /opt/taleward && sudo docker compose logs -f {{ "worker-cpu" if worker_art == "cpu" else "worker" }}</code></p>
-    <p class="hilfe">{{ _("Die Werte hier gehen denen aus der .env vor. Nicht gesetzt: es gilt die .env (TALEWARD_WORKER_VRAM_MB, TALEWARD_WORKER_MODELL).") }}</p>
+    <p class="hilfe">{{ _("Gehen der .env vor. Nicht gesetzt: es gilt die .env.") }}</p>
   </details>
   <script src="{{ statisch('eingebaut.js') }}" defer></script>
 {% elif docker %}
@@ -268,7 +268,7 @@
   <h2>{{ _("Sprechermodell") }}</h2>
   {% if modell.stand %}
   <p><span class="marke-status marke-status--gut">{{ _("auf dem Server") }}</span> {{ _("Fassung {fassung}, {mb} MB, Quelle: {quelle}", fassung=modell.stand.fassung[:12], mb="%.0f"|format(modell.mb), quelle=_("Taleward-Spiegel") if modell.stand.quelle == "spiegel" else "Hugging Face") }}</p>
-  <p class="hilfe">{{ _("Eure Worker laden das Modell vom Server. Sie brauchen dafür kein Hugging-Face-Konto, und alle nutzen dieselbe Fassung.") }}</p>
+  <p class="hilfe">{{ _("Eure Worker laden das Modell vom Server, ohne eigenes Konto.") }}</p>
   {% else %}
   <p><span class="marke-status{% if modell.fehler %} marke-status--fehler{% endif %}">{{ _("noch nicht auf dem Server") }}</span>{% if modell.fehler %} {{ modell.fehler }}{% endif %}</p>
   {% if modell.spiegel %}

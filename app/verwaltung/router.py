@@ -147,6 +147,7 @@ MELDUNGEN = {
     "sl_unveraendert": "Nichts geändert – der Stand hatte sich schon geändert.",
     "konto_geloescht": "Konto gelöscht. Kommentare der Person bleiben als „gelöschtes Konto“ stehen.",
     "gespeichert": "Gespeichert.",
+    "erstattung_angestossen": "Erstattung angestoßen. Das Guthaben ändert sich, sobald der Anbieter sie meldet.",
     "betrieb_schluessel": "Betriebsart gespeichert. Jetzt hier den API-Schlüssel von Mistral eintragen.",
     "betrieb_worker": "Betriebsart gespeichert. Jetzt hier einen Worker anbinden.",
     "worker_einstellungen": "Gespeichert. Der Worker startet nach dem laufenden Auftrag mit den neuen Einstellungen neu.",
@@ -327,6 +328,15 @@ def _offen_grenze_kuerzlich():
 
     zeit = OFFEN_GRENZE_ERREICHT["zeit"]
     return zeit if zeit is not None and zeit > utcnow() - timedelta(days=1) else None
+
+
+def _schluessel_ablauf(db: Session) -> list[dict]:
+    """0.4.157: Anmeldedienste, deren Schlüssel in 30 Tagen abläuft oder abgelaufen ist (für die Übersicht)."""
+    from app import anmeldedienste
+
+    heute = utcnow().date()
+    return [{"name": anmeldedienste.DIENSTE[d]["name"], "id": d, "tage": (a - heute).days}
+            for d, a in anmeldedienste.ablaufdaten(db).items() if (a - heute).days <= 30]
 
 
 def _zurueck(pfad: str, ok: str | None = None) -> RedirectResponse:
@@ -785,12 +795,15 @@ def uebersicht(request: Request, user: User = Depends(verwalter), db: Session = 
     punkte = [] if meta_lesen(db, "assistent.ausgeblendet") else einrichtung.stand(db)
     kosten_info = {"monat": kosten.monat_cent(db), "limit": kosten.limit_cent(db)}
     speicher["bilder"] = _ordnergroesse(s.data_dir / "bilder") + _ordnergroesse(s.data_dir / "unterlagen")
+    from app import datenschutz
     from app.einstellungen import extern_konfig
 
     # Ohne Cloud-Abschrift braucht jede neue Runde einen Worker – dann ist „kein Worker“ auch ohne wartende Runde rot
     braucht_worker = not extern_konfig(db).anbieter
     return _seite(request, "uebersicht.html", user, db, zahlen=zahlen, speicher=speicher, api_version=API_VERSION,
                   braucht_worker=braucht_worker, widersprueche=einrichtung.widersprueche(db),
+                  datenschutz_neuer=datenschutz.vorlage_neuer(db),
+                  schluessel_ablauf=_schluessel_ablauf(db),
                   db_datei=db_datei, knecht=KNECHT.zustand(), fehler=fehler, sicherungen=sicherung.liste()[:7],
                   sicherung_einst=sicherung.einstellungen(db), punkte=punkte, kosten=kosten_info,
                   eingebaut=_eingebaut_anzeige(db), aufbewahrung=aufbewahrung.lesen(db))
@@ -1036,7 +1049,8 @@ def transkription(request: Request, user: User = Depends(verwalter), db: Session
     from app.koppeln import code_fuer
 
     return _seite(request, "transkription.html", user, db, knechte=_knechte(db), neuer_token=neuer_token,
-                  koppel=code_fuer(db, _sitzungs_bindung(request)),  # 0.4.152 (S57.4): nur die erzeugende Sitzung server_url=str(request.base_url).rstrip("/"),
+                  koppel=code_fuer(db, _sitzungs_bindung(request)),  # 0.4.152 (S57.4): nur die erzeugende Sitzung
+                  server_url=str(request.base_url).rstrip("/"),
                   hf_ende=(_meta(db, "hf.token") or "")[-4:] or None, modell=_modell_anzeige(db),
                   neuer_name=neuer_name, fehler=fehler, lokal=KNECHT.zustand(), log=KNECHT.log_ende(),
                   autostart=meta_lesen(db, META_KEY, "aus"), ki=ki_verfuegbar(), ext=_extern_anzeige(db),
@@ -1491,6 +1505,7 @@ def zusammenfassung_speichern(request: Request, art: str = Form("aus"), anbieter
                               gegenpruefen_feld: str = Form(""), gegenpruefen: str = Form(""),
                               zweiter_blick: str = Form(""), pruefansicht: str = Form(""),
                               ausserhalb_eu: str = Form(""), weg: str = Form(""), weg_lokal: str = Form(""),
+                              erweitert_fest: str = Form(""),
                               user: User = Depends(verwalter), db: Session = Depends(get_db)):
     _frisch_verlangen(request, db, user, bool(api_key.strip()))  # 0.4.143 (S44): Cloud-Schlüssel nur mit frischem Faktor
     """Wer Recap und Vorschläge schreibt. Überschreibt die .env; der Schlüssel wird nie angezeigt."""
@@ -1522,6 +1537,8 @@ def zusammenfassung_speichern(request: Request, art: str = Form("aus"), anbieter
     modell = (api_modell_text.strip() if bekannt is None and api_modell_text.strip() else api_modell.strip())
     lokal, fuer_vorschlaege = lokal_modell.strip(), api_modell_vorschlaege.strip()
     fuer_notizen = api_modell_notizen.strip()
+    if erweitert_fest:  # 0.4.157: Weg (lokal), Prüfansicht und Notizen-Modell stehen fest auf dem empfohlenen Wert
+        fuer_notizen, weg_lokal, pruefansicht = "", "abschrift", "pflicht"
     if (not modell or not lokal or len(modell) > 100 or len(lokal) > 100 or len(fuer_vorschlaege) > 100
             or len(fuer_notizen) > 100):
         return fehler(_("Bitte die Modellnamen angeben."))
@@ -2013,7 +2030,8 @@ def qr_bild(text: str) -> str:
 
 @seiten.get("/einladung/{code}", response_class=HTMLResponse)
 def einladung(code: str, request: Request, db: Session = Depends(get_db)):
-    """Landeseite eines Einladungslinks für Leute ohne App. Zeigt keinen Kampagnentitel (die Seite ist öffentlich)."""
+    """Landeseite eines Einladungslinks für Leute ohne App. 0.4.157: zeigt den Kampagnentitel wie die Vorschau der App
+    (GET /invites/{code}) – nur bei gültigem Code und innerhalb derselben Zähler, nie in den Vorschau-Angaben (og:)."""
     from urllib.parse import quote, urlsplit
 
     from app.models import Invite
@@ -2040,7 +2058,15 @@ def einladung(code: str, request: Request, db: Session = Depends(get_db)):
     a = angaben(db)
     ziel = urlsplit(a.app_download_url or "")
     store = ziel.netloc.endswith(("play.google.com", "apps.apple.com"))
+    from app.models import Campaign, Member
+
+    kampagne = db.get(Campaign, einladung.campaign_id) if gueltig and not ungeprueft else None
+    if kampagne is not None and einladung.member_id:  # Platz-Einladung: nur solange der Platz frei ist (wie die API)
+        platz = db.get(Member, einladung.member_id)
+        if platz is None or not platz.open_seat:
+            kampagne = None
     antwort = _seite(request, "einladung.html", None, db, code=code, gueltig=gueltig,
+                     kampagne=kampagne.title if kampagne is not None else None,
                      bis=einladung.expires_at if gueltig and not ungeprueft else None, link=link,
                      app_link="taleward://einladung?url=" + quote(link, safe=""),
                      apk_hinweis=ziel.path.lower().endswith(".apk") or not store,
@@ -2049,6 +2075,7 @@ def einladung(code: str, request: Request, db: Session = Depends(get_db)):
                      browser_link=webapp.browser_link(db, oeffentliche_adresse(db, request), link) if gueltig else None)
     if not gueltig:
         antwort.status_code = 404
+    antwort.headers["Cache-Control"] = "no-store"
     return antwort
 
 

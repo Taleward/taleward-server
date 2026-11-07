@@ -135,7 +135,7 @@ def test_passkey_nur_mit_https_und_code(client, dbs, admin):  # noqa: F811
     assert "Passkey hinzufügen" not in seite  # ohne zweiten Faktor keine Karte dafür
     _faktor_an(client, dbs, chef.id)
     seite = client.get("/verwaltung/anmeldung").text
-    assert "öffentliche Adresse des Servers mit https" in seite and "Passkey hinzufügen" not in seite
+    assert "eine https-Adresse eingetragen ist" in seite and "Passkey hinzufügen" not in seite
     assert not passkeys.verfuegbar(dbs)
     r = client.post("/verwaltung/passkeys/beginnen", data={"csrf": admin})
     assert r.status_code == 400 and r.json()["fehler"] == "passkey_keine_adresse"

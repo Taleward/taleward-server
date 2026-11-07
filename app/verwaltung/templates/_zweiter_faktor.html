@@ -17,7 +17,7 @@
   <p><span class="marke-status marke-status--gut">{{ _("eingeschaltet") }}</span> {{ _("Noch {n} Wiederherstellungscodes übrig.", n=faktor.codes_uebrig) }}</p>
   {# 0.4.143: Passkeys (Windows Hello, Fingerabdruck, Sicherheitsschlüssel) neben dem Code #}
   <h3>{{ _("Passkeys") }}</h3>
-  <p class="hilfe">{{ _("Ein Passkey ersetzt beim Anmelden den Code: Windows Hello am PC, Fingerabdruck oder Gesicht am Handy, ein Sicherheitsschlüssel. Das Passwort bleibt, der Code bleibt als Rückweg.") }}</p>
+  <p class="hilfe">{{ _("Ein Passkey ersetzt beim Anmelden den Code, etwa per Fingerabdruck oder Windows Hello. Der Code bleibt als Rückweg.") }}</p>
   {% if faktor.passkeys %}
   <ul class="liste">
     {% for p in faktor.passkeys %}
@@ -49,7 +49,7 @@
   <noscript><p class="hilfe">{{ _("Passkeys brauchen JavaScript im Browser.") }}</p></noscript>
   <script src="{{ statisch('passkey.js') }}" defer></script>
   {% else %}
-  <p class="hilfe">{{ _("Passkeys gibt es, sobald unter Einstellungen die öffentliche Adresse des Servers mit https eingetragen ist. Am Einzelplatz und im Heimnetz bleibt es beim Code.") }}</p>
+  <p class="hilfe">{{ _("Passkeys gibt es, sobald unter Einstellungen eine https-Adresse eingetragen ist.") }}</p>
   {% endif %}
   {# 0.4.143 (S44): vertraute Geräte #}
   <h3>{{ _("Vertraute Geräte") }}</h3>

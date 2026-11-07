@@ -33,7 +33,7 @@
   <form method="post" action="/verwaltung/probelauf/{{ p.id }}/korrektur">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label for="fehlt">{{ _("Stimmt etwas nicht oder fehlt etwas?") }}</label>
-    <p class="hilfe">{{ _("In eigenen Worten, ein Satz je Sache. Nur die betroffenen Absätze werden neu geschrieben, alle anderen bleiben, wie sie sind. Jeder Durchgang kostet wenige Cent.") }}</p>
+    <p class="hilfe">{{ _("Ein Satz je Sache. Nur betroffene Absätze werden neu geschrieben. Jeder Durchgang kostet wenige Cent.") }}</p>
     <textarea id="fehlt" name="fehlt" rows="4" maxlength="1000"></textarea>
     <details><summary>{{ _("Hinweise je Absatz (optional)") }}</summary>
       {% for absatz in aktuell.split("\n\n") %}

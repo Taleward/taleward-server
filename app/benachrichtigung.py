@@ -242,6 +242,13 @@ TEXTE = {
     "speicher": ("Speicherplatz knapp",
                  "Im Datenordner sind nur noch {gb} GB frei. Alte Sicherungen löschen oder den Speicher erweitern."),
     "test": ("Test", "Diese Testnachricht zeigt: Benachrichtigungen kommen an."),
+    "anmeldeschluessel": ("Schlüssel für {dienst} läuft ab",
+                          "Der Schlüssel für die Anmeldung mit {dienst} läuft am {datum} ab. Danach geht die Anmeldung "
+                          "mit {dienst} nicht mehr. Beim Anbieter einen neuen anlegen und unter Verwaltung → Anmeldung "
+                          "eintragen."),
+    "anmeldeschluessel_weg": ("Schlüssel für {dienst} abgelaufen",
+                              "Der Schlüssel für die Anmeldung mit {dienst} ist seit {datum} abgelaufen. Beim Anbieter "
+                              "einen neuen anlegen und unter Verwaltung → Anmeldung eintragen."),
     "zahlung_abweichung": ("Zahlung passt nicht zum Vorgang",
                            "Eine Meldung eines Zahlungsanbieters passt nicht zu einem begonnenen Aufladen. Es wurde nichts "
                            "gutgeschrieben. Einzelheiten in der Verwaltung → Abrechnung → Protokoll."),
@@ -312,6 +319,17 @@ EN = {
     "Verwaltung → Abrechnung entscheidest.":
         "A payment was reversed or disputed. The credit is locked until you decide in Admin → Billing.",
     "Test": "Test",
+    "Schlüssel für {dienst} läuft ab": "{dienst} sign-in key expires soon",
+    "Der Schlüssel für die Anmeldung mit {dienst} läuft am {datum} ab. Danach geht die Anmeldung "
+    "mit {dienst} nicht mehr. Beim Anbieter einen neuen anlegen und unter Verwaltung → Anmeldung "
+    "eintragen.":
+        "The key for signing in with {dienst} expires on {datum}. After that, signing in with {dienst} stops "
+        "working. Create a new one at the provider and enter it under Admin → Sign-in.",
+    "Schlüssel für {dienst} abgelaufen": "{dienst} sign-in key expired",
+    "Der Schlüssel für die Anmeldung mit {dienst} ist seit {datum} abgelaufen. Beim Anbieter "
+    "einen neuen anlegen und unter Verwaltung → Anmeldung eintragen.":
+        "The key for signing in with {dienst} expired on {datum}. Create a new one at the provider and enter it "
+        "under Admin → Sign-in.",
     "Diese Testnachricht zeigt: Benachrichtigungen kommen an.": "This test message shows: notifications arrive.",
     "Transkription": "transcription", "Zusammenfassung": "summary", "Unterlage": "document",
     "Stimmprofil": "voice profile", "Korrektur": "correction", "älter als 48 Stunden": "older than 48 hours",
@@ -449,6 +467,22 @@ def pruefen(db: Session) -> list[str]:
             grund = "älter als 48 Stunden"
     if _zustand(db, "sicherung", bool(grund), grund=grund):
         gemeldet.append("sicherung")
+
+    # 0.4.157: Ablauf der Schlüssel für Anmeldedienste – je Stufe einmal (30 Tage, 7 Tage, abgelaufen)
+    from app import anmeldedienste
+
+    for dienst, ablauf in anmeldedienste.ablaufdaten(db).items():
+        tage = (ablauf - jetzt.date()).days
+        stufe = "weg" if tage < 0 else "7" if tage <= 7 else "30" if tage <= 30 else None
+        schluessel = f"melden.anmeldeschluessel.{dienst}"
+        if stufe is None or meta_lesen(db, schluessel) == f"{ablauf.isoformat()}:{stufe}":
+            continue
+        meta_schreiben(db, schluessel, f"{ablauf.isoformat()}:{stufe}")
+        db.commit()
+        datum = ablauf.strftime("%d.%m.%Y") if k.sprache != "en" else ablauf.isoformat()
+        melden(db, "anmeldeschluessel_weg" if stufe == "weg" else "anmeldeschluessel",
+               dienst=anmeldedienste.DIENSTE[dienst]["name"], datum=datum)
+        gemeldet.append(f"anmeldeschluessel:{dienst}")
 
     # Speicherplatz
     try:

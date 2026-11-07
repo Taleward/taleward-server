@@ -165,7 +165,7 @@ def test_einstellung_notizenmodell(client, dbs, admin):  # noqa: F811
     k = llm_konfig(dbs)
     assert k.api_modell_notizen == "mistral-large-2512" and api_klient_notizen(k).modell == "mistral-large-2512"
     seite = client.get("/verwaltung/zusammenfassung").text
-    assert 'name="api_modell_notizen"' in seite and "Modell für Notizen und Auswahl" in seite
+    assert 'name="api_modell_notizen"' not in seite  # 0.4.157: ausgeblendet
     client.post("/verwaltung/zusammenfassung", data={**daten, "api_modell_notizen": "mistral-medium-latest"})
     dbs.expire_all()
     assert llm_konfig(dbs).api_modell_notizen == "" and api_klient_notizen(llm_konfig(dbs)) is None

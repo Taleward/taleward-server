@@ -5,7 +5,7 @@
 <p class="leise"><a href="/verwaltung/abrechnung">{{ _("Zurück zur Abrechnung") }}</a></p>
 <div class="schmal">
 <div class="meldung">{{ _("Das sind Vorlagen, keine Rechtsberatung. Sie sind aus deinen Angaben und den Einstellungen der Abrechnung befüllt. Bitte lesen, Stellen in [eckigen Klammern] ausfüllen und im Zweifel von jemandem mit rechtlichem Blick prüfen lassen. Deutsch und Englisch werden zusammen veröffentlicht.") }}</div>
-<p class="hilfe">{{ _("Spielleitungen sehen beide Texte beim Aufladen und bestätigen dort, dass das Guthaben sofort nutzbar sein soll. Mit echtem Geld lässt sich erst aufladen, wenn beide veröffentlicht sind. Ändert sich ein Text, gilt er mit neuem Stand-Datum für alle späteren Aufladungen.") }}</p>
+<p class="hilfe">{{ _("Spielleitungen sehen beide Texte beim Aufladen. Echtes Geld geht erst, wenn beide veröffentlicht sind. Eine Änderung gilt für spätere Aufladungen.") }}</p>
 {% if fehler and not fehler_art %}<p class="meldung meldung--fehler" role="alert">{{ fehler }}</p>{% endif %}
 {% for art, titel in [("bedingungen", _("Bedingungen für Guthaben")), ("widerruf", _("Widerrufsbelehrung"))] %}
 <div class="karte" id="{{ art }}">
@@ -24,6 +24,6 @@
   </form>
 </div>
 {% endfor %}
-<p class="hilfe">{{ _("Den Abschnitt „Guthaben und Zahlungen“ für den Datenschutzhinweis enthält die Vorlage des Datenschutzhinweises, solange die Abrechnung eingeschaltet ist.") }} <a href="/verwaltung/assistent/datenschutz">{{ _("Datenschutzhinweis") }}</a></p>
+<p class="hilfe">{{ _("Den passenden Abschnitt für den Datenschutzhinweis ergänzt dessen Vorlage selbst.") }} <a href="/verwaltung/assistent/datenschutz">{{ _("Datenschutzhinweis") }}</a></p>
 </div>
 {% endblock %}

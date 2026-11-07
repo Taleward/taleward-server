@@ -13,6 +13,7 @@
   <div class="karte">
     {% if gueltig %}
     <h2>{{ _("Du bist eingeladen.") }}</h2>
+    {% if kampagne %}<p class="einladung__kampagne">{{ _("Kampagne: {titel}", titel=kampagne) }}</p>{% endif %}
     <p class="leise">{{ _("Server: {name} · {betreiber}", name=angaben.server_name, betreiber=angaben.server_operator) }}</p>
     <code class="einladung__code">{{ code }}</code>
     {% if bis %}<p class="leise zentriert">{{ _("gültig bis {zeit}", zeit=zeit(bis)) }}</p>

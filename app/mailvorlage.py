@@ -38,15 +38,13 @@ INHALTE = {
         "de": dict(betreff="Bitte bestätige deine E-Mail-Adresse für Taleward ({server})",
                    ueberschrift="Bitte bestätige deine E-Mail-Adresse.", anrede="name",
                    absaetze=["Du hast diese Adresse für dein Konto „{benutzer}“ auf {server} eingetragen.",
-                             "Wir nutzen die Adresse nur für dein Konto, zum Beispiel damit du dein Passwort selbst zurücksetzen "
-                             "kannst."],
+                             "Wir nutzen sie nur für dein Konto."],
                    knopf="Adresse bestätigen",
                    hinweis="Der Link gilt 24 Stunden. Warst du das nicht, ignoriere diese Mail einfach."),
         "en": dict(betreff="Please confirm your e-mail address for Taleward ({server})",
                    ueberschrift="Please confirm your e-mail address.", anrede="name",
                    absaetze=["You entered this address for your account “{benutzer}” on {server}.",
-                             "We only use the address for your account, for example so that you can reset your password "
-                             "yourself."],
+                             "We only use it for your account."],
                    knopf="Confirm address",
                    hinweis="The link is valid for 24 hours. If this wasn't you, simply ignore this e-mail."),
     },
@@ -98,14 +96,12 @@ INHALTE = {
         "de": dict(betreff="Deine Anfrage zur SL-Freigabe ({server})",
                    ueberschrift="Deine Anfrage zur SL-Freigabe.", anrede="name",
                    absaetze=["Die Verwaltung von {server} hat deine Anfrage zur SL-Freigabe abgelehnt.",
-                             "In Kampagnen, zu denen du eingeladen wirst, spielst du weiter wie bisher. Fragen "
-                             "beantworten die Betreiber."],
+                             "Mitspielen geht weiter wie bisher."],
                    knopf=None, hinweis=None),
         "en": dict(betreff="Your request for game master approval ({server})",
                    ueberschrift="Your request for game master approval.", anrede="name",
                    absaetze=["The administrators of {server} have declined your request for game master approval.",
-                             "You keep playing in campaigns you are invited to. The operators can answer any "
-                             "questions."],
+                             "You can keep playing as before."],
                    knopf=None, hinweis=None),
     },
     "sl_entzogen": {
@@ -126,17 +122,15 @@ INHALTE = {
                    ueberschrift="Du kannst jetzt eigene Kampagnen leiten.", anrede="name",
                    absaetze=["Die Verwaltung von {server} hat deine SL-Freigabe erteilt. In der App kannst du jetzt "
                              "eigene Kampagnen anlegen.",
-                             "Abschriften und Kapitel bezahlst du auf diesem Server aus deinem Guthaben. Aufladen, "
-                             "Gutscheine einlösen und Buchungen ansehen kannst du auf der Guthaben-Seite des Servers, "
-                             "angemeldet mit Benutzername und Passwort."],
+                             "Abschriften und Kapitel zahlst du hier aus deinem Guthaben. Aufladen kannst du auf der "
+                             "Guthaben-Seite, angemeldet mit Benutzername und Passwort."],
                    knopf="Zur Guthaben-Seite", hinweis=None),
         "en": dict(betreff="You can now run your own campaigns ({server})",
                    ueberschrift="You can now run your own campaigns.", anrede="name",
                    absaetze=["The administrators of {server} have approved you as a game master. You can now create "
                              "your own campaigns in the app.",
-                             "On this server, transcripts and chapters are paid from your credit. You can top up, "
-                             "redeem vouchers and see your bookings on the server's credit page, signed in with your "
-                             "username and password."],
+                             "Here, transcripts and chapters are paid from your credit. You can top up on the credit "
+                             "page, signed in with your username and password."],
                    knopf="Go to the credit page", hinweis=None),
     },
     # 0.4.135: Hinweis-Mails zum Guthaben (app/guthaben_mail.py). Ohne Beträge. {guthaben}: „dein Guthaben“ bzw. „das
@@ -204,16 +198,12 @@ KONTO_WARNUNG = {
           "administrators of {server} know.",
 }
 KONTO_HINWEIS = {
-    "de": "Diese Mail ist nur ein Hinweis und enthält keinen Link. Du bekommst sie, weil an deinem Konto diese "
-          "E-Mail-Adresse hinterlegt ist.",
-    "en": "This e-mail is only a notice and contains no link. You get it because this e-mail address is set for "
-          "your account.",
+    "de": "Nur ein Hinweis, ohne Link – diese Adresse ist an deinem Konto hinterlegt.",
+    "en": "Just a notice, without a link – this address is set for your account.",
 }
 KONTO_HINWEIS_ALT = {
-    "de": "Diese Mail ist nur ein Hinweis und enthält keinen Link. Du bekommst sie, weil diese Adresse bisher an "
-          "deinem Konto hinterlegt war.",
-    "en": "This e-mail is only a notice and contains no link. You get it because this address was set for your "
-          "account until now.",
+    "de": "Nur ein Hinweis, ohne Link – diese Adresse war bisher an deinem Konto hinterlegt.",
+    "en": "Just a notice, without a link – this address was set for your account until now.",
 }
 KONTO_ARTEN = {
     # art: (Betreff de, Überschrift de, Absatz de, Betreff en, Überschrift en, Absatz en)

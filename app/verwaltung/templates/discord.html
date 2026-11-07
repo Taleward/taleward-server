@@ -2,7 +2,7 @@
 {% block titel %}{{ _("Discord-Bot") }}{% endblock %}
 {% block inhalt %}
 <h1>{{ _("Discord-Bot") }}</h1>
-<p class="hilfe">{{ _("Der Bot nimmt Online-Runden im Sprachkanal auf, je Person eine eigene Spur. Aufgenommen wird nur, wer zugestimmt hat. Die Spielleitung verbindet ihre Kampagne selbst mit ihrem Discord-Server.") }}</p>
+<p class="hilfe">{{ _("Der Bot nimmt Online-Runden im Sprachkanal auf, nur wer zugestimmt hat. Die Spielleitung verbindet ihre Kampagne selbst.") }}</p>
 {% if not faktor %}<div class="hinweis">{{ _("Einschalten und Schlüssel brauchen den zweiten Faktor.") }} <a href="/verwaltung/anmeldung#zweiter-faktor">{{ _("Zweiten Faktor einrichten") }}</a></div>{% endif %}
 
 <div class="karte" id="schalter">

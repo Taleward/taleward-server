@@ -167,7 +167,8 @@ def seite(request: Request, erstattung: str = "", user: User = Depends(verwalter
     if gesucht:  # 0.4.153: Erstattung für ein Konto – was geht auf welche Zahlung zurück
         konto = db.scalar(select(User).where(User.username == gesucht))
         g = abrechnung.guthaben_konto(db, konto.id, anlegen=False) if konto else None
-        fall = {"name": gesucht, "gefunden": konto is not None, "a": e.aufteilen(db, g) if g is not None and g.id
+        fall = {"name": gesucht, "gefunden": konto is not None, "guthaben_id": g.id if g is not None else None,
+                "a": e.aufteilen(db, g) if g is not None and g.id
                 else e.Aufteilung(0)}
     return _seite_abrechnung(request, user, db, erstattung_fall=fall)
 
@@ -190,6 +191,35 @@ def erstattung_erledigt(request: Request, zeile_id: str, bestaetigt: str = Form(
     e.erledigen(db, z, "von_hand", user.id)
     db.commit()
     return _zurueck("/abrechnung#erstattungen", "gespeichert")
+
+
+@router.post("/abrechnung/erstattung/ausfuehren", dependencies=[Depends(csrf_pruefen)])
+def erstattung_ausfuehren(request: Request, guthaben: str = Form(""), bestaetigt: str = Form(""),
+                          user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):
+    """0.4.157: Knopf „Erstatten“ – stößt die Erstattung beim Anbieter an; gebucht wird mit dessen Meldung."""
+    from app import erstattung as e
+
+    if not _faktor(db, user):
+        return _ohne_faktor(request, user, db)
+    g = db.get(Guthaben, guthaben[:64])
+    if g is None:
+        raise errors.not_found()
+    _ = tr(request)
+    if not bestaetigt:
+        return _seite_abrechnung(request, user, db, status=400, fehler=_("Bitte den Betrag bestätigen."))
+    if e.erstattbar(db, g) <= 0:
+        return _seite_abrechnung(request, user, db, status=409, fehler=_("Nichts zu erstatten."))
+    ergebnis = e.erstatten(db, g, user.id)
+    db.commit()
+    if ergebnis.fehlgeschlagen:
+        return _seite_abrechnung(request, user, db, status=502, fehler=_(
+            "Der Anbieter hat nicht jede Erstattung angenommen: {refs}. Im Dashboard des Anbieters nachsehen.",
+            refs=", ".join(ergebnis.fehlgeschlagen)))
+    if ergebnis.von_hand_cent:
+        return _seite_abrechnung(request, user, db, meldung=_(
+            "Erstattung angestoßen. Bleibt von Hand zu überweisen: {betrag}.",
+            betrag=abrechnung.euro(ergebnis.von_hand_cent)))
+    return _zurueck("/abrechnung#erstattungen", "erstattung_angestossen")
 
 
 @router.post("/abrechnung/modus", dependencies=[Depends(csrf_pruefen)])

@@ -10,6 +10,29 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 
+def vorlage_stand(db: Session) -> str:
+    """Kennung des Inhalts der Vorlage, wie sie jetzt erzeugt würde (Einstellungen und Fassung)."""
+    import hashlib
+
+    return hashlib.sha256(vorlage(db).encode()).hexdigest()[:16]
+
+
+def vorlage_neuer(db: Session) -> bool:
+    """0.4.157: Der veröffentlichte Text stammt aus einer Vorlage, die sich seitdem geändert hat (neue Fassung oder
+    andere Einstellungen) – oder von vor 0.4.157, als der Stand noch nicht gemerkt wurde."""
+    from app.einstellungen import meta_lesen
+
+    if not meta_lesen(db, "datenschutz.text"):
+        return False
+    return meta_lesen(db, "datenschutz.vorlage_stand") != vorlage_stand(db)
+
+
+def vorlage_gesehen(db: Session) -> None:
+    from app.einstellungen import meta_schreiben
+
+    meta_schreiben(db, "datenschutz.vorlage_stand", vorlage_stand(db))
+
+
 def vorlage(db: Session, hosting: str = "") -> str:
     from app.config import get_settings
     from app.einrichtung import betriebsart

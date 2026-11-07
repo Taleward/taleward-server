@@ -113,6 +113,30 @@ def konfig(db: Session, dienst: str) -> Konfig:
     return Konfig(dienst, m("client_id"), m("client_secret"), m("team_id"), m("key_id"), m("private_key"))
 
 
+ABLAUF_DIENSTE = ("google", "discord", "microsoft")  # 0.4.157: Schlüssel mit Ablaufdatum (Apple: .p8 läuft nicht ab)
+
+
+def ablauf(db: Session, dienst: str):
+    """Eingetragenes Ablaufdatum des Schlüssels (date) oder None."""
+    from datetime import date
+
+    wert = meta_lesen(db, f"oidc.{dienst}.ablauf") or ""
+    try:
+        return date.fromisoformat(wert) if wert else None
+    except ValueError:
+        return None
+
+
+def ablaufdaten(db: Session) -> dict:
+    """Eingerichtete Dienste mit eingetragenem Ablaufdatum."""
+    aus = {}
+    for d in ABLAUF_DIENSTE:
+        a = ablauf(db, d)
+        if a is not None and konfig(db, d).eingerichtet:
+            aus[d] = a
+    return aus
+
+
 def eingerichtet(db: Session) -> list[str]:
     return [d for d in REIHENFOLGE if konfig(db, d).eingerichtet]
 

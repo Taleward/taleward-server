@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from dataclasses import dataclass, field
 from datetime import timedelta
 
@@ -150,3 +151,69 @@ def wartung(db: Session) -> int:
             z.email = None
             n += 1
     return n
+
+
+# ---------------------------------------------------------------- Knopf „Erstatten“ (0.4.157)
+STRIPE_REF = re.compile(r"^pi_[A-Za-z0-9]{8,64}$")
+PAYPAL_REF = re.compile(r"^[A-Z0-9]{10,30}$")
+
+
+def _beim_anbieter(db: Session, v: Bezahlvorgang, cent: int) -> None:
+    """Eine Erstattung beim Anbieter anstoßen. Gebucht wird erst mit dessen Meldung (wie bei einer Erstattung im
+    Dashboard). Der Schlüssel gegen Doppelklicks hängt am bisher erstatteten Betrag: ein zweiter Klick, bevor die
+    Meldung da ist, schickt denselben Auftrag noch einmal, und der Anbieter führt ihn nur einmal aus."""
+    from app import zahlung
+
+    kennung = f"erstattung-{v.id}-{v.erstattet_cent or 0}-{cent}"
+    ref = v.zahlung_ref or ""
+    if v.anbieter == "stripe":
+        if not STRIPE_REF.match(ref):
+            raise ValueError("ref")
+        r = zahlung._c().post(f"{zahlung.STRIPE_API}/v1/refunds",
+                              data={"payment_intent": ref, "amount": str(cent), "metadata[vorgang]": v.id},
+                              headers=zahlung._stripe_kopf(db, **{"Idempotency-Key": kennung}))
+    elif v.anbieter == "paypal":
+        if not PAYPAL_REF.match(ref):
+            raise ValueError("ref")
+        r = zahlung._c().post(f"{zahlung._paypal_basis(db)}/v2/payments/captures/{ref}/refund",
+                              json={"amount": {"value": zahlung._euro_text(cent), "currency_code": "EUR"}},
+                              headers={"Authorization": f"Bearer {zahlung._paypal_token(db)}",
+                                       "PayPal-Request-Id": kennung})
+    else:
+        raise ValueError("anbieter")
+    r.raise_for_status()
+
+
+@dataclass
+class Ergebnis:
+    angestossen_cent: int = 0  # so viel Guthaben geht mit den Meldungen zurück
+    fehlgeschlagen: list[str] = field(default_factory=list)  # Zahlungsbezüge, die nicht gingen
+    von_hand_cent: int = 0  # Frist vorbei oder keine passende Zahlung – per Überweisung
+
+
+def erstatten(db: Session, g: Guthaben, von: str) -> Ergebnis:
+    """Alles Erstattbare eines Guthabens beim Anbieter erstatten (Verwaltung → Abrechnung → Erstattungen). Beträge
+    rechnet immer der Server (aufteilen), nie das Formular. Zahlungen älter als die Frist bleiben für die Überweisung."""
+    import httpx
+
+    from app import abrechnung, zahlung
+
+    a = aufteilen(db, g)
+    e = Ergebnis(von_hand_cent=a.von_hand_cent)
+    bereit = set(zahlung.bereit(db))
+    for t in a.teile:
+        v = db.get(Bezahlvorgang, t.vorgang_id)
+        if t.frist_vorbei or v is None or v.anbieter not in bereit:
+            e.von_hand_cent += t.credit_cent
+            continue
+        try:
+            _beim_anbieter(db, v, t.beim_anbieter_cent)
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as fehler:
+            e.fehlgeschlagen.append(t.zahlung_ref)
+            abrechnung.protokoll(db, von, "erstattung_fehlgeschlagen", g.id, vorgang=v.id,
+                                 grund=type(fehler).__name__)
+            continue
+        e.angestossen_cent += t.credit_cent
+        abrechnung.protokoll(db, von, "erstattung_angestossen", g.id, vorgang=v.id, anbieter=v.anbieter,
+                             brutto_cent=t.beim_anbieter_cent, betrag_cent=t.credit_cent)
+    return e

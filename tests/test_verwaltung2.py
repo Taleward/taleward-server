@@ -142,7 +142,8 @@ def test_einladungsseite_fuer_leute_ohne_app(client, admin, einladung):  # noqa:
     assert 'href="https://drive.example/taleward-0.9.0.apk"' in r.text and "Play Store" in r.text
     assert f'value="{link}"' in r.text and "gültig bis" in r.text
     assert 'property="og:image" content="http://testserver/verwaltung/static/marke/og-image.png"' in r.text
-    assert "Einladung zu Taleward" in r.text and "Rabenfels" not in r.text
+    assert "Einladung zu Taleward" in r.text and "Rabenfels" not in r.text.split("</head>")[0]
+    assert "Kampagne: Rabenfels" in r.text  # 0.4.157: wie die Vorschau der App
     assert "<script" not in r.text
     en = client.get(f"/einladung/{einladung}", headers={"Accept-Language": "en"}).text
     assert "Open in Taleward" in en and "Download the app" in en

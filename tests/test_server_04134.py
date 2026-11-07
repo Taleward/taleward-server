@@ -169,7 +169,7 @@ def test_verwaltung_speichert_den_lokalen_weg(client, dbs, admin):  # noqa: F811
     from app.einstellungen import llm_konfig
 
     seite = client.get("/verwaltung/zusammenfassung").text
-    assert 'name="weg_lokal" value="abschrift" checked' in seite
+    assert 'name="weg_lokal"' not in seite  # 0.4.157: fest auf dem empfohlenen Weg
     form = seite.split('action="/verwaltung/zusammenfassung"', 1)[1].split("</form>", 1)[0]
     daten = {"csrf": admin}
     for name, wert in re.findall(r'<input type="hidden" name="(\w+)" value="([^"]*)"', form):
@@ -189,4 +189,4 @@ def test_verwaltung_speichert_den_lokalen_weg(client, dbs, admin):  # noqa: F811
     r = client.post("/verwaltung/zusammenfassung", data=daten, follow_redirects=False)
     assert r.status_code == 303, r.text[:2000]
     dbs.expire_all()
-    assert llm_konfig(dbs).weg_lokal == "notizen"
+    assert llm_konfig(dbs).weg_lokal == "abschrift"  # 0.4.157: das Formular hält den Weg fest

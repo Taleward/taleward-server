@@ -33,13 +33,15 @@
     {% else %}
     <label>{{ _(d.schluessel_name) }} <input type="password" name="client_secret" autocomplete="new-password" data-lpignore="true" data-1p-ignore data-bwignore placeholder="{{ _('hinterlegt – leer lassen, um ihn zu behalten') if d.k.client_secret else '' }}"></label>
     {% endif %}
+    {% if d.mit_ablauf %}<label>{{ _("Schlüssel läuft ab am (freiwillig)") }} <input type="date" name="ablauf" value="{{ d.ablauf.isoformat() if d.ablauf else '' }}">
+      <span class="hilfe">{{ _("Dann kommt 30 und 7 Tage vorher eine Erinnerung über die Benachrichtigungen.") }}</span></label>{% endif %}
     {% if d.k.eingerichtet %}<label class="haken"><input type="checkbox" name="entfernen" value="1"> {{ _("Diesen Dienst ausschalten und Schlüssel löschen") }}</label>{% endif %}
     <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Speichern") }}</button></div>
   </form>
 {% endmacro %}
 {% for d in dienste if d.k.eingerichtet %}
 <div class="karte" id="{{ d.id }}">
-  <h2>{{ d.name }} <span class="marke-status marke-status--gut">{{ _("eingerichtet") }}</span></h2>
+  <h2>{{ d.name }} {% if d.tage is not none and d.tage < 0 %}<span class="marke-status marke-status--fehler">{{ _("Schlüssel abgelaufen") }}</span>{% elif d.tage is not none and d.tage <= 30 %}<span class="marke-status marke-status--warten">{{ _("Schlüssel läuft in {n} Tagen ab", n=d.tage) }}</span>{% else %}<span class="marke-status marke-status--gut">{{ _("eingerichtet") }}</span>{% endif %}</h2>
   {{ dienst_formular(d) }}
 </div>
 {% endfor %}

@@ -113,7 +113,7 @@ def test_einstellung_pruefansicht(client, dbs, admin):  # noqa: F811
 
     assert pruefansicht_art(dbs) == "pflicht"
     seite = client.get("/verwaltung/zusammenfassung").text
-    assert 'name="pruefansicht" value="pflicht" checked' in seite
+    assert 'name="pruefansicht"' not in seite  # 0.4.157: ausgeblendet; ältere offene Seiten schicken es noch
     daten = {"csrf": admin, "art": "api", "anbieter": "mistral", "api_modell": "mistral-medium-latest",
              "lokal_modell": "auto", "lokal_kontext": "12288", "api_key": "sk-abcdefghijklmnop1234",
              "gegenpruefen_feld": "1", "gegenpruefen": "1", "zweiter_blick": "1"}

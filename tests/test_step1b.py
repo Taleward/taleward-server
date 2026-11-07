@@ -226,7 +226,7 @@ def test_einladungsseite(client, world):
     code = client.post(f"{API}/campaigns/{world['cid']}/invites", headers=world["gm"]).json()["code"]
     r = client.get(f"/einladung/{code.lower()}")
     assert r.status_code == 200 and code in r.text and "In Taleward öffnen" in r.text
-    assert "Rabenfels" not in r.text  # öffentlich: kein Kampagnentitel
+    assert "Rabenfels" not in r.text.split("</head>")[0]  # 0.4.157: Titel nur im Text, nie in den Vorschau-Angaben
     assert 'src="data:image/svg+xml' in r.text  # QR-Code mit dem Link, ohne Skript
     assert client.get("/einladung/GIBTS-NICHT").status_code == 404
 

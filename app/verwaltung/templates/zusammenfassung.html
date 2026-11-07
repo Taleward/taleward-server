@@ -54,7 +54,7 @@
       {% macro andere_info() %}
       <details class="anbieter-info" data-anbieter="andere">
         <summary>{{ _("Anderer Anbieter: was zu beachten ist") }}</summary>
-        <p class="hilfe">{{ _("Jeder Anbieter mit OpenAI-kompatibler Schnittstelle (Adresse endet meist auf /v1). Wo er verarbeitet und ob er mit euren Daten trainiert, müsst ihr selbst nachlesen. Sammeldienste, die Anfragen an wechselnde Rechenzentren verteilen, lassen sich dabei nicht einschätzen.") }}</p>
+        <p class="hilfe">{{ _("Jeder Anbieter mit OpenAI-kompatibler Schnittstelle (Adresse endet meist auf /v1). Wo er verarbeitet und ob er mit euren Daten trainiert, prüft ihr selbst.") }}</p>
       </details>
       {% endmacro %}
       {% for a in llm.anbieter %}{% if llm.gewaehlt == a.id %}{{ anbieter_info(a) }}{% endif %}{% endfor %}
@@ -87,7 +87,7 @@
       <label>{{ _("Preis je 1 Mio. Tokens in Cent (ein / aus)") }}
         <span class="zeile"><input type="text" name="cent_ein" value="{{ '%g'|format(k.cent_ein) if k.cent_ein is not none else '' }}" inputmode="decimal" size="6" placeholder="{{ '%g'|format(llm.preis[0]) if llm.preis else '' }}">
         <input type="text" name="cent_aus" value="{{ '%g'|format(k.cent_aus) if k.cent_aus is not none else '' }}" inputmode="decimal" size="6" placeholder="{{ '%g'|format(llm.preis[1]) if llm.preis else '' }}"></span>
-        <span class="hilfe">{{ _("Nur für die Verbrauchsanzeige. Leer = bekannte Preise der Modelle von Mistral und Anthropic; bei anderen Anbietern bitte von deren Preisseite übernehmen.") }}</span></label>
+        <span class="hilfe">{{ _("Leer = bekannte Preise von Mistral und Anthropic. Bei anderen Anbietern von deren Preisseite übernehmen.") }}</span></label>
       {% endmacro %}
       {% if llm.gewaehlt == "andere" %}{{ preis_feld() }}{% endif %}
       <label class="haken" id="anbieter-bestaetigung"><input type="checkbox" name="ausserhalb_eu" value="1"> {{ _("Ich weiß, dass dieser Anbieter außerhalb der EU verarbeitet oder hier nicht beschrieben ist, und schließe den Vertrag zur Auftragsverarbeitung selbst ab.") }}</label>
@@ -108,27 +108,14 @@
       <fieldset><legend>{{ _("Weg zum Kapitel") }}</legend>
         <label class="haken"><input type="radio" name="weg" value="notizen"{% if k.weg == "notizen" %} checked{% endif %}> {{ _("Erst Notizen je Abschnitt, dann das Kapitel (empfohlen)") }}</label>
         <label class="haken"><input type="radio" name="weg" value="abschrift"{% if k.weg == "abschrift" %} checked{% endif %}> {{ _("Ganze Abschrift auf einmal (früherer Weg)") }}</label>
-        <span class="hilfe">{{ _("Der empfohlene Weg vergisst weniger und erfindet weniger, kostet über die Cloud aber etwa 30 Cent je Kapitel. Nur für die Cloud-API.") }}</span></fieldset>
-      <fieldset><legend>{{ _("Weg zum Kapitel – lokales Modell") }}</legend>
-        <label class="haken"><input type="radio" name="weg_lokal" value="abschrift"{% if k.weg_lokal == "abschrift" %} checked{% endif %}> {{ _("Ganze Abschrift auf einmal (bisher)") }}</label>
-        <label class="haken"><input type="radio" name="weg_lokal" value="notizen"{% if k.weg_lokal == "notizen" %} checked{% endif %}> {{ _("Erst Notizen je Abschnitt, dann das Kapitel (wie in der Cloud, zum Ausprobieren)") }}</label>
-        <span class="hilfe">{{ _("Der Weg über Notizen dauert auf dem Worker etwa zwei- bis dreimal so lange. Lange Runden bekommen dabei Teile im Kapitel.") }}</span></fieldset>
+        <span class="hilfe">{{ _("Der empfohlene Weg vergisst und erfindet weniger, kostet aber etwa 30 Cent je Kapitel.") }}</span></fieldset>
+      <input type="hidden" name="erweitert_fest" value="1">
       <input type="hidden" name="gegenpruefen_feld" value="1">
       <fieldset><legend>{{ _("Prüfung") }}</legend>
         <label class="haken"><input type="checkbox" name="gegenpruefen" value="1"{% if llm.gegenpruefen %} checked{% endif %}> {{ _("Kapitel gegenprüfen") }}</label>
         <span class="hilfe">{{ _("Prüft jeden Absatz gegen die Abschrift und zeigt der Spielleitung die Belege. Etwa ein Drittel mehr Rechenzeit.") }}</span>
         <label class="haken"><input type="checkbox" name="zweiter_blick" value="1"{% if llm.zweiter_blick %} checked{% endif %}> {{ _("Entscheidende Ereignisse vor dem Schreiben an der Abschrift prüfen") }}</label>
         <span class="hilfe">{{ _("Unklares bleibt im Kapitel vage und wird der Spielleitung gezeigt. Etwa 3 Cent je Kapitel.") }}</span></fieldset>
-      <fieldset><legend>{{ _("Prüfansicht für die Spielleitung") }}</legend>
-        <label class="haken"><input type="radio" name="pruefansicht" value="pflicht"{% if llm.pruefansicht == "pflicht" %} checked{% endif %}> {{ _("Aus den geprüften Ereignissen und den unklaren Stellen (empfohlen)") }}</label>
-        <label class="haken"><input type="radio" name="pruefansicht" value="gegenpruefung"{% if llm.pruefansicht == "gegenpruefung" %} checked{% endif %}> {{ _("Jeden Absatz gegen die Notizen gegenprüfen (früherer Weg)") }}</label>
-        <span class="hilfe">{{ _("Die empfohlene Ansicht markiert nur Nachgerechnetes und Unklares und spart etwa ein Fünftel der Kosten.") }}</span></fieldset>
-      <label>{{ _("Modell für Notizen und Auswahl") }}
-        <select name="api_modell_notizen" id="anbieter-modell-notizen">
-          <option value="" {% if not k.api_modell_notizen %}selected{% endif %}>{{ _("wie für das Kapitel") }}</option>
-          {% for m in llm.modelle %}<option value="{{ m }}" {% if m == k.api_modell_notizen %}selected{% endif %}>{{ m }}</option>{% endfor %}
-        </select>
-        <span class="hilfe">{{ _("Nur zum Vergleichen. Erst nach Probeläufen ändern.") }}</span></label>
       {% if llm.gewaehlt != "andere" %}{{ preis_feld() }}{% endif %}
       <p class="hilfe">{{ _("Wortlisten für unsicher erkannte Namen:") }}
         {% for sp, da in llm.wortlisten.items() %}{{ _("Deutsch") if sp == "de" else _("Englisch") }} {{ _("geladen") if da else _("wird geladen") }}{% if not loop.last %}, {% endif %}{% endfor %}.</p>
@@ -155,7 +142,7 @@
 
 <div class="karte">
   <h2>{{ _("Probelauf") }}</h2>
-  <p class="hilfe">{{ _("Schreibt Kapitel und Vorschläge einer Runde neu, ohne die Runde zu verändern. Nur Runden aus deinen eigenen Kampagnen, die Cloud nur mit Freigabe der Kampagne. Kosten zählen zum Monatslimit.") }}</p>
+  <p class="hilfe">{{ _("Schreibt Kapitel und Vorschläge einer Runde neu, ohne die Runde zu verändern. Kosten zählen zum Monatslimit.") }}</p>
   {% if runden %}
   <form class="formular" method="post" action="/verwaltung/probelauf" enctype="multipart/form-data">
     <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -178,7 +165,7 @@
       <label class="haken"><input type="radio" name="kapitelweg" value="standard" checked> {{ _("In einem Durchgang aus allen Notizen (eingesetzt)") }}</label>
       <label class="haken"><input type="radio" name="kapitelweg" value="szenen"> {{ _("Je Szene ein Absatz, zusammengesetzt (zum Vergleich)") }}</label>
       <label class="haken"><input type="radio" name="kapitelweg" value="vorbereitet"> {{ _("Szenenabsätze als Entwurf, dann ein Durchgang (zum Vergleich)") }}</label>
-      <span class="hilfe">{{ _("Szenen sind Abschnitte von etwa zwölf Minuten, geschnitten an der größten Pause zwischen zwei Notizen. Die Absätze je Szene liegen danach in der ZIP-Datei (szenen.txt).") }}</span></fieldset>
+      <span class="hilfe">{{ _("Szenen sind Abschnitte von etwa zwölf Minuten. Die Absätze je Szene liegen danach in der ZIP-Datei.") }}</span></fieldset>
     {% if probe_modelle %}
     <label>{{ _("Modell nur für diesen Lauf") }}
       <select name="modell">

@@ -185,6 +185,7 @@ details summary::-webkit-details-marker { display:none; }
 .anmeldung .marke { color:var(--tinte); font-size:44px; line-height:48px; justify-content:center; margin:var(--space-3) 0 var(--space-2); }
 .leitsatz { font:400 22px/28px var(--font-serif); color:var(--tinte); margin:0; }
 .anmeldung > .leise { text-align:center; }
+.einladung__kampagne { font-weight:700; font-size:1.125rem; margin:0; overflow-wrap:anywhere; }
 .einladung__code { display:block; font:700 28px/36px ui-monospace, Consolas, monospace; letter-spacing:.08em; text-align:center;
   background:var(--paper-sunken); border-radius:var(--radius-md); padding:var(--space-4); margin:var(--space-4) 0; }
 @media (prefers-color-scheme: dark) { .anmeldung .marke, .leitsatz { color:var(--ink); } }

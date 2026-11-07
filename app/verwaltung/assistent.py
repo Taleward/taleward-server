@@ -357,9 +357,13 @@ def datenschutz(request: Request, user: User = Depends(verwalter), db: Session =
 
     text = meta_lesen(db, "datenschutz.text") or vorlage(db)
     eigen = angaben(db).privacy_policy_url
+    from app.datenschutz import vorlage_neuer
+
+    neuer = vorlage_neuer(db)
     return _schritt(request, user, db, "datenschutz", text=text,
                     eigener_link=eigen if eigen and not eigen.endswith("/datenschutz") else "",
-                    veroeffentlicht=bool(meta_lesen(db, "datenschutz.text")))
+                    veroeffentlicht=bool(meta_lesen(db, "datenschutz.text")), vorlage_neuer=neuer,
+                    vorlage_text=vorlage(db) if neuer else "")
 
 
 @router.post("/assistent/datenschutz", dependencies=[Depends(csrf_pruefen)])
@@ -374,6 +378,12 @@ def datenschutz_speichern(request: Request, aktion: str = Form(""), text: str = 
         return _fehler(request, user, db, "datenschutz", t, text=inhalt, eigener_link=eigener_link,
                        veroeffentlicht=bool(meta_lesen(db, "datenschutz.text")))
 
+    if aktion == "gesehen":  # 0.4.157: Hinweis auf neuere Vorlage wegklicken, Text bleibt
+        from app.datenschutz import vorlage_gesehen
+
+        vorlage_gesehen(db)
+        db.commit()
+        return _weiter("datenschutz")
     if aktion == "neu":
         meta_schreiben(db, "datenschutz.text", "")
         db.commit()
@@ -393,6 +403,9 @@ def datenschutz_speichern(request: Request, aktion: str = Form(""), text: str = 
         return fehler(_("Es sind noch {n} Stellen in eckigen Klammern offen. Bitte ausfüllen oder entfernen.",
                         n=offen), text)
     meta_schreiben(db, "datenschutz.text", inhalt[:50000])
+    from app.datenschutz import vorlage_gesehen
+
+    vorlage_gesehen(db)
     speichern(db, privacy_policy_url=str(request.base_url).rstrip("/") + "/datenschutz")
     db.commit()
     return _weiter("datenschutz")

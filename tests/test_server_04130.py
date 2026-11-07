@@ -62,7 +62,7 @@ def test_zusammenfassung_speichern_aendert_nichts_an_zugeklappten_werten(client,
 
     seite = client.get("/verwaltung/zusammenfassung").text
     form = seite.split('action="/verwaltung/zusammenfassung"', 1)[1].split("</form>", 1)[0]
-    for name in ("weg", "pruefansicht", "lokal_modell", "lokal_kontext", "gegenpruefen_feld", "api_modell_notizen"):
+    for name in ("weg", "erweitert_fest", "lokal_modell", "lokal_kontext", "gegenpruefen_feld"):
         assert re.search(rf'name="{name}"', form), name
 
 
