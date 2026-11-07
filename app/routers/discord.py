@@ -139,6 +139,13 @@ def campaign_discord(campaignId: str, user: User = Depends(current_user), db: Se
     return {"connection": db_.verbindung_out(db, v) if v else None}
 
 
+@router.get("/campaigns/{campaignId}/discord/log", tags=["Discord"])
+def campaign_discord_log(campaignId: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """0.4.33: Verlauf der Discord-Anbindung, nur SL (sonst 404); auch bei ausgeschaltetem Bot lesbar."""
+    c = _sl(db, campaignId, user)
+    return {"entries": db_.verlauf(db, c)}
+
+
 @router.delete("/campaigns/{campaignId}/discord", tags=["Discord"], status_code=204)
 def campaign_discord_delete(campaignId: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     c = _sl(db, campaignId, user)

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Taleward API
-  version: 0.4.32
+  version: 0.4.33
   description: |
     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
 
@@ -309,6 +309,9 @@ info:
     Spuren je Mitglied oder Gast (trackAttendeeId), Pausen, Widerruf einer Spur, Hinweis „unterbrochen“, Einstellung
     CampaignSettings.discordPauseOnUnconsented. Ältere Apps müssen die neuen Zustände und consentSource link vertragen
     (die App zeigt Unbekanntes als „in Arbeit“); ältere Server melden kein discordBot.
+    Änderungen in 0.4.33 (Verlauf für die SL): GET /campaigns/{id}/discord/log zeigt der SL, wann die Kampagne mit
+    Discord verbunden oder gelöst wurde, wann Bot-Aufnahmen liefen und wann über einen Link zugestimmt wurde – ohne Namen,
+    ohne Discord-Kennungen, ohne Audio. Ältere Server antworten 404, die App zeigt dann keinen Verlauf.
 
 servers:
   - url: https://taleward.example.org/api/v1
@@ -3318,6 +3321,33 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /campaigns/{campaignId}/discord/log:
+    parameters: [{ $ref: "#/components/parameters/campaignId" }]
+    get:
+      tags: [Discord]
+      summary: Verlauf der Discord-Anbindung (nur SL, ab 0.4.33; Spielende und ältere Server 404)
+      description: |
+        Für die SL nachvollziehbar, was der Bot in ihrer Kampagne getan hat. Neueste zuerst, höchstens 200 Einträge.
+        Enthält nie Namen (auch nicht von Gästen), Discord-Kennungen, Kanalnamen, Gildennamen früherer Verbindungen oder
+        Audio – nur Zeitpunkt, Art und ggf. die Runde. `sessionId` nur, wenn die SL die Runde sehen darf (sonst fehlt das
+        Feld). Der Verlauf wird beim Umzug nicht mitgenommen und mit der Kampagne gelöscht. Unbekannte `kind`-Werte
+        (neuere Server) zeigt die App als allgemeinen Eintrag.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries]
+                properties:
+                  entries:
+                    type: array
+                    maxItems: 200
+                    items: { $ref: "#/components/schemas/DiscordLogEntry" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /consent-links/{token}:
     parameters:
       - { name: token, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{20,128}$" } }
@@ -5921,6 +5951,23 @@ components:
         guildName: { type: string }
         connectedAt: { type: string, format: date-time }
         connectedBy: { type: [string, "null"], description: "Mitglied (SL)" }
+
+    DiscordLogEntry:
+      type: object
+      required: [at, kind]
+      properties:
+        at: { type: string, format: date-time }
+        kind:
+          type: string
+          description: |
+            connected – mit einem Discord-Server verbunden; disconnected – von der SL gelöst; disconnected_auto – vom
+            Server gelöst (z. B. Bot-Schlüssel ersetzt oder Bot abgeschaltet); replaced – mit einem anderen Discord-Server
+            neu verbunden; recording_started / recording_stopped / recording_discarded – Bot-Aufnahme; track_discarded –
+            eine Spur verworfen (z. B. zu lang, ohne Zustimmung); track_revoked – eine Person hat ihre Zustimmung während der
+            Aufnahme zurückgenommen; consent_member / consent_guest – Zustimmung über einen Link (Mitglied bzw. Gast).
+          enum: [connected, disconnected, disconnected_auto, replaced, recording_started, recording_stopped,
+            recording_discarded, track_discarded, track_revoked, consent_member, consent_guest]
+        sessionId: { type: string, description: "Runde, falls betroffen und für die SL sichtbar" }
 
     NameFixInput:
       type: object

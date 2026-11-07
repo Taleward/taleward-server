@@ -109,6 +109,36 @@ def protokoll(db: Session, campaign_id: str, was: str, **daten) -> None:
                             else None))
 
 
+# 0.4.33 (Server 0.4.158): Verlauf für die SL – interne Namen → Arten der Schnittstelle. Unbekanntes bleibt draußen.
+VERLAUF_ARTEN = {
+    "verbunden": "connected", "verbindung_geloest": "disconnected", "verbindung_geloest_selbst": "disconnected_auto",
+    "verbindung_ersetzt": "replaced", "aufnahme_gestartet": "recording_started", "aufnahme_beendet": "recording_stopped",
+    "aufnahme_verworfen": "recording_discarded", "spur_verworfen": "track_discarded", "spur_widerrufen": "track_revoked",
+    "zustimmung_mitglied": "consent_member", "zustimmung_gast": "consent_guest",
+}
+VERLAUF_HOECHSTENS = 200
+VERLAUF_TAGE = 365  # Wartung löscht ältere Einträge (Sicherheits-Chat 08.11.)
+
+
+def verlauf(db: Session, c: Campaign) -> list[dict]:
+    """Neueste zuerst, höchstens 200; nur Zeitpunkt, Art und ggf. die Runde – nie Namen, Kennungen oder Mitglieds-IDs."""
+    aus: list[dict] = []
+    for z in db.scalars(select(DiscordProtokoll).where(DiscordProtokoll.campaign_id == c.id,
+                                                       DiscordProtokoll.was.in_(VERLAUF_ARTEN))
+                        .order_by(DiscordProtokoll.at.desc(), DiscordProtokoll.id.desc()).limit(VERLAUF_HOECHSTENS)):
+        eintrag = {"at": _z(z.at), "kind": VERLAUF_ARTEN[z.was]}
+        try:
+            runde = (json.loads(z.daten) if z.daten else {}).get("runde")
+        except (ValueError, AttributeError):
+            runde = None
+        if isinstance(runde, str):
+            s = db.get(GameSession, runde)
+            if s is not None and s.campaign_id == c.id:  # die SL sieht jede Runde ihrer Kampagne
+                eintrag["sessionId"] = s.id
+        aus.append(eintrag)
+    return aus
+
+
 # ---------------------------------------------------------------- Bot-Schlüssel (B1)
 def schluessel_erzeugen(db: Session, name: str, von: str) -> tuple[str, BotKey]:
     klartext = "twb_" + secrets.token_urlsafe(32)
@@ -704,4 +734,5 @@ def wartung(db: Session) -> int:
     db.execute(ConsentLink.__table__.delete().where(ConsentLink.expires_at < jetzt - timedelta(days=2),
                                                     ~exists().where(GameSession.id == ConsentLink.session_id,
                                                                     GameSession.state == "recording")))
+    db.execute(DiscordProtokoll.__table__.delete().where(DiscordProtokoll.at < jetzt - timedelta(days=VERLAUF_TAGE)))
     return n

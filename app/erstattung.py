@@ -55,6 +55,7 @@ class Teil:
     credit_cent: int  # so viel Guthaben geht damit zurück
     beim_anbieter_cent: int  # so viel im Dashboard des Anbieters erstatten (mit anteiliger Gebühr)
     frist_vorbei: bool
+    offen_seit: object = None  # 0.4.158 (S64): mit „Erstatten“ angestoßen, Meldung des Anbieters steht aus
 
 
 @dataclass
@@ -97,7 +98,7 @@ def aufteilen(db: Session, g: Guthaben, betrag_cent: int | None = None) -> Aufte
 
             am = am.replace(tzinfo=timezone.utc)
         a.teile.append(Teil(v.id, v.anbieter, v.zahlung_ref or v.anbieter_ref or "", am, anteil, beim_anbieter,
-                            bool(am and am < grenze)))
+                            bool(am and am < grenze), v.erstattung_offen_at))
         offen -= anteil
     a.von_hand_cent = max(0, offen)
     return a
@@ -189,9 +190,27 @@ class Ergebnis:
     angestossen_cent: int = 0  # so viel Guthaben geht mit den Meldungen zurück
     fehlgeschlagen: list[str] = field(default_factory=list)  # Zahlungsbezüge, die nicht gingen
     von_hand_cent: int = 0  # Frist vorbei oder keine passende Zahlung – per Überweisung
+    wartet: list[str] = field(default_factory=list)  # S64: schon angestoßen, Meldung fehlt – nicht noch einmal
 
 
-def erstatten(db: Session, g: Guthaben, von: str) -> Ergebnis:
+def _vormerken(db: Session, v: Bezahlvorgang, cent: int, erneut: bool) -> bool:
+    """S64: Erstattung je Zahlung vormerken, bevor sie beim Anbieter angestoßen wird. Steht schon eine aus (Meldung des
+    Anbieters fehlt), nur mit ausdrücklichem „Erneut anstoßen“. Atomar, damit zwei gleichzeitige Klicks nicht beide
+    durchkommen."""
+    from sqlalchemy import update
+
+    from app.db import utcnow
+
+    bedingung = [Bezahlvorgang.id == v.id]
+    if not erneut:
+        bedingung.append(Bezahlvorgang.erstattung_offen_at.is_(None))
+    n = db.execute(update(Bezahlvorgang).where(*bedingung)
+                   .values(erstattung_offen_cent=cent, erstattung_offen_at=utcnow())
+                   .execution_options(synchronize_session="fetch")).rowcount
+    return n == 1
+
+
+def erstatten(db: Session, g: Guthaben, von: str, erneut: bool = False) -> Ergebnis:
     """Alles Erstattbare eines Guthabens beim Anbieter erstatten (Verwaltung → Abrechnung → Erstattungen). Beträge
     rechnet immer der Server (aufteilen), nie das Formular. Zahlungen älter als die Frist bleiben für die Überweisung."""
     import httpx
@@ -206,14 +225,19 @@ def erstatten(db: Session, g: Guthaben, von: str) -> Ergebnis:
         if t.frist_vorbei or v is None or v.anbieter not in bereit:
             e.von_hand_cent += t.credit_cent
             continue
+        if not _vormerken(db, v, t.beim_anbieter_cent, erneut):
+            e.wartet.append(t.zahlung_ref)
+            continue
         try:
             _beim_anbieter(db, v, t.beim_anbieter_cent)
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as fehler:
+            v.erstattung_offen_cent = None  # nichts angestoßen – Sperre wieder weg
+            v.erstattung_offen_at = None
             e.fehlgeschlagen.append(t.zahlung_ref)
             abrechnung.protokoll(db, von, "erstattung_fehlgeschlagen", g.id, vorgang=v.id,
                                  grund=type(fehler).__name__)
             continue
         e.angestossen_cent += t.credit_cent
         abrechnung.protokoll(db, von, "erstattung_angestossen", g.id, vorgang=v.id, anbieter=v.anbieter,
-                             brutto_cent=t.beim_anbieter_cent, betrag_cent=t.credit_cent)
+                             brutto_cent=t.beim_anbieter_cent, betrag_cent=t.credit_cent, erneut=erneut)
     return e

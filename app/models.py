@@ -1025,6 +1025,9 @@ class Bezahlvorgang(Base):
     anbieter_ref: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)  # Sitzung bzw. Auftrag
     zahlung_ref: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)  # Zahlung bzw. Abbuchung
     erstattet_cent: Mapped[int] = mapped_column(Integer, default=0)
+    # 0.4.158 (S64): mit „Erstatten“ angestoßen, Meldung des Anbieters steht noch aus – sperrt einen zweiten Knopfdruck
+    erstattung_offen_cent: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    erstattung_offen_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     buchung_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     abgeschlossen: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)

@@ -1544,6 +1544,10 @@ EN: dict[str, str] = {
     'Erstattung angestoßen. Bleibt von Hand zu überweisen: {betrag}.': 'Refund started. Left to transfer by hand: {betrag}.',
     'Bitte ein gültiges Datum eintragen.': 'Please enter a valid date.',
     'Erstattung angestoßen. Das Guthaben ändert sich, sobald der Anbieter sie meldet.': 'Refund started. The credit changes as soon as the provider reports it.',
+    # 0.4.158
+    'angestoßen {zeit}, Meldung fehlt': 'started {zeit}, report missing',
+    'Erneut anstoßen – nur, wenn die Erstattung im Dashboard des Anbieters fehlt': "Start again – only if the refund is missing in the provider's dashboard",
+    'Für {refs} läuft schon eine Erstattung, die Meldung fehlt. Im Dashboard nachsehen, sonst „Erneut anstoßen“.': 'A refund for {refs} is already under way, the report is missing. Check the dashboard, otherwise “Start again”.',
 }
 
 WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}

@@ -126,17 +126,19 @@
   {% for t in teile %}
     <li>{{ "Stripe" if t.anbieter == "stripe" else "PayPal" }} · <code>{{ t.zahlung_ref or t.ref }}</code>{% if t.bezahlt_am %} · {{ zeit(t.bezahlt_am) }}{% endif %} ·
       {{ _("beim Anbieter erstatten: {betrag}", betrag=euro(t.beim_anbieter_cent)) }} <span class="leise">({{ _("Guthaben {betrag}", betrag=euro(t.credit_cent if t.credit_cent is defined else t.cent)) }})</span>
-      {% if t.frist_vorbei %}<span class="marke-status marke-status--warten">{{ _("älter als {n} Tage", n=frist_tage) }}</span>{% endif %}</li>
+      {% if t.frist_vorbei %}<span class="marke-status marke-status--warten">{{ _("älter als {n} Tage", n=frist_tage) }}</span>{% endif %}
+      {% if t.offen_seit %}<span class="marke-status marke-status--warten">{{ _("angestoßen {zeit}, Meldung fehlt", zeit=zeit(t.offen_seit)) }}</span>{% endif %}</li>
   {% endfor %}
   </ul>
 {% endmacro %}
 <div class="karte" id="erstattungen">
   <h2>{{ _("Erstattungen") }}</h2>
   <p class="hilfe">{{ _("Erstattet wird nur der Rest aus Zahlungen, auf die ursprünglichen Zahlungen. Gutschriften und Gutscheine nie.") }}</p>
-{% macro erstatten_knopf(guthaben_id, betrag) %}
+{% macro erstatten_knopf(guthaben_id, betrag, teile=[]) %}
   <form class="formular formular--zeile" method="post" action="/verwaltung/abrechnung/erstattung/ausfuehren">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="guthaben" value="{{ guthaben_id }}">
     <label class="haken"><input type="checkbox" name="bestaetigt" value="1" required> {{ _("{betrag} jetzt erstatten", betrag=euro(betrag)) }}</label>
+    {% if teile|selectattr("offen_seit")|list %}<label class="haken"><input type="checkbox" name="erneut" value="1"> {{ _("Erneut anstoßen – nur, wenn die Erstattung im Dashboard des Anbieters fehlt") }}</label>{% endif %}
     <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Erstatten") }}</button>
   </form>
 {% endmacro %}
@@ -150,7 +152,7 @@
     {% else %}
       <p><strong>{{ _("Erstattbar: {betrag}", betrag=euro(erstattung_fall.a.betrag_cent)) }}</strong></p>
       {{ aufteilung_zeigen(erstattung_fall.a.teile) }}
-      {% if erstattung_fall.a.teile %}{{ erstatten_knopf(erstattung_fall.guthaben_id, erstattung_fall.a.betrag_cent) }}{% endif %}
+      {% if erstattung_fall.a.teile %}{{ erstatten_knopf(erstattung_fall.guthaben_id, erstattung_fall.a.betrag_cent, erstattung_fall.a.teile) }}{% endif %}
       {% if erstattung_fall.a.ueberweisung_noetig %}<p class="meldung">{{ _("Geht eine Zahlung nicht mehr zu erstatten (Frist des Anbieters, Karte erloschen): per Mail nach einer Kontoverbindung fragen und von Hand überweisen. Die Kontoverbindung nie in Taleward eintragen.") }}{% if erstattung_fall.a.von_hand_cent %} {{ _("Ohne passende Zahlung: {betrag}.", betrag=euro(erstattung_fall.a.von_hand_cent)) }}{% endif %}</p>{% endif %}
     {% endif %}
   {% endif %}
@@ -161,7 +163,7 @@
     <li><span>{{ zeit(o.z.angelegt) }} · <strong>{{ euro(o.z.betrag_cent) }}</strong>{% if o.jetzt != o.z.betrag_cent %} <span class="leise">({{ _("noch offen: {betrag}", betrag=euro(o.jetzt)) }})</span>{% endif %} ·
       {% if o.z.email %}<code>{{ o.z.email }}</code>{% else %}<span class="leise">{{ _("keine E-Mail-Adresse") }}</span>{% endif %}</span>
       {{ aufteilung_zeigen(o.teile) }}
-      {% if o.jetzt > 0 %}{{ erstatten_knopf(o.z.guthaben_id, o.jetzt) }}{% endif %}
+      {% if o.jetzt > 0 %}{{ erstatten_knopf(o.z.guthaben_id, o.jetzt, o.aktuell) }}{% endif %}
       <details><summary>{{ _("Von Hand erstattet") }}</summary>
         <form class="formular formular--zeile" method="post" action="/verwaltung/abrechnung/erstattung/{{ o.z.id }}/erledigt">
           <input type="hidden" name="csrf" value="{{ csrf }}">

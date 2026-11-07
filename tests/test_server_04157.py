@@ -104,8 +104,11 @@ def test_erstatten_stoesst_beide_anbieter_an(client, dbs, admin, anbieter):  # n
     assert paypal[0].url.host == "api-m.sandbox.paypal.com"
     # gebucht wird erst mit der Meldung: das Guthaben ist unverändert
     assert erstattung.erstattbar(dbs, g) == 3500
-    # ein zweiter Klick schickt denselben Auftrag (gleicher Schlüssel) – der Anbieter führt ihn nur einmal aus
-    client.post(pfad, data={"csrf": admin, "guthaben": g.id, "bestaetigt": "1"})
+    # ein zweiter Klick, solange die Meldung fehlt, geht nicht an den Anbieter (0.4.158, S64)
+    assert client.post(pfad, data={"csrf": admin, "guthaben": g.id, "bestaetigt": "1"}).status_code == 409
+    assert len([a for a in anbieter.anfragen if a.url.path == "/v1/refunds"]) == 1
+    # „Erneut anstoßen“ innerhalb von 24 h: derselbe Schlüssel – der Anbieter führt ihn nur einmal aus
+    client.post(pfad, data={"csrf": admin, "guthaben": g.id, "bestaetigt": "1", "erneut": "1"})
     stripe2 = [a for a in anbieter.anfragen if a.url.path == "/v1/refunds"]
     assert stripe2[1].headers["Idempotency-Key"] == stripe[0].headers["Idempotency-Key"]
 

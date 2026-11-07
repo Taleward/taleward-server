@@ -114,8 +114,10 @@ def _seite_abrechnung(request: Request, user: User, db: Session, status: int = 2
                        "erstattbar": erstattung.erstattbar(db, g)})
     offen_e = []
     for z in erstattung.offene(db):  # 0.4.153: nach Kontolöschung
+        g_z = db.get(Guthaben, z.guthaben_id)
         offen_e.append({"z": z, "teile": json.loads(z.zahlungen or "[]"),
-                        "jetzt": erstattung.erstattbar(db, db.get(Guthaben, z.guthaben_id))})
+                        "jetzt": erstattung.erstattbar(db, g_z),
+                        "aktuell": erstattung.aufteilen(db, g_z).teile if g_z is not None else []})
     aktionen = db.execute(select(Gutschein.aktion, Gutschein.betrag_cent, func.count(),
                                  func.count(Gutschein.eingeloest_at), func.max(Gutschein.gueltig_bis))
                           .group_by(Gutschein.aktion, Gutschein.betrag_cent).order_by(Gutschein.aktion)).all()
@@ -195,7 +197,7 @@ def erstattung_erledigt(request: Request, zeile_id: str, bestaetigt: str = Form(
 
 @router.post("/abrechnung/erstattung/ausfuehren", dependencies=[Depends(csrf_pruefen)])
 def erstattung_ausfuehren(request: Request, guthaben: str = Form(""), bestaetigt: str = Form(""),
-                          user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):
+                          erneut: str = Form(""), user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):
     """0.4.157: Knopf „Erstatten“ – stößt die Erstattung beim Anbieter an; gebucht wird mit dessen Meldung."""
     from app import erstattung as e
 
@@ -209,8 +211,11 @@ def erstattung_ausfuehren(request: Request, guthaben: str = Form(""), bestaetigt
         return _seite_abrechnung(request, user, db, status=400, fehler=_("Bitte den Betrag bestätigen."))
     if e.erstattbar(db, g) <= 0:
         return _seite_abrechnung(request, user, db, status=409, fehler=_("Nichts zu erstatten."))
-    ergebnis = e.erstatten(db, g, user.id)
+    ergebnis = e.erstatten(db, g, user.id, erneut=bool(erneut))
     db.commit()
+    if ergebnis.wartet and not ergebnis.angestossen_cent and not ergebnis.fehlgeschlagen:
+        return _seite_abrechnung(request, user, db, status=409, fehler=_(
+            "Für {refs} läuft schon eine Erstattung, die Meldung fehlt. Im Dashboard nachsehen, sonst „Erneut anstoßen“.", refs=", ".join(ergebnis.wartet)))
     if ergebnis.fehlgeschlagen:
         return _seite_abrechnung(request, user, db, status=502, fehler=_(
             "Der Anbieter hat nicht jede Erstattung angenommen: {refs}. Im Dashboard des Anbieters nachsehen.",

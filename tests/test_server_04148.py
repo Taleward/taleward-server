@@ -91,7 +91,7 @@ def test_server_schluessel_in_info_und_geschuetzt(client, dbs):
     from app import dpapi, teilen
 
     a = client.get(f"{API}/info").json()
-    assert a["apiVersion"] == "0.4.32" and len(a["shareKeys"]) == 1
+    assert a["apiVersion"] == "0.4.33" and len(a["shareKeys"]) == 1
     assert client.get(f"{API}/info").json()["shareKeys"] == a["shareKeys"]  # bleibt gleich
     assert dpapi.geheim(teilen.META_SCHLUESSEL)
     assert teilen.signierer(dbs).id == a["shareKeys"][0]["id"]
