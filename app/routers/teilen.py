@@ -25,6 +25,9 @@ def create_share(campaignId: str, body: schemas.ShareIn, user: User = Depends(cu
         raise errors.not_found("session")
     if s.state != "published" or db.get(Recap, s.id) is None:
         raise errors.conflict("not_published")
-    antwort = teilen.teilen(db, db.get(Campaign, campaignId), s)
+    try:
+        antwort = teilen.teilen(db, db.get(Campaign, campaignId), s)
+    except teilen.NichtLesbar:
+        raise errors.ApiError(503, "share_unavailable") from None
     db.commit()  # nur aufgeräumte Schlüssel früherer Mitgliedschaften; die Datei selbst wird nicht gespeichert
     return antwort

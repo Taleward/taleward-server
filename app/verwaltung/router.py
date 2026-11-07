@@ -277,6 +277,14 @@ def _frisch_verlangen(request: Request, db: Session, user: User, noetig: bool = 
         raise FaktorNoetig(_weiter_pfad(request))
 
 
+def _umleitung_pruefen(request: Request, db: Session, user: User, zugang_gespeichert: bool, alt, neu) -> None:
+    """0.4.152 (S57.3): Ändert sich das Ziel (Adresse, Host, Port, TLS-Art), an das ein schon gespeicherter Zugang
+    geht, verlangt das den frischen zweiten Faktor – sonst könnte eine Sitzung über ein vertrautes Gerät oder ein
+    gestohlenes Cookie den Zugang an eine eigene Adresse schicken lassen."""
+    if zugang_gespeichert and alt != neu:
+        _frisch_verlangen(request, db, user, True)
+
+
 def faktor_frisch(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)) -> User:
     """Abhängigkeit für Schritte aus der S44-Liste (Geld, Schlüssel, Verwalter, der Faktor selbst): Ohne frischen
     zweiten Faktor geht es zur Bestätigungsseite; ohne eingerichteten zweiten Faktor gibt es nichts zu zeigen."""
@@ -1025,10 +1033,10 @@ def transkription(request: Request, user: User = Depends(verwalter), db: Session
     from app.einstellungen import meta_lesen
 
     from app.einstellungen import meta_lesen as _meta
-    from app.koppeln import aktueller_code
+    from app.koppeln import code_fuer
 
     return _seite(request, "transkription.html", user, db, knechte=_knechte(db), neuer_token=neuer_token,
-                  koppel=aktueller_code(db), server_url=str(request.base_url).rstrip("/"),
+                  koppel=code_fuer(db, _sitzungs_bindung(request)),  # 0.4.152 (S57.4): nur die erzeugende Sitzung server_url=str(request.base_url).rstrip("/"),
                   hf_ende=(_meta(db, "hf.token") or "")[-4:] or None, modell=_modell_anzeige(db),
                   neuer_name=neuer_name, fehler=fehler, lokal=KNECHT.zustand(), log=KNECHT.log_ende(),
                   autostart=meta_lesen(db, META_KEY, "aus"), ki=ki_verfuegbar(), ext=_extern_anzeige(db),
@@ -1502,6 +1510,10 @@ def zusammenfassung_speichern(request: Request, art: str = Form("aus"), anbieter
     url = bekannt.url if bekannt else api_url.strip().rstrip("/")
     if not _api_adresse_ok(url):
         return fehler(_("Die Adresse muss mit https:// beginnen."))
+    # 0.4.152 (S57.3): Ein gespeicherter Schlüssel geht nur mit frischem Faktor an eine andere Adresse
+    gespeichert = llm_konfig(db)
+    _umleitung_pruefen(request, db, user, bool(gespeichert.api_key) and not key_loeschen and not api_key.strip(),
+                       gespeichert.api_url, url)
     if art == "api" and (bekannt is None or not bekannt.eu) and not ausserhalb_eu:
         return fehler(_("Bitte bestätigen, dass die Verarbeitung außerhalb der EU bzw. bei einem nicht beschriebenen Anbieter gewollt ist und der Vertrag zur Auftragsverarbeitung geschlossen wird."))  # noqa: E501
     from app import modellwahl
@@ -1877,6 +1889,15 @@ def benachrichtigungen_speichern(request: Request, ntfy_url: str = Form(""), ntf
         return fehler(_("Port bitte als Zahl, Wartezeit in Stunden zwischen 1 und 168."))
     if smtp_tls not in ("starttls", "ssl", "aus") or sprache not in ("de", "en"):
         return fehler(_("Unbekannte Auswahl."))
+    # 0.4.152 (S57.3): gespeicherter Token bzw. gespeichertes Passwort nur mit frischem Faktor an ein neues Ziel
+    from app.benachrichtigung import konfig as melde_konfig
+
+    bisher = melde_konfig(db)
+    _umleitung_pruefen(request, db, user, bool(bisher.ntfy_token) and not zugang_loeschen and not ntfy_token.strip(),
+                       bisher.ntfy_url, ntfy_url[:500])
+    _umleitung_pruefen(request, db, user, bool(bisher.smtp_pass) and not zugang_loeschen and not smtp_pass,
+                       (bisher.smtp_host, str(bisher.smtp_port), bisher.smtp_tls),
+                       (smtp_host.strip()[:200], str(port), smtp_tls))
     email_an = email_an.strip()
     if email_an and "@" not in email_an:
         return fehler(_("Das sieht nicht nach einer E-Mail-Adresse aus."))
@@ -1941,6 +1962,10 @@ def sicherung_herunterladen(name: str, user: User = Depends(faktor_frisch)):  # 
 @router.post("/sicherung/einstellungen", dependencies=[Depends(csrf_pruefen)])
 def sicherung_einstellen(request: Request, auto: str = Form(""), tage: str = Form("14"), ordner: str = Form(""),
                          weiter: str = Form(""), user: User = Depends(verwalter), db: Session = Depends(get_db)):
+    from app import sicherung
+
+    # 0.4.152 (S60): wohin Sicherungen zusätzlich kopiert werden, nur mit frischem Faktor ändern
+    _frisch_verlangen(request, db, user, ordner.strip() != (meta_lesen(db, "sicherung.ordner") or ""))
     _ = tr(request)
     try:
         n = int(tage)
@@ -1953,6 +1978,8 @@ def sicherung_einstellen(request: Request, auto: str = Form(""), tage: str = For
         pfad = Path(ordner)
         if not pfad.is_absolute() or not pfad.is_dir() or not os.access(pfad, os.W_OK):
             return _fehlerseite(request, user, db, _("Der zusätzliche Ordner existiert nicht oder ist nicht beschreibbar."))
+        if not sicherung.zusatz_erlaubt(pfad):
+            return _fehlerseite(request, user, db, _("Dieser Ordner liegt im Daten- oder Programmordner von Taleward. Bitte einen Ordner außerhalb wählen."))  # noqa: E501
     meta_schreiben(db, "sicherung.auto", "an" if auto else "aus")
     meta_schreiben(db, "sicherung.tage", str(n))
     meta_schreiben(db, "sicherung.ordner", ordner)

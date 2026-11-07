@@ -289,6 +289,7 @@ EN: dict[str, str] = {
     "Der Schlüssel stimmt, aber die Modellbedingungen sind noch nicht angenommen.": "The token is valid, but the model conditions have not been accepted yet.",
     "Der Schlüssel wurde gespeichert, konnte aber gerade nicht geprüft werden (Anbieter nicht erreichbar).": "The key was saved but could not be checked right now (provider not reachable).",
     "Der zusätzliche Ordner existiert nicht oder ist nicht beschreibbar.": "The additional folder does not exist or is not writable.",
+    "Dieser Ordner liegt im Daten- oder Programmordner von Taleward. Bitte einen Ordner außerhalb wählen.": "This folder is inside Taleward's data or program folder. Please choose a folder outside.",
     "Die App gibt es hier:": "Get the app here:",
     "Die App zeigt ihn beim Registrieren; jede Person muss ihm zustimmen. Unten steht eine Vorlage, die aus euren Einstellungen befüllt ist.": "The app shows it at registration; everyone has to accept it. Below is a template filled in from your settings.",
     "Die Registrierung ist geschlossen – Konten legt nur die Verwaltung an (Einstellungen → Neue Konten).": "Registration is closed – only administrators create accounts (Settings → New accounts).",

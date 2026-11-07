@@ -134,7 +134,7 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
     assert r.status_code == 201 and r.json()["name"] == "gaming-pc"
     h = {"Authorization": f"Bearer {r.json()['token']}"}
     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.151"}
+    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.152"}
     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
     seite = client.get("/verwaltung/assistent/betrieb").text
     assert "gaming-pc" in seite and "bereit" in seite
@@ -222,7 +222,7 @@ def test_kostenlimit(client, world, dbs, admin, monkeypatch):  # noqa: F811
 
 
 # ---------------------------------------------------------------- Sicherung
-def test_sicherung_vollstaendig_und_wiederherstellen(client, world, dbs, admin, tmp_path):  # noqa: F811
+def test_sicherung_vollstaendig_und_wiederherstellen(client, world, dbs, admin, tmp_path_factory):  # noqa: F811
     from app import sicherung
     from app.config import get_settings
     from app.models import Campaign
@@ -231,8 +231,7 @@ def test_sicherung_vollstaendig_und_wiederherstellen(client, world, dbs, admin, 
     w = world
     client.put(f"{API}/campaigns/{w['cid']}/cover-image", headers={**w["gm"], "Content-Type": "image/jpeg"},
                content=jpeg(100, 100))
-    extra = tmp_path / "storagebox"
-    extra.mkdir()
+    extra = tmp_path_factory.mktemp("storagebox")  # außerhalb des Datenordners der Tests (0.4.152, S60)
     r = client.post("/verwaltung/sicherung/einstellungen", data={"csrf": admin, "auto": "1", "tage": "7",
                                                                  "ordner": "relativ/pfad"})
     assert r.status_code == 400
@@ -262,7 +261,7 @@ def test_sicherung_vollstaendig_und_wiederherstellen(client, world, dbs, admin, 
     with session_factory()() as neu:
         assert neu.get(Campaign, w["cid"]).title == "Rabenfels"
     assert (get_settings().data_dir / "bilder").exists()
-    kaputt = tmp_path / "kaputt.zip"
+    kaputt = extra / "kaputt.zip"
     kaputt.write_bytes(b"kein zip")
     with pytest.raises(sicherung.SicherungFehler):
         sicherung.pruefen(kaputt)

@@ -486,6 +486,8 @@ MESSAGES: dict[str, tuple[str, str]] = {
     "import_too_large": ("Die Datei ist zu groß für diesen Server (höchstens {mb} MB).",
                          "The file is too large for this server (at most {mb} MB)."),
     "seat_not_open": ("Dieser Platz ist nicht (mehr) frei.", "This seat is not open (any more)."),
+    "share_unavailable": ("Teilen geht auf diesem Server gerade nicht. Bitte die Verwaltung des Servers fragen.",
+                          "Sharing is not available on this server right now. Please ask the server's operator."),
     "not_published": ("Teilen geht erst, wenn das Kapitel freigegeben ist.",
                       "You can share a chapter once it is published."),
     "not_importer": ("Das kann nur die Person, die die Kampagne aus der Datei übernommen hat.",

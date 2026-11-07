@@ -679,6 +679,23 @@ def ollama_finden(wunsch: str | None, client: httpx.Client | None = None) -> str
                           "„Recaps auch auf diesem PC schreiben“, oder ein eigenes Ollama?")
 
 
+def ziel_vorbereiten(ziel: Path) -> Path:
+    """Ergebnisordner als vollen Pfad anlegen und einmal beschreiben, bevor die Läufe Stunden brauchen. Ordner, die
+    OneDrive gerade synchronisiert (oder deren Pfad Windows anders auflöst als die Anzeige der PowerShell), scheitern
+    sonst erst am Ende mit FileNotFoundError."""
+    try:
+        voll = ziel.expanduser().resolve()
+        voll.mkdir(parents=True, exist_ok=True)
+        probe = voll / ".taleward-probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError as e:
+        raise VergleichFehler(
+            f"Der Ergebnisordner {ziel} lässt sich nicht beschreiben ({e.strerror or e}). Bitte einen Ordner außerhalb "
+            "von OneDrive wählen, zum Beispiel: --ziel C:\\Taleward-Test") from None
+    return voll
+
+
 def ausfuehren(server: Server, session_id: str, modelle: list[tuple[str, int]], richter: str, richter_kontext: int,
                ollama_url: str, ziel: Path, melden: Callable[[str], None] = print,
                client: httpx.Client | None = None, einst: Einstellungen | None = None) -> Path:

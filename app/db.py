@@ -51,11 +51,27 @@ def _set_sqlite_pragmas(dbapi_conn, _record):
     cur.close()
 
 
+def _nur_fuer_den_dienst(ordner) -> None:
+    """0.4.152: Datenordner nur für den Nutzer des Dienstes (700). Dort liegen Datenbank, Zugänge und Sicherungen;
+    unter Linux stehen Zugänge im Klartext in der Datenbank. Unter Windows regelt das der Benutzerordner."""
+    import os
+    import stat
+
+    if os.name == "nt":
+        return
+    try:
+        if stat.S_IMODE(ordner.stat().st_mode) & 0o077:
+            ordner.chmod(0o700)
+    except OSError:
+        pass  # fremder Besitzer (z. B. eingebundener Ordner): nicht schlimm, der Betreiber regelt die Rechte
+
+
 def get_engine() -> Engine:
     global _engine, _SessionLocal
     if _engine is None:
         settings = get_settings()
         settings.data_dir.mkdir(parents=True, exist_ok=True)
+        _nur_fuer_den_dienst(settings.data_dir)
         _engine = create_engine(settings.db_url, connect_args={"check_same_thread": False})
         event.listen(_engine, "connect", _set_sqlite_pragmas)
         _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False)

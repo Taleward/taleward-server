@@ -89,12 +89,11 @@ def reset_password(username: str = typer.Option(..., "--username", "-u")):
     if user is None:
         typer.echo("Benutzer nicht gefunden.", err=True)
         raise typer.Exit(1)
-    methode = db.scalar(select(AuthMethod).where(AuthMethod.user_id == user.id, AuthMethod.kind == "password"))
-    if methode is None:
-        methode = AuthMethod(user_id=user.id, kind="password", secret="")
-        db.add(methode)
-    methode.secret = hash_password(_ask_password())
-    user.token_version += 1
+    from app import passwortlink
+
+    # 0.4.152 (S55): derselbe Weg wie überall – offene Passwort-Links und Ausnahmen verfallen, bekannte Geräte werden
+    # vergessen, die Hinweis-Mail an das Konto geht raus
+    passwortlink.passwort_setzen(db, user, _ask_password(), ort="server")
     db.commit()
     typer.echo("Passwort geändert, alte Anmeldungen sind abgemeldet.")
 
@@ -900,6 +899,7 @@ def modellvergleich(
             raise mv.VergleichFehler("--grundlage: auto, direkt oder teile")
         if profil not in ("neu", "alt") or weg not in ("abschrift", "notizen") or grammatik not in ("profil", "immer", "nie"):
             raise mv.VergleichFehler("--profil neu|alt, --weg abschrift|notizen, --grammatik profil|immer|nie")
+        ziel = mv.ziel_vorbereiten(ziel)  # vor den langen Läufen: Ordner da und beschreibbar?
         for name, datei in (("Prüfliste", pruefliste), ("Notizen", notizen)):
             if datei is not None and not datei.is_file():
                 raise mv.VergleichFehler(f"{name} nicht gefunden: {datei.resolve()} – Datei in diesen Ordner legen "

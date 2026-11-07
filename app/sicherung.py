@@ -68,6 +68,20 @@ def einstellungen(db) -> dict:
             "ordner": meta_lesen(db, "sicherung.ordner") or None}
 
 
+def zusatz_erlaubt(pfad: Path) -> bool:
+    """0.4.152 (S60): Zusätzlicher Sicherungsordner nie im Datenordner (dort liegt u. a. die ausgelieferte Web-App)
+    und nie im Programmordner (statische Dateien) – nach dem Auflösen von Verknüpfungen. Eine Sicherung enthält die
+    ganze Datenbank mit allen Zugängen; sie darf nirgends landen, wo der Server Dateien ohne Anmeldung ausliefert."""
+    import app as paket
+
+    try:
+        ziel = pfad.resolve()
+    except OSError:
+        return False
+    verboten = [get_settings().data_dir.resolve(), Path(paket.__file__).resolve().parent]
+    return not any(ziel == v or v in ziel.parents for v in verboten)
+
+
 def erstellen(grund: str = "", zusatz_ordner: str | None = None, tage: int = STANDARD_TAGE,
               ordner: Path | None = None) -> Path:
     """Sicherung anlegen. Die Datenbank wird mit der SQLite-Sicherungsfunktion kopiert – konsistent, auch
@@ -111,6 +125,9 @@ def erstellen(grund: str = "", zusatz_ordner: str | None = None, tage: int = STA
         teil.replace(endgueltig)
     if ordner:
         return endgueltig
+    if zusatz_ordner and not zusatz_erlaubt(Path(zusatz_ordner)):  # ältere Einstellung: nicht mehr kopieren
+        log.warning("Zusätzlicher Sicherungsordner liegt im Daten- oder Programmordner – keine Kopie dorthin")
+        zusatz_ordner = None
     if zusatz_ordner:
         try:
             shutil.copy2(endgueltig, Path(zusatz_ordner) / name)

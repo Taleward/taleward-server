@@ -197,9 +197,10 @@ def verein_speichern(request: Request, verein_name: str = Form(""), server_name:
 
 
 # -- Betriebsart
-def _betrieb_ctx(db: Session) -> dict:
+def _betrieb_ctx(db: Session, request: Request) -> dict:
     from app import aktualisierung, modellablage
-    from app.koppeln import aktueller_code
+    from app.koppeln import code_fuer
+    from app.verwaltung.router import _sitzungs_bindung
 
     ext = extern_konfig(db)
     grenze = _online_grenze()
@@ -208,14 +209,14 @@ def _betrieb_ctx(db: Session) -> dict:
                                   .order_by(Worker.created_at))]
     limit = kosten.limit_cent(db)
     return {"art": einrichtung.betriebsart(db), "mistral_ende": (ext.api_key or "")[-4:] if ext.api_key else None,
-            "hf_ende": (meta_lesen(db, "hf.token") or "")[-4:] or None, "koppel": aktueller_code(db),
+            "hf_ende": (meta_lesen(db, "hf.token") or "")[-4:] or None, "koppel": code_fuer(db, _sitzungs_bindung(request)),
             "worker": worker, "limit_euro": (limit or 2000) / 100, "stunden": ext.stunden if ext.stunden else 12,
             "server_url": "", "spiegel": modellablage.spiegel_nutzbar(), "worker_link": aktualisierung.worker_link(db)}
 
 
 @router.get("/assistent/betrieb", response_class=HTMLResponse)
 def betrieb(request: Request, neu: int = 0, user: User = Depends(verwalter), db: Session = Depends(get_db)):
-    ctx = _betrieb_ctx(db)
+    ctx = _betrieb_ctx(db, request)
     ctx["server_url"] = str(request.base_url).rstrip("/")
     if neu:
         ctx["art"] = None
@@ -240,7 +241,7 @@ def betrieb_speichern(request: Request, mistral_key: str = Form(""), hf_token: s
     _frisch_verlangen(request, db, user, bool(mistral_key.strip() or hf_token.strip()))
     _ = tr(request)
     art = einrichtung.betriebsart(db)
-    ctx = _betrieb_ctx(db) | {"server_url": str(request.base_url).rstrip("/")}
+    ctx = _betrieb_ctx(db, request) | {"server_url": str(request.base_url).rstrip("/")}
 
     def fehler(text):
         return _fehler(request, user, db, "betrieb", text, **ctx)
@@ -297,11 +298,13 @@ def betrieb_speichern(request: Request, mistral_key: str = Form(""), hf_token: s
 
 
 @router.post("/assistent/koppeln", dependencies=[Depends(csrf_pruefen)])
-def koppeln_code(weiter: str = Form(""), user: User = Depends(faktor_frisch),  # 0.4.149: ein Worker sieht Aufnahmen
+def koppeln_code(request: Request, weiter: str = Form(""),
+                 user: User = Depends(faktor_frisch),  # 0.4.149: ein Worker sieht Aufnahmen
                  db: Session = Depends(get_db)):
     from app.koppeln import code_erzeugen
+    from app.verwaltung.router import _sitzungs_bindung
 
-    code_erzeugen(db)
+    code_erzeugen(db, _sitzungs_bindung(request))
     ziel = weiter if weiter in ("/verwaltung/assistent/betrieb", "/verwaltung/transkription") else \
         "/verwaltung/transkription"
     return RedirectResponse(ziel + "#koppeln", status_code=303)
@@ -333,6 +336,10 @@ def zusammenfassung_speichern(request: Request, wahl: str = Form(""), mistral_ke
         if not extern_konfig(db).api_key and not llm_konfig(db).api_key:
             return _fehler(request, user, db, "zusammenfassung", _("Bitte den API-Schlüssel von Mistral eintragen."),
                            art=einrichtung.betriebsart(db), llm=llm_konfig(db), mistral=False, hinweis="")
+        from app.verwaltung.router import _umleitung_pruefen
+
+        bisher = llm_konfig(db)  # 0.4.152 (S57.3): gespeicherter Schlüssel nur mit frischem Faktor an eine neue Adresse
+        _umleitung_pruefen(request, db, user, bool(bisher.api_key) and not key, bisher.api_url, MISTRAL_URL)
         meta_schreiben(db, "llm.art", "api")
         meta_schreiben(db, "llm.api_url", MISTRAL_URL)
         if not meta_lesen(db, "llm.api_modell"):

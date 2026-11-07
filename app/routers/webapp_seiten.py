@@ -29,6 +29,9 @@ def ohne_schraegstrich():
     return RedirectResponse("/app/", status_code=308)
 
 
+GESPERRT = frozenset({".zip", ".part", ".db", ".sqlite", ".sqlite3", ".gz", ".tgz", ".tar", ".7z", ".bak", ".enc"})
+
+
 @router.get("/app/{pfad:path}")
 def datei(pfad: str, db: Session = Depends(get_db)):
     ordner = aktualisierung.web_ordner(db)
@@ -38,7 +41,8 @@ def datei(pfad: str, db: Session = Depends(get_db)):
     ziel = (basis / pfad).resolve() if pfad else basis / "index.html"
     if ziel.is_dir():
         ziel = ziel / "index.html"
-    if basis not in ziel.parents and ziel != basis / "index.html" or not ziel.is_file():
+    # 0.4.152 (S60): Archive und Datenbanken liefert die Web-App nie aus, auch wenn dort jemand welche ablegt
+    if ziel.suffix.lower() in GESPERRT or (basis not in ziel.parents and ziel != basis / "index.html") or not ziel.is_file():
         return HTMLResponse(FEHLT.replace("(noch) nicht vor", "nicht"), status_code=404)
     cache = "public, max-age=31536000, immutable" if pfad.startswith("assets/") else "no-cache"
     return FileResponse(ziel, headers={"Cache-Control": cache, "X-Content-Type-Options": "nosniff",

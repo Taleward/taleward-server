@@ -84,35 +84,67 @@ def _id_aus(spki: bytes) -> str:
     return b64u(hashlib.sha256(spki).digest()[:12])
 
 
-def signierer(db: Session) -> Signierer:
-    """Den Schlüssel holen, beim ersten Mal anlegen. Lässt er sich nicht öffnen (Sicherung von einem anderen
-    Windows-PC), entsteht ein neuer – mit neuer Kennung; ältere Dateien prüft die App dann gegen den alten nicht mehr,
-    neue Dateien gehen sofort."""
-    from app.einstellungen import meta_lesen, meta_schreiben
+class NichtLesbar(Exception):
+    """Ein Signierschlüssel ist gespeichert, lässt sich aber gerade nicht öffnen (etwa Windows-Datenschutz unter einem
+    anderen Nutzer). Dann wird nichts ersetzt; Teilen geht vorübergehend nicht (503)."""
 
+
+def _laden(db: Session) -> Signierer | None:
+    from app.einstellungen import meta_lesen
+    from app.models import ServerMeta
+
+    roh = db.get(ServerMeta, META_SCHLUESSEL)
+    if roh is None or not roh.value:
+        return None
     pem = meta_lesen(db, META_SCHLUESSEL)
-    if pem:
-        try:
-            privat = serialization.load_pem_private_key(pem.encode("ascii"), password=None)
-            if isinstance(privat, ec.EllipticCurvePrivateKey) and privat.curve.name == "secp256r1":
-                s = Signierer("", privat)
-                s.id = meta_lesen(db, META_ID) or _id_aus(s.spki)
-                return s
-        except (ValueError, TypeError):
-            pass
+    try:
+        privat = serialization.load_pem_private_key((pem or "").encode("ascii"), password=None)
+    except (ValueError, TypeError, UnicodeError):
+        raise NichtLesbar() from None
+    if not isinstance(privat, ec.EllipticCurvePrivateKey) or privat.curve.name != "secp256r1":
+        raise NichtLesbar()
+    s = Signierer("", privat)
+    s.id = meta_lesen(db, META_ID) or _id_aus(s.spki)
+    return s
+
+
+def signierer(db: Session) -> Signierer:
+    """Den Schlüssel holen, beim ersten Mal anlegen. 0.4.152 (S61): Angelegt wird nur, wenn wirklich keiner gespeichert
+    ist – ein gespeicherter, der sich nicht öffnen lässt, bleibt stehen (NichtLesbar). Legen zwei Anfragen zugleich
+    den ersten an, gewinnt eine; die andere liest deren Schlüssel."""
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models import ServerMeta
+
+    s = _laden(db)
+    if s is not None:
+        return s
     privat = ec.generate_private_key(ec.SECP256R1())
     s = Signierer("", privat)
     s.id = _id_aus(s.spki)
-    meta_schreiben(db, META_SCHLUESSEL, privat.private_bytes(
-        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode("ascii"))
-    meta_schreiben(db, META_ID, s.id)
-    db.flush()
+    from app import dpapi
+
+    pem = privat.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                               serialization.NoEncryption()).decode("ascii")
+    try:
+        with db.begin_nested():
+            db.add(ServerMeta(key=META_SCHLUESSEL, value=dpapi.text_schuetzen(pem)))
+            db.add(ServerMeta(key=META_ID, value=s.id))
+    except IntegrityError:
+        db.expire_all()
+        s = _laden(db)
+        if s is None:
+            raise NichtLesbar() from None
     return s
 
 
 def share_keys(db: Session) -> list[dict]:
-    """Für ServerInfo.shareKeys. Legt den Schlüssel bei Bedarf an (und speichert ihn)."""
-    s = signierer(db)
+    """Für ServerInfo.shareKeys. Legt den Schlüssel bei Bedarf an (und speichert ihn). Lässt sich der gespeicherte
+    gerade nicht öffnen: leere Liste (= dieser Server kann gerade nicht teilen)."""
+    try:
+        s = signierer(db)
+    except NichtLesbar:
+        return []
     db.commit()
     return [{"id": s.id, "spki": b64u(s.spki)}]
 
@@ -149,9 +181,19 @@ def fuer_mich(db: Session, me) -> dict | None:
         return None
     k = gueltiger(db, me)
     if k is None:
-        k = ShareKey(member_id=me.id, key_id=secrets.token_urlsafe(12), key=b64u(os.urandom(32)), bindung=_bindung(me))
-        db.add(k)
-        db.flush()
+        from sqlalchemy.exc import IntegrityError
+
+        neu = ShareKey(member_id=me.id, key_id=secrets.token_urlsafe(12), key=b64u(os.urandom(32)),
+                       bindung=_bindung(me))
+        try:
+            with db.begin_nested():  # 0.4.152 (S61): zwei gleichzeitige erste Aufrufe – einer legt an
+                db.add(neu)
+            k = neu
+        except IntegrityError:
+            db.expire_all()
+            k = db.get(ShareKey, me.id)
+            if k is None:
+                raise
     return {"id": k.key_id, "key": k.key}
 
 

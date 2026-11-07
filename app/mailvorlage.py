@@ -373,6 +373,16 @@ def html(art: str, sprache: str, kontakt: str | None = None, **werte) -> str:
     .tw-band, .tw-kerbe {{ background-color: {d["siegel"]} !important; border-left-color: {d["siegel"]} !important;
                            border-right-color: {d["siegel"]} !important; }}
   }}
+  /* Outlook.com und die Outlook-Apps rechnen dunkel selbst um und markieren umgefärbte Teile mit data-ogsc (Schrift)
+     bzw. data-ogsb (Hintergrund); prefers-color-scheme beachten sie nicht. Dieselben Farben wie oben. */
+  [data-ogsb] .tw-grund {{ background-color: {d["paper"]} !important; }}
+  [data-ogsb] .tw-karte {{ background-color: {d["raised"]} !important; border-color: {d["line"]} !important; }}
+  [data-ogsc] .tw-ink, [data-ogsc] .tw-ink a {{ color: {d["ink"]} !important; }}
+  [data-ogsc] .tw-muted, [data-ogsc] .tw-muted a {{ color: {d["muted"]} !important; }}
+  [data-ogsb] .tw-linie, [data-ogsc] .tw-linie {{ border-color: {d["line"]} !important; }}
+  [data-ogsb] .tw-knopf {{ background-color: {d["tinte"]} !important; }}
+  [data-ogsc] .tw-knopf a {{ color: {d["on_tinte"]} !important; }}
+  [data-ogsb] .tw-band, [data-ogsb] .tw-kerbe {{ background-color: {d["siegel"]} !important; }}
 </style>
 </head>
 <body class="tw-grund" style="margin:0;padding:0;background:{c["paper"]};-webkit-text-size-adjust:100%">

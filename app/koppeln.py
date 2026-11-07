@@ -24,13 +24,26 @@ MAX_VERSUCHE, FENSTER = 10, 15 * 60
 _sperre = threading.Lock()
 
 
-def code_erzeugen(db: Session) -> tuple[str, datetime]:
+def code_erzeugen(db: Session, sitzung: str = "") -> tuple[str, datetime]:
+    """sitzung: jti der Verwaltungs-Sitzung, die den Code (mit frischem Faktor) erzeugt hat – nur sie sieht ihn."""
     code = "-".join("".join(secrets.choice(ALPHABET) for _ in range(4)) for _ in range(2))
     bis = utcnow() + GUELTIG
     meta_schreiben(db, "koppeln.code", code)
     meta_schreiben(db, "koppeln.bis", bis.isoformat())
+    meta_schreiben(db, "koppeln.sitzung", sitzung if sitzung and sitzung != "-" else "")
     db.commit()
     return code, bis
+
+
+def code_fuer(db: Session, sitzung: str) -> tuple[str, datetime] | None:
+    """0.4.152 (S57.4): Den offenen Code zeigt die Verwaltung nur der Sitzung, die ihn erzeugt hat. Andere Sitzungen
+    desselben Kontos (etwa über ein vertrautes Gerät) sehen „Kopplungscode erzeugen“ – das verlangt den frischen
+    Faktor und ersetzt den alten Code."""
+    aktuell = aktueller_code(db)
+    gemerkt = meta_lesen(db, "koppeln.sitzung") or ""
+    if aktuell is None or not gemerkt or not sitzung or sitzung == "-":
+        return None
+    return aktuell if hmac.compare_digest(gemerkt, sitzung) else None
 
 
 def aktueller_code(db: Session) -> tuple[str, datetime] | None:
