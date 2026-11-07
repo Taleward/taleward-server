@@ -689,6 +689,56 @@ def admin(
     typer.echo(f"'{user.username}' ist jetzt {'kein ' if entziehen else ''}Verwalter von „{org.name}“.")
 
 
+@app.command("zahlung-live")
+def zahlung_live(
+    an: bool = typer.Option(False, "--an", help="Echtes Geld einschalten (fragt die Live-Zugänge ab)"),
+    aus: bool = typer.Option(False, "--aus", help="Echtes Geld ausschalten – geht immer"),
+):
+    """Echtes Geld beim Aufladen ein- oder ausschalten. Ohne Schalter: zeigen, was noch fehlt."""
+    from app import zahlung, zahlung_live as zl
+
+    db = _db()
+    if an and aus:
+        typer.echo("Bitte nur --an oder --aus.", err=True)
+        raise typer.Exit(2)
+    if aus:
+        zl.aus(db)
+        db.commit()
+        typer.echo("Echtes Geld ist aus. Aufladen läuft wieder im Testmodus mit den Test-Zugängen von vorher.")
+        return
+    luecken = zl.fehlt(db)
+    if not an:
+        typer.echo("Echtes Geld ist " + ("an." if zahlung.live(db) else "aus."))
+        if luecken:
+            typer.echo("Vor dem Einschalten fehlt noch:")
+            for z in luecken:
+                typer.echo(f"  - {z}")
+        else:
+            typer.echo("Alles da. Einschalten mit: chronik zahlung-live --an")
+        return
+    if luecken:
+        typer.echo("Noch nicht möglich. Es fehlt:", err=True)
+        for z in luecken:
+            typer.echo(f"  - {z}", err=True)
+        raise typer.Exit(1)
+    typer.echo("Die Zugänge werden nicht angezeigt und nicht im Befehlsverlauf gespeichert.")
+    neu = {
+        "stripe_schluessel": typer.prompt("Stripe: geheimer Live-Schlüssel (sk_live_… oder rk_live_…)", hide_input=True),
+        "stripe_webhook": typer.prompt("Stripe: Signatur-Geheimnis der Meldungen (whsec_…)", hide_input=True),
+        "paypal_id": typer.prompt("PayPal: Client-ID des Live-Kontos"),
+        "paypal_geheim": typer.prompt("PayPal: Secret des Live-Kontos", hide_input=True),
+        "paypal_webhook_id": typer.prompt("PayPal: Webhook-ID des Live-Kontos"),
+    }
+    luecken = zl.an(db, neu)
+    db.commit()
+    if luecken:
+        typer.echo("Nicht eingeschaltet. Es fehlt:", err=True)
+        for z in luecken:
+            typer.echo(f"  - {z}", err=True)
+        raise typer.Exit(1)
+    typer.echo("Echtes Geld ist an. Zurück in den Testmodus: chronik zahlung-live --aus")
+
+
 @app.command("zweiter-faktor-aus")
 def zweiter_faktor_aus(username: str = typer.Option(..., "--username", "-u")):
     """Zweiten Faktor eines Verwalters abschalten (Handy verloren, keine Wiederherstellungscodes mehr)."""

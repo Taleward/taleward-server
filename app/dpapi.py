@@ -84,7 +84,9 @@ def text_oeffnen(wert: str | None) -> str | None:
 # Zugänge in server_meta, die geschützt abgelegt werden
 GEHEIME_SCHLUESSEL = ("extern.api_key", "llm.api_key", "hf.token", "melden.ntfy_token", "melden.smtp_pass",
                       "zahlung.stripe_schluessel", "zahlung.stripe_webhook", "zahlung.paypal_geheim",  # 0.4.133
-                      "teilen.signierschluessel")  # 0.4.148: Signatur geteilter Kapitel
+                      "teilen.signierschluessel",  # 0.4.148: Signatur geteilter Kapitel
+                      # 0.4.156: Test-Zugänge, solange echtes Geld eingeschaltet ist (Rückweg)
+                      "zahlung.test.stripe_schluessel", "zahlung.test.stripe_webhook", "zahlung.test.paypal_geheim")
 
 
 def geheim(schluessel: str) -> bool:

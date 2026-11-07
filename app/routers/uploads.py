@@ -219,7 +219,7 @@ async def put_chunk(
         raise errors.not_found()
     if up.state != "open":
         raise errors.conflict("upload_closed")
-    if f.track_attendee_id:  # 0.4.32 (Y3, B8): Zustimmung bei jedem Teil
+    if bot is not None and f.track_attendee_id:  # 0.4.32 (Y3, B8): beim Bot Zustimmung bei jedem Teil
         from app import discord_bot
 
         discord_bot.teil_pruefen(db, up, f)
@@ -328,24 +328,31 @@ def complete(uploadId: str, request: Request, wer=Depends(nutzer_oder_bot), db: 
         check_upload_consent(db, s)  # Widerruf während des Hochladens
     from app import abrechnung
 
-    if abrechnung.an(db):  # 0.4.85: Länge selbst messen (Schätzung der Kosten) und die feste Obergrenze je Runde
+    if abrechnung.an(db) or bot is not None:  # 0.4.85: Länge selbst messen; 0.4.156: Bot-Runden immer (B9)
         dauer = _messen(db, up)
         if dauer is _LAEUFT:  # zweiter Aufruf, während gemessen wird – harmlos, der erste schließt ab
             return processing_status(db, s, sprache(request), user)
         up.dauer_sekunden = dauer
+        # Abgelehnt: Bot-Runde ohne Ton (die SL kann von Hand hochladen), sonst wieder „angelegt“
+        zurueck = "no_recording" if s.bot_key_id else "created"
         if dauer is None:  # 0.4.99: nicht messbar (kein lesbares Audio, sehr viele Tonspuren) → nicht annehmen
             storage.delete_upload_files(up.id)
             up.state = "aborted"
-            set_state(s, "created")
+            set_state(s, zurueck)
             db.commit()
             raise errors.conflict("recording_unreadable")
         laenge = up.dauer_sekunden
-        if laenge > abrechnung.MAX_AUFNAHME_SEKUNDEN:
+        grenze = abrechnung.MAX_AUFNAHME_SEKUNDEN
+        if bot is not None:
+            from app import discord_bot
+
+            grenze = min(grenze, discord_bot.erlaubte_sekunden(s))
+        if laenge > grenze:
             storage.delete_upload_files(up.id)
             up.state = "aborted"
-            set_state(s, "created")
+            set_state(s, zurueck)
             db.commit()
-            raise errors.conflict("recording_too_long", stunden=abrechnung.MAX_AUFNAHME_SEKUNDEN // 3600)
+            raise errors.conflict("recording_too_long", stunden=max(1, round(grenze / 3600)))
     up.state = "completed"
     up.completed_at = utcnow()
     if s.bot_key_id:

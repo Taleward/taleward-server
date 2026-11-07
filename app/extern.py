@@ -106,6 +106,8 @@ class MistralKlient:
 
 # ---------------------------------------------------------------- Verarbeitung
 def _dateien_zusammensetzen(up: Upload, ziel: Path) -> list[tuple[dict, Path]]:
+    from app.routers.worker import spur_kennung
+
     """Teile je Datei zu einer Datei zusammensetzen (wie der Download des Workers)."""
     out = []
     for f in sorted(up.files, key=lambda x: x.position):
@@ -113,7 +115,7 @@ def _dateien_zusammensetzen(up: Upload, ziel: Path) -> list[tuple[dict, Path]]:
         with open(pfad, "wb") as w:
             for i in range(f.chunk_count):
                 w.write(storage.chunk_path(up.id, f.id, i).read_bytes())
-        out.append(({"fileId": f.id, "position": f.position, "trackMemberId": f.track_member_id}, pfad))
+        out.append(({"fileId": f.id, "position": f.position, "trackMemberId": spur_kennung(f)}, pfad))
     return out
 
 

@@ -670,6 +670,15 @@ def abschluss_pruefen(db: Session, s: GameSession, up: Upload) -> None:
         raise errors.conflict("consent_revoked", "consent_revoked.bot")
 
 
+def erlaubte_sekunden(s: GameSession) -> int:
+    """B9: Höchstlänge der Spuren einer Bot-Runde – nie über MAX_STUNDEN, und nicht deutlich länger als die Zeit
+    zwischen Startton und Ende (gemeldetes Ende, sonst jetzt); 10 % und 10 Minuten Spielraum."""
+    start = _utc(s.recording_started_at or s.played_at)
+    ende = _utc(s.bot_gestoppt_at) or utcnow()
+    spanne = max(0.0, (ende - start).total_seconds())
+    return int(min(MAX_STUNDEN * 3600, spanne * 1.1 + 600))
+
+
 def sl_konto(db: Session, s: GameSession) -> User:
     """Konto der SL, die die Kampagne verbunden hat (für Antworten, die ein Konto brauchen)."""
     v = db.get(DiscordConnection, s.campaign_id)

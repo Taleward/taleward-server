@@ -87,6 +87,14 @@ class SampleIn(ApiModel):
     ogg_base64: str | None = None
 
 
+def spur_kennung(f) -> str | None:
+    """Kennung der Spur für Worker und Cloud-Abschrift: das Mitglied, bei einem Gast per Discord-Link (0.4.32)
+    „gast:<Anwesender>“ – dann behandelt der Worker die Spur wie eine Person, und der Server schlägt den Gastnamen vor."""
+    if f.track_member_id:
+        return f.track_member_id
+    return f"gast:{f.track_attendee_id}" if f.track_attendee_id else None
+
+
 class SpeakerIn(ApiModel):
     label: str = Field(max_length=50)  # Kennung des Workers, z. B. SPEAKER_01 oder die fileId bei Discord
     speaking_seconds: float = Field(ge=0, allow_inf_nan=False)
@@ -203,7 +211,7 @@ def _auftrag(db: Session, job: Job) -> dict:
             chunks.append({"index": i, "sizeBytes": groesse,
                            "url": f"/worker/v1/jobs/{job.id}/files/{f.id}/chunks/{i}"})
         files.append({"fileId": f.id, "position": f.position, "fileName": f.file_name, "mimeType": f.mime_type,
-                      "sizeBytes": f.size_bytes, "trackMemberId": f.track_member_id, "chunks": chunks})
+                      "sizeBytes": f.size_bytes, "trackMemberId": spur_kennung(f), "chunks": chunks})
     return {
         "jobId": job.id, "type": job.type, "leaseSeconds": get_settings().lease_seconds,
         "attempt": job.attempts,
@@ -372,7 +380,11 @@ def ergebnis_uebernehmen(db: Session, job: Job, body: ResultIn, engine: str, wor
                       speaking_seconds=round(sp.speaking_seconds, 1), sample_text=sp.sample_text.strip(),
                       embedding=json.dumps(sp.embedding) if sp.embedding else None,
                       embedding_model=body.embedding_model if sp.embedding else None)
-        if discord and sp.track_member_id:
+        if discord and sp.track_member_id and sp.track_member_id.startswith("gast:"):
+            gast = db.get(Attendee, sp.track_member_id[5:])  # 0.4.156: Gast-Spur aus dem Discord (Zustimmungslink)
+            if gast is not None and gast.session_id == s.id and gast.guest_name:
+                obj.source, obj.confidence, obj.suggested_guest_name = "discord_track", 1.0, gast.guest_name
+        elif discord and sp.track_member_id:
             obj.source, obj.confidence = "discord_track", 1.0
             obj.suggested_member_id = obj.assigned_member_id = sp.track_member_id
         db.add(obj)
