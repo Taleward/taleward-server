@@ -1,0 +1,1506 @@
+From f766130ae5bb627fa5a3a8d05b0a6b5d4a399a80 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Sat, 7 Nov 2026 11:30:08 +0100
+Subject: [PATCH] Server 0.4.153
+
+---
+ NEU.md                                        |  11 +-
+ app/erstattung.py                             | 152 ++++++
+ app/konto.py                                  |   3 +
+ app/main.py                                   |   3 +
+ app/models.py                                 |  17 +
+ app/namen_berichtigen.py                      | 496 ++++++++++++++++++
+ app/routers/anmeldung.py                      |  10 +-
+ app/routers/namen.py                          |  95 ++++
+ app/verwaltung/abrechnung_seite.py            |  55 +-
+ app/verwaltung/guthaben.py                    |   4 +-
+ app/verwaltung/i18n.py                        |  26 +
+ app/verwaltung/templates/abrechnung.html      |  58 +-
+ app/verwaltung/templates/guthaben.html        |   1 +
+ app/verwaltung/templates/konto_loeschen.html  |   1 +
+ app/zahlung.py                                |   2 +
+ .../d0f2a4c6e8b1_offene_erstattungen.py       |  32 ++
+ pyproject.toml                                |   2 +-
+ tests/test_aktualisierung.py                  |   2 +-
+ tests/test_assistent.py                       |   2 +-
+ tests/test_modellablage.py                    |   2 +-
+ tests/test_server_04153.py                    | 213 ++++++++
+ tests/test_worker_app.py                      |   2 +-
+ uv.lock                                       |   2 +-
+ 23 files changed, 1169 insertions(+), 22 deletions(-)
+ create mode 100644 app/erstattung.py
+ create mode 100644 app/namen_berichtigen.py
+ create mode 100644 app/routers/namen.py
+ create mode 100644 migrations/versions/d0f2a4c6e8b1_offene_erstattungen.py
+ create mode 100644 tests/test_server_04153.py
+
+diff --git a/NEU.md b/NEU.md
+index 51d6106..545c508 100644
+--- a/NEU.md
++++ b/NEU.md
+@@ -1,9 +1,8 @@
+-Fassung 0.4.152
++Fassung 0.4.153
+ 
+ ## Was ist neu
+ 
+-- Kleinere Verbesserungen in der Verwaltung: Wer Zugänge, Kopplungscodes oder den Ordner für Sicherungen ändert, bestätigt das jetzt öfter mit dem Code.
+-- Sicherungen lassen sich nicht mehr in den Daten- oder Programmordner von Taleward kopieren.
+-- Mails sehen im dunklen Modus auch in Mail-Programmen richtig aus, die die Farben selbst umrechnen.
+-- Modellvergleich am PC: Der Ergebnisordner wird vor den Läufen geprüft, mit klarem Hinweis, wenn er sich nicht beschreiben lässt.
+-- Seit 0.4.151: „Passkey hinzufügen“ führt auf einem vertrauten Gerät zuerst zur Bestätigung mit dem Code.
++- Guthaben: Was aus Zahlungen übrig ist, steht jetzt auf der Guthaben-Seite und lässt sich voll auf die ursprüngliche Zahlung erstatten. Gutschriften und Gutscheine werden nicht ausgezahlt.
++- Wer sein Konto löscht, bekommt den Rest aus Zahlungen erstattet. Bis dahin bleiben nur Betrag und bestätigte E-Mail-Adresse stehen, höchstens 90 Tage.
++- Verwaltung, Abrechnung: neuer Bereich „Erstattungen“ zeigt je Konto, welcher Betrag auf welche Zahlung zurückgeht, und die offenen Fälle nach Kontolöschungen.
++- Verwaltung, Abrechnung: Liste der Meldungen, die beim Zahlungsanbieter abonniert sein müssen.
+diff --git a/app/erstattung.py b/app/erstattung.py
+new file mode 100644
+index 0000000..051f220
+--- /dev/null
++++ b/app/erstattung.py
+@@ -0,0 +1,152 @@
++"""Erstattung von Restguthaben (0.4.153, Weg zum ersten echten Geld, Punkte 3 und 4).
++
++Regeln (Entscheidungen Benjamin 28.10.2026, `claude/plan-abrechnung-guthaben.md`):
++- Verbrauch zieht zuerst geschenktes Guthaben (Gutschrift, Gutschein, positive Korrektur), dann bezahltes. Erstattbar
++  ist nur der Rest aus Zahlungen, voll und ohne Abzug; Gutschriften und Gutscheine werden nie ausgezahlt.
++- Erstattet wird auf die ursprünglichen Zahlungen, die neueste zuerst. Die Verwaltung zeigt je Fall, welcher Betrag auf
++  welche Zahlung zurückgeht; der Betreiber erstattet im Dashboard des Anbieters, dessen Meldung bucht die Gegenbuchung
++  wie bisher. Geht das nicht mehr (Frist des Anbieters, Karte erloschen): per Mail nach einer Kontoverbindung fragen und
++  von Hand überweisen – die kommt nie auf den Server.
++- Kontolöschung: das Konto geht sofort; bleibt Erstattbares, entsteht eine Zeile „Erstattung offen“ ohne Namen mit
++  Betrag, Zahlungsbezügen und der E-Mail-Adresse. Die Adresse wird gelöscht, sobald erstattet ist, spätestens nach
++  AUFBEWAHRUNG_TAGE (Wartung).
++"""
++from __future__ import annotations
++
++import json
++import math
++from dataclasses import dataclass, field
++from datetime import timedelta
++
++from sqlalchemy import func, select
++from sqlalchemy.orm import Session
++
++from app.db import utcnow
++from app.models import Bezahlvorgang, Buchung, Guthaben, OffeneErstattung
++
++AUFBEWAHRUNG_TAGE = 90
++ANBIETER_FRIST_TAGE = 180  # danach erstatten Stripe und PayPal auf die Zahlung meist nicht mehr
++GESCHENKT = ("gutschrift", "gutschein")
++BEZAHLT = ("zahlung", "erstattung", "rueckbuchung")
++
++
++def _summe(db: Session, g: Guthaben, arten: tuple[str, ...]) -> int:
++    return int(db.scalar(select(func.coalesce(func.sum(Buchung.betrag_cent), 0))
++                         .where(Buchung.guthaben_id == g.id, Buchung.art.in_(arten))) or 0)
++
++
++def erstattbar(db: Session, g: Guthaben | None) -> int:
++    """Rest aus Zahlungen in Cent. Weil Verbrauch zuerst Geschenktes zieht, ist das min(Saldo, Zahlungen netto)."""
++    from app import abrechnung
++
++    if g is None or g.id is None:  # noch nicht angelegt (vorläufiges Guthaben)
++        return 0
++    netto_bezahlt = _summe(db, g, BEZAHLT)
++    return max(0, min(abrechnung.saldo(db, g.id), netto_bezahlt))
++
++
++@dataclass
++class Teil:
++    vorgang_id: str
++    anbieter: str
++    zahlung_ref: str
++    bezahlt_am: object
++    credit_cent: int  # so viel Guthaben geht damit zurück
++    beim_anbieter_cent: int  # so viel im Dashboard des Anbieters erstatten (mit anteiliger Gebühr)
++    frist_vorbei: bool
++
++
++@dataclass
++class Aufteilung:
++    betrag_cent: int
++    teile: list[Teil] = field(default_factory=list)
++    von_hand_cent: int = 0  # deckt keine Zahlung mehr – per Überweisung
++
++    @property
++    def ueberweisung_noetig(self) -> bool:
++        return self.von_hand_cent > 0 or any(t.frist_vorbei for t in self.teile)
++
++
++def _rest(v: Bezahlvorgang) -> tuple[int, int]:
++    """Noch nicht erstatteter Teil einer Zahlung: (Guthaben-Anteil, beim Anbieter)."""
++    brutto_rest = max(0, v.brutto_cent - (v.erstattet_cent or 0))
++    credit_rest = min(v.netto_cent, int(brutto_rest * v.netto_cent / max(1, v.brutto_cent)))
++    return credit_rest, brutto_rest
++
++
++def aufteilen(db: Session, g: Guthaben, betrag_cent: int | None = None) -> Aufteilung:
++    """Betrag (Standard: alles Erstattbare) auf die bezahlten Vorgänge verteilen, die neueste zuerst."""
++    betrag = erstattbar(db, g) if betrag_cent is None else max(0, int(betrag_cent))
++    a = Aufteilung(betrag_cent=betrag)
++    offen = betrag
++    grenze = utcnow() - timedelta(days=ANBIETER_FRIST_TAGE)
++    for v in db.scalars(select(Bezahlvorgang).where(Bezahlvorgang.guthaben_id == g.id,
++                                                    Bezahlvorgang.zustand == "bezahlt")
++                        .order_by(Bezahlvorgang.abgeschlossen.desc(), Bezahlvorgang.angelegt.desc())):
++        if offen <= 0:
++            break
++        credit_rest, brutto_rest = _rest(v)
++        if credit_rest <= 0:
++            continue
++        anteil = min(offen, credit_rest)
++        beim_anbieter = min(brutto_rest, math.ceil(anteil * v.brutto_cent / max(1, v.netto_cent)))
++        am = v.abgeschlossen or v.angelegt
++        if am is not None and am.tzinfo is None:
++            from datetime import timezone
++
++            am = am.replace(tzinfo=timezone.utc)
++        a.teile.append(Teil(v.id, v.anbieter, v.zahlung_ref or v.anbieter_ref or "", am, anteil, beim_anbieter,
++                            bool(am and am < grenze)))
++        offen -= anteil
++    a.von_hand_cent = max(0, offen)
++    return a
++
++
++# ---------------------------------------------------------------- Kontolöschung
++def bei_kontoloeschung(db: Session, user) -> OffeneErstattung | None:
++    """Vor dem Löschen des Kontos aufrufen: bleibt Erstattbares, eine Zeile ohne Namen anlegen."""
++    from app import abrechnung
++
++    g = abrechnung.guthaben_konto(db, user.id, anlegen=False)
++    betrag = erstattbar(db, g)
++    if g is None or g.id is None or betrag <= 0:
++        return None
++    a = aufteilen(db, g, betrag)
++    zeile = OffeneErstattung(
++        guthaben_id=g.id, betrag_cent=betrag,
++        zahlungen=json.dumps([{"anbieter": t.anbieter, "ref": t.zahlung_ref, "cent": t.credit_cent,
++                               "beim_anbieter_cent": t.beim_anbieter_cent} for t in a.teile]),
++        email=(user.email if user.email and user.email_verified_at else None))
++    db.add(zeile)
++    abrechnung.protokoll(db, "system", "erstattung_offen", g.id, betrag_cent=betrag)
++    return zeile
++
++
++def offene(db: Session) -> list[OffeneErstattung]:
++    return list(db.scalars(select(OffeneErstattung).where(OffeneErstattung.erledigt_at.is_(None))
++                           .order_by(OffeneErstattung.angelegt)))
++
++
++def erledigen(db: Session, zeile: OffeneErstattung, wie: str, von: str) -> None:
++    """wie: erstattet (vom Anbieter gemeldet) | von_hand (Überweisung, vom Betreiber bestätigt)."""
++    from app import abrechnung
++
++    zeile.erledigt_at, zeile.erledigt_wie, zeile.email = utcnow(), wie, None
++    abrechnung.protokoll(db, von, "erstattung_erledigt", zeile.guthaben_id, wie=wie, betrag_cent=zeile.betrag_cent)
++
++
++def wartung(db: Session) -> int:
++    """Erstattete Fälle schließen, E-Mail-Adressen nach AUFBEWAHRUNG_TAGE löschen. Gibt die Zahl der Änderungen."""
++    n = 0
++    grenze = utcnow() - timedelta(days=AUFBEWAHRUNG_TAGE)
++    for z in offene(db):
++        g = db.get(Guthaben, z.guthaben_id)
++        if erstattbar(db, g) <= 0:
++            erledigen(db, z, "erstattet", "system")
++            n += 1
++            continue
++        angelegt = z.angelegt if z.angelegt.tzinfo else z.angelegt.replace(tzinfo=grenze.tzinfo)
++        if z.email and angelegt < grenze:
++            z.email = None
++            n += 1
++    return n
+diff --git a/app/konto.py b/app/konto.py
+index b9c525c..eb04232 100644
+--- a/app/konto.py
++++ b/app/konto.py
+@@ -387,5 +387,8 @@ def entfernen(db: Session, u: User) -> None:
+     from app import kapitelprobe
+ 
+     kapitelprobe.konto_entfernt(u.id)  # 0.4.62: Probeläufe der Verwaltung
++    from app import erstattung
++
++    erstattung.bei_kontoloeschung(db, u)  # 0.4.153: Rest aus Zahlungen wird erstattet („Erstattung offen“)
+     db.flush()
+     db.delete(u)
+diff --git a/app/main.py b/app/main.py
+index 96d0332..8e01dca 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -53,6 +53,9 @@ def _wartung_starten() -> threading.Event | None:
+                     from app import aufbewahrung
+ 
+                     aufbewahrung.leere_runden_entfernen(db)  # 0.4.147: Runden ohne Aufnahme nach einer Woche
++                    from app import erstattung
++
++                    erstattung.wartung(db)  # 0.4.153: erstattete Fälle schließen, E-Mail nach 90 Tagen weg
+                     db.commit()
+                 if any(ergebnis.values()):
+                     log.info("Wartung: %s", ergebnis)
+diff --git a/app/models.py b/app/models.py
+index 66b487f..ed13e11 100644
+--- a/app/models.py
++++ b/app/models.py
+@@ -1030,3 +1030,20 @@ class ShareKey(Base):
+     key: Mapped[str] = mapped_column(String(64))
+     bindung: Mapped[str] = mapped_column(String(128))
+     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
++
++
++# ---------------------------------------------------------------- Erstattung offen (0.4.153)
++class OffeneErstattung(Base):
++    """Nach einer Kontolöschung mit erstattbarem Rest: Betrag, Zahlungsbezüge (JSON: anbieter, ref, cent,
++    beim_anbieter_cent) und die E-Mail-Adresse – ohne Namen. Die Adresse wird gelöscht, sobald erstattet ist,
++    spätestens nach 90 Tagen (app/erstattung.py). Nie eine Kontoverbindung."""
++
++    __tablename__ = "offene_erstattungen"
++    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
++    guthaben_id: Mapped[str] = mapped_column(ForeignKey("guthaben.id"), index=True)
++    betrag_cent: Mapped[int] = mapped_column(Integer)
++    zahlungen: Mapped[str] = mapped_column(Text, default="[]")
++    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
++    angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
++    erledigt_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
++    erledigt_wie: Mapped[str | None] = mapped_column(String(16), nullable=True)  # erstattet | von_hand
+diff --git a/app/namen_berichtigen.py b/app/namen_berichtigen.py
+new file mode 100644
+index 0000000..f0b8318
+--- /dev/null
++++ b/app/namen_berichtigen.py
+@@ -0,0 +1,496 @@
++"""Namen einmal berichtigen (Schnittstelle 0.4.31, S62): eine Schreibweise kampagnenweit ersetzen.
++
++Verbindlich (Vorgabe `claude/app-vorgabe-0.4.31.md`, Bedingungen 1–14 des Sicherheits-Chats):
++- Nur SL der Kampagne (sonst 404). Kein Sprachmodell. Wörtliche Suche (escapte Muster), ganze Wörter, Groß-/Klein-
++  schreibung wie eingegeben; beide Seiten bereinigt, 3–64 Zeichen, from ≠ to.
++- Geändert werden nur: Kapitel (Titel, Text, offene Fäden), Bibel (Name, „Auch genannt“, Beschreibung, SL-Notiz – über
++  denselben Weg wie PATCH /entries, Sichtbarkeit bleibt), offene Vorschläge aus Runden (Titel, Text) und Abschriften
++  (reine Wortersetzung, Zeitmarken bleiben). Charaktere, Kommentare und Vorschläge von Spielenden werden nur gezählt bzw.
++  als Ort genannt, nie geändert und nie im Wortlaut gezeigt; Kommentare nur, soweit die SL sie sieht. Merkstellen,
++  Zähler, Teilen-Schlüssel, Stimmen, Unterlagen, Mails und Protokolle werden nie durchsucht.
++- Vorschau-Fassung = Prüfsumme je Treffer-Ort; hat sich ein Ort geändert, passiert nichts (409 preview_stale).
++- Rückgängig 24 Stunden: alte Texte nur in `name_fix_undo` (nie im Umzug, nie in einer Antwort), danach löscht die
++  Wartung sie; gelöschte Runden, Einträge oder Kampagnen nehmen sie mit (Fremdschlüssel).
++- Verhörer-Regel (`rule`): nur als Vorschlag in „Namen prüfen“ (`unsicher.begriffe`), nie still ersetzt; höchstens
++  MAX_REGELN je Kampagne. Geht im Umzug mit (ohne Person, ohne Protokoll).
++"""
++from __future__ import annotations
++
++import hashlib
++import json
++import re
++from dataclasses import dataclass, field
++from datetime import timedelta
++from typing import Callable
++
++from sqlalchemy import exists, select
++from sqlalchemy.orm import Session
++
++from app import aliasse, errors
++from app.db import utcnow
++from app.models import (Campaign, Comment, Entry, GameSession, Member, NameFix, NameFixUndo, PlayerProposal, Proposal,
++                        Recap, TranscriptSegment)
++
++MIN_ZEICHEN, MAX_ZEICHEN = 3, 64
++MAX_STELLEN = 2000
++MAX_REGELN = 200
++RUECKGAENGIG_STUNDEN = 24
++VORSCHAU_JE_STUNDE = 60  # je Konto
++BERICHTIGEN_JE_STUNDE = 20  # je Kampagne
++AUSZUG_ZEICHEN = 200
++
++ORT_FOLGE = ("chapter_title", "chapter", "entry_name", "entry_alias", "entry_summary", "entry_gm_notes",
++             "session_proposal", "transcript")
++_FELDNAME = {"entry_name": ("Name", "name"), "entry_alias": ("Auch genannt", "also known as"),
++             "entry_summary": ("Beschreibung", "description"), "entry_gm_notes": ("SL-Notiz", "GM note")}
++
++
++# ---------------------------------------------------------------- Eingabe und Suche
++def eingabe(von: str, nach: str) -> tuple[str, str]:
++    """Beide Seiten bereinigen und prüfen (400 invalid_name_fix)."""
++    roh = (von or "") + (nach or "")
++    if "\n" in roh or "\r" in roh:
++        raise errors.bad_request("invalid_name_fix")
++    a, b = aliasse.zeichen_bereinigen(von), aliasse.zeichen_bereinigen(nach)
++    if not (MIN_ZEICHEN <= len(a) <= MAX_ZEICHEN and MIN_ZEICHEN <= len(b) <= MAX_ZEICHEN) or a == b:
++        raise errors.bad_request("invalid_name_fix")
++    return a, b
++
++
++def muster(wort: str) -> re.Pattern:
++    """Ganzes Wort, wörtlich (keine regulären Ausdrücke aus der Eingabe), Groß-/Kleinschreibung wie eingegeben.
++    Endungen wie „Orasilas’“ stehen nach einem Nicht-Wortzeichen und passen deshalb mit."""
++    return re.compile(rf"(?<!\w){re.escape(wort)}(?!\w)")
++
++
++def _zaehlen(m: re.Pattern, werte: dict[str, str]) -> int:
++    return sum(len(m.findall(t or "")) for t in werte.values())
++
++
++def _auszuege(m: re.Pattern, werte: dict[str, str], anzahl: int = 3) -> list[str]:
++    aus: list[str] = []
++    for text in werte.values():
++        for treffer in m.finditer(text or ""):
++            if len(aus) >= anzahl:
++                return aus
++            a, b = treffer.span()
++            links_ = max(text.rfind(z, 0, a) for z in (".", "!", "?", "\n")) + 1
++            rechts_ = [i for i in (text.find(z, b) for z in (".", "!", "?", "\n")) if i >= 0]
++            ende = min(rechts_) + 1 if rechts_ else len(text)
++            platz = AUSZUG_ZEICHEN - (b - a) - 4
++            links_ = max(links_, a - platz // 2)
++            ende = min(ende, b + max(0, platz - (a - links_)))
++            satz = text[links_:a] + "[[" + text[a:b] + "]]" + text[b:ende]
++            aus.append(" ".join(satz.split())[:AUSZUG_ZEICHEN])
++    return aus
++
++
++def _pruefsumme(werte: dict[str, str]) -> str:
++    return hashlib.sha256(json.dumps(sorted(werte.items()), ensure_ascii=False).encode()).hexdigest()
++
++
++# ---------------------------------------------------------------- Orte
++@dataclass
++class Ort:
++    place: str
++    oid: str
++    label: tuple[str, str]
++    werte: dict[str, str]
++    lesen: Callable[[list[str]], dict[str, str]]  # aktuelle Werte zu den Schlüsseln
++    setzen: Callable[[dict[str, str]], None]
++    read_by_players: bool = False
++    session_id: str | None = None
++    session_number: int | None = None
++    entry_id: str | None = None
++    proposal_id: str | None = None
++    rang: tuple = field(default_factory=tuple)
++
++    @property
++    def hit_id(self) -> str:
++        return hashlib.sha1(f"{self.place}:{self.oid}".encode()).hexdigest()[:16]
++
++
++def _kapitel_orte(db: Session, c: Campaign, m: re.Pattern) -> list[Ort]:
++    aus = []
++    for s, r in db.execute(select(GameSession, Recap).join(Recap, Recap.session_id == GameSession.id)
++                           .where(GameSession.campaign_id == c.id)):
++        def lesen_titel(_k, r=r):
++            return {"title": r.title or ""}
++
++        def setzen_titel(w, r=r):
++            r.title = (w.get("title", r.title) or "")[:300]
++            r.edited_at = utcnow()
++
++        def lesen_text(_k, r=r):
++            faeden = json.loads(r.open_threads or "[]")
++            return {"text": r.text or "", **{f"faden{i}": f for i, f in enumerate(faeden)}}
++
++        def setzen_text(w, r=r):
++            if "text" in w:
++                r.text = w["text"]
++            faeden = json.loads(r.open_threads or "[]")
++            for i in range(len(faeden)):
++                faeden[i] = w.get(f"faden{i}", faeden[i])
++            r.open_threads = json.dumps(faeden, ensure_ascii=False)
++            r.edited_at = utcnow()
++
++        titel = (r.title or "").strip()
++        label = (f"Kapitel {s.number}" + (f" · {titel}" if titel else ""),
++                 f"Chapter {s.number}" + (f" · {titel}" if titel else ""))
++        gemeinsam = dict(read_by_players=s.state == "published", session_id=s.id, session_number=s.number)
++        for place, lesen, setzen in (("chapter_title", lesen_titel, setzen_titel), ("chapter", lesen_text, setzen_text)):
++            werte = lesen([])
++            if _zaehlen(m, werte):
++                aus.append(Ort(place, s.id, label, werte, lesen, setzen, rang=(0, s.number, place), **gemeinsam))
++    return aus
++
++
++def _eintrag_orte(db: Session, c: Campaign, m: re.Pattern) -> list[Ort]:
++    from app import schemas
++    from app.services import apply_entry_input
++
++    aus = []
++    for e in db.scalars(select(Entry).where(Entry.campaign_id == c.id)):
++        def lesen_alias(_k, e=e):
++            return {f"a{i}": a for i, a in enumerate(e.aliases)}
++
++        def setzen_alias(w, e=e):
++            liste = [w.get(f"a{i}", a) for i, a in enumerate(e.aliases)]
++            apply_entry_input(db, e, schemas.EntryInput(aliases=liste))
++
++        oeffentlich = e.visibility == "public"
++        for place, feld in (("entry_name", "name"), ("entry_alias", None), ("entry_summary", "summary"),
++                            ("entry_gm_notes", "gm_notes")):
++            if feld:
++                lesen = (lambda _k, e=e, f=feld: {f: getattr(e, f) or ""})
++                setzen = (lambda w, e=e, f=feld: apply_entry_input(db, e, schemas.EntryInput(**{f: w[f]}))
++                          if f in w else None)
++            else:
++                lesen, setzen = lesen_alias, setzen_alias
++            werte = lesen([])
++            if not _zaehlen(m, werte):
++                continue
++            de, en = _FELDNAME[place]
++            aus.append(Ort(place, e.id, (f"Bibel: {e.name} ({de})", f"Codex: {e.name} ({en})"), werte, lesen, setzen,
++                           read_by_players=oeffentlich and place != "entry_gm_notes", entry_id=e.id,
++                           rang=(1, e.name.casefold(), ORT_FOLGE.index(place))))
++    return aus
++
++
++def _vorschlag_orte(db: Session, c: Campaign, m: re.Pattern) -> list[Ort]:
++    aus = []
++    for p, s in db.execute(select(Proposal, GameSession).join(GameSession, GameSession.id == Proposal.session_id)
++                           .where(Proposal.campaign_id == c.id, Proposal.decision == "open",
++                                  Proposal.source.is_(None), Proposal.submitted_by_member_id.is_(None))):
++        def lesen(_k, p=p):
++            return {"title": p.title or "", "detail": p.detail or ""}
++
++        def setzen(w, p=p):
++            p.title = w.get("title", p.title)[:300]
++            p.detail = w.get("detail", p.detail)
++
++        werte = lesen([])
++        if _zaehlen(m, werte):
++            aus.append(Ort("session_proposal", p.id, (f"Offener Vorschlag aus Runde {s.number}: {p.title}",
++                                                      f"Open suggestion from session {s.number}: {p.title}"),
++                           werte, lesen, setzen, session_id=s.id, session_number=s.number, proposal_id=p.id,
++                           rang=(2, s.number, p.position, p.id)))
++    return aus
++
++
++def _abschrift_orte(db: Session, c: Campaign, wort: str, m: re.Pattern) -> list[Ort]:
++    aus = []
++    nach_runde: dict[str, dict[str, str]] = {}
++    for seg in db.scalars(select(TranscriptSegment).join(GameSession, GameSession.id == TranscriptSegment.session_id)
++                          .where(GameSession.campaign_id == c.id, TranscriptSegment.text.contains(wort, autoescape=True))
++                          .order_by(TranscriptSegment.start, TranscriptSegment.id)):
++        if m.search(seg.text or ""):
++            nach_runde.setdefault(seg.session_id, {})[seg.id] = seg.text
++    for sid, werte in nach_runde.items():
++        s = db.get(GameSession, sid)
++
++        def lesen(keys, sid=sid):
++            if not keys:
++                return {}
++            return {x.id: x.text for x in db.scalars(select(TranscriptSegment).where(
++                TranscriptSegment.session_id == sid, TranscriptSegment.id.in_(keys)))}
++
++        def setzen(w, sid=sid):
++            for x in db.scalars(select(TranscriptSegment).where(TranscriptSegment.session_id == sid,
++                                                                TranscriptSegment.id.in_(list(w)))):
++                x.text = w[x.id]
++
++        aus.append(Ort("transcript", sid, (f"Abschrift Runde {s.number}", f"Transcript, session {s.number}"), werte,
++                       lesen, setzen, session_id=sid, session_number=s.number, rang=(3, s.number)))
++    return aus
++
++
++def _orte(db: Session, c: Campaign, wort: str) -> list[Ort]:
++    m = muster(wort)
++    orte = (_kapitel_orte(db, c, m) + _eintrag_orte(db, c, m) + _vorschlag_orte(db, c, m)
++            + _abschrift_orte(db, c, wort, m))
++    return sorted(orte, key=lambda o: o.rang)
++
++
++# ---------------------------------------------------------------- Vorschau
++def _geheim(db: Session, c: Campaign, nach: str) -> bool:
++    """„Richtig“ ist Name oder „Auch genannt“ eines Eintrags, den nicht alle Spielenden sehen – und keines, den alle sehen."""
++    ziel = nach.casefold()
++    geheim = sichtbar = False
++    for e in db.scalars(select(Entry).where(Entry.campaign_id == c.id)):
++        if ziel not in {e.name.casefold(), *(a.casefold() for a in e.aliases)}:
++            continue
++        if e.visibility == "public" and not e.hidden_member_ids and not e.origin_analysis_id:
++            sichtbar = True
++        else:
++            geheim = True
++    return geheim and not sichtbar
++
++
++def _unberuehrt(db: Session, c: Campaign, sl: Member, m: re.Pattern, wort: str) -> dict:
++    from app.routers.miteinander import sichtbar_fuer
++
++    figuren = []
++    for x in db.scalars(select(Member).where(Member.campaign_id == c.id, Member.left_at.is_(None))
++                        .order_by(Member.joined_at, Member.id)):
++        for feld, wert in (("name", x.character_name), ("summary", x.character_summary),
++                           ("background", x.character_backstory)):
++            if wert and m.search(wert):
++                figuren.append({"memberId": x.id, "field": feld})
++    kommentare = sum(1 for k in db.scalars(
++        select(Comment).join(GameSession, GameSession.id == Comment.session_id)
++        .where(GameSession.campaign_id == c.id, Comment.text.contains(wort, autoescape=True), sichtbar_fuer(sl)))
++        if m.search(k.text or ""))
++    spieler = sum(1 for p in db.scalars(select(PlayerProposal).where(PlayerProposal.campaign_id == c.id,
++                                                                     PlayerProposal.state == "open"))
++                  if m.search(p.title or "") or m.search(p.detail or ""))
++    spieler += sum(1 for p in db.scalars(select(Proposal).where(
++        Proposal.campaign_id == c.id, Proposal.decision == "open",
++        (Proposal.source.is_not(None)) | (Proposal.submitted_by_member_id.is_not(None))))
++        if m.search(p.title or "") or m.search(p.detail or ""))
++    return {"characters": figuren, "comments": kommentare, "playerProposals": spieler}
++
++
++def regel_fuer(db: Session, c: Campaign, von: str) -> NameFix | None:
++    return db.scalar(select(NameFix).where(NameFix.campaign_id == c.id, NameFix.von == von, NameFix.rule.is_(True))
++                     .order_by(NameFix.created_at.desc()).limit(1))
++
++
++def _version(von: str, nach: str, orte: list[Ort]) -> str:
++    teile = [von, nach] + sorted(f"{o.hit_id}:{_pruefsumme(o.werte)}" for o in orte)
++    return hashlib.sha256("\n".join(teile).encode()).hexdigest()[:32]
++
++
++def vorschau(db: Session, c: Campaign, sl: Member, von: str, nach: str, lang: str = "de") -> tuple[dict, list[Ort]]:
++    von, nach = eingabe(von, nach)
++    m = muster(von)
++    orte = _orte(db, c, von)
++    gesamt = sum(_zaehlen(m, o.werte) for o in orte)
++    if gesamt > MAX_STELLEN:
++        raise errors.conflict("too_many_hits", n=MAX_STELLEN)
++    warnung = any(o.read_by_players for o in orte) and _geheim(db, c, nach)
++    en = lang == "en"
++    treffer = []
++    for o in orte:
++        treffer.append({
++            "id": o.hit_id, "place": o.place, "label": o.label[1 if en else 0], "sessionId": o.session_id,
++            "sessionNumber": o.session_number, "entryId": o.entry_id, "proposalId": o.proposal_id,
++            "count": _zaehlen(m, o.werte), "readByPlayers": o.read_by_players,
++            "preselected": not (warnung and o.read_by_players), "excerpts": _auszuege(m, o.werte),
++        })
++    regel = regel_fuer(db, c, von)
++    return {"from": von, "to": nach, "previewVersion": _version(von, nach, orte), "total": gesamt,
++            "secretWarning": warnung, "hits": treffer, "untouched": _unberuehrt(db, c, sl, m, von),
++            "existingRule": regel.id if regel else None}, orte
++
++
++# ---------------------------------------------------------------- Berichtigen
++def berichtigen(db: Session, c: Campaign, sl: Member, von: str, nach: str, version: str, auslassen: list[str],
++                regel: bool) -> NameFix:
++    von, nach = eingabe(von, nach)
++    _ansicht, orte = vorschau(db, c, sl, von, nach)
++    if _ansicht["previewVersion"] != version:
++        raise errors.conflict("preview_stale")
++    bekannt = {o.hit_id for o in orte}
++    weg = set(auslassen or [])
++    if weg - bekannt:
++        raise errors.bad_request("invalid_name_fix", "invalid_name_fix.skip")
++    alt = regel_fuer(db, c, von)
++    if regel and alt is None:
++        anzahl = len(list(db.scalars(select(NameFix.id).where(NameFix.campaign_id == c.id, NameFix.rule.is_(True)))))
++        if anzahl >= MAX_REGELN:
++            raise errors.conflict("rule_limit", n=MAX_REGELN)
++    m = muster(von)
++    jetzt = utcnow()
++    fix = NameFix(campaign_id=c.id, von=von, nach=nach, rule=bool(regel), created_at=jetzt,
++                  created_by_member_id=sl.id, undo_until=jetzt + timedelta(hours=RUECKGAENGIG_STUNDEN))
++    db.add(fix)
++    db.flush()
++    geaendert = 0
++    orte_ids = []
++    for o in orte:
++        if o.hit_id in weg:
++            continue
++        neu = {k: m.sub(nach, v) for k, v in o.werte.items()}
++        neu = {k: v for k, v in neu.items() if v != o.werte[k]}
++        if not neu:
++            continue
++        geaendert += sum(len(m.findall(o.werte[k])) for k in neu)
++        o.setzen(neu)
++        db.flush()
++        nachher = o.lesen(list(neu))
++        db.add(NameFixUndo(fix_id=fix.id, place=o.place, oid=o.oid, label_de=o.label[0][:300], label_en=o.label[1][:300],
++                           alt=json.dumps({k: o.werte[k] for k in neu}, ensure_ascii=False),
++                           pruefsumme=_pruefsumme(nachher), session_id=o.session_id, entry_id=o.entry_id,
++                           proposal_id=o.proposal_id))
++        orte_ids.append({"place": o.place, "id": o.oid})
++    fix.changed = geaendert
++    fix.orte = json.dumps(orte_ids)
++    if regel:
++        if alt is not None:  # Berichtigen ersetzt das Ziel einer vorhandenen Regel
++            alt.rule = False
++        from app import namenshilfe
++
++        namenshilfe.hinzufuegen(db, c, nach)
++    return fix
++
++
++# ---------------------------------------------------------------- Rückgängig, Regeln, Wartung
++def _ort_neu(db: Session, c: Campaign, u: NameFixUndo) -> Ort | None:
++    """Den gespeicherten Ort neu aufbauen (unabhängig davon, ob das Wort noch drin steht)."""
++    from app import schemas
++    from app.services import apply_entry_input
++
++    if u.place in ("chapter", "chapter_title"):
++        r = db.get(Recap, u.oid)
++        s = db.get(GameSession, u.oid)
++        if r is None or s is None or s.campaign_id != c.id:
++            return None
++        for o in _kapitel_orte(db, c, re.compile(r"(?s).")):  # jedes Kapitel passt
++            if o.oid == u.oid and o.place == u.place:
++                return o
++        return None
++    if u.place.startswith("entry_"):
++        e = db.get(Entry, u.oid)
++        if e is None or e.campaign_id != c.id:
++            return None
++        if u.place == "entry_alias":
++            return Ort(u.place, e.id, ("", ""), {}, lambda _k: {f"a{i}": a for i, a in enumerate(e.aliases)},
++                       lambda w: apply_entry_input(db, e, schemas.EntryInput(
++                           aliases=[w.get(f"a{i}", a) for i, a in enumerate(e.aliases)])))
++        f = {"entry_name": "name", "entry_summary": "summary", "entry_gm_notes": "gm_notes"}[u.place]
++        return Ort(u.place, e.id, ("", ""), {}, lambda _k: {f: getattr(e, f) or ""},
++                   lambda w: apply_entry_input(db, e, schemas.EntryInput(**{f: w[f]})))
++    if u.place == "session_proposal":
++        p = db.get(Proposal, u.oid)
++        if p is None or p.campaign_id != c.id:
++            return None
++
++        def setzen(w):
++            p.title = w.get("title", p.title)[:300]
++            p.detail = w.get("detail", p.detail)
++        return Ort(u.place, p.id, ("", ""), {}, lambda _k: {"title": p.title or "", "detail": p.detail or ""}, setzen)
++    if u.place == "transcript":
++        sid = u.oid
++
++        def lesen(keys):
++            return {x.id: x.text for x in db.scalars(select(TranscriptSegment).where(
++                TranscriptSegment.session_id == sid, TranscriptSegment.id.in_(keys)))}
++
++        def setzen(w):
++            for x in db.scalars(select(TranscriptSegment).where(TranscriptSegment.session_id == sid,
++                                                                TranscriptSegment.id.in_(list(w)))):
++                x.text = w[x.id]
++        return Ort(u.place, sid, ("", ""), {}, lesen, setzen)
++    return None
++
++
++def rueckgaengig(db: Session, c: Campaign, fix: NameFix, lang: str = "de") -> dict:
++    if fix.undone_at is not None:
++        raise errors.conflict("already_undone")
++    bis = fix.undo_until
++    if bis is not None and bis.tzinfo is None:
++        from datetime import timezone
++
++        bis = bis.replace(tzinfo=timezone.utc)
++    if bis is None or bis < utcnow():
++        raise errors.conflict("undo_expired")
++    zurueck, uebersprungen = 0, []
++    for u in db.scalars(select(NameFixUndo).where(NameFixUndo.fix_id == fix.id).order_by(NameFixUndo.id)):
++        alt = json.loads(u.alt or "{}")
++        o = _ort_neu(db, c, u)
++        if o is None:
++            continue
++        jetzt = o.lesen(list(alt))
++        if _pruefsumme(jetzt) != u.pruefsumme:
++            uebersprungen.append({"place": u.place, "label": u.label_en if lang == "en" else u.label_de})
++            continue
++        o.setzen(alt)
++        zurueck += sum(len(muster(fix.nach).findall(jetzt.get(k) or "")) for k in alt)
++    db.execute(NameFixUndo.__table__.delete().where(NameFixUndo.fix_id == fix.id))
++    fix.undone_at, fix.rule, fix.undo_until = utcnow(), False, None
++    return {"restored": zurueck, "skipped": uebersprungen}
++
++
++def ausgeben(fix: NameFix) -> dict:
++    def z(t):
++        if t is None:
++            return None
++        return t.isoformat().replace("+00:00", "Z") if t.tzinfo else t.isoformat() + "Z"
++
++    bis = fix.undo_until
++    if bis is not None:
++        from datetime import timezone
++
++        bis_utc = bis if bis.tzinfo else bis.replace(tzinfo=timezone.utc)
++        if bis_utc < utcnow() or fix.undone_at is not None:
++            bis = None
++    return {"id": fix.id, "from": fix.von, "to": fix.nach, "changed": fix.changed or 0, "rule": bool(fix.rule),
++            "createdAt": z(fix.created_at), "createdBy": fix.created_by_member_id or "", "undoUntil": z(bis),
++            "undoneAt": z(fix.undone_at)}
++
++
++def liste(db: Session, c: Campaign) -> list[NameFix]:
++    return list(db.scalars(select(NameFix).where(NameFix.campaign_id == c.id)
++                           .order_by(NameFix.created_at.desc(), NameFix.id)))
++
++
++def regeln(db: Session, c: Campaign) -> dict[str, NameFix]:
++    """Aktive Verhörer-Regeln je falscher Schreibweise (für „Namen prüfen“)."""
++    aus: dict[str, NameFix] = {}
++    for f in db.scalars(select(NameFix).where(NameFix.campaign_id == c.id, NameFix.rule.is_(True))
++                        .order_by(NameFix.created_at)):
++        aus[f.von] = f
++    return aus
++
++
++def wartung(db: Session) -> int:
++    """Rückgängig-Texte nach RUECKGAENGIG_STUNDEN löschen."""
++    grenze = utcnow() - timedelta(hours=RUECKGAENGIG_STUNDEN)
++    alt = [f.id for f in db.scalars(select(NameFix).where(NameFix.created_at < grenze, exists().where(
++        NameFixUndo.fix_id == NameFix.id)))]
++    if alt:
++        db.execute(NameFixUndo.__table__.delete().where(NameFixUndo.fix_id.in_(alt)))
++    return len(alt)
++
++
++def fuer_umzug(db: Session, c: Campaign) -> list[dict]:
++    return [{"from": f.von, "to": f.nach} for f in regeln(db, c).values()]
++
++
++def aus_umzug(db: Session, c: Campaign, roh) -> None:
++    if not isinstance(roh, list):
++        return
++    gesehen = set()
++    for r in roh[:MAX_REGELN]:
++        if not isinstance(r, dict):
++            continue
++        try:
++            von, nach = eingabe(str(r.get("from") or ""), str(r.get("to") or ""))
++        except errors.ApiError:
++            continue
++        if von in gesehen:
++            continue
++        gesehen.add(von)
++        db.add(NameFix(campaign_id=c.id, von=von, nach=nach, rule=True, changed=0, created_at=utcnow(),
++                       created_by_member_id=None, undo_until=None))
+diff --git a/app/routers/anmeldung.py b/app/routers/anmeldung.py
+index c3d6ac2..a595e12 100644
+--- a/app/routers/anmeldung.py
++++ b/app/routers/anmeldung.py
+@@ -185,7 +185,10 @@ def konto_loeschen_seite(request: Request, db: Session = Depends(get_db)):
+     Bestätigungslogik wie DELETE /me (app/konto.py); Fehlversuche zählen wie beim Anmelden."""
+     from app.verwaltung.router import _seite as seite
+ 
+-    return seite(request, "konto_loeschen.html", None, db, fertig=False, konto="", fehler="")
++    from app import abrechnung
++
++    return seite(request, "konto_loeschen.html", None, db, fertig=False, konto="", fehler="",
++                 abrechnung_an=abrechnung.an(db))
+ 
+ 
+ @seiten.post("/konto-loeschen", response_class=HTMLResponse)
+@@ -202,7 +205,10 @@ def konto_loeschen_ausfuehren(request: Request, username: str = Form(""), passwo
+ 
+     def fehler(text: str, status: int = 400) -> HTMLResponse:
+         db.rollback()
+-        antwort = seite(request, "konto_loeschen.html", None, db, fertig=False, konto=name, fehler=text)
++        from app import abrechnung
++
++        antwort = seite(request, "konto_loeschen.html", None, db, fertig=False, konto=name, fehler=text,
++                        abrechnung_an=abrechnung.an(db))
+         antwort.status_code = status
+         return antwort
+ 
+diff --git a/app/routers/namen.py b/app/routers/namen.py
+new file mode 100644
+index 0000000..7a32606
+--- /dev/null
++++ b/app/routers/namen.py
+@@ -0,0 +1,95 @@
++"""Namen einmal berichtigen (Schnittstelle 0.4.31). Regeln in app/namen_berichtigen.py."""
++from fastapi import APIRouter, Depends, Request
++from fastapi.responses import JSONResponse
++from pydantic import ConfigDict, Field
++from pydantic.alias_generators import to_camel
++from sqlalchemy.orm import Session
++
++from app import errors
++from app import namen_berichtigen as nb
++from app.access import current_user, membership
++from app.db import get_db
++from app.models import Campaign, NameFix, User
++from app.schemas import ApiModel
++
++router = APIRouter()
++
++
++class NameFixIn(ApiModel):
++    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="ignore")
++    from_: str = Field(alias="from", max_length=200)
++    to: str = Field(max_length=200)
++
++
++class NameFixAusfuehren(NameFixIn):
++    preview_version: str = Field(max_length=100)
++    skip_hit_ids: list[str] = Field(default=[], max_length=5000)
++    rule: bool = True
++
++
++def _sl(db: Session, campaign_id: str, user: User) -> tuple[Campaign, object]:
++    me = membership(db, campaign_id, user)
++    if me is None or me.role != "gm":
++        raise errors.not_found("campaign")
++    return db.get(Campaign, campaign_id), me
++
++
++def _fix_fuer_sl(db: Session, fix_id: str, user: User) -> tuple[Campaign, NameFix]:
++    fix = db.get(NameFix, fix_id[:64])
++    if fix is None:
++        raise errors.not_found()
++    me = membership(db, fix.campaign_id, user)
++    if me is None or me.role != "gm":
++        raise errors.not_found()
++    return db.get(Campaign, fix.campaign_id), fix
++
++
++def _lang(request: Request) -> str:
++    return errors.sprache(request)
++
++
++@router.post("/campaigns/{campaignId}/name-fixes/preview", tags=["Namen"])
++def name_fix_preview(campaignId: str, body: NameFixIn, request: Request, user: User = Depends(current_user),
++                     db: Session = Depends(get_db)):
++    c, me = _sl(db, campaignId, user)
++    from app.begrenzung import ZAEHLER
++
++    if not ZAEHLER.versuch(f"namen-vorschau:{user.id}", nb.VORSCHAU_JE_STUNDE, 3600):
++        raise errors.ApiError(429, "too_many_requests")
++    ansicht, _orte = nb.vorschau(db, c, me, body.from_, body.to, _lang(request))
++    db.rollback()  # die Vorschau ändert nichts
++    return ansicht
++
++
++@router.get("/campaigns/{campaignId}/name-fixes", tags=["Namen"])
++def name_fix_list(campaignId: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
++    c, _me = _sl(db, campaignId, user)
++    return {"fixes": [nb.ausgeben(f) for f in nb.liste(db, c)]}
++
++
++@router.post("/campaigns/{campaignId}/name-fixes", tags=["Namen"], status_code=201)
++def name_fix_create(campaignId: str, body: NameFixAusfuehren, user: User = Depends(current_user),
++                    db: Session = Depends(get_db)):
++    c, me = _sl(db, campaignId, user)
++    from app.begrenzung import ZAEHLER
++
++    if not ZAEHLER.versuch(f"namen-berichtigen:{campaignId}", nb.BERICHTIGEN_JE_STUNDE, 3600):
++        raise errors.ApiError(429, "too_many_requests")
++    fix = nb.berichtigen(db, c, me, body.from_, body.to, body.preview_version, body.skip_hit_ids, body.rule)
++    db.commit()
++    return JSONResponse(status_code=201, content=nb.ausgeben(fix))
++
++
++@router.delete("/name-fixes/{fixId}", tags=["Namen"], status_code=204)
++def name_fix_delete(fixId: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
++    _c, fix = _fix_fuer_sl(db, fixId, user)
++    fix.rule = False
++    db.commit()
++
++
++@router.post("/name-fixes/{fixId}/undo", tags=["Namen"])
++def name_fix_undo(fixId: str, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
++    c, fix = _fix_fuer_sl(db, fixId, user)
++    antwort = nb.rueckgaengig(db, c, fix, _lang(request))
++    db.commit()
++    return antwort
+diff --git a/app/verwaltung/abrechnung_seite.py b/app/verwaltung/abrechnung_seite.py
+index 630c057..f83f41e 100644
+--- a/app/verwaltung/abrechnung_seite.py
++++ b/app/verwaltung/abrechnung_seite.py
+@@ -37,6 +37,16 @@ PREISFELDER = [
+ ]
+ 
+ 
++# 0.4.153: Meldungen, die beim Anbieter abonniert sein müssen (sonst fehlen z. B. Erstattungen und Rückbuchungen)
++EREIGNISSE = {
++    "stripe": ("checkout.session.completed", "checkout.session.async_payment_succeeded",
++               "checkout.session.async_payment_failed", "checkout.session.expired", "charge.refunded",
++               "charge.dispute.created"),
++    "paypal": ("PAYMENT.CAPTURE.COMPLETED", "PAYMENT.CAPTURE.REFUNDED", "PAYMENT.CAPTURE.REVERSED",
++               "CUSTOMER.DISPUTE.CREATED"),
++}
++
++
+ def _euro_lesen(text: str) -> int | None:
+     t = (text or "").strip().replace("€", "").replace(" ", "").replace(".", "").replace(",", ".")
+     try:
+@@ -96,9 +106,16 @@ def _seite_abrechnung(request: Request, user: User, db: Session, status: int = 2
+         abrechnung.offene_abrechnen(db)
+     p = abrechnung.preise(db)
+     werte = {f.name: getattr(p, f.name) for f in fields(p)}
++    from app import erstattung
++
+     konten = []
+     for g in db.scalars(select(Guthaben).order_by(Guthaben.angelegt)):
+-        konten.append({"g": g, "name": _name(db, g), "saldo": abrechnung.saldo(db, g.id)})
++        konten.append({"g": g, "name": _name(db, g), "saldo": abrechnung.saldo(db, g.id),
++                       "erstattbar": erstattung.erstattbar(db, g)})
++    offen_e = []
++    for z in erstattung.offene(db):  # 0.4.153: nach Kontolöschung
++        offen_e.append({"z": z, "teile": json.loads(z.zahlungen or "[]"),
++                        "jetzt": erstattung.erstattbar(db, db.get(Guthaben, z.guthaben_id))})
+     aktionen = db.execute(select(Gutschein.aktion, Gutschein.betrag_cent, func.count(),
+                                  func.count(Gutschein.eingeloest_at), func.max(Gutschein.gueltig_bis))
+                           .group_by(Gutschein.aktion, Gutschein.betrag_cent).order_by(Gutschein.aktion)).all()
+@@ -118,7 +135,9 @@ def _seite_abrechnung(request: Request, user: User, db: Session, status: int = 2
+     # 0.4.93: was „0 = automatisch“ gerade bedeutet (Mittelwert der Läufe, sonst aus den Preisen des Anbieters)
+     automatisch = {a: abrechnung.euro_genau(abrechnung._mittelwert_cloud(db, a) or abrechnung.preis_aus_anbieter(db, a))
+                    for a in abrechnung.KOSTENPFLICHTIG}
+-    daten = {"bestaetigen": None, "codes": None, "cloud_ohne_schaetzung": ", ".join(ohne), "automatisch": automatisch,
++    daten = {"bestaetigen": None, "codes": None, "offene_erstattungen": offen_e, "erstattung_fall": None,
++             "frist_tage": erstattung.ANBIETER_FRIST_TAGE, "aufbewahrung_tage": erstattung.AUFBEWAHRUNG_TAGE,
++             "ereignisse": EREIGNISSE, "cloud_ohne_schaetzung": ", ".join(ohne), "automatisch": automatisch,
+              **ctx}
+     from app import rechtstexte, zahlung
+     from app.einstellungen import meta_lesen
+@@ -141,8 +160,36 @@ def _seite_abrechnung(request: Request, user: User, db: Session, status: int = 2
+ 
+ 
+ @router.get("/abrechnung", response_class=HTMLResponse)
+-def seite(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)):
+-    return _seite_abrechnung(request, user, db)
++def seite(request: Request, erstattung: str = "", user: User = Depends(verwalter), db: Session = Depends(get_db)):
++    from app import erstattung as e
++
++    fall, gesucht = None, erstattung.strip().lower()[:64]
++    if gesucht:  # 0.4.153: Erstattung für ein Konto – was geht auf welche Zahlung zurück
++        konto = db.scalar(select(User).where(User.username == gesucht))
++        g = abrechnung.guthaben_konto(db, konto.id, anlegen=False) if konto else None
++        fall = {"name": gesucht, "gefunden": konto is not None, "a": e.aufteilen(db, g) if g is not None and g.id
++                else e.Aufteilung(0)}
++    return _seite_abrechnung(request, user, db, erstattung_fall=fall)
++
++
++@router.post("/abrechnung/erstattung/{zeile_id}/erledigt", dependencies=[Depends(csrf_pruefen)])
++def erstattung_erledigt(request: Request, zeile_id: str, bestaetigt: str = Form(""),
++                        user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):
++    """0.4.153: von Hand erstattet (Überweisung) – die E-Mail-Adresse wird gelöscht."""
++    from app import erstattung as e
++    from app.models import OffeneErstattung
++
++    if not _faktor(db, user):
++        return _ohne_faktor(request, user, db)
++    z = db.get(OffeneErstattung, zeile_id[:64])
++    if z is None or z.erledigt_at is not None:
++        raise errors.not_found()
++    if not bestaetigt:
++        return _seite_abrechnung(request, user, db, status=400,
++                                 fehler=tr(request)("Bitte bestätigen, dass der Betrag erstattet ist."))
++    e.erledigen(db, z, "von_hand", user.id)
++    db.commit()
++    return _zurueck("/abrechnung#erstattungen", "gespeichert")
+ 
+ 
+ @router.post("/abrechnung/modus", dependencies=[Depends(csrf_pruefen)])
+diff --git a/app/verwaltung/guthaben.py b/app/verwaltung/guthaben.py
+index e07217a..e634ea5 100644
+--- a/app/verwaltung/guthaben.py
++++ b/app/verwaltung/guthaben.py
+@@ -357,6 +357,7 @@ def _ohne_fremde_titel(db: Session, user: User, g: Guthaben) -> list[dict]:
+ 
+ def _hauptseite(request: Request, db: Session, user: User, meldung: str | None = None, fehler: str | None = None,
+                 status: int = 200, gutschein_offen: bool = False) -> HTMLResponse:
++    from app import erstattung
+     from app.models import Organization
+ 
+     abrechnung.offene_abrechnen(db)
+@@ -366,7 +367,8 @@ def _hauptseite(request: Request, db: Session, user: User, meldung: str | None =
+         toepfe.append({"g": g, "name": (org.name if org else "?") if g.art == "organisation" else None,
+                        "saldo": abrechnung.saldo(db, g.id), "stand": abrechnung.stand(db, g),
+                        "buchungen": abrechnung.buchungen(db, g, 50), "wartend": _ohne_fremde_titel(db, user, g),
+-                       "offen": zahlung.offene(db, g) if g.id else []})
++                       "offen": zahlung.offene(db, g) if g.id else [],
++                       "erstattbar": erstattung.erstattbar(db, g) if g.art != "organisation" else 0})
+     db.commit()  # neu angelegte Guthaben-Zeilen
+     antwort = _seite(request, "guthaben.html", None, db, person=user, toepfe=toepfe,
+                      kampagnen=_sl_kampagnen(db, user), euro=abrechnung.euro, topf=abrechnung.modus(db) == "topf",
+diff --git a/app/verwaltung/i18n.py b/app/verwaltung/i18n.py
+index 9eb31e6..b31dede 100644
+--- a/app/verwaltung/i18n.py
++++ b/app/verwaltung/i18n.py
+@@ -1450,6 +1450,32 @@ EN: dict[str, str] = {
+     "Bitte bestätige zuerst, dass das Guthaben sofort nutzbar sein soll.": "Please first confirm that the credit should be usable right away.",
+     "Aufladen geht hier erst, wenn der Betreiber die Bedingungen für Guthaben und die Widerrufsbelehrung veröffentlicht hat.": "Topping up only works here once the operator has published the credit terms and the withdrawal notice.",
+     "Für diesen Server ist hier noch nichts veröffentlicht. Frag bitte die Person, die den Server betreibt.": "Nothing has been published here for this server yet. Please ask the person who runs the server.",
++    "Diese Meldungen beim Anbieter abonnieren": "Subscribe to these events at the provider",
++    "Fehlt eine, kommen Erstattungen oder Rückbuchungen nicht an. Stripe sendet nachträglich abonnierte Meldungen nicht noch einmal.": "If one is missing, refunds or chargebacks do not arrive. Stripe does not resend events you subscribe to later.",
++    "davon erstattbar": "of which refundable",
++    "beim Anbieter erstatten: {betrag}": "refund at the provider: {betrag}",
++    "Guthaben {betrag}": "credit {betrag}",
++    "älter als {n} Tage": "older than {n} days",
++    "Erstattungen": "Refunds",
++    "Erstattet wird nur, was aus Zahlungen übrig ist – voll, auf die ursprünglichen Zahlungen, die neueste zuerst. Gutschriften und Gutscheine nie. Erstatte im Dashboard des Anbieters; seine Meldung bucht die Gegenbuchung.": "Only what is left from payments is refunded – in full, to the original payments, newest first. Never credits or vouchers. Refund in the provider's dashboard; its event books the reversal.",
++    "Anzeigen": "Show",
++    "Kein Konto mit diesem Benutzernamen.": "No account with this username.",
++    "Nichts zu erstatten.": "Nothing to refund.",
++    "Erstattbar: {betrag}": "Refundable: {betrag}",
++    "Geht eine Zahlung nicht mehr zu erstatten (Frist des Anbieters, Karte erloschen): per Mail nach einer Kontoverbindung fragen und von Hand überweisen. Die Kontoverbindung nie in Taleward eintragen.": "If a payment can no longer be refunded (provider deadline, card expired): ask for bank details by email and transfer by hand. Never enter the bank details in Taleward.",
++    "Ohne passende Zahlung: {betrag}.": "Without a matching payment: {betrag}.",
++    "Offen nach Kontolöschung": "Open after account deletion",
++    "noch offen: {betrag}": "still open: {betrag}",
++    "keine E-Mail-Adresse": "no email address",
++    "Von Hand erstattet": "Refunded by hand",
++    "Betrag ist überwiesen – E-Mail-Adresse jetzt löschen": "Amount has been transferred – delete the email address now",
++    "Erledigt": "Done",
++    "Meldet der Anbieter die Erstattung, schließt sich der Fall von selbst. Die E-Mail-Adresse wird spätestens nach {n} Tagen gelöscht.": "When the provider reports the refund, the case closes by itself. The email address is deleted after {n} days at the latest.",
++    "Keine.": "None.",
++    "Bitte bestätigen, dass der Betrag erstattet ist.": "Please confirm that the amount has been refunded.",
++    "Davon aus Zahlungen übrig: {betrag}. Diesen Teil bekommst du auf Wunsch zurück, voll und auf die ursprüngliche Zahlung – auch, wenn du dein Konto löschst. Gutschriften und Gutscheine werden nicht ausgezahlt.": "Left from payments: {betrag}. You can get this part back on request, in full and to the original payment – also if you delete your account. Credits and vouchers are not paid out.",
++    "Melde dich dafür bei {kontakt}.": "Contact {kontakt} for this.",
++    "Ist auf deinem Guthaben noch Geld aus Zahlungen übrig, erstattet der Betreiber es dir auf die ursprüngliche Zahlung. Dafür bleibt nur der Betrag mit deiner bestätigten E-Mail-Adresse stehen, bis erstattet ist, höchstens 90 Tage.": "If your credit still holds money from payments, the operator refunds it to the original payment. Until then only the amount and your confirmed email address are kept, for 90 days at most.",
+ }
+ 
+ WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}
+diff --git a/app/verwaltung/templates/abrechnung.html b/app/verwaltung/templates/abrechnung.html
+index 6ec731c..ce2aba5 100644
+--- a/app/verwaltung/templates/abrechnung.html
++++ b/app/verwaltung/templates/abrechnung.html
+@@ -74,6 +74,11 @@
+   <p>{{ _("Adressen für die Meldungen der Anbieter (beim Anbieter als Webhook eintragen):") }}</p>
+   <p class="kopierzeile"><span>Stripe</span> <code class="ganz">{{ zahl_basis }}/zahlung/stripe</code></p>
+   <p class="kopierzeile"><span>PayPal</span> <code class="ganz">{{ zahl_basis }}/zahlung/paypal</code></p>
++  <details><summary>{{ _("Diese Meldungen beim Anbieter abonnieren") }}</summary>
++    <p>Stripe: {% for e in ereignisse.stripe %}<code>{{ e }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
++    <p>PayPal: {% for e in ereignisse.paypal %}<code>{{ e }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
++    <p class="hilfe">{{ _("Fehlt eine, kommen Erstattungen oder Rückbuchungen nicht an. Stripe sendet nachträglich abonnierte Meldungen nicht noch einmal.") }}</p>
++  </details>
+   {% else %}
+   <p class="meldung meldung--fehler">{{ _("Zuerst die öffentliche Adresse des Servers eintragen (Einstellungen → Einrichtung → Angaben für die App). Ohne sie gibt es kein Aufladen.") }}</p>
+   {% endif %}
+@@ -101,20 +106,67 @@
+ <div class="karte">
+   <h2>{{ _("Guthaben") }}</h2>
+   <div class="tabelle-huelle"><table>
+-    <thead><tr><th>{{ _("Wer") }}</th><th>{{ _("Saldo") }}</th></tr></thead>
++    <thead><tr><th>{{ _("Wer") }}</th><th>{{ _("Saldo") }}</th><th>{{ _("davon erstattbar") }}</th></tr></thead>
+     <tbody>
+     {% for k in konten %}
+       <tr><td data-label="{{ _('Wer') }}">{{ k.name }}{% if k.g.art == "organisation" %} <span class="leise">({{ _("Organisation") }})</span>{% endif %}
+         {% if k.g.gesperrt_at %}<br><span class="marke-status marke-status--fehler">{{ _("gesperrt seit {zeit}", zeit=zeit(k.g.gesperrt_at)) }}</span>
+         <form method="post" action="/verwaltung/abrechnung/entsperren/{{ k.g.id }}"><input type="hidden" name="csrf" value="{{ csrf }}">
+-          <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Sperre aufheben") }}</button></form>{% endif %}</td><td data-label="{{ _('Saldo') }}">{{ euro(k.saldo) }}</td></tr>
++          <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Sperre aufheben") }}</button></form>{% endif %}</td><td data-label="{{ _('Saldo') }}">{{ euro(k.saldo) }}</td>
++        <td data-label="{{ _('davon erstattbar') }}">{{ euro(k.erstattbar) if k.erstattbar else "–" }}</td></tr>
+     {% else %}
+-      <tr><td colspan="2" class="leise">{{ _("Noch kein Guthaben angelegt.") }}</td></tr>
++      <tr><td colspan="3" class="leise">{{ _("Noch kein Guthaben angelegt.") }}</td></tr>
+     {% endfor %}
+     </tbody>
+   </table></div>
+ </div>
+ 
++{% macro aufteilung_zeigen(teile) %}
++  <ul class="liste">
++  {% for t in teile %}
++    <li>{{ "Stripe" if t.anbieter == "stripe" else "PayPal" }} · <code>{{ t.zahlung_ref or t.ref }}</code>{% if t.bezahlt_am %} · {{ zeit(t.bezahlt_am) }}{% endif %} ·
++      {{ _("beim Anbieter erstatten: {betrag}", betrag=euro(t.beim_anbieter_cent)) }} <span class="leise">({{ _("Guthaben {betrag}", betrag=euro(t.credit_cent if t.credit_cent is defined else t.cent)) }})</span>
++      {% if t.frist_vorbei %}<span class="marke-status marke-status--warten">{{ _("älter als {n} Tage", n=frist_tage) }}</span>{% endif %}</li>
++  {% endfor %}
++  </ul>
++{% endmacro %}
++<div class="karte" id="erstattungen">
++  <h2>{{ _("Erstattungen") }}</h2>
++  <p class="hilfe">{{ _("Erstattet wird nur, was aus Zahlungen übrig ist – voll, auf die ursprünglichen Zahlungen, die neueste zuerst. Gutschriften und Gutscheine nie. Erstatte im Dashboard des Anbieters; seine Meldung bucht die Gegenbuchung.") }}</p>
++  <form class="formular formular--zeile" method="get" action="/verwaltung/abrechnung#erstattungen">
++    <label>{{ _("Benutzername") }} <input type="text" name="erstattung" maxlength="64" autocomplete="off" value="{{ erstattung_fall.name if erstattung_fall else '' }}"></label>
++    <button class="tw-btn tw-btn--secondary" type="submit">{{ _("Anzeigen") }}</button>
++  </form>
++  {% if erstattung_fall %}
++    {% if not erstattung_fall.gefunden %}<p class="meldung meldung--fehler">{{ _("Kein Konto mit diesem Benutzernamen.") }}</p>
++    {% elif not erstattung_fall.a.betrag_cent %}<p>{{ _("Nichts zu erstatten.") }}</p>
++    {% else %}
++      <p><strong>{{ _("Erstattbar: {betrag}", betrag=euro(erstattung_fall.a.betrag_cent)) }}</strong></p>
++      {{ aufteilung_zeigen(erstattung_fall.a.teile) }}
++      {% if erstattung_fall.a.ueberweisung_noetig %}<p class="meldung">{{ _("Geht eine Zahlung nicht mehr zu erstatten (Frist des Anbieters, Karte erloschen): per Mail nach einer Kontoverbindung fragen und von Hand überweisen. Die Kontoverbindung nie in Taleward eintragen.") }}{% if erstattung_fall.a.von_hand_cent %} {{ _("Ohne passende Zahlung: {betrag}.", betrag=euro(erstattung_fall.a.von_hand_cent)) }}{% endif %}</p>{% endif %}
++    {% endif %}
++  {% endif %}
++  <h3>{{ _("Offen nach Kontolöschung") }}</h3>
++  {% if offene_erstattungen %}
++  <ul class="liste-av">
++  {% for o in offene_erstattungen %}
++    <li><span>{{ zeit(o.z.angelegt) }} · <strong>{{ euro(o.z.betrag_cent) }}</strong>{% if o.jetzt != o.z.betrag_cent %} <span class="leise">({{ _("noch offen: {betrag}", betrag=euro(o.jetzt)) }})</span>{% endif %} ·
++      {% if o.z.email %}<code>{{ o.z.email }}</code>{% else %}<span class="leise">{{ _("keine E-Mail-Adresse") }}</span>{% endif %}</span>
++      {{ aufteilung_zeigen(o.teile) }}
++      <details><summary>{{ _("Von Hand erstattet") }}</summary>
++        <form class="formular formular--zeile" method="post" action="/verwaltung/abrechnung/erstattung/{{ o.z.id }}/erledigt">
++          <input type="hidden" name="csrf" value="{{ csrf }}">
++          <label class="haken"><input type="checkbox" name="bestaetigt" value="1" required> {{ _("Betrag ist überwiesen – E-Mail-Adresse jetzt löschen") }}</label>
++          <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Erledigt") }}</button>
++        </form></details></li>
++  {% endfor %}
++  </ul>
++  <p class="hilfe">{{ _("Meldet der Anbieter die Erstattung, schließt sich der Fall von selbst. Die E-Mail-Adresse wird spätestens nach {n} Tagen gelöscht.", n=aufbewahrung_tage) }}</p>
++  {% else %}
++  <p class="leise">{{ _("Keine.") }}</p>
++  {% endif %}
++</div>
++
+ <div class="karte">
+   <h2>{{ _("Gutschrift von Hand") }}</h2>
+   <form class="formular" method="post" action="/verwaltung/abrechnung/gutschrift">
+diff --git a/app/verwaltung/templates/guthaben.html b/app/verwaltung/templates/guthaben.html
+index df3a7e4..53f6c83 100644
+--- a/app/verwaltung/templates/guthaben.html
++++ b/app/verwaltung/templates/guthaben.html
+@@ -26,6 +26,7 @@
+     {% else %}{{ _("Reicht für die nächsten Verarbeitungen.") }}{% endif %}
+   </p>
+   {% if t.g.gesperrt_at %}<p class="meldung meldung--fehler">{{ _("Eine Zahlung wurde zurückgebucht oder angefochten. Bis die Verwaltung das geprüft hat, starten keine neuen Verarbeitungen und Aufladen geht nicht.") }}{% if angaben.server_contact %} {{ angaben.server_contact }}{% endif %}</p>{% endif %}
++  {% if t.erstattbar %}<p class="hilfe">{{ _("Davon aus Zahlungen übrig: {betrag}. Diesen Teil bekommst du auf Wunsch zurück, voll und auf die ursprüngliche Zahlung – auch, wenn du dein Konto löschst. Gutschriften und Gutscheine werden nicht ausgezahlt.", betrag=euro(t.erstattbar)) }}{% if angaben.server_contact %} {{ _("Melde dich dafür bei {kontakt}.", kontakt=angaben.server_contact) }}{% endif %}</p>{% endif %}
+   {% if t.offen %}<p class="meldung" role="status">{{ _("Eine Zahlung ist begonnen und noch nicht bestätigt. Das Guthaben erscheint, sobald der Zahlungsanbieter sie bestätigt. Seite später neu laden.") }}</p>{% endif %}
+ 
+   {% if zahlwege_an and not t.g.gesperrt_at %}
+diff --git a/app/verwaltung/templates/konto_loeschen.html b/app/verwaltung/templates/konto_loeschen.html
+index 2ab281e..b36308d 100644
+--- a/app/verwaltung/templates/konto_loeschen.html
++++ b/app/verwaltung/templates/konto_loeschen.html
+@@ -14,6 +14,7 @@
+     <p>{{ _("Du kannst dein Konto auch in der App löschen: Konto → „Daten und Konto löschen“. Hier geht es ohne App, mit Benutzername und Passwort.") }}</p>
+     <h3>{{ _("Was gelöscht wird") }}</h3>
+     <p>{{ _("Dein Konto mit Anmeldungen, E-Mail-Adresse, Charakterbildern, Charakter-Hintergründen, Zustimmungen und Stimmprofil. Kampagnen, in denen sonst niemand mehr ist, werden mitgelöscht.") }}</p>
++    {% if abrechnung_an %}<p class="hilfe">{{ _("Ist auf deinem Guthaben noch Geld aus Zahlungen übrig, erstattet der Betreiber es dir auf die ursprüngliche Zahlung. Dafür bleibt nur der Betrag mit deiner bestätigten E-Mail-Adresse stehen, bis erstattet ist, höchstens 90 Tage.") }}</p>{% endif %}
+     <h3>{{ _("Was bleibt") }}</h3>
+     <p>{{ _("In gemeinsamen Kampagnen bleibt dein Platz als „Gelöschtes Konto“ stehen, damit Kapitel, Anwesenheitslisten und Kommentare stimmig bleiben; der Name deiner Figur bleibt Teil der Geschichte. Der Widerruf deiner Zustimmungen bleibt als Nachweis im Protokoll.") }}</p>
+     <p class="hilfe">{{ _("Leitest du eine Kampagne als einzige Spielleitung, in der noch andere sind, ernenne dort zuerst in der App eine andere Spielleitung. Vorher solltest du deine Daten in der App exportieren (Konto → „Meine Daten“).") }}</p>
+diff --git a/app/zahlung.py b/app/zahlung.py
+index d809852..4f5e450 100644
+--- a/app/zahlung.py
++++ b/app/zahlung.py
+@@ -313,6 +313,8 @@ def _gegenbuchen(db: Session, v: Bezahlvorgang, art: str, brutto_cent: int, erei
+     except IntegrityError:
+         return False
+     abrechnung.protokoll(db, "system", art, g.id, vorgang=v.id, brutto_cent=brutto_cent)
++    if v.anbieter == "paypal":  # 0.4.153: PayPal meldet je Erstattung den Betrag (Stripe die Summe, siehe dort)
++        v.erstattet_cent = (v.erstattet_cent or 0) + brutto_cent
+     return True
+ 
+ 
+diff --git a/migrations/versions/d0f2a4c6e8b1_offene_erstattungen.py b/migrations/versions/d0f2a4c6e8b1_offene_erstattungen.py
+new file mode 100644
+index 0000000..cb141a9
+--- /dev/null
++++ b/migrations/versions/d0f2a4c6e8b1_offene_erstattungen.py
+@@ -0,0 +1,32 @@
++"""Erstattung offen nach Kontolöschung (Server 0.4.153)
++
++Revision ID: d0f2a4c6e8b1
++Revises: c8e0a2b4d6f8
++"""
++from typing import Sequence, Union
++
++import sqlalchemy as sa
++from alembic import op
++
++revision: str = 'd0f2a4c6e8b1'
++down_revision: Union[str, Sequence[str], None] = 'c8e0a2b4d6f8'
++branch_labels: Union[str, Sequence[str], None] = None
++depends_on: Union[str, Sequence[str], None] = None
++
++
++def upgrade() -> None:
++    op.create_table(
++        "offene_erstattungen",
++        sa.Column("id", sa.String(36), primary_key=True),
++        sa.Column("guthaben_id", sa.String(36), sa.ForeignKey("guthaben.id"), nullable=False, index=True),
++        sa.Column("betrag_cent", sa.Integer(), nullable=False),
++        sa.Column("zahlungen", sa.Text(), nullable=False),
++        sa.Column("email", sa.String(254), nullable=True),
++        sa.Column("angelegt", sa.DateTime(), nullable=False),
++        sa.Column("erledigt_at", sa.DateTime(), nullable=True),
++        sa.Column("erledigt_wie", sa.String(16), nullable=True),
++    )
++
++
++def downgrade() -> None:
++    op.drop_table("offene_erstattungen")
+diff --git a/pyproject.toml b/pyproject.toml
+index 709fda2..aab7251 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,6 +1,6 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.152"
++version = "0.4.153"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+ license-files = ["LICENSE"]
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index 5208ee3..a3ceb4b 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -153,7 +153,7 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     monkeypatch.setattr(benachrichtigung, "melden", lambda db, art, **w: gemeldet.append((art, w)))
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.152"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.153"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+     monkeypatch.setenv("TALEWARD_DOCKER", "1")
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index d9b44ad..9776cb9 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -134,7 +134,7 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     assert r.status_code == 201 and r.json()["name"] == "gaming-pc"
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.152"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.153"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+     assert "gaming-pc" in seite and "bereit" in seite
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index 8c38592..41b71b7 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -83,7 +83,7 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/models", params={"repo": REPO}, headers=h).status_code == 404
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.152"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.153"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+                headers=h)
+diff --git a/tests/test_server_04153.py b/tests/test_server_04153.py
+new file mode 100644
+index 0000000..3eac275
+--- /dev/null
++++ b/tests/test_server_04153.py
+@@ -0,0 +1,213 @@
++"""Server 0.4.153: Erstattung von Restguthaben (Weg zum ersten echten Geld, Punkte 3 und 4) und die Liste der
++Meldungen, die beim Zahlungsanbieter abonniert sein müssen."""
++import json
++from datetime import timedelta
++
++from sqlalchemy import select
++
++from app.db import utcnow
++from tests.test_abrechnung_0485 import _modus
++from tests.test_server_04143 import _chef, _faktor_an
++from tests.test_verwaltung import admin  # noqa: F401 (Fixture)
++
++
++def _konto(dbs, name="erna", email=None, bestaetigt=True):
++    from app.models import User
++
++    u = User(username=name, display_name=name.title(), email=email,
++             email_verified_at=utcnow() if email and bestaetigt else None)
++    dbs.add(u)
++    dbs.flush()
++    return u
++
++
++def _bezahlt(dbs, g, netto, brutto, anbieter="stripe", tage=0, ref="ch_1"):
++    from app import abrechnung
++    from app.models import Bezahlvorgang
++
++    am = utcnow() - timedelta(days=tage)
++    v = Bezahlvorgang(guthaben_id=g.id, von=g.user_id or "x", anbieter=anbieter, netto_cent=netto, brutto_cent=brutto,
++                      zustand="bezahlt", zahlung_ref=ref, anbieter_ref="cs_" + ref, angelegt=am, abgeschlossen=am)
++    dbs.add(v)
++    b = abrechnung.buchen(dbs, g, "zahlung", netto)
++    v.buchung_id = b.id
++    dbs.flush()
++    return v
++
++
++def test_erstattbar_zieht_zuerst_geschenktes(dbs):
++    from app import abrechnung, erstattung
++
++    _modus(dbs)
++    u = _konto(dbs)
++    g = abrechnung.guthaben_konto(dbs, u.id)
++    assert erstattung.erstattbar(dbs, g) == 0
++    _bezahlt(dbs, g, 1000, 1060)
++    abrechnung.buchen(dbs, g, "gutschrift", 500)
++    assert erstattung.erstattbar(dbs, g) == 1000
++    abrechnung.buchen(dbs, g, "verbrauch", -400)  # aus dem Geschenkten
++    assert erstattung.erstattbar(dbs, g) == 1000
++    abrechnung.buchen(dbs, g, "verbrauch", -300)  # 100 Geschenk übrig? nein: 200 aus Bezahltem
++    assert abrechnung.saldo(dbs, g.id) == 800
++    assert erstattung.erstattbar(dbs, g) == 800
++    abrechnung.buchen(dbs, g, "verbrauch", -900)
++    assert erstattung.erstattbar(dbs, g) == 0  # im Minus: nichts
++    assert erstattung.erstattbar(dbs, None) == 0
++
++
++def test_aufteilen_neueste_zuerst_mit_gebuehr(dbs):
++    from app import abrechnung, erstattung
++
++    _modus(dbs)
++    u = _konto(dbs)
++    g = abrechnung.guthaben_konto(dbs, u.id)
++    _bezahlt(dbs, g, 1000, 1060, tage=200, ref="alt")
++    _bezahlt(dbs, g, 2000, 2090, anbieter="paypal", tage=3, ref="neu")
++    abrechnung.buchen(dbs, g, "verbrauch", -500)
++    a = erstattung.aufteilen(dbs, g)
++    assert a.betrag_cent == 2500
++    assert [t.zahlung_ref for t in a.teile] == ["neu", "alt"]
++    assert [t.credit_cent for t in a.teile] == [2000, 500]
++    assert a.teile[0].beim_anbieter_cent == 2090  # die ganze neue Zahlung samt Gebühr
++    assert a.teile[1].beim_anbieter_cent == 530  # anteilige Gebühr, aufgerundet
++    assert not a.teile[0].frist_vorbei and a.teile[1].frist_vorbei
++    assert a.ueberweisung_noetig and a.von_hand_cent == 0
++    # schon teilweise erstattete Zahlung zählt nur mit dem Rest
++    v = a.teile[0].vorgang_id
++    from app.models import Bezahlvorgang
++
++    dbs.get(Bezahlvorgang, v).erstattet_cent = 1045
++    b = erstattung.aufteilen(dbs, g, 1500)
++    assert [t.credit_cent for t in b.teile] == [1000, 500]
++
++
++def test_ohne_passende_zahlung_von_hand(dbs):
++    from app import abrechnung, erstattung
++
++    _modus(dbs)
++    u = _konto(dbs)
++    g = abrechnung.guthaben_konto(dbs, u.id)
++    abrechnung.buchen(dbs, g, "zahlung", 700)  # Zahlung ohne Vorgang (Altbestand)
++    a = erstattung.aufteilen(dbs, g)
++    assert a.betrag_cent == 700 and a.teile == [] and a.von_hand_cent == 700 and a.ueberweisung_noetig
++
++
++def test_kontoloeschung_legt_offene_erstattung_an(dbs):
++    from app import abrechnung, erstattung
++    from app.konto import entfernen
++    from app.models import AbrechnungProtokoll, OffeneErstattung
++
++    _modus(dbs)
++    u = _konto(dbs, "erna", email="erna@example.org")
++    g = abrechnung.guthaben_konto(dbs, u.id)
++    _bezahlt(dbs, g, 1000, 1060)
++    abrechnung.buchen(dbs, g, "gutschrift", 300)
++    entfernen(dbs, u)
++    dbs.commit()
++    z = dbs.scalar(select(OffeneErstattung))
++    assert z.betrag_cent == 1000 and z.email == "erna@example.org" and z.guthaben_id == g.id
++    teile = json.loads(z.zahlungen)
++    assert teile == [{"anbieter": "stripe", "ref": "ch_1", "cent": 1000, "beim_anbieter_cent": 1060}]
++    assert "erna" not in z.zahlungen.replace("erna@", "")  # kein Name
++    assert dbs.scalar(select(AbrechnungProtokoll).where(AbrechnungProtokoll.was == "erstattung_offen"))
++    # unbestätigte Adresse wird nicht übernommen, ohne Erstattbares keine Zeile
++    v = _konto(dbs, "veit", email="veit@example.org", bestaetigt=False)
++    _bezahlt(dbs, abrechnung.guthaben_konto(dbs, v.id), 500, 540, ref="ch_2")
++    entfernen(dbs, v)
++    w = _konto(dbs, "wim")
++    abrechnung.buchen(dbs, abrechnung.guthaben_konto(dbs, w.id), "gutschrift", 900)
++    entfernen(dbs, w)
++    dbs.commit()
++    zeilen = erstattung.offene(dbs)
++    assert len(zeilen) == 2 and zeilen[1].email is None and zeilen[1].betrag_cent == 500
++
++
++def test_wartung_schliesst_und_loescht_adresse(dbs):
++    from app import abrechnung, erstattung
++    from app.konto import entfernen
++
++    _modus(dbs)
++    a = _konto(dbs, "anke", email="anke@example.org")
++    ga = abrechnung.guthaben_konto(dbs, a.id)
++    _bezahlt(dbs, ga, 1000, 1060, ref="ch_a")
++    b = _konto(dbs, "bert", email="bert@example.org")
++    gb = abrechnung.guthaben_konto(dbs, b.id)
++    _bezahlt(dbs, gb, 800, 850, ref="ch_b")
++    entfernen(dbs, a)
++    entfernen(dbs, b)
++    dbs.commit()
++    za, zb = erstattung.offene(dbs)
++    zb.angelegt = utcnow() - timedelta(days=erstattung.AUFBEWAHRUNG_TAGE + 1)
++    abrechnung.buchen(dbs, ga, "erstattung", -1000)  # Meldung des Anbieters
++    assert erstattung.wartung(dbs) == 2
++    assert za.erledigt_at is not None and za.erledigt_wie == "erstattet" and za.email is None
++    assert zb.erledigt_at is None and zb.email is None and zb.betrag_cent == 800
++    assert erstattung.wartung(dbs) == 0
++
++
++def test_paypal_merkt_erstattete_betraege(dbs):
++    from app import abrechnung, zahlung
++
++    _modus(dbs)
++    u = _konto(dbs)
++    g = abrechnung.guthaben_konto(dbs, u.id)
++    v = _bezahlt(dbs, g, 1000, 1060, anbieter="paypal", ref="CAP9")
++    assert zahlung._gegenbuchen(dbs, v, "erstattung", 530, "ev1")
++    assert zahlung._gegenbuchen(dbs, v, "erstattung", 530, "ev2")
++    assert v.erstattet_cent == 1060
++    assert abrechnung.saldo(dbs, g.id) == 0
++
++
++def test_verwaltung_zeigt_aufteilung_und_meldungen(client, dbs, admin):  # noqa: F811
++    from app import abrechnung
++
++    _modus(dbs)
++    u = _konto(dbs, "erna")
++    _bezahlt(dbs, abrechnung.guthaben_konto(dbs, u.id), 1000, 1060, ref="ch_sichtbar")
++    from app.einstellungen import meta_schreiben
++
++    meta_schreiben(dbs, "angabe.public_url", "https://chronik.example.org")
++    dbs.commit()
++    r = client.get("/verwaltung/abrechnung")
++    assert r.status_code == 200
++    for e in ("checkout.session.completed", "charge.refunded", "charge.dispute.created",
++              "PAYMENT.CAPTURE.REFUNDED", "PAYMENT.CAPTURE.REVERSED", "CUSTOMER.DISPUTE.CREATED"):
++        assert e in r.text
++    assert "davon erstattbar" in r.text and 'id="erstattungen"' in r.text
++    r = client.get("/verwaltung/abrechnung", params={"erstattung": "Erna"})
++    assert "ch_sichtbar" in r.text and "10,60" in r.text
++    r = client.get("/verwaltung/abrechnung", params={"erstattung": "niemand"})
++    assert "Kein Konto mit diesem Benutzernamen." in r.text
++
++
++def test_von_hand_erledigt_braucht_faktor_und_haken(client, dbs, admin):  # noqa: F811
++    from app import abrechnung, erstattung
++    from app.konto import entfernen
++
++    _modus(dbs)
++    u = _konto(dbs, "erna", email="erna@example.org")
++    _bezahlt(dbs, abrechnung.guthaben_konto(dbs, u.id), 1000, 1060)
++    entfernen(dbs, u)
++    dbs.commit()
++    z = erstattung.offene(dbs)[0]
++    pfad = f"/verwaltung/abrechnung/erstattung/{z.id}/erledigt"
++    r = client.post(pfad, data={"csrf": admin, "bestaetigt": "1"}, follow_redirects=False)
++    assert r.status_code in (303, 403) and not (r.status_code == 303 and "gespeichert" in r.headers["location"])
++    dbs.refresh(z)
++    assert z.erledigt_at is None and z.email
++    _faktor_an(client, dbs, _chef(dbs).id)
++    r = client.post(pfad, data={"csrf": admin}, follow_redirects=False)
++    assert r.status_code == 400
++    r = client.post(pfad, data={"csrf": admin, "bestaetigt": "1"}, follow_redirects=False)
++    assert r.status_code == 303
++    dbs.refresh(z)
++    assert z.erledigt_wie == "von_hand" and z.email is None
++    assert client.post(pfad, data={"csrf": admin, "bestaetigt": "1"}).status_code == 404
++
++
++def test_guthabenseite_und_kontoloeschung_nennen_erstattung(client, dbs):
++    _modus(dbs)
++    r = client.get("/konto-loeschen")
++    assert "erstattet der Betreiber" in r.text
++    _modus(dbs, "aus")
++    assert "erstattet der Betreiber" not in client.get("/konto-loeschen").text
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index 7c1558c..5c6dd3b 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -112,7 +112,7 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     code, _ = code_erzeugen(dbs)
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.152"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.153"
+ 
+ 
+ def test_engine_requirements_passen_zu_uv_lock(tmp_path):
+diff --git a/uv.lock b/uv.lock
+index 4a5c8f0..32c0600 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -2138,7 +2138,7 @@ wheels = [
+ 
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.152"
++version = "0.4.153"
+ source = { editable = "." }
+ dependencies = [
+     { name = "alembic" },
+-- 
+2.43.0
+
