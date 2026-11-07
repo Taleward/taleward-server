@@ -1,0 +1,1525 @@
+From 6f2c68e23d74d6d021e4a9eb7c9756ac365919d7 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Sat, 7 Nov 2026 16:57:59 +0100
+Subject: [PATCH] Server 0.4.157
+
+---
+ NEU.md                                        |   7 +-
+ app/anmeldedienste.py                         |  24 ++
+ app/benachrichtigung.py                       |  34 +++
+ app/datenschutz.py                            |  23 ++
+ app/erstattung.py                             |  67 ++++++
+ app/mailvorlage.py                            |  34 +--
+ app/verwaltung/abrechnung_seite.py            |  32 ++-
+ app/verwaltung/anmeldung.py                   |  27 ++-
+ app/verwaltung/assistent.py                   |  15 +-
+ app/verwaltung/i18n.py                        |  50 ++++-
+ app/verwaltung/router.py                      |  31 ++-
+ app/verwaltung/static/verwaltung.css          |   1 +
+ app/verwaltung/templates/_zweiter_faktor.html |   4 +-
+ app/verwaltung/templates/abrechnung.html      |  19 +-
+ app/verwaltung/templates/anmeldung.html       |   4 +-
+ app/verwaltung/templates/assistent.html       |   8 +-
+ app/verwaltung/templates/discord.html         |   2 +-
+ app/verwaltung/templates/einladung.html       |   1 +
+ app/verwaltung/templates/guthaben.html        |   6 +-
+ app/verwaltung/templates/konten.html          |   2 +-
+ app/verwaltung/templates/konto_loeschen.html  |   2 +-
+ app/verwaltung/templates/probelauf.html       |   2 +-
+ app/verwaltung/templates/rechtstexte.html     |   4 +-
+ app/verwaltung/templates/transkription.html   |   6 +-
+ app/verwaltung/templates/uebersicht.html      |   4 +-
+ app/verwaltung/templates/updates.html         |   2 +-
+ app/verwaltung/templates/zusammenfassung.html |  25 +--
+ contract/session-chronik-api.yaml             |   6 +
+ pyproject.toml                                |   2 +-
+ tests/test_aktualisierung.py                  |   2 +-
+ tests/test_assistent.py                       |   2 +-
+ tests/test_hebel_0473.py                      |   2 +-
+ tests/test_modellablage.py                    |   2 +-
+ tests/test_pruefansicht.py                    |   2 +-
+ tests/test_server_04130.py                    |   2 +-
+ tests/test_server_04134.py                    |   4 +-
+ tests/test_server_04143.py                    |   2 +-
+ tests/test_server_04153.py                    |   4 +-
+ tests/test_server_04157.py                    | 210 ++++++++++++++++++
+ tests/test_server_0495.py                     |   2 +-
+ tests/test_step1b.py                          |   2 +-
+ tests/test_verwaltung2.py                     |   3 +-
+ tests/test_worker_app.py                      |   2 +-
+ uv.lock                                       |   2 +-
+ 44 files changed, 593 insertions(+), 94 deletions(-)
+ create mode 100644 tests/test_server_04157.py
+
+diff --git a/NEU.md b/NEU.md
+index 1353ccb..9cd9c43 100644
+--- a/NEU.md
++++ b/NEU.md
+@@ -1,8 +1,9 @@
+-Fassung 0.4.156
++Fassung 0.4.157
+ 
+ ## Was ist neu
+ 
+-- Betreiber: Echtes Geld beim Aufladen lässt sich nur auf dem Server selbst einschalten. Vorher prüft der Server, ob alles bereitsteht – Bedingungen, Widerrufsbelehrung, Impressum, Datenschutz und zweiter Faktor bei allen Verwaltungskonten – und sagt, was noch fehlt. Ausschalten geht immer.
++- Betreiber: Erstatten geht jetzt per Knopf in der Verwaltung, direkt über Stripe bzw. PayPal. Ändert sich die Vorlage für den Datenschutzhinweis, zeigt die Verwaltung das an. Ein Ablaufdatum für die Schlüssel von Google, Discord und Microsoft lässt sich eintragen, dann kommt rechtzeitig eine Erinnerung.
++- Die Einladungsseite nennt die Kampagne. Hilfetexte in der Verwaltung und in Mails sind kürzer.
++- Seit 0.4.156: Echtes Geld beim Aufladen lässt sich nur auf dem Server selbst einschalten, mit Prüfung, was noch fehlt.
+ - Seit 0.4.155: Online-Runden im Discord lassen sich aufnehmen, je Person eine eigene Spur, nur mit Zustimmung. Standardmäßig aus.
+ - Seit 0.4.154: Namen einmal berichtigen – eine falsche Schreibweise für die ganze Kampagne richtigstellen, mit Vorschau und 24 Stunden Rückgängig.
+-- Seit 0.4.153: Rest aus Zahlungen lässt sich erstatten, auch nach dem Löschen des Kontos.
+diff --git a/app/anmeldedienste.py b/app/anmeldedienste.py
+index 1e358ed..2a0f051 100644
+--- a/app/anmeldedienste.py
++++ b/app/anmeldedienste.py
+@@ -113,6 +113,30 @@ def konfig(db: Session, dienst: str) -> Konfig:
+     return Konfig(dienst, m("client_id"), m("client_secret"), m("team_id"), m("key_id"), m("private_key"))
+ 
+ 
++ABLAUF_DIENSTE = ("google", "discord", "microsoft")  # 0.4.157: Schlüssel mit Ablaufdatum (Apple: .p8 läuft nicht ab)
++
++
++def ablauf(db: Session, dienst: str):
++    """Eingetragenes Ablaufdatum des Schlüssels (date) oder None."""
++    from datetime import date
++
++    wert = meta_lesen(db, f"oidc.{dienst}.ablauf") or ""
++    try:
++        return date.fromisoformat(wert) if wert else None
++    except ValueError:
++        return None
++
++
++def ablaufdaten(db: Session) -> dict:
++    """Eingerichtete Dienste mit eingetragenem Ablaufdatum."""
++    aus = {}
++    for d in ABLAUF_DIENSTE:
++        a = ablauf(db, d)
++        if a is not None and konfig(db, d).eingerichtet:
++            aus[d] = a
++    return aus
++
++
+ def eingerichtet(db: Session) -> list[str]:
+     return [d for d in REIHENFOLGE if konfig(db, d).eingerichtet]
+ 
+diff --git a/app/benachrichtigung.py b/app/benachrichtigung.py
+index df55a12..94ca309 100644
+--- a/app/benachrichtigung.py
++++ b/app/benachrichtigung.py
+@@ -242,6 +242,13 @@ TEXTE = {
+     "speicher": ("Speicherplatz knapp",
+                  "Im Datenordner sind nur noch {gb} GB frei. Alte Sicherungen löschen oder den Speicher erweitern."),
+     "test": ("Test", "Diese Testnachricht zeigt: Benachrichtigungen kommen an."),
++    "anmeldeschluessel": ("Schlüssel für {dienst} läuft ab",
++                          "Der Schlüssel für die Anmeldung mit {dienst} läuft am {datum} ab. Danach geht die Anmeldung "
++                          "mit {dienst} nicht mehr. Beim Anbieter einen neuen anlegen und unter Verwaltung → Anmeldung "
++                          "eintragen."),
++    "anmeldeschluessel_weg": ("Schlüssel für {dienst} abgelaufen",
++                              "Der Schlüssel für die Anmeldung mit {dienst} ist seit {datum} abgelaufen. Beim Anbieter "
++                              "einen neuen anlegen und unter Verwaltung → Anmeldung eintragen."),
+     "zahlung_abweichung": ("Zahlung passt nicht zum Vorgang",
+                            "Eine Meldung eines Zahlungsanbieters passt nicht zu einem begonnenen Aufladen. Es wurde nichts "
+                            "gutgeschrieben. Einzelheiten in der Verwaltung → Abrechnung → Protokoll."),
+@@ -312,6 +319,17 @@ EN = {
+     "Verwaltung → Abrechnung entscheidest.":
+         "A payment was reversed or disputed. The credit is locked until you decide in Admin → Billing.",
+     "Test": "Test",
++    "Schlüssel für {dienst} läuft ab": "{dienst} sign-in key expires soon",
++    "Der Schlüssel für die Anmeldung mit {dienst} läuft am {datum} ab. Danach geht die Anmeldung "
++    "mit {dienst} nicht mehr. Beim Anbieter einen neuen anlegen und unter Verwaltung → Anmeldung "
++    "eintragen.":
++        "The key for signing in with {dienst} expires on {datum}. After that, signing in with {dienst} stops "
++        "working. Create a new one at the provider and enter it under Admin → Sign-in.",
++    "Schlüssel für {dienst} abgelaufen": "{dienst} sign-in key expired",
++    "Der Schlüssel für die Anmeldung mit {dienst} ist seit {datum} abgelaufen. Beim Anbieter "
++    "einen neuen anlegen und unter Verwaltung → Anmeldung eintragen.":
++        "The key for signing in with {dienst} expired on {datum}. Create a new one at the provider and enter it "
++        "under Admin → Sign-in.",
+     "Diese Testnachricht zeigt: Benachrichtigungen kommen an.": "This test message shows: notifications arrive.",
+     "Transkription": "transcription", "Zusammenfassung": "summary", "Unterlage": "document",
+     "Stimmprofil": "voice profile", "Korrektur": "correction", "älter als 48 Stunden": "older than 48 hours",
+@@ -450,6 +468,22 @@ def pruefen(db: Session) -> list[str]:
+     if _zustand(db, "sicherung", bool(grund), grund=grund):
+         gemeldet.append("sicherung")
+ 
++    # 0.4.157: Ablauf der Schlüssel für Anmeldedienste – je Stufe einmal (30 Tage, 7 Tage, abgelaufen)
++    from app import anmeldedienste
++
++    for dienst, ablauf in anmeldedienste.ablaufdaten(db).items():
++        tage = (ablauf - jetzt.date()).days
++        stufe = "weg" if tage < 0 else "7" if tage <= 7 else "30" if tage <= 30 else None
++        schluessel = f"melden.anmeldeschluessel.{dienst}"
++        if stufe is None or meta_lesen(db, schluessel) == f"{ablauf.isoformat()}:{stufe}":
++            continue
++        meta_schreiben(db, schluessel, f"{ablauf.isoformat()}:{stufe}")
++        db.commit()
++        datum = ablauf.strftime("%d.%m.%Y") if k.sprache != "en" else ablauf.isoformat()
++        melden(db, "anmeldeschluessel_weg" if stufe == "weg" else "anmeldeschluessel",
++               dienst=anmeldedienste.DIENSTE[dienst]["name"], datum=datum)
++        gemeldet.append(f"anmeldeschluessel:{dienst}")
++
+     # Speicherplatz
+     try:
+         frei = shutil.disk_usage(get_settings().data_dir).free
+diff --git a/app/datenschutz.py b/app/datenschutz.py
+index cf3d703..a593b8b 100644
+--- a/app/datenschutz.py
++++ b/app/datenschutz.py
+@@ -10,6 +10,29 @@ from __future__ import annotations
+ from sqlalchemy.orm import Session
+ 
+ 
++def vorlage_stand(db: Session) -> str:
++    """Kennung des Inhalts der Vorlage, wie sie jetzt erzeugt würde (Einstellungen und Fassung)."""
++    import hashlib
++
++    return hashlib.sha256(vorlage(db).encode()).hexdigest()[:16]
++
++
++def vorlage_neuer(db: Session) -> bool:
++    """0.4.157: Der veröffentlichte Text stammt aus einer Vorlage, die sich seitdem geändert hat (neue Fassung oder
++    andere Einstellungen) – oder von vor 0.4.157, als der Stand noch nicht gemerkt wurde."""
++    from app.einstellungen import meta_lesen
++
++    if not meta_lesen(db, "datenschutz.text"):
++        return False
++    return meta_lesen(db, "datenschutz.vorlage_stand") != vorlage_stand(db)
++
++
++def vorlage_gesehen(db: Session) -> None:
++    from app.einstellungen import meta_schreiben
++
++    meta_schreiben(db, "datenschutz.vorlage_stand", vorlage_stand(db))
++
++
+ def vorlage(db: Session, hosting: str = "") -> str:
+     from app.config import get_settings
+     from app.einrichtung import betriebsart
+diff --git a/app/erstattung.py b/app/erstattung.py
+index 051f220..7c25697 100644
+--- a/app/erstattung.py
++++ b/app/erstattung.py
+@@ -15,6 +15,7 @@ from __future__ import annotations
+ 
+ import json
+ import math
++import re
+ from dataclasses import dataclass, field
+ from datetime import timedelta
+ 
+@@ -150,3 +151,69 @@ def wartung(db: Session) -> int:
+             z.email = None
+             n += 1
+     return n
++
++
++# ---------------------------------------------------------------- Knopf „Erstatten“ (0.4.157)
++STRIPE_REF = re.compile(r"^pi_[A-Za-z0-9]{8,64}$")
++PAYPAL_REF = re.compile(r"^[A-Z0-9]{10,30}$")
++
++
++def _beim_anbieter(db: Session, v: Bezahlvorgang, cent: int) -> None:
++    """Eine Erstattung beim Anbieter anstoßen. Gebucht wird erst mit dessen Meldung (wie bei einer Erstattung im
++    Dashboard). Der Schlüssel gegen Doppelklicks hängt am bisher erstatteten Betrag: ein zweiter Klick, bevor die
++    Meldung da ist, schickt denselben Auftrag noch einmal, und der Anbieter führt ihn nur einmal aus."""
++    from app import zahlung
++
++    kennung = f"erstattung-{v.id}-{v.erstattet_cent or 0}-{cent}"
++    ref = v.zahlung_ref or ""
++    if v.anbieter == "stripe":
++        if not STRIPE_REF.match(ref):
++            raise ValueError("ref")
++        r = zahlung._c().post(f"{zahlung.STRIPE_API}/v1/refunds",
++                              data={"payment_intent": ref, "amount": str(cent), "metadata[vorgang]": v.id},
++                              headers=zahlung._stripe_kopf(db, **{"Idempotency-Key": kennung}))
++    elif v.anbieter == "paypal":
++        if not PAYPAL_REF.match(ref):
++            raise ValueError("ref")
++        r = zahlung._c().post(f"{zahlung._paypal_basis(db)}/v2/payments/captures/{ref}/refund",
++                              json={"amount": {"value": zahlung._euro_text(cent), "currency_code": "EUR"}},
++                              headers={"Authorization": f"Bearer {zahlung._paypal_token(db)}",
++                                       "PayPal-Request-Id": kennung})
++    else:
++        raise ValueError("anbieter")
++    r.raise_for_status()
++
++
++@dataclass
++class Ergebnis:
++    angestossen_cent: int = 0  # so viel Guthaben geht mit den Meldungen zurück
++    fehlgeschlagen: list[str] = field(default_factory=list)  # Zahlungsbezüge, die nicht gingen
++    von_hand_cent: int = 0  # Frist vorbei oder keine passende Zahlung – per Überweisung
++
++
++def erstatten(db: Session, g: Guthaben, von: str) -> Ergebnis:
++    """Alles Erstattbare eines Guthabens beim Anbieter erstatten (Verwaltung → Abrechnung → Erstattungen). Beträge
++    rechnet immer der Server (aufteilen), nie das Formular. Zahlungen älter als die Frist bleiben für die Überweisung."""
++    import httpx
++
++    from app import abrechnung, zahlung
++
++    a = aufteilen(db, g)
++    e = Ergebnis(von_hand_cent=a.von_hand_cent)
++    bereit = set(zahlung.bereit(db))
++    for t in a.teile:
++        v = db.get(Bezahlvorgang, t.vorgang_id)
++        if t.frist_vorbei or v is None or v.anbieter not in bereit:
++            e.von_hand_cent += t.credit_cent
++            continue
++        try:
++            _beim_anbieter(db, v, t.beim_anbieter_cent)
++        except (httpx.HTTPError, ValueError, KeyError, TypeError) as fehler:
++            e.fehlgeschlagen.append(t.zahlung_ref)
++            abrechnung.protokoll(db, von, "erstattung_fehlgeschlagen", g.id, vorgang=v.id,
++                                 grund=type(fehler).__name__)
++            continue
++        e.angestossen_cent += t.credit_cent
++        abrechnung.protokoll(db, von, "erstattung_angestossen", g.id, vorgang=v.id, anbieter=v.anbieter,
++                             brutto_cent=t.beim_anbieter_cent, betrag_cent=t.credit_cent)
++    return e
+diff --git a/app/mailvorlage.py b/app/mailvorlage.py
+index d1a9413..6c2cdc3 100644
+--- a/app/mailvorlage.py
++++ b/app/mailvorlage.py
+@@ -38,15 +38,13 @@ INHALTE = {
+         "de": dict(betreff="Bitte bestätige deine E-Mail-Adresse für Taleward ({server})",
+                    ueberschrift="Bitte bestätige deine E-Mail-Adresse.", anrede="name",
+                    absaetze=["Du hast diese Adresse für dein Konto „{benutzer}“ auf {server} eingetragen.",
+-                             "Wir nutzen die Adresse nur für dein Konto, zum Beispiel damit du dein Passwort selbst zurücksetzen "
+-                             "kannst."],
++                             "Wir nutzen sie nur für dein Konto."],
+                    knopf="Adresse bestätigen",
+                    hinweis="Der Link gilt 24 Stunden. Warst du das nicht, ignoriere diese Mail einfach."),
+         "en": dict(betreff="Please confirm your e-mail address for Taleward ({server})",
+                    ueberschrift="Please confirm your e-mail address.", anrede="name",
+                    absaetze=["You entered this address for your account “{benutzer}” on {server}.",
+-                             "We only use the address for your account, for example so that you can reset your password "
+-                             "yourself."],
++                             "We only use it for your account."],
+                    knopf="Confirm address",
+                    hinweis="The link is valid for 24 hours. If this wasn't you, simply ignore this e-mail."),
+     },
+@@ -98,14 +96,12 @@ INHALTE = {
+         "de": dict(betreff="Deine Anfrage zur SL-Freigabe ({server})",
+                    ueberschrift="Deine Anfrage zur SL-Freigabe.", anrede="name",
+                    absaetze=["Die Verwaltung von {server} hat deine Anfrage zur SL-Freigabe abgelehnt.",
+-                             "In Kampagnen, zu denen du eingeladen wirst, spielst du weiter wie bisher. Fragen "
+-                             "beantworten die Betreiber."],
++                             "Mitspielen geht weiter wie bisher."],
+                    knopf=None, hinweis=None),
+         "en": dict(betreff="Your request for game master approval ({server})",
+                    ueberschrift="Your request for game master approval.", anrede="name",
+                    absaetze=["The administrators of {server} have declined your request for game master approval.",
+-                             "You keep playing in campaigns you are invited to. The operators can answer any "
+-                             "questions."],
++                             "You can keep playing as before."],
+                    knopf=None, hinweis=None),
+     },
+     "sl_entzogen": {
+@@ -126,17 +122,15 @@ INHALTE = {
+                    ueberschrift="Du kannst jetzt eigene Kampagnen leiten.", anrede="name",
+                    absaetze=["Die Verwaltung von {server} hat deine SL-Freigabe erteilt. In der App kannst du jetzt "
+                              "eigene Kampagnen anlegen.",
+-                             "Abschriften und Kapitel bezahlst du auf diesem Server aus deinem Guthaben. Aufladen, "
+-                             "Gutscheine einlösen und Buchungen ansehen kannst du auf der Guthaben-Seite des Servers, "
+-                             "angemeldet mit Benutzername und Passwort."],
++                             "Abschriften und Kapitel zahlst du hier aus deinem Guthaben. Aufladen kannst du auf der "
++                             "Guthaben-Seite, angemeldet mit Benutzername und Passwort."],
+                    knopf="Zur Guthaben-Seite", hinweis=None),
+         "en": dict(betreff="You can now run your own campaigns ({server})",
+                    ueberschrift="You can now run your own campaigns.", anrede="name",
+                    absaetze=["The administrators of {server} have approved you as a game master. You can now create "
+                              "your own campaigns in the app.",
+-                             "On this server, transcripts and chapters are paid from your credit. You can top up, "
+-                             "redeem vouchers and see your bookings on the server's credit page, signed in with your "
+-                             "username and password."],
++                             "Here, transcripts and chapters are paid from your credit. You can top up on the credit "
++                             "page, signed in with your username and password."],
+                    knopf="Go to the credit page", hinweis=None),
+     },
+     # 0.4.135: Hinweis-Mails zum Guthaben (app/guthaben_mail.py). Ohne Beträge. {guthaben}: „dein Guthaben“ bzw. „das
+@@ -204,16 +198,12 @@ KONTO_WARNUNG = {
+           "administrators of {server} know.",
+ }
+ KONTO_HINWEIS = {
+-    "de": "Diese Mail ist nur ein Hinweis und enthält keinen Link. Du bekommst sie, weil an deinem Konto diese "
+-          "E-Mail-Adresse hinterlegt ist.",
+-    "en": "This e-mail is only a notice and contains no link. You get it because this e-mail address is set for "
+-          "your account.",
++    "de": "Nur ein Hinweis, ohne Link – diese Adresse ist an deinem Konto hinterlegt.",
++    "en": "Just a notice, without a link – this address is set for your account.",
+ }
+ KONTO_HINWEIS_ALT = {
+-    "de": "Diese Mail ist nur ein Hinweis und enthält keinen Link. Du bekommst sie, weil diese Adresse bisher an "
+-          "deinem Konto hinterlegt war.",
+-    "en": "This e-mail is only a notice and contains no link. You get it because this address was set for your "
+-          "account until now.",
++    "de": "Nur ein Hinweis, ohne Link – diese Adresse war bisher an deinem Konto hinterlegt.",
++    "en": "Just a notice, without a link – this address was set for your account until now.",
+ }
+ KONTO_ARTEN = {
+     # art: (Betreff de, Überschrift de, Absatz de, Betreff en, Überschrift en, Absatz en)
+diff --git a/app/verwaltung/abrechnung_seite.py b/app/verwaltung/abrechnung_seite.py
+index f83f41e..68d1bd2 100644
+--- a/app/verwaltung/abrechnung_seite.py
++++ b/app/verwaltung/abrechnung_seite.py
+@@ -167,7 +167,8 @@ def seite(request: Request, erstattung: str = "", user: User = Depends(verwalter
+     if gesucht:  # 0.4.153: Erstattung für ein Konto – was geht auf welche Zahlung zurück
+         konto = db.scalar(select(User).where(User.username == gesucht))
+         g = abrechnung.guthaben_konto(db, konto.id, anlegen=False) if konto else None
+-        fall = {"name": gesucht, "gefunden": konto is not None, "a": e.aufteilen(db, g) if g is not None and g.id
++        fall = {"name": gesucht, "gefunden": konto is not None, "guthaben_id": g.id if g is not None else None,
++                "a": e.aufteilen(db, g) if g is not None and g.id
+                 else e.Aufteilung(0)}
+     return _seite_abrechnung(request, user, db, erstattung_fall=fall)
+ 
+@@ -192,6 +193,35 @@ def erstattung_erledigt(request: Request, zeile_id: str, bestaetigt: str = Form(
+     return _zurueck("/abrechnung#erstattungen", "gespeichert")
+ 
+ 
++@router.post("/abrechnung/erstattung/ausfuehren", dependencies=[Depends(csrf_pruefen)])
++def erstattung_ausfuehren(request: Request, guthaben: str = Form(""), bestaetigt: str = Form(""),
++                          user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):
++    """0.4.157: Knopf „Erstatten“ – stößt die Erstattung beim Anbieter an; gebucht wird mit dessen Meldung."""
++    from app import erstattung as e
++
++    if not _faktor(db, user):
++        return _ohne_faktor(request, user, db)
++    g = db.get(Guthaben, guthaben[:64])
++    if g is None:
++        raise errors.not_found()
++    _ = tr(request)
++    if not bestaetigt:
++        return _seite_abrechnung(request, user, db, status=400, fehler=_("Bitte den Betrag bestätigen."))
++    if e.erstattbar(db, g) <= 0:
++        return _seite_abrechnung(request, user, db, status=409, fehler=_("Nichts zu erstatten."))
++    ergebnis = e.erstatten(db, g, user.id)
++    db.commit()
++    if ergebnis.fehlgeschlagen:
++        return _seite_abrechnung(request, user, db, status=502, fehler=_(
++            "Der Anbieter hat nicht jede Erstattung angenommen: {refs}. Im Dashboard des Anbieters nachsehen.",
++            refs=", ".join(ergebnis.fehlgeschlagen)))
++    if ergebnis.von_hand_cent:
++        return _seite_abrechnung(request, user, db, meldung=_(
++            "Erstattung angestoßen. Bleibt von Hand zu überweisen: {betrag}.",
++            betrag=abrechnung.euro(ergebnis.von_hand_cent)))
++    return _zurueck("/abrechnung#erstattungen", "erstattung_angestossen")
++
++
+ @router.post("/abrechnung/modus", dependencies=[Depends(csrf_pruefen)])
+ def modus(request: Request, modus: str = Form(""), user: User = Depends(verwalter), db: Session = Depends(get_db)):
+     if modus not in abrechnung.MODI:
+diff --git a/app/verwaltung/anmeldung.py b/app/verwaltung/anmeldung.py
+index b956901..febcdb7 100644
+--- a/app/verwaltung/anmeldung.py
++++ b/app/verwaltung/anmeldung.py
+@@ -41,7 +41,7 @@ ANLEITUNG = {
+         "„Zertifikate & Geheimnisse“ → „Neuer geheimer Clientschlüssel“ → Ablauf wählen (höchstens 24 Monate) → „Hinzufügen“. Aus der Spalte „Wert“ kopieren, nicht „Geheimnis-ID“. Der Wert wird nur jetzt angezeigt; verpasst → neuen Schlüssel anlegen, alten löschen.",
+         "Freiwillig: „Branding und Eigenschaften“ → Startseite, Nutzungsbedingungen und Datenschutz mit den Adressen unten; ein Logo braucht es nicht.",
+         "Steht dort orange „nicht überprüft“ (Herausgeber): Private Konten können sich trotzdem anmelden, nur manche Firmen- oder Schulkonten sind gesperrt. Die Herausgeberprüfung ist freiwillig.",
+-        "Der Schlüssel läuft nach höchstens 24 Monaten ab, danach geht die Anmeldung mit Microsoft still nicht mehr. Den Tag notieren und rechtzeitig einen neuen Schlüssel anlegen und hier eintragen.",
++        "Der Schlüssel läuft nach höchstens 24 Monaten ab, danach geht die Anmeldung mit Microsoft still nicht mehr. Den Tag unten bei „Schlüssel läuft ab am“ eintragen, dann kommt rechtzeitig eine Erinnerung.",
+     ]),
+     "apple": ("https://developer.apple.com/account/resources/identifiers/list/serviceId", [
+         "Braucht ein Apple-Entwicklerkonto (kostenpflichtig). Nötig erst mit einer iPhone-Fassung der App.",
+@@ -55,10 +55,18 @@ SCHLUESSEL_NAME = {"google": "Clientschlüssel", "discord": "Client Secret",
+                    "microsoft": "Wert des geheimen Clientschlüssels"}
+ 
+ 
++def _tage(ablauf) -> int | None:
++    from app.db import utcnow
++
++    return None if ablauf is None else (ablauf - utcnow().date()).days
++
++
+ def _dienste(db: Session, basis: str) -> list[dict]:
+     return [{"id": d, "name": anmeldedienste.DIENSTE[d]["name"], "k": anmeldedienste.konfig(db, d),
+              "rueck": anmeldedienste.rueckleitung(basis, d), "link": ANLEITUNG[d][0], "schritte": ANLEITUNG[d][1],
+-             "schluessel_name": SCHLUESSEL_NAME.get(d, "Clientschlüssel (Secret)")}
++             "schluessel_name": SCHLUESSEL_NAME.get(d, "Clientschlüssel (Secret)"),
++             "ablauf": anmeldedienste.ablauf(db, d), "mit_ablauf": d in anmeldedienste.ABLAUF_DIENSTE,
++             "tage": _tage(anmeldedienste.ablauf(db, d))}
+             for d in anmeldedienste.REIHENFOLGE]
+ 
+ 
+@@ -94,9 +102,9 @@ async def anmeldung_speichern(dienst: str, request: Request, user: User = Depend
+         return _zurueck("/anmeldung")
+     form = await request.form()
+     wert = {k: str(form.get(k, "")).strip() for k in ("client_id", "client_secret", "team_id", "key_id",
+-                                                        "private_key", "entfernen")}
++                                                        "private_key", "entfernen", "ablauf")}
+     if wert["entfernen"]:
+-        for k in ("client_id", "client_secret", "team_id", "key_id", "private_key"):
++        for k in ("client_id", "client_secret", "team_id", "key_id", "private_key", "ablauf"):
+             meta_schreiben(db, f"oidc.{dienst}.{k}", "")
+         db.commit()
+         return _zurueck(f"/anmeldung#{dienst}", "gespeichert")
+@@ -104,6 +112,17 @@ async def anmeldung_speichern(dienst: str, request: Request, user: User = Depend
+         antwort = anmeldung(request, user, db, fehler=_("Bitte den ganzen Inhalt der .p8-Datei einfügen (mit BEGIN/END PRIVATE KEY)."))
+         antwort.status_code = 400
+         return antwort
++    if dienst in anmeldedienste.ABLAUF_DIENSTE and "ablauf" in form:  # 0.4.157: leer = kein Datum
++        from datetime import date
++
++        try:
++            tag = date.fromisoformat(wert["ablauf"]) if wert["ablauf"] else None
++        except ValueError:
++            antwort = anmeldung(request, user, db, fehler=_("Bitte ein gültiges Datum eintragen."))
++            antwort.status_code = 400
++            return antwort
++        meta_schreiben(db, f"oidc.{dienst}.ablauf", tag.isoformat() if tag else "")
++        meta_schreiben(db, f"melden.anmeldeschluessel.{dienst}", "")
+     for k in ("client_id", "team_id", "key_id"):
+         if wert[k] or k == "client_id":
+             meta_schreiben(db, f"oidc.{dienst}.{k}", wert[k][:300])
+diff --git a/app/verwaltung/assistent.py b/app/verwaltung/assistent.py
+index 35acb17..dfebe2f 100644
+--- a/app/verwaltung/assistent.py
++++ b/app/verwaltung/assistent.py
+@@ -357,9 +357,13 @@ def datenschutz(request: Request, user: User = Depends(verwalter), db: Session =
+ 
+     text = meta_lesen(db, "datenschutz.text") or vorlage(db)
+     eigen = angaben(db).privacy_policy_url
++    from app.datenschutz import vorlage_neuer
++
++    neuer = vorlage_neuer(db)
+     return _schritt(request, user, db, "datenschutz", text=text,
+                     eigener_link=eigen if eigen and not eigen.endswith("/datenschutz") else "",
+-                    veroeffentlicht=bool(meta_lesen(db, "datenschutz.text")))
++                    veroeffentlicht=bool(meta_lesen(db, "datenschutz.text")), vorlage_neuer=neuer,
++                    vorlage_text=vorlage(db) if neuer else "")
+ 
+ 
+ @router.post("/assistent/datenschutz", dependencies=[Depends(csrf_pruefen)])
+@@ -374,6 +378,12 @@ def datenschutz_speichern(request: Request, aktion: str = Form(""), text: str =
+         return _fehler(request, user, db, "datenschutz", t, text=inhalt, eigener_link=eigener_link,
+                        veroeffentlicht=bool(meta_lesen(db, "datenschutz.text")))
+ 
++    if aktion == "gesehen":  # 0.4.157: Hinweis auf neuere Vorlage wegklicken, Text bleibt
++        from app.datenschutz import vorlage_gesehen
++
++        vorlage_gesehen(db)
++        db.commit()
++        return _weiter("datenschutz")
+     if aktion == "neu":
+         meta_schreiben(db, "datenschutz.text", "")
+         db.commit()
+@@ -393,6 +403,9 @@ def datenschutz_speichern(request: Request, aktion: str = Form(""), text: str =
+         return fehler(_("Es sind noch {n} Stellen in eckigen Klammern offen. Bitte ausfüllen oder entfernen.",
+                         n=offen), text)
+     meta_schreiben(db, "datenschutz.text", inhalt[:50000])
++    from app.datenschutz import vorlage_gesehen
++
++    vorlage_gesehen(db)
+     speichern(db, privacy_policy_url=str(request.base_url).rstrip("/") + "/datenschutz")
+     db.commit()
+     return _weiter("datenschutz")
+diff --git a/app/verwaltung/i18n.py b/app/verwaltung/i18n.py
+index 62d4770..9681750 100644
+--- a/app/verwaltung/i18n.py
++++ b/app/verwaltung/i18n.py
+@@ -972,7 +972,7 @@ EN: dict[str, str] = {
+     '„Zertifikate & Geheimnisse“ → „Neuer geheimer Clientschlüssel“ → Ablauf wählen (höchstens 24 Monate) → „Hinzufügen“. Aus der Spalte „Wert“ kopieren, nicht „Geheimnis-ID“. Der Wert wird nur jetzt angezeigt; verpasst → neuen Schlüssel anlegen, alten löschen.': '“Certificates & secrets” → “New client secret” → choose an expiry (at most 24 months) → “Add”. Copy from the column “Value”, not “Secret ID”. The value is shown only now; missed it → create a new secret and delete the old one.',
+     'Freiwillig: „Branding und Eigenschaften“ → Startseite, Nutzungsbedingungen und Datenschutz mit den Adressen unten; ein Logo braucht es nicht.': 'Optional: “Branding & properties” → home page, terms of service and privacy statement with the addresses below; a logo is not needed.',
+     'Steht dort orange „nicht überprüft“ (Herausgeber): Private Konten können sich trotzdem anmelden, nur manche Firmen- oder Schulkonten sind gesperrt. Die Herausgeberprüfung ist freiwillig.': 'If it says “unverified” in orange (publisher): personal accounts can still sign in, only some work or school accounts are blocked. Publisher verification is optional.',
+-    'Der Schlüssel läuft nach höchstens 24 Monaten ab, danach geht die Anmeldung mit Microsoft still nicht mehr. Den Tag notieren und rechtzeitig einen neuen Schlüssel anlegen und hier eintragen.': 'The secret expires after at most 24 months; after that, signing in with Microsoft silently stops working. Note the date and create a new secret in time and enter it here.',
++    'Der Schlüssel läuft nach höchstens 24 Monaten ab, danach geht die Anmeldung mit Microsoft still nicht mehr. Den Tag unten bei „Schlüssel läuft ab am“ eintragen, dann kommt rechtzeitig eine Erinnerung.': 'The secret expires after at most 24 months; after that, signing in with Microsoft silently stops working. Enter the date below under “Key expires on” and you get a reminder in time.',
+     'Clientschlüssel': 'Client secret',
+     'Client Secret': 'Client Secret',
+     'Wert des geheimen Clientschlüssels': 'Value of the client secret',
+@@ -1496,6 +1496,54 @@ EN: dict[str, str] = {
+     "Der Link gilt 15 Minuten und nur einmal.": "The link is valid for 15 minutes and only once.",
+     "Dieser Link gilt nicht": "This link is not valid",
+     "Hol dir im Discord mit dem Befehl einen neuen Link.": "Get a new link with the command on Discord.",
++    # 0.4.157: gekürzte Hilfetexte
++    'Löscht das Konto endgültig. Kommentare bleiben als „gelöschtes Konto“ stehen. Ist die Person irgendwo einzige Spielleitung, dort erst jemand anderen ernennen.': 'Deletes the account permanently. Comments remain as “deleted account”. If the person is the sole GM somewhere, appoint someone else there first.',
++    'Spielleitungen sehen beide Texte beim Aufladen. Echtes Geld geht erst, wenn beide veröffentlicht sind. Eine Änderung gilt für spätere Aufladungen.': 'GMs see both texts when topping up. Real money only works once both are published. A change applies to later top-ups.',
++    'Den passenden Abschnitt für den Datenschutzhinweis ergänzt dessen Vorlage selbst.': 'The privacy notice template adds the matching section itself.',
++    'Das Kostenlimit unter Einstellungen bleibt als Notbremse.': 'The cost limit under Settings stays as an emergency brake.',
++    'Cloud-Kosten werden nach Verbrauch plus Aufschlag abgerechnet; die Cloud-Werte hier sind nur die Schätzung vorab.': 'Cloud costs are billed as used plus markup; the cloud values here are only the estimate beforehand.',
++    'Gutgeschrieben wird erst, wenn der Anbieter die Zahlung bestätigt. Bis echtes Geld eingeschaltet ist, laufen Stripe und PayPal im Testbetrieb.': 'Credit is added only once the provider confirms the payment. Until real money is switched on, Stripe and PayPal run in test mode.',
++    'Fehlt eine, kommen Erstattungen oder Rückbuchungen nicht an.': 'If one is missing, refunds or chargebacks will not arrive.',
++    'Jeder Anbieter mit OpenAI-kompatibler Schnittstelle (Adresse endet meist auf /v1). Wo er verarbeitet und ob er mit euren Daten trainiert, prüft ihr selbst.': 'Any provider with an OpenAI-compatible interface (the address usually ends in /v1). Where it processes and whether it trains on your data, check for yourselves.',
++    'Leer = bekannte Preise von Mistral und Anthropic. Bei anderen Anbietern von deren Preisseite übernehmen.': 'Empty = known prices of Mistral and Anthropic. For other providers, copy from their price page.',
++    'Der empfohlene Weg vergisst und erfindet weniger, kostet aber etwa 30 Cent je Kapitel.': 'The recommended way forgets and invents less, but costs about 30 cents per chapter.',
++    'Schreibt Kapitel und Vorschläge einer Runde neu, ohne die Runde zu verändern. Kosten zählen zum Monatslimit.': 'Rewrites the chapter and suggestions of a session without changing the session. Costs count toward the monthly limit.',
++    'Szenen sind Abschnitte von etwa zwölf Minuten. Die Absätze je Szene liegen danach in der ZIP-Datei.': 'Scenes are sections of about twelve minutes. The paragraphs per scene are then in the ZIP file.',
++    'Das Sprachmodell (etwa 5 GB) lädt der Worker beim ersten Kapitel. Reicht der Grafikspeicher nicht, rechnet er teilweise mit dem Prozessor – langsamer, aber es geht.': 'The worker downloads the language model (about 5 GB) with the first chapter. If graphics memory is not enough, it partly uses the processor – slower, but it works.',
++    'Eure Worker laden das Modell vom Server, ohne eigenes Konto.': 'Your workers download the model from the server, without an account of their own.',
++    'Gehen der .env vor. Nicht gesetzt: es gilt die .env.': 'Override the .env. Not set: the .env applies.',
++    'Das Taleward-Programm auf diesem PC aktualisiert sich selbst, mit Rückweg. Hier ist nichts zu tun.': 'The Taleward program on this PC updates itself, with a way back. Nothing to do here.',
++    'Der Bot nimmt Online-Runden im Sprachkanal auf, nur wer zugestimmt hat. Die Spielleitung verbindet ihre Kampagne selbst.': 'The bot records online sessions in the voice channel, only those who consented. The GM connects their campaign themselves.',
++    'Ein Passkey ersetzt beim Anmelden den Code, etwa per Fingerabdruck oder Windows Hello. Der Code bleibt als Rückweg.': 'A passkey replaces the code when signing in, for example by fingerprint or Windows Hello. The code stays as a fallback.',
++    'Passkeys gibt es, sobald unter Einstellungen eine https-Adresse eingetragen ist.': 'Passkeys are available once an https address is set under Settings.',
++    'Geld aus Zahlungen auf deinem Guthaben bekommst du auf die ursprüngliche Zahlung zurück. Bis dahin bleiben nur Betrag und E-Mail-Adresse, höchstens 90 Tage.': 'Money from payments left on your credit is refunded to the original payment. Until then only the amount and email address are kept, for 90 days at most.',
++    'Davon aus Zahlungen übrig: {betrag}. Den bekommst du auf Wunsch voll zurück, auch beim Löschen des Kontos. Gutschriften und Gutscheine nicht.': 'Of which left from payments: {betrag}. You get it back in full on request, also when deleting your account. Not manual credits or vouchers.',
++    'Mit bestätigter E-Mail-Adresse (App → Konto) sagt dir der Server Bescheid, wenn Guthaben fehlt oder knapp wird.': 'With a confirmed email address (app → Account), the server lets you know when credit is missing or running low.',
++    'Die Gebühr siehst du vor dem Bezahlen.': 'You see the fee before paying.',
++    'Gewollt? Dann passt es. Sonst Einstellung oder Betriebsart ändern.': 'Intended? Then it is fine. Otherwise change the setting or the operating mode.',
++    'Ein Satz je Sache. Nur betroffene Absätze werden neu geschrieben. Jeder Durchgang kostet wenige Cent.': 'One sentence per point. Only the affected paragraphs are rewritten. Each pass costs a few cents.',
++    # 0.4.157: neue Texte
++    'Aktuelle Vorlage ansehen': 'Show the current template',
++    'Dann kommt 30 und 7 Tage vorher eine Erinnerung über die Benachrichtigungen.': 'Then a reminder comes 30 and 7 days before through the notifications.',
++    'Der Schlüssel für {dienst} ist abgelaufen – die Anmeldung damit geht nicht mehr.': 'The key for {dienst} has expired – signing in with it no longer works.',
++    'Der Schlüssel für {dienst} läuft in {n} Tagen ab.': 'The key for {dienst} expires in {n} days.',
++    'Die Vorlage für den Datenschutzhinweis hat sich geändert.': 'The template for the privacy notice has changed.',
++    'Die Vorlage hat sich geändert, seit du den Text veröffentlicht hast – durch eine neue Fassung oder andere Einstellungen. Vergleiche und übernimm, was fehlt.': 'The template has changed since you published the text – through a new version or other settings. Compare and take over what is missing.',
++    'Erneuern': 'Renew',
++    'Erstatten': 'Refund',
++    'Erstattet wird nur der Rest aus Zahlungen, auf die ursprünglichen Zahlungen. Gutschriften und Gutscheine nie.': 'Only what is left from payments is refunded, to the original payments. Never manual credits or vouchers.',
++    'Kampagne: {titel}': 'Campaign: {titel}',
++    'Passt so': 'Looks fine',
++    'Schlüssel abgelaufen': 'Key expired',
++    'Schlüssel läuft ab am (freiwillig)': 'Key expires on (optional)',
++    'Schlüssel läuft in {n} Tagen ab': 'Key expires in {n} days',
++    'Vorlage aus euren Einstellungen, keine Rechtsberatung. Stellen in [eckigen Klammern] ausfüllen.': 'Template from your settings, not legal advice. Fill in the parts in [square brackets].',
++    '{betrag} jetzt erstatten': 'Refund {betrag} now',
++    'Bitte den Betrag bestätigen.': 'Please confirm the amount.',
++    'Der Anbieter hat nicht jede Erstattung angenommen: {refs}. Im Dashboard des Anbieters nachsehen.': "The provider did not accept every refund: {refs}. Check the provider's dashboard.",
++    'Erstattung angestoßen. Bleibt von Hand zu überweisen: {betrag}.': 'Refund started. Left to transfer by hand: {betrag}.',
++    'Bitte ein gültiges Datum eintragen.': 'Please enter a valid date.',
++    'Erstattung angestoßen. Das Guthaben ändert sich, sobald der Anbieter sie meldet.': 'Refund started. The credit changes as soon as the provider reports it.',
+ }
+ 
+ WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}
+diff --git a/app/verwaltung/router.py b/app/verwaltung/router.py
+index 1b63211..d126ea7 100644
+--- a/app/verwaltung/router.py
++++ b/app/verwaltung/router.py
+@@ -147,6 +147,7 @@ MELDUNGEN = {
+     "sl_unveraendert": "Nichts geändert – der Stand hatte sich schon geändert.",
+     "konto_geloescht": "Konto gelöscht. Kommentare der Person bleiben als „gelöschtes Konto“ stehen.",
+     "gespeichert": "Gespeichert.",
++    "erstattung_angestossen": "Erstattung angestoßen. Das Guthaben ändert sich, sobald der Anbieter sie meldet.",
+     "betrieb_schluessel": "Betriebsart gespeichert. Jetzt hier den API-Schlüssel von Mistral eintragen.",
+     "betrieb_worker": "Betriebsart gespeichert. Jetzt hier einen Worker anbinden.",
+     "worker_einstellungen": "Gespeichert. Der Worker startet nach dem laufenden Auftrag mit den neuen Einstellungen neu.",
+@@ -329,6 +330,15 @@ def _offen_grenze_kuerzlich():
+     return zeit if zeit is not None and zeit > utcnow() - timedelta(days=1) else None
+ 
+ 
++def _schluessel_ablauf(db: Session) -> list[dict]:
++    """0.4.157: Anmeldedienste, deren Schlüssel in 30 Tagen abläuft oder abgelaufen ist (für die Übersicht)."""
++    from app import anmeldedienste
++
++    heute = utcnow().date()
++    return [{"name": anmeldedienste.DIENSTE[d]["name"], "id": d, "tage": (a - heute).days}
++            for d, a in anmeldedienste.ablaufdaten(db).items() if (a - heute).days <= 30]
++
++
+ def _zurueck(pfad: str, ok: str | None = None) -> RedirectResponse:
+     pfad, _, anker = pfad.partition("#")
+     return RedirectResponse(f"/verwaltung{pfad}" + (f"?ok={ok}" if ok else "") + (f"#{anker}" if anker else ""),
+@@ -785,12 +795,15 @@ def uebersicht(request: Request, user: User = Depends(verwalter), db: Session =
+     punkte = [] if meta_lesen(db, "assistent.ausgeblendet") else einrichtung.stand(db)
+     kosten_info = {"monat": kosten.monat_cent(db), "limit": kosten.limit_cent(db)}
+     speicher["bilder"] = _ordnergroesse(s.data_dir / "bilder") + _ordnergroesse(s.data_dir / "unterlagen")
++    from app import datenschutz
+     from app.einstellungen import extern_konfig
+ 
+     # Ohne Cloud-Abschrift braucht jede neue Runde einen Worker – dann ist „kein Worker“ auch ohne wartende Runde rot
+     braucht_worker = not extern_konfig(db).anbieter
+     return _seite(request, "uebersicht.html", user, db, zahlen=zahlen, speicher=speicher, api_version=API_VERSION,
+                   braucht_worker=braucht_worker, widersprueche=einrichtung.widersprueche(db),
++                  datenschutz_neuer=datenschutz.vorlage_neuer(db),
++                  schluessel_ablauf=_schluessel_ablauf(db),
+                   db_datei=db_datei, knecht=KNECHT.zustand(), fehler=fehler, sicherungen=sicherung.liste()[:7],
+                   sicherung_einst=sicherung.einstellungen(db), punkte=punkte, kosten=kosten_info,
+                   eingebaut=_eingebaut_anzeige(db), aufbewahrung=aufbewahrung.lesen(db))
+@@ -1036,7 +1049,8 @@ def transkription(request: Request, user: User = Depends(verwalter), db: Session
+     from app.koppeln import code_fuer
+ 
+     return _seite(request, "transkription.html", user, db, knechte=_knechte(db), neuer_token=neuer_token,
+-                  koppel=code_fuer(db, _sitzungs_bindung(request)),  # 0.4.152 (S57.4): nur die erzeugende Sitzung server_url=str(request.base_url).rstrip("/"),
++                  koppel=code_fuer(db, _sitzungs_bindung(request)),  # 0.4.152 (S57.4): nur die erzeugende Sitzung
++                  server_url=str(request.base_url).rstrip("/"),
+                   hf_ende=(_meta(db, "hf.token") or "")[-4:] or None, modell=_modell_anzeige(db),
+                   neuer_name=neuer_name, fehler=fehler, lokal=KNECHT.zustand(), log=KNECHT.log_ende(),
+                   autostart=meta_lesen(db, META_KEY, "aus"), ki=ki_verfuegbar(), ext=_extern_anzeige(db),
+@@ -1491,6 +1505,7 @@ def zusammenfassung_speichern(request: Request, art: str = Form("aus"), anbieter
+                               gegenpruefen_feld: str = Form(""), gegenpruefen: str = Form(""),
+                               zweiter_blick: str = Form(""), pruefansicht: str = Form(""),
+                               ausserhalb_eu: str = Form(""), weg: str = Form(""), weg_lokal: str = Form(""),
++                              erweitert_fest: str = Form(""),
+                               user: User = Depends(verwalter), db: Session = Depends(get_db)):
+     _frisch_verlangen(request, db, user, bool(api_key.strip()))  # 0.4.143 (S44): Cloud-Schlüssel nur mit frischem Faktor
+     """Wer Recap und Vorschläge schreibt. Überschreibt die .env; der Schlüssel wird nie angezeigt."""
+@@ -1522,6 +1537,8 @@ def zusammenfassung_speichern(request: Request, art: str = Form("aus"), anbieter
+     modell = (api_modell_text.strip() if bekannt is None and api_modell_text.strip() else api_modell.strip())
+     lokal, fuer_vorschlaege = lokal_modell.strip(), api_modell_vorschlaege.strip()
+     fuer_notizen = api_modell_notizen.strip()
++    if erweitert_fest:  # 0.4.157: Weg (lokal), Prüfansicht und Notizen-Modell stehen fest auf dem empfohlenen Wert
++        fuer_notizen, weg_lokal, pruefansicht = "", "abschrift", "pflicht"
+     if (not modell or not lokal or len(modell) > 100 or len(lokal) > 100 or len(fuer_vorschlaege) > 100
+             or len(fuer_notizen) > 100):
+         return fehler(_("Bitte die Modellnamen angeben."))
+@@ -2013,7 +2030,8 @@ def qr_bild(text: str) -> str:
+ 
+ @seiten.get("/einladung/{code}", response_class=HTMLResponse)
+ def einladung(code: str, request: Request, db: Session = Depends(get_db)):
+-    """Landeseite eines Einladungslinks für Leute ohne App. Zeigt keinen Kampagnentitel (die Seite ist öffentlich)."""
++    """Landeseite eines Einladungslinks für Leute ohne App. 0.4.157: zeigt den Kampagnentitel wie die Vorschau der App
++    (GET /invites/{code}) – nur bei gültigem Code und innerhalb derselben Zähler, nie in den Vorschau-Angaben (og:)."""
+     from urllib.parse import quote, urlsplit
+ 
+     from app.models import Invite
+@@ -2040,7 +2058,15 @@ def einladung(code: str, request: Request, db: Session = Depends(get_db)):
+     a = angaben(db)
+     ziel = urlsplit(a.app_download_url or "")
+     store = ziel.netloc.endswith(("play.google.com", "apps.apple.com"))
++    from app.models import Campaign, Member
++
++    kampagne = db.get(Campaign, einladung.campaign_id) if gueltig and not ungeprueft else None
++    if kampagne is not None and einladung.member_id:  # Platz-Einladung: nur solange der Platz frei ist (wie die API)
++        platz = db.get(Member, einladung.member_id)
++        if platz is None or not platz.open_seat:
++            kampagne = None
+     antwort = _seite(request, "einladung.html", None, db, code=code, gueltig=gueltig,
++                     kampagne=kampagne.title if kampagne is not None else None,
+                      bis=einladung.expires_at if gueltig and not ungeprueft else None, link=link,
+                      app_link="taleward://einladung?url=" + quote(link, safe=""),
+                      apk_hinweis=ziel.path.lower().endswith(".apk") or not store,
+@@ -2049,6 +2075,7 @@ def einladung(code: str, request: Request, db: Session = Depends(get_db)):
+                      browser_link=webapp.browser_link(db, oeffentliche_adresse(db, request), link) if gueltig else None)
+     if not gueltig:
+         antwort.status_code = 404
++    antwort.headers["Cache-Control"] = "no-store"
+     return antwort
+ 
+ 
+diff --git a/app/verwaltung/static/verwaltung.css b/app/verwaltung/static/verwaltung.css
+index bc4bdf0..c95cf7a 100644
+--- a/app/verwaltung/static/verwaltung.css
++++ b/app/verwaltung/static/verwaltung.css
+@@ -185,6 +185,7 @@ details summary::-webkit-details-marker { display:none; }
+ .anmeldung .marke { color:var(--tinte); font-size:44px; line-height:48px; justify-content:center; margin:var(--space-3) 0 var(--space-2); }
+ .leitsatz { font:400 22px/28px var(--font-serif); color:var(--tinte); margin:0; }
+ .anmeldung > .leise { text-align:center; }
++.einladung__kampagne { font-weight:700; font-size:1.125rem; margin:0; overflow-wrap:anywhere; }
+ .einladung__code { display:block; font:700 28px/36px ui-monospace, Consolas, monospace; letter-spacing:.08em; text-align:center;
+   background:var(--paper-sunken); border-radius:var(--radius-md); padding:var(--space-4); margin:var(--space-4) 0; }
+ @media (prefers-color-scheme: dark) { .anmeldung .marke, .leitsatz { color:var(--ink); } }
+diff --git a/app/verwaltung/templates/_zweiter_faktor.html b/app/verwaltung/templates/_zweiter_faktor.html
+index 82fc68b..0ce25db 100644
+--- a/app/verwaltung/templates/_zweiter_faktor.html
++++ b/app/verwaltung/templates/_zweiter_faktor.html
+@@ -17,7 +17,7 @@
+   <p><span class="marke-status marke-status--gut">{{ _("eingeschaltet") }}</span> {{ _("Noch {n} Wiederherstellungscodes übrig.", n=faktor.codes_uebrig) }}</p>
+   {# 0.4.143: Passkeys (Windows Hello, Fingerabdruck, Sicherheitsschlüssel) neben dem Code #}
+   <h3>{{ _("Passkeys") }}</h3>
+-  <p class="hilfe">{{ _("Ein Passkey ersetzt beim Anmelden den Code: Windows Hello am PC, Fingerabdruck oder Gesicht am Handy, ein Sicherheitsschlüssel. Das Passwort bleibt, der Code bleibt als Rückweg.") }}</p>
++  <p class="hilfe">{{ _("Ein Passkey ersetzt beim Anmelden den Code, etwa per Fingerabdruck oder Windows Hello. Der Code bleibt als Rückweg.") }}</p>
+   {% if faktor.passkeys %}
+   <ul class="liste">
+     {% for p in faktor.passkeys %}
+@@ -49,7 +49,7 @@
+   <noscript><p class="hilfe">{{ _("Passkeys brauchen JavaScript im Browser.") }}</p></noscript>
+   <script src="{{ statisch('passkey.js') }}" defer></script>
+   {% else %}
+-  <p class="hilfe">{{ _("Passkeys gibt es, sobald unter Einstellungen die öffentliche Adresse des Servers mit https eingetragen ist. Am Einzelplatz und im Heimnetz bleibt es beim Code.") }}</p>
++  <p class="hilfe">{{ _("Passkeys gibt es, sobald unter Einstellungen eine https-Adresse eingetragen ist.") }}</p>
+   {% endif %}
+   {# 0.4.143 (S44): vertraute Geräte #}
+   <h3>{{ _("Vertraute Geräte") }}</h3>
+diff --git a/app/verwaltung/templates/abrechnung.html b/app/verwaltung/templates/abrechnung.html
+index ce2aba5..2ad21c4 100644
+--- a/app/verwaltung/templates/abrechnung.html
++++ b/app/verwaltung/templates/abrechnung.html
+@@ -35,7 +35,7 @@
+     {% for wert, text in [("aus", _("Aus – Verarbeitung kostet die Spielleitungen nichts")), ("guthaben", _("Guthaben je Spielleitung – jede SL zahlt ihre Kampagnen selbst")), ("topf", _("Gemeinsames Guthaben – die Organisation zahlt für ihre Kampagnen"))] %}
+     <label class="haken"><input type="radio" name="modus" value="{{ wert }}" {% if modus == wert %}checked{% endif %}> {{ text }}</label>
+     {% endfor %}
+-    <p class="hilfe">{{ _("Eingeschaltet sehen Spielleitungen ihr Guthaben auf der Guthaben-Seite dieses Servers. Das Kostenlimit unter Einstellungen bleibt als Notbremse.") }}</p>
++    <p class="hilfe">{{ _("Das Kostenlimit unter Einstellungen bleibt als Notbremse.") }}</p>
+     {% if cloud_ohne_schaetzung %}<p class="meldung meldung--fehler">{{ _("Für die Cloud fehlen noch Schätzwerte: {arten}. Ohne sie schätzt der Server solche Aufträge mit 0 € – Freigabe-Betrag und Deckel greifen dann nicht. Trag die Werte unter „Preise und Grenzen“ ein, bevor du einschaltest.", arten=cloud_ohne_schaetzung) }}</p>{% endif %}
+     <div><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
+   </form>
+@@ -44,7 +44,7 @@
+ {% if modus == "aus" %}<details class="klappteil" id="preise"{% if cloud_ohne_schaetzung %} open{% endif %}><summary>{{ _("Preise und Grenzen") }}</summary>{% endif %}
+ <div class="karte">
+   <h2>{{ _("Preise und Grenzen") }}</h2>
+-  <p class="hilfe">{{ _("Cloud-Kosten werden abgerechnet, wie sie anfallen, plus Aufschlag; die Cloud-Werte hier sind nur die Schätzung vor dem Start. Worker-Arbeit kostet, was du festlegst.") }}</p>
++  <p class="hilfe">{{ _("Cloud-Kosten werden nach Verbrauch plus Aufschlag abgerechnet; die Cloud-Werte hier sind nur die Schätzung vorab.") }}</p>
+   <form class="formular" method="post" action="/verwaltung/abrechnung/preise">
+     <input type="hidden" name="csrf" value="{{ csrf }}">
+     {% macro preisfeld(name, text, ist_euro) %}<label>{{ _(text) }} <input type="text" name="{{ name }}" value="{{ euro_feld(werte[name]) if ist_euro else werte[name] }}" inputmode="decimal" required maxlength="12"></label>{% endmacro %}
+@@ -64,7 +64,7 @@
+ {% if an %}
+ <div class="karte" id="aufladen">
+   <h2>{{ _("Aufladen") }}</h2>
+-  <p class="hilfe">{{ _("Spielleitungen laden ihr Guthaben auf der Guthaben-Seite auf und bezahlen bei Stripe bzw. PayPal. Gutgeschrieben wird erst, wenn der Anbieter die Zahlung bestätigt. Echtes Geld ist noch nicht freigegeben: Stripe nimmt nur Test-Schlüssel, PayPal läuft in der Sandbox.") }}</p>
++  <p class="hilfe">{{ _("Gutgeschrieben wird erst, wenn der Anbieter die Zahlung bestätigt. Bis echtes Geld eingeschaltet ist, laufen Stripe und PayPal im Testbetrieb.") }}</p>
+   <ul class="liste">
+     <li>{{ _("Stripe") }}: {% if "stripe" in zahlwege %}<span class="marke-status marke-status--gut">{{ _("bereit") }}</span>{% else %}<span class="marke-status">{{ _("nicht eingerichtet") }}</span>{% endif %}</li>
+     <li>{{ _("PayPal") }}: {% if "paypal" in zahlwege %}<span class="marke-status marke-status--gut">{{ _("bereit") }}</span>{% else %}<span class="marke-status">{{ _("nicht eingerichtet") }}</span>{% endif %}</li>
+@@ -77,7 +77,7 @@
+   <details><summary>{{ _("Diese Meldungen beim Anbieter abonnieren") }}</summary>
+     <p>Stripe: {% for e in ereignisse.stripe %}<code>{{ e }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+     <p>PayPal: {% for e in ereignisse.paypal %}<code>{{ e }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+-    <p class="hilfe">{{ _("Fehlt eine, kommen Erstattungen oder Rückbuchungen nicht an. Stripe sendet nachträglich abonnierte Meldungen nicht noch einmal.") }}</p>
++    <p class="hilfe">{{ _("Fehlt eine, kommen Erstattungen oder Rückbuchungen nicht an.") }}</p>
+   </details>
+   {% else %}
+   <p class="meldung meldung--fehler">{{ _("Zuerst die öffentliche Adresse des Servers eintragen (Einstellungen → Einrichtung → Angaben für die App). Ohne sie gibt es kein Aufladen.") }}</p>
+@@ -132,7 +132,14 @@
+ {% endmacro %}
+ <div class="karte" id="erstattungen">
+   <h2>{{ _("Erstattungen") }}</h2>
+-  <p class="hilfe">{{ _("Erstattet wird nur, was aus Zahlungen übrig ist – voll, auf die ursprünglichen Zahlungen, die neueste zuerst. Gutschriften und Gutscheine nie. Erstatte im Dashboard des Anbieters; seine Meldung bucht die Gegenbuchung.") }}</p>
++  <p class="hilfe">{{ _("Erstattet wird nur der Rest aus Zahlungen, auf die ursprünglichen Zahlungen. Gutschriften und Gutscheine nie.") }}</p>
++{% macro erstatten_knopf(guthaben_id, betrag) %}
++  <form class="formular formular--zeile" method="post" action="/verwaltung/abrechnung/erstattung/ausfuehren">
++    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="guthaben" value="{{ guthaben_id }}">
++    <label class="haken"><input type="checkbox" name="bestaetigt" value="1" required> {{ _("{betrag} jetzt erstatten", betrag=euro(betrag)) }}</label>
++    <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Erstatten") }}</button>
++  </form>
++{% endmacro %}
+   <form class="formular formular--zeile" method="get" action="/verwaltung/abrechnung#erstattungen">
+     <label>{{ _("Benutzername") }} <input type="text" name="erstattung" maxlength="64" autocomplete="off" value="{{ erstattung_fall.name if erstattung_fall else '' }}"></label>
+     <button class="tw-btn tw-btn--secondary" type="submit">{{ _("Anzeigen") }}</button>
+@@ -143,6 +150,7 @@
+     {% else %}
+       <p><strong>{{ _("Erstattbar: {betrag}", betrag=euro(erstattung_fall.a.betrag_cent)) }}</strong></p>
+       {{ aufteilung_zeigen(erstattung_fall.a.teile) }}
++      {% if erstattung_fall.a.teile %}{{ erstatten_knopf(erstattung_fall.guthaben_id, erstattung_fall.a.betrag_cent) }}{% endif %}
+       {% if erstattung_fall.a.ueberweisung_noetig %}<p class="meldung">{{ _("Geht eine Zahlung nicht mehr zu erstatten (Frist des Anbieters, Karte erloschen): per Mail nach einer Kontoverbindung fragen und von Hand überweisen. Die Kontoverbindung nie in Taleward eintragen.") }}{% if erstattung_fall.a.von_hand_cent %} {{ _("Ohne passende Zahlung: {betrag}.", betrag=euro(erstattung_fall.a.von_hand_cent)) }}{% endif %}</p>{% endif %}
+     {% endif %}
+   {% endif %}
+@@ -153,6 +161,7 @@
+     <li><span>{{ zeit(o.z.angelegt) }} · <strong>{{ euro(o.z.betrag_cent) }}</strong>{% if o.jetzt != o.z.betrag_cent %} <span class="leise">({{ _("noch offen: {betrag}", betrag=euro(o.jetzt)) }})</span>{% endif %} ·
+       {% if o.z.email %}<code>{{ o.z.email }}</code>{% else %}<span class="leise">{{ _("keine E-Mail-Adresse") }}</span>{% endif %}</span>
+       {{ aufteilung_zeigen(o.teile) }}
++      {% if o.jetzt > 0 %}{{ erstatten_knopf(o.z.guthaben_id, o.jetzt) }}{% endif %}
+       <details><summary>{{ _("Von Hand erstattet") }}</summary>
+         <form class="formular formular--zeile" method="post" action="/verwaltung/abrechnung/erstattung/{{ o.z.id }}/erledigt">
+           <input type="hidden" name="csrf" value="{{ csrf }}">
+diff --git a/app/verwaltung/templates/anmeldung.html b/app/verwaltung/templates/anmeldung.html
+index 505dd1d..fbc7efc 100644
+--- a/app/verwaltung/templates/anmeldung.html
++++ b/app/verwaltung/templates/anmeldung.html
+@@ -33,13 +33,15 @@
+     {% else %}
+     <label>{{ _(d.schluessel_name) }} <input type="password" name="client_secret" autocomplete="new-password" data-lpignore="true" data-1p-ignore data-bwignore placeholder="{{ _('hinterlegt – leer lassen, um ihn zu behalten') if d.k.client_secret else '' }}"></label>
+     {% endif %}
++    {% if d.mit_ablauf %}<label>{{ _("Schlüssel läuft ab am (freiwillig)") }} <input type="date" name="ablauf" value="{{ d.ablauf.isoformat() if d.ablauf else '' }}">
++      <span class="hilfe">{{ _("Dann kommt 30 und 7 Tage vorher eine Erinnerung über die Benachrichtigungen.") }}</span></label>{% endif %}
+     {% if d.k.eingerichtet %}<label class="haken"><input type="checkbox" name="entfernen" value="1"> {{ _("Diesen Dienst ausschalten und Schlüssel löschen") }}</label>{% endif %}
+     <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Speichern") }}</button></div>
+   </form>
+ {% endmacro %}
+ {% for d in dienste if d.k.eingerichtet %}
+ <div class="karte" id="{{ d.id }}">
+-  <h2>{{ d.name }} <span class="marke-status marke-status--gut">{{ _("eingerichtet") }}</span></h2>
++  <h2>{{ d.name }} {% if d.tage is not none and d.tage < 0 %}<span class="marke-status marke-status--fehler">{{ _("Schlüssel abgelaufen") }}</span>{% elif d.tage is not none and d.tage <= 30 %}<span class="marke-status marke-status--warten">{{ _("Schlüssel läuft in {n} Tagen ab", n=d.tage) }}</span>{% else %}<span class="marke-status marke-status--gut">{{ _("eingerichtet") }}</span>{% endif %}</h2>
+   {{ dienst_formular(d) }}
+ </div>
+ {% endfor %}
+diff --git a/app/verwaltung/templates/assistent.html b/app/verwaltung/templates/assistent.html
+index 3d16a16..73b3dbb 100644
+--- a/app/verwaltung/templates/assistent.html
++++ b/app/verwaltung/templates/assistent.html
+@@ -156,10 +156,14 @@
+ {% elif schritt == "datenschutz" %}
+ <div class="karte">
+   <h2>{{ _("Datenschutzhinweis") }}</h2>
+-  <p>{{ _("Die App zeigt ihn beim Registrieren; jede Person muss ihm zustimmen. Unten steht eine Vorlage, die aus euren Einstellungen befüllt ist.") }}</p>
+-  <div class="meldung">{{ _("Das ist eine Vorlage, keine Rechtsberatung. Bitte lesen, Stellen in [eckigen Klammern] ausfüllen und im Zweifel von jemandem mit rechtlichem Blick prüfen lassen. Mit eurem Hosting-Anbieter und mit jedem genutzten Cloud-Dienst braucht ihr je einen Vertrag zur Auftragsverarbeitung, meist als Teil der Nutzungsbedingungen – mehr unter Einstellungen → Auftragsverarbeitung und Übergabe.") }}</div>
++  <div class="meldung">{{ _("Vorlage aus euren Einstellungen, keine Rechtsberatung. Stellen in [eckigen Klammern] ausfüllen.") }}</div>
+   <form class="formular formular--breit" method="post" action="/verwaltung/assistent/datenschutz">
+     <input type="hidden" name="csrf" value="{{ csrf }}">
++    {% if vorlage_neuer %}<div class="meldung meldung--achtung" role="status">
++      <p>{{ _("Die Vorlage hat sich geändert, seit du den Text veröffentlicht hast – durch eine neue Fassung oder andere Einstellungen. Vergleiche und übernimm, was fehlt.") }}</p>
++      <details><summary>{{ _("Aktuelle Vorlage ansehen") }}</summary><pre class="vorlage">{{ vorlage_text }}</pre></details>
++      <button class="tw-btn tw-btn--quiet tw-btn--klein" type="submit" name="aktion" value="gesehen">{{ _("Passt so") }}</button>
++    </div>{% endif %}
+     <label>{{ _("Text") }} <textarea name="text" rows="24">{{ text }}</textarea>
+       <span class="hilfe">{{ _("Überschriften mit „## “, Aufzählungen mit „- “, Absätze durch Leerzeilen.") }}</span></label>
+     <div class="knopfzeile"><button class="tw-btn tw-btn--primary" type="submit" name="aktion" value="veroeffentlichen">{{ _("Datenschutzhinweis veröffentlichen") }}</button>
+diff --git a/app/verwaltung/templates/discord.html b/app/verwaltung/templates/discord.html
+index 6663aa3..a6a9a1f 100644
+--- a/app/verwaltung/templates/discord.html
++++ b/app/verwaltung/templates/discord.html
+@@ -2,7 +2,7 @@
+ {% block titel %}{{ _("Discord-Bot") }}{% endblock %}
+ {% block inhalt %}
+ <h1>{{ _("Discord-Bot") }}</h1>
+-<p class="hilfe">{{ _("Der Bot nimmt Online-Runden im Sprachkanal auf, je Person eine eigene Spur. Aufgenommen wird nur, wer zugestimmt hat. Die Spielleitung verbindet ihre Kampagne selbst mit ihrem Discord-Server.") }}</p>
++<p class="hilfe">{{ _("Der Bot nimmt Online-Runden im Sprachkanal auf, nur wer zugestimmt hat. Die Spielleitung verbindet ihre Kampagne selbst.") }}</p>
+ {% if not faktor %}<div class="hinweis">{{ _("Einschalten und Schlüssel brauchen den zweiten Faktor.") }} <a href="/verwaltung/anmeldung#zweiter-faktor">{{ _("Zweiten Faktor einrichten") }}</a></div>{% endif %}
+ 
+ <div class="karte" id="schalter">
+diff --git a/app/verwaltung/templates/einladung.html b/app/verwaltung/templates/einladung.html
+index 7e5cc70..db645c9 100644
+--- a/app/verwaltung/templates/einladung.html
++++ b/app/verwaltung/templates/einladung.html
+@@ -13,6 +13,7 @@
+   <div class="karte">
+     {% if gueltig %}
+     <h2>{{ _("Du bist eingeladen.") }}</h2>
++    {% if kampagne %}<p class="einladung__kampagne">{{ _("Kampagne: {titel}", titel=kampagne) }}</p>{% endif %}
+     <p class="leise">{{ _("Server: {name} · {betreiber}", name=angaben.server_name, betreiber=angaben.server_operator) }}</p>
+     <code class="einladung__code">{{ code }}</code>
+     {% if bis %}<p class="leise zentriert">{{ _("gültig bis {zeit}", zeit=zeit(bis)) }}</p>
+diff --git a/app/verwaltung/templates/guthaben.html b/app/verwaltung/templates/guthaben.html
+index 53f6c83..846084e 100644
+--- a/app/verwaltung/templates/guthaben.html
++++ b/app/verwaltung/templates/guthaben.html
+@@ -26,7 +26,7 @@
+     {% else %}{{ _("Reicht für die nächsten Verarbeitungen.") }}{% endif %}
+   </p>
+   {% if t.g.gesperrt_at %}<p class="meldung meldung--fehler">{{ _("Eine Zahlung wurde zurückgebucht oder angefochten. Bis die Verwaltung das geprüft hat, starten keine neuen Verarbeitungen und Aufladen geht nicht.") }}{% if angaben.server_contact %} {{ angaben.server_contact }}{% endif %}</p>{% endif %}
+-  {% if t.erstattbar %}<p class="hilfe">{{ _("Davon aus Zahlungen übrig: {betrag}. Diesen Teil bekommst du auf Wunsch zurück, voll und auf die ursprüngliche Zahlung – auch, wenn du dein Konto löschst. Gutschriften und Gutscheine werden nicht ausgezahlt.", betrag=euro(t.erstattbar)) }}{% if angaben.server_contact %} {{ _("Melde dich dafür bei {kontakt}.", kontakt=angaben.server_contact) }}{% endif %}</p>{% endif %}
++  {% if t.erstattbar %}<p class="hilfe">{{ _("Davon aus Zahlungen übrig: {betrag}. Den bekommst du auf Wunsch voll zurück, auch beim Löschen des Kontos. Gutschriften und Gutscheine nicht.", betrag=euro(t.erstattbar)) }}{% if angaben.server_contact %} {{ _("Melde dich dafür bei {kontakt}.", kontakt=angaben.server_contact) }}{% endif %}</p>{% endif %}
+   {% if t.offen %}<p class="meldung" role="status">{{ _("Eine Zahlung ist begonnen und noch nicht bestätigt. Das Guthaben erscheint, sobald der Zahlungsanbieter sie bestätigt. Seite später neu laden.") }}</p>{% endif %}
+ 
+   {% if zahlwege_an and not t.g.gesperrt_at %}
+@@ -40,7 +40,7 @@
+       <div class="karten-wahl karten-wahl--zwei">
+         {% for z in zahlwege_an %}<label class="wahl"><input type="radio" name="anbieter" value="{{ z }}" {% if loop.first %}checked{% endif %} required><strong>{{ zahlwege[z] }}</strong><span class="hilfe">{% if z == "stripe" %}{{ _("Über Stripe. Auch Lastschrift, je nach Land.") }}{% else %}{{ _("Mit deinem PayPal-Konto.") }}{% endif %}</span></label>{% endfor %}
+       </div>
+-      <p class="hilfe">{{ _("Auf der nächsten Seite siehst du die Gebühr des Zahlungsanbieters, bevor du bezahlst.") }}</p>
++      <p class="hilfe">{{ _("Die Gebühr siehst du vor dem Bezahlen.") }}</p>
+       <div><button class="tw-btn tw-btn--primary" type="submit">{{ _("Weiter") }}</button></div>
+     </fieldset>
+   </form>
+@@ -122,7 +122,7 @@
+     <button class="tw-btn tw-btn--secondary" type="submit">{{ _("Abbestellen") }}</button>{% endif %}
+   </form>
+   {% else %}
+-  <p class="hilfe">{{ _("Trag in der App unter Konto eine E-Mail-Adresse ein und bestätige sie. Dann sagt dir der Server Bescheid, wenn eine Verarbeitung auf Guthaben wartet oder das Guthaben knapp wird.") }}</p>
++  <p class="hilfe">{{ _("Mit bestätigter E-Mail-Adresse (App → Konto) sagt dir der Server Bescheid, wenn Guthaben fehlt oder knapp wird.") }}</p>
+   {% endif %}
+ </section>
+ {% endif %}
+diff --git a/app/verwaltung/templates/konten.html b/app/verwaltung/templates/konten.html
+index f2b0ca0..21b4e3b 100644
+--- a/app/verwaltung/templates/konten.html
++++ b/app/verwaltung/templates/konten.html
+@@ -51,7 +51,7 @@
+           <form method="post" action="/verwaltung/konten/{{ k.u.id }}/verwalter"><input type="hidden" name="csrf" value="{{ csrf }}">
+             <button class="tw-btn tw-btn--quiet tw-btn--klein" type="submit">{{ _("Verwalter-Recht entziehen") if k.verwalter else _("Zum Verwalter machen") }}</button></form>
+           <details><summary>{{ _("Konto löschen") }}</summary>
+-            <p class="hilfe">{{ _("Löscht Konto, Anmeldungen, Charakterbilder, Hintergrund und Stimmprofil endgültig. Kommentare bleiben als „gelöschtes Konto“ stehen, Kapitel bleiben unverändert. Ist die Person irgendwo die einzige Spielleitung, geht es erst, wenn dort jemand anderes Spielleitung ist.") }}</p>
++            <p class="hilfe">{{ _("Löscht das Konto endgültig. Kommentare bleiben als „gelöschtes Konto“ stehen. Ist die Person irgendwo einzige Spielleitung, dort erst jemand anderen ernennen.") }}</p>
+             <form class="formular formular--zeile" method="post" action="/verwaltung/konten/{{ k.u.id }}/loeschen">
+               <input type="hidden" name="csrf" value="{{ csrf }}">
+               <label>{{ _("Benutzername zur Bestätigung") }} <input type="text" name="bestaetigung" autocomplete="off" required placeholder="{{ k.u.username }}"></label>
+diff --git a/app/verwaltung/templates/konto_loeschen.html b/app/verwaltung/templates/konto_loeschen.html
+index b36308d..c78baea 100644
+--- a/app/verwaltung/templates/konto_loeschen.html
++++ b/app/verwaltung/templates/konto_loeschen.html
+@@ -14,7 +14,7 @@
+     <p>{{ _("Du kannst dein Konto auch in der App löschen: Konto → „Daten und Konto löschen“. Hier geht es ohne App, mit Benutzername und Passwort.") }}</p>
+     <h3>{{ _("Was gelöscht wird") }}</h3>
+     <p>{{ _("Dein Konto mit Anmeldungen, E-Mail-Adresse, Charakterbildern, Charakter-Hintergründen, Zustimmungen und Stimmprofil. Kampagnen, in denen sonst niemand mehr ist, werden mitgelöscht.") }}</p>
+-    {% if abrechnung_an %}<p class="hilfe">{{ _("Ist auf deinem Guthaben noch Geld aus Zahlungen übrig, erstattet der Betreiber es dir auf die ursprüngliche Zahlung. Dafür bleibt nur der Betrag mit deiner bestätigten E-Mail-Adresse stehen, bis erstattet ist, höchstens 90 Tage.") }}</p>{% endif %}
++    {% if abrechnung_an %}<p class="hilfe">{{ _("Geld aus Zahlungen auf deinem Guthaben bekommst du auf die ursprüngliche Zahlung zurück. Bis dahin bleiben nur Betrag und E-Mail-Adresse, höchstens 90 Tage.") }}</p>{% endif %}
+     <h3>{{ _("Was bleibt") }}</h3>
+     <p>{{ _("In gemeinsamen Kampagnen bleibt dein Platz als „Gelöschtes Konto“ stehen, damit Kapitel, Anwesenheitslisten und Kommentare stimmig bleiben; der Name deiner Figur bleibt Teil der Geschichte. Der Widerruf deiner Zustimmungen bleibt als Nachweis im Protokoll.") }}</p>
+     <p class="hilfe">{{ _("Leitest du eine Kampagne als einzige Spielleitung, in der noch andere sind, ernenne dort zuerst in der App eine andere Spielleitung. Vorher solltest du deine Daten in der App exportieren (Konto → „Meine Daten“).") }}</p>
+diff --git a/app/verwaltung/templates/probelauf.html b/app/verwaltung/templates/probelauf.html
+index 99dab0f..50fc924 100644
+--- a/app/verwaltung/templates/probelauf.html
++++ b/app/verwaltung/templates/probelauf.html
+@@ -33,7 +33,7 @@
+   <form method="post" action="/verwaltung/probelauf/{{ p.id }}/korrektur">
+     <input type="hidden" name="csrf" value="{{ csrf }}">
+     <label for="fehlt">{{ _("Stimmt etwas nicht oder fehlt etwas?") }}</label>
+-    <p class="hilfe">{{ _("In eigenen Worten, ein Satz je Sache. Nur die betroffenen Absätze werden neu geschrieben, alle anderen bleiben, wie sie sind. Jeder Durchgang kostet wenige Cent.") }}</p>
++    <p class="hilfe">{{ _("Ein Satz je Sache. Nur betroffene Absätze werden neu geschrieben. Jeder Durchgang kostet wenige Cent.") }}</p>
+     <textarea id="fehlt" name="fehlt" rows="4" maxlength="1000"></textarea>
+     <details><summary>{{ _("Hinweise je Absatz (optional)") }}</summary>
+       {% for absatz in aktuell.split("\n\n") %}
+diff --git a/app/verwaltung/templates/rechtstexte.html b/app/verwaltung/templates/rechtstexte.html
+index 5ea4362..4fde789 100644
+--- a/app/verwaltung/templates/rechtstexte.html
++++ b/app/verwaltung/templates/rechtstexte.html
+@@ -5,7 +5,7 @@
+ <p class="leise"><a href="/verwaltung/abrechnung">{{ _("Zurück zur Abrechnung") }}</a></p>
+ <div class="schmal">
+ <div class="meldung">{{ _("Das sind Vorlagen, keine Rechtsberatung. Sie sind aus deinen Angaben und den Einstellungen der Abrechnung befüllt. Bitte lesen, Stellen in [eckigen Klammern] ausfüllen und im Zweifel von jemandem mit rechtlichem Blick prüfen lassen. Deutsch und Englisch werden zusammen veröffentlicht.") }}</div>
+-<p class="hilfe">{{ _("Spielleitungen sehen beide Texte beim Aufladen und bestätigen dort, dass das Guthaben sofort nutzbar sein soll. Mit echtem Geld lässt sich erst aufladen, wenn beide veröffentlicht sind. Ändert sich ein Text, gilt er mit neuem Stand-Datum für alle späteren Aufladungen.") }}</p>
++<p class="hilfe">{{ _("Spielleitungen sehen beide Texte beim Aufladen. Echtes Geld geht erst, wenn beide veröffentlicht sind. Eine Änderung gilt für spätere Aufladungen.") }}</p>
+ {% if fehler and not fehler_art %}<p class="meldung meldung--fehler" role="alert">{{ fehler }}</p>{% endif %}
+ {% for art, titel in [("bedingungen", _("Bedingungen für Guthaben")), ("widerruf", _("Widerrufsbelehrung"))] %}
+ <div class="karte" id="{{ art }}">
+@@ -24,6 +24,6 @@
+   </form>
+ </div>
+ {% endfor %}
+-<p class="hilfe">{{ _("Den Abschnitt „Guthaben und Zahlungen“ für den Datenschutzhinweis enthält die Vorlage des Datenschutzhinweises, solange die Abrechnung eingeschaltet ist.") }} <a href="/verwaltung/assistent/datenschutz">{{ _("Datenschutzhinweis") }}</a></p>
++<p class="hilfe">{{ _("Den passenden Abschnitt für den Datenschutzhinweis ergänzt dessen Vorlage selbst.") }} <a href="/verwaltung/assistent/datenschutz">{{ _("Datenschutzhinweis") }}</a></p>
+ </div>
+ {% endblock %}
+diff --git a/app/verwaltung/templates/transkription.html b/app/verwaltung/templates/transkription.html
+index 8003f85..fa8a15b 100644
+--- a/app/verwaltung/templates/transkription.html
++++ b/app/verwaltung/templates/transkription.html
+@@ -85,7 +85,7 @@
+   <p>{{ _("Lokale Kapitel: Ollama läuft mit") }} ({{ _("nur Prozessor") if e.ollama == "cpu" else _("Grafikkarte") }}){% if e.llm_bereit %} · <span class="marke-status marke-status--gut">{{ _("vom Worker erkannt") }}</span>{% endif %}.
+     {% if e.llm_lokal %}{{ _("Kapitel schreibt der Worker hier mit dem lokalen Sprachmodell.") }}
+     {% else %}<a href="/verwaltung/zusammenfassung">{{ _("Damit er Kapitel schreibt, unter „Zusammenfassung“ „Lokales Modell“ wählen.") }}</a>{% endif %}</p>
+-  <p class="hilfe">{{ _("Das Sprachmodell (etwa 5 GB) lädt der Worker beim ersten Kapitel. Transkription und Kapitel wechseln sich auf der Grafikkarte ab; reicht der Grafikspeicher nicht für beides, rechnet Ollama teilweise mit dem Prozessor – langsamer, aber es geht.") }}</p>
++  <p class="hilfe">{{ _("Das Sprachmodell (etwa 5 GB) lädt der Worker beim ersten Kapitel. Reicht der Grafikspeicher nicht, rechnet er teilweise mit dem Prozessor – langsamer, aber es geht.") }}</p>
+   {% endif %}
+   <form class="formular" method="post" action="/verwaltung/worker/eingebaut">
+     <input type="hidden" name="csrf" value="{{ csrf }}">
+@@ -127,7 +127,7 @@
+   </div>
+   <details><summary>{{ _("Protokoll und Hilfe") }}</summary>
+     <p class="hilfe">{{ _("Protokoll auf dem Server:") }} <code>cd /opt/taleward && sudo docker compose logs -f {{ "worker-cpu" if worker_art == "cpu" else "worker" }}</code></p>
+-    <p class="hilfe">{{ _("Die Werte hier gehen denen aus der .env vor. Nicht gesetzt: es gilt die .env (TALEWARD_WORKER_VRAM_MB, TALEWARD_WORKER_MODELL).") }}</p>
++    <p class="hilfe">{{ _("Gehen der .env vor. Nicht gesetzt: es gilt die .env.") }}</p>
+   </details>
+   <script src="{{ statisch('eingebaut.js') }}" defer></script>
+ {% elif docker %}
+@@ -268,7 +268,7 @@
+   <h2>{{ _("Sprechermodell") }}</h2>
+   {% if modell.stand %}
+   <p><span class="marke-status marke-status--gut">{{ _("auf dem Server") }}</span> {{ _("Fassung {fassung}, {mb} MB, Quelle: {quelle}", fassung=modell.stand.fassung[:12], mb="%.0f"|format(modell.mb), quelle=_("Taleward-Spiegel") if modell.stand.quelle == "spiegel" else "Hugging Face") }}</p>
+-  <p class="hilfe">{{ _("Eure Worker laden das Modell vom Server. Sie brauchen dafür kein Hugging-Face-Konto, und alle nutzen dieselbe Fassung.") }}</p>
++  <p class="hilfe">{{ _("Eure Worker laden das Modell vom Server, ohne eigenes Konto.") }}</p>
+   {% else %}
+   <p><span class="marke-status{% if modell.fehler %} marke-status--fehler{% endif %}">{{ _("noch nicht auf dem Server") }}</span>{% if modell.fehler %} {{ modell.fehler }}{% endif %}</p>
+   {% if modell.spiegel %}
+diff --git a/app/verwaltung/templates/uebersicht.html b/app/verwaltung/templates/uebersicht.html
+index 0c0948a..1e10a8e 100644
+--- a/app/verwaltung/templates/uebersicht.html
++++ b/app/verwaltung/templates/uebersicht.html
+@@ -8,11 +8,13 @@
+ {% elif zahlen.fehlgeschlagen %}<p class="lage lage--achtung"><span>{{ _("Eine Runde ist fehlgeschlagen.") if zahlen.fehlgeschlagen == 1 else _("{n} Runden sind fehlgeschlagen.", n=zahlen.fehlgeschlagen) }}</span> <a href="/verwaltung/warteschlange">{{ _("Warteschlange ansehen") }}</a></p>
+ {% elif zahlen.bei_sl %}<p class="lage"><span>{{ _("Alles läuft. Eine Runde wartet auf die Spielleitung.") if zahlen.bei_sl == 1 else _("Alles läuft. {n} Runden warten auf die Spielleitung.", n=zahlen.bei_sl) }}</span></p>
+ {% else %}<p class="lage"><span>{{ _("Alles läuft.") }}</span></p>{% endif %}
++{% for s in schluessel_ablauf %}<p class="lage lage--achtung"><span>{% if s.tage < 0 %}{{ _("Der Schlüssel für {dienst} ist abgelaufen – die Anmeldung damit geht nicht mehr.", dienst=s.name) }}{% else %}{{ _("Der Schlüssel für {dienst} läuft in {n} Tagen ab.", dienst=s.name, n=s.tage) }}{% endif %}</span> <a href="/verwaltung/anmeldung#{{ s.id }}">{{ _("Erneuern") }}</a></p>{% endfor %}
++{% if datenschutz_neuer %}<p class="lage lage--achtung"><span>{{ _("Die Vorlage für den Datenschutzhinweis hat sich geändert.") }}</span> <a href="/verwaltung/assistent/datenschutz">{{ _("Ansehen") }}</a></p>{% endif %}
+ {% if widersprueche %}
+ <div class="karte karte--hinweis" role="note">
+   <h2>{{ _("Einstellungen passen nicht zur Betriebsart „{art}“", art={"cloud": _("Nur Cloud"), "lokal": _("Lokaler Server"), "beides": _("Lokaler Server, Cloud als Ausweichlösung")}[betrieb]) }}</h2>
+   <ul>{% for w in widersprueche %}<li>{{ _(w.text, n='%g'|format(w.n) if w.n is not none else '') }} <a href="{{ w.link }}">{{ _("Ansehen") }}</a></li>{% endfor %}</ul>
+-  <p class="hilfe">{{ _("Gewollt? Dann kannst du das so lassen. Sonst die Einstellung ändern oder die Betriebsart anpassen.") }} <a href="/verwaltung/einstellungen">{{ _("Betriebsart ändern") }}</a></p>
++  <p class="hilfe">{{ _("Gewollt? Dann passt es. Sonst Einstellung oder Betriebsart ändern.") }} <a href="/verwaltung/einstellungen">{{ _("Betriebsart ändern") }}</a></p>
+ </div>
+ {% endif %}
+ {% set offen = punkte|selectattr("erledigt", "equalto", false)|list %}
+diff --git a/app/verwaltung/templates/updates.html b/app/verwaltung/templates/updates.html
+index b93c2ee..0f253bb 100644
+--- a/app/verwaltung/templates/updates.html
++++ b/app/verwaltung/templates/updates.html
+@@ -13,7 +13,7 @@
+   <p><span class="marke-status marke-status--gut">{{ _("aktuell") }}</span> {{ _("Hier läuft die Fassung {jetzt}.", jetzt=eigene) }}</p>
+   {% endif %}
+   {% if einzelplatz %}
+-  <p class="hilfe">{{ _("Taleward auf diesem PC aktualisiert das Taleward-Programm selbst – Server und Worker gemeinsam, mit Rückweg auf die alte Fassung. Hier ist dafür nichts zu tun.") }}</p>
++  <p class="hilfe">{{ _("Das Taleward-Programm auf diesem PC aktualisiert sich selbst, mit Rückweg. Hier ist nichts zu tun.") }}</p>
+   {% elif docker %}
+   <form method="post" action="/verwaltung/updates/server-auto" class="formular">
+     <input type="hidden" name="csrf" value="{{ csrf }}">
+diff --git a/app/verwaltung/templates/zusammenfassung.html b/app/verwaltung/templates/zusammenfassung.html
+index fece1b5..ee3bdf9 100644
+--- a/app/verwaltung/templates/zusammenfassung.html
++++ b/app/verwaltung/templates/zusammenfassung.html
+@@ -54,7 +54,7 @@
+       {% macro andere_info() %}
+       <details class="anbieter-info" data-anbieter="andere">
+         <summary>{{ _("Anderer Anbieter: was zu beachten ist") }}</summary>
+-        <p class="hilfe">{{ _("Jeder Anbieter mit OpenAI-kompatibler Schnittstelle (Adresse endet meist auf /v1). Wo er verarbeitet und ob er mit euren Daten trainiert, müsst ihr selbst nachlesen. Sammeldienste, die Anfragen an wechselnde Rechenzentren verteilen, lassen sich dabei nicht einschätzen.") }}</p>
++        <p class="hilfe">{{ _("Jeder Anbieter mit OpenAI-kompatibler Schnittstelle (Adresse endet meist auf /v1). Wo er verarbeitet und ob er mit euren Daten trainiert, prüft ihr selbst.") }}</p>
+       </details>
+       {% endmacro %}
+       {% for a in llm.anbieter %}{% if llm.gewaehlt == a.id %}{{ anbieter_info(a) }}{% endif %}{% endfor %}
+@@ -87,7 +87,7 @@
+       <label>{{ _("Preis je 1 Mio. Tokens in Cent (ein / aus)") }}
+         <span class="zeile"><input type="text" name="cent_ein" value="{{ '%g'|format(k.cent_ein) if k.cent_ein is not none else '' }}" inputmode="decimal" size="6" placeholder="{{ '%g'|format(llm.preis[0]) if llm.preis else '' }}">
+         <input type="text" name="cent_aus" value="{{ '%g'|format(k.cent_aus) if k.cent_aus is not none else '' }}" inputmode="decimal" size="6" placeholder="{{ '%g'|format(llm.preis[1]) if llm.preis else '' }}"></span>
+-        <span class="hilfe">{{ _("Nur für die Verbrauchsanzeige. Leer = bekannte Preise der Modelle von Mistral und Anthropic; bei anderen Anbietern bitte von deren Preisseite übernehmen.") }}</span></label>
++        <span class="hilfe">{{ _("Leer = bekannte Preise von Mistral und Anthropic. Bei anderen Anbietern von deren Preisseite übernehmen.") }}</span></label>
+       {% endmacro %}
+       {% if llm.gewaehlt == "andere" %}{{ preis_feld() }}{% endif %}
+       <label class="haken" id="anbieter-bestaetigung"><input type="checkbox" name="ausserhalb_eu" value="1"> {{ _("Ich weiß, dass dieser Anbieter außerhalb der EU verarbeitet oder hier nicht beschrieben ist, und schließe den Vertrag zur Auftragsverarbeitung selbst ab.") }}</label>
+@@ -108,27 +108,14 @@
+       <fieldset><legend>{{ _("Weg zum Kapitel") }}</legend>
+         <label class="haken"><input type="radio" name="weg" value="notizen"{% if k.weg == "notizen" %} checked{% endif %}> {{ _("Erst Notizen je Abschnitt, dann das Kapitel (empfohlen)") }}</label>
+         <label class="haken"><input type="radio" name="weg" value="abschrift"{% if k.weg == "abschrift" %} checked{% endif %}> {{ _("Ganze Abschrift auf einmal (früherer Weg)") }}</label>
+-        <span class="hilfe">{{ _("Der empfohlene Weg vergisst weniger und erfindet weniger, kostet über die Cloud aber etwa 30 Cent je Kapitel. Nur für die Cloud-API.") }}</span></fieldset>
+-      <fieldset><legend>{{ _("Weg zum Kapitel – lokales Modell") }}</legend>
+-        <label class="haken"><input type="radio" name="weg_lokal" value="abschrift"{% if k.weg_lokal == "abschrift" %} checked{% endif %}> {{ _("Ganze Abschrift auf einmal (bisher)") }}</label>
+-        <label class="haken"><input type="radio" name="weg_lokal" value="notizen"{% if k.weg_lokal == "notizen" %} checked{% endif %}> {{ _("Erst Notizen je Abschnitt, dann das Kapitel (wie in der Cloud, zum Ausprobieren)") }}</label>
+-        <span class="hilfe">{{ _("Der Weg über Notizen dauert auf dem Worker etwa zwei- bis dreimal so lange. Lange Runden bekommen dabei Teile im Kapitel.") }}</span></fieldset>
++        <span class="hilfe">{{ _("Der empfohlene Weg vergisst und erfindet weniger, kostet aber etwa 30 Cent je Kapitel.") }}</span></fieldset>
++      <input type="hidden" name="erweitert_fest" value="1">
+       <input type="hidden" name="gegenpruefen_feld" value="1">
+       <fieldset><legend>{{ _("Prüfung") }}</legend>
+         <label class="haken"><input type="checkbox" name="gegenpruefen" value="1"{% if llm.gegenpruefen %} checked{% endif %}> {{ _("Kapitel gegenprüfen") }}</label>
+         <span class="hilfe">{{ _("Prüft jeden Absatz gegen die Abschrift und zeigt der Spielleitung die Belege. Etwa ein Drittel mehr Rechenzeit.") }}</span>
+         <label class="haken"><input type="checkbox" name="zweiter_blick" value="1"{% if llm.zweiter_blick %} checked{% endif %}> {{ _("Entscheidende Ereignisse vor dem Schreiben an der Abschrift prüfen") }}</label>
+         <span class="hilfe">{{ _("Unklares bleibt im Kapitel vage und wird der Spielleitung gezeigt. Etwa 3 Cent je Kapitel.") }}</span></fieldset>
+-      <fieldset><legend>{{ _("Prüfansicht für die Spielleitung") }}</legend>
+-        <label class="haken"><input type="radio" name="pruefansicht" value="pflicht"{% if llm.pruefansicht == "pflicht" %} checked{% endif %}> {{ _("Aus den geprüften Ereignissen und den unklaren Stellen (empfohlen)") }}</label>
+-        <label class="haken"><input type="radio" name="pruefansicht" value="gegenpruefung"{% if llm.pruefansicht == "gegenpruefung" %} checked{% endif %}> {{ _("Jeden Absatz gegen die Notizen gegenprüfen (früherer Weg)") }}</label>
+-        <span class="hilfe">{{ _("Die empfohlene Ansicht markiert nur Nachgerechnetes und Unklares und spart etwa ein Fünftel der Kosten.") }}</span></fieldset>
+-      <label>{{ _("Modell für Notizen und Auswahl") }}
+-        <select name="api_modell_notizen" id="anbieter-modell-notizen">
+-          <option value="" {% if not k.api_modell_notizen %}selected{% endif %}>{{ _("wie für das Kapitel") }}</option>
+-          {% for m in llm.modelle %}<option value="{{ m }}" {% if m == k.api_modell_notizen %}selected{% endif %}>{{ m }}</option>{% endfor %}
+-        </select>
+-        <span class="hilfe">{{ _("Nur zum Vergleichen. Erst nach Probeläufen ändern.") }}</span></label>
+       {% if llm.gewaehlt != "andere" %}{{ preis_feld() }}{% endif %}
+       <p class="hilfe">{{ _("Wortlisten für unsicher erkannte Namen:") }}
+         {% for sp, da in llm.wortlisten.items() %}{{ _("Deutsch") if sp == "de" else _("Englisch") }} {{ _("geladen") if da else _("wird geladen") }}{% if not loop.last %}, {% endif %}{% endfor %}.</p>
+@@ -155,7 +142,7 @@
+ 
+ <div class="karte">
+   <h2>{{ _("Probelauf") }}</h2>
+-  <p class="hilfe">{{ _("Schreibt Kapitel und Vorschläge einer Runde neu, ohne die Runde zu verändern. Nur Runden aus deinen eigenen Kampagnen, die Cloud nur mit Freigabe der Kampagne. Kosten zählen zum Monatslimit.") }}</p>
++  <p class="hilfe">{{ _("Schreibt Kapitel und Vorschläge einer Runde neu, ohne die Runde zu verändern. Kosten zählen zum Monatslimit.") }}</p>
+   {% if runden %}
+   <form class="formular" method="post" action="/verwaltung/probelauf" enctype="multipart/form-data">
+     <input type="hidden" name="csrf" value="{{ csrf }}">
+@@ -178,7 +165,7 @@
+       <label class="haken"><input type="radio" name="kapitelweg" value="standard" checked> {{ _("In einem Durchgang aus allen Notizen (eingesetzt)") }}</label>
+       <label class="haken"><input type="radio" name="kapitelweg" value="szenen"> {{ _("Je Szene ein Absatz, zusammengesetzt (zum Vergleich)") }}</label>
+       <label class="haken"><input type="radio" name="kapitelweg" value="vorbereitet"> {{ _("Szenenabsätze als Entwurf, dann ein Durchgang (zum Vergleich)") }}</label>
+-      <span class="hilfe">{{ _("Szenen sind Abschnitte von etwa zwölf Minuten, geschnitten an der größten Pause zwischen zwei Notizen. Die Absätze je Szene liegen danach in der ZIP-Datei (szenen.txt).") }}</span></fieldset>
++      <span class="hilfe">{{ _("Szenen sind Abschnitte von etwa zwölf Minuten. Die Absätze je Szene liegen danach in der ZIP-Datei.") }}</span></fieldset>
+     {% if probe_modelle %}
+     <label>{{ _("Modell nur für diesen Lauf") }}
+       <select name="modell">
+diff --git a/contract/session-chronik-api.yaml b/contract/session-chronik-api.yaml
+index 7d78099..6e79fbc 100644
+--- a/contract/session-chronik-api.yaml
++++ b/contract/session-chronik-api.yaml
+@@ -1400,6 +1400,12 @@ paths:
+         "404": { $ref: "#/components/responses/NotFound" }
+         "409": { $ref: "#/components/responses/Conflict" }
+         "429": { $ref: "#/components/responses/TooManyRequests" }
++        "503":
++          description: |
++            `share_unavailable` (ab Server 0.4.152): Der Signierschlüssel ist gerade nicht lesbar (z. B. Schutz der
++            Schlüsselablage des Betriebssystems). Nichts wurde erzeugt; später noch einmal versuchen. Die App zeigt die
++            Meldung des Servers.
++          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+ 
+   /campaigns/{campaignId}/members/me/world:
+     parameters: [{ $ref: "#/components/parameters/campaignId" }]
+diff --git a/pyproject.toml b/pyproject.toml
+index 4ab6189..fe6eaac 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,6 +1,6 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.156"
++version = "0.4.157"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+ license-files = ["LICENSE"]
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index 6e97d97..7c00cea 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -153,7 +153,7 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     monkeypatch.setattr(benachrichtigung, "melden", lambda db, art, **w: gemeldet.append((art, w)))
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.156"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.157"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+     monkeypatch.setenv("TALEWARD_DOCKER", "1")
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index 1cd535b..62fa043 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -134,7 +134,7 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     assert r.status_code == 201 and r.json()["name"] == "gaming-pc"
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.156"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.157"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+     assert "gaming-pc" in seite and "bereit" in seite
+diff --git a/tests/test_hebel_0473.py b/tests/test_hebel_0473.py
+index a6e1580..0219574 100644
+--- a/tests/test_hebel_0473.py
++++ b/tests/test_hebel_0473.py
+@@ -165,7 +165,7 @@ def test_einstellung_notizenmodell(client, dbs, admin):  # noqa: F811
+     k = llm_konfig(dbs)
+     assert k.api_modell_notizen == "mistral-large-2512" and api_klient_notizen(k).modell == "mistral-large-2512"
+     seite = client.get("/verwaltung/zusammenfassung").text
+-    assert 'name="api_modell_notizen"' in seite and "Modell für Notizen und Auswahl" in seite
++    assert 'name="api_modell_notizen"' not in seite  # 0.4.157: ausgeblendet
+     client.post("/verwaltung/zusammenfassung", data={**daten, "api_modell_notizen": "mistral-medium-latest"})
+     dbs.expire_all()
+     assert llm_konfig(dbs).api_modell_notizen == "" and api_klient_notizen(llm_konfig(dbs)) is None
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index d684f6b..5de96d7 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -83,7 +83,7 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/models", params={"repo": REPO}, headers=h).status_code == 404
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.156"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.157"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+                headers=h)
+diff --git a/tests/test_pruefansicht.py b/tests/test_pruefansicht.py
+index 6b646d4..2f10824 100644
+--- a/tests/test_pruefansicht.py
++++ b/tests/test_pruefansicht.py
+@@ -113,7 +113,7 @@ def test_einstellung_pruefansicht(client, dbs, admin):  # noqa: F811
+ 
+     assert pruefansicht_art(dbs) == "pflicht"
+     seite = client.get("/verwaltung/zusammenfassung").text
+-    assert 'name="pruefansicht" value="pflicht" checked' in seite
++    assert 'name="pruefansicht"' not in seite  # 0.4.157: ausgeblendet; ältere offene Seiten schicken es noch
+     daten = {"csrf": admin, "art": "api", "anbieter": "mistral", "api_modell": "mistral-medium-latest",
+              "lokal_modell": "auto", "lokal_kontext": "12288", "api_key": "sk-abcdefghijklmnop1234",
+              "gegenpruefen_feld": "1", "gegenpruefen": "1", "zweiter_blick": "1"}
+diff --git a/tests/test_server_04130.py b/tests/test_server_04130.py
+index 4820b5d..63db0fd 100644
+--- a/tests/test_server_04130.py
++++ b/tests/test_server_04130.py
+@@ -62,7 +62,7 @@ def test_zusammenfassung_speichern_aendert_nichts_an_zugeklappten_werten(client,
+ 
+     seite = client.get("/verwaltung/zusammenfassung").text
+     form = seite.split('action="/verwaltung/zusammenfassung"', 1)[1].split("</form>", 1)[0]
+-    for name in ("weg", "pruefansicht", "lokal_modell", "lokal_kontext", "gegenpruefen_feld", "api_modell_notizen"):
++    for name in ("weg", "erweitert_fest", "lokal_modell", "lokal_kontext", "gegenpruefen_feld"):
+         assert re.search(rf'name="{name}"', form), name
+ 
+ 
+diff --git a/tests/test_server_04134.py b/tests/test_server_04134.py
+index 5db915f..ffc216d 100644
+--- a/tests/test_server_04134.py
++++ b/tests/test_server_04134.py
+@@ -169,7 +169,7 @@ def test_verwaltung_speichert_den_lokalen_weg(client, dbs, admin):  # noqa: F811
+     from app.einstellungen import llm_konfig
+ 
+     seite = client.get("/verwaltung/zusammenfassung").text
+-    assert 'name="weg_lokal" value="abschrift" checked' in seite
++    assert 'name="weg_lokal"' not in seite  # 0.4.157: fest auf dem empfohlenen Weg
+     form = seite.split('action="/verwaltung/zusammenfassung"', 1)[1].split("</form>", 1)[0]
+     daten = {"csrf": admin}
+     for name, wert in re.findall(r'<input type="hidden" name="(\w+)" value="([^"]*)"', form):
+@@ -189,4 +189,4 @@ def test_verwaltung_speichert_den_lokalen_weg(client, dbs, admin):  # noqa: F811
+     r = client.post("/verwaltung/zusammenfassung", data=daten, follow_redirects=False)
+     assert r.status_code == 303, r.text[:2000]
+     dbs.expire_all()
+-    assert llm_konfig(dbs).weg_lokal == "notizen"
++    assert llm_konfig(dbs).weg_lokal == "abschrift"  # 0.4.157: das Formular hält den Weg fest
+diff --git a/tests/test_server_04143.py b/tests/test_server_04143.py
+index 3beb61b..92c3401 100644
+--- a/tests/test_server_04143.py
++++ b/tests/test_server_04143.py
+@@ -135,7 +135,7 @@ def test_passkey_nur_mit_https_und_code(client, dbs, admin):  # noqa: F811
+     assert "Passkey hinzufügen" not in seite  # ohne zweiten Faktor keine Karte dafür
+     _faktor_an(client, dbs, chef.id)
+     seite = client.get("/verwaltung/anmeldung").text
+-    assert "öffentliche Adresse des Servers mit https" in seite and "Passkey hinzufügen" not in seite
++    assert "eine https-Adresse eingetragen ist" in seite and "Passkey hinzufügen" not in seite
+     assert not passkeys.verfuegbar(dbs)
+     r = client.post("/verwaltung/passkeys/beginnen", data={"csrf": admin})
+     assert r.status_code == 400 and r.json()["fehler"] == "passkey_keine_adresse"
+diff --git a/tests/test_server_04153.py b/tests/test_server_04153.py
+index 3eac275..0f11fd6 100644
+--- a/tests/test_server_04153.py
++++ b/tests/test_server_04153.py
+@@ -208,6 +208,6 @@ def test_von_hand_erledigt_braucht_faktor_und_haken(client, dbs, admin):  # noqa
+ def test_guthabenseite_und_kontoloeschung_nennen_erstattung(client, dbs):
+     _modus(dbs)
+     r = client.get("/konto-loeschen")
+-    assert "erstattet der Betreiber" in r.text
++    assert "auf die ursprüngliche Zahlung zurück" in r.text
+     _modus(dbs, "aus")
+-    assert "erstattet der Betreiber" not in client.get("/konto-loeschen").text
++    assert "auf die ursprüngliche Zahlung zurück" not in client.get("/konto-loeschen").text
+diff --git a/tests/test_server_04157.py b/tests/test_server_04157.py
+new file mode 100644
+index 0000000..bc637e3
+--- /dev/null
++++ b/tests/test_server_04157.py
+@@ -0,0 +1,210 @@
++"""Server 0.4.157: Hinweis auf eine geänderte Datenschutz-Vorlage, Knopf „Erstatten“, feste Erweitert-Optionen,
++Ablaufdatum der Anmeldeschlüssel mit Erinnerung, Kampagnentitel auf der Einladungsseite."""
++import json
++from datetime import timedelta
++
++import httpx
++import pytest
++
++from app.db import utcnow
++from app.einstellungen import meta_lesen, meta_schreiben
++from tests.test_betrieb import einrichten, ntfy  # noqa: F401 (Fixture)
++from tests.test_server_04133 import _einrichten
++from tests.test_server_04143 import _chef, _faktor_an
++from tests.test_server_04153 import _bezahlt, _konto
++from tests.test_step2a import API
++from tests.test_verwaltung import admin  # noqa: F401 (Fixture)
++
++
++# ---------------------------------------------------------------- Datenschutz-Vorlage
++def test_hinweis_wenn_vorlage_sich_aendert(client, dbs, admin):  # noqa: F811
++    from app import datenschutz
++
++    assert not datenschutz.vorlage_neuer(dbs)  # nichts veröffentlicht
++    meta_schreiben(dbs, "datenschutz.text", "Unser Text.")
++    dbs.commit()
++    assert datenschutz.vorlage_neuer(dbs)  # veröffentlicht, aber nie mit der Vorlage abgeglichen
++    seite = client.get("/verwaltung/").text
++    assert "Die Vorlage für den Datenschutzhinweis hat sich geändert." in seite
++    seite = client.get("/verwaltung/assistent/datenschutz").text
++    assert "Aktuelle Vorlage ansehen" in seite
++    r = client.post("/verwaltung/assistent/datenschutz", data={"csrf": admin, "aktion": "gesehen"},
++                    follow_redirects=False)
++    assert r.status_code in (200, 303)
++    dbs.expire_all()
++    assert not datenschutz.vorlage_neuer(dbs)
++    assert "hat sich geändert" not in client.get("/verwaltung/").text
++    # Eine andere Einstellung ändert die Vorlage → der Hinweis kommt wieder
++    meta_schreiben(dbs, "datenschutz.vorlage_stand", "anders")
++    dbs.commit()
++    assert datenschutz.vorlage_neuer(dbs)
++
++
++# ---------------------------------------------------------------- Erstatten
++class Anbieter:
++    def __init__(self, stripe=200, paypal=201):
++        self.anfragen: list[httpx.Request] = []
++        self.stripe, self.paypal = stripe, paypal
++
++    def __call__(self, req: httpx.Request) -> httpx.Response:
++        self.anfragen.append(req)
++        if req.url.path == "/v1/oauth2/token":
++            return httpx.Response(200, json={"access_token": "A21"})
++        if req.url.path == "/v1/refunds":
++            return httpx.Response(self.stripe, json={"id": "re_1", "status": "succeeded"})
++        if req.url.path.startswith("/v2/payments/captures/"):
++            return httpx.Response(self.paypal, json={"id": "RF1", "status": "COMPLETED"})
++        return httpx.Response(404)
++
++
++@pytest.fixture()
++def anbieter(monkeypatch):
++    from app import zahlung
++
++    a = Anbieter()
++    monkeypatch.setattr(zahlung, "_client", httpx.Client(transport=httpx.MockTransport(a)))
++    return a
++
++
++def _fall(dbs):
++    from app import abrechnung
++
++    _einrichten(dbs)
++    u = _konto(dbs, "erna")
++    g = abrechnung.guthaben_konto(dbs, u.id)
++    _bezahlt(dbs, g, 1000, 1060, tage=300, ref="pi_altaltalt1")  # Frist vorbei → von Hand
++    _bezahlt(dbs, g, 2000, 2090, anbieter="paypal", tage=5, ref="CAPTUREPAYPAL1")
++    _bezahlt(dbs, g, 500, 545, tage=1, ref="pi_neuneuneu1")
++    dbs.commit()
++    return g
++
++
++def test_erstatten_stoesst_beide_anbieter_an(client, dbs, admin, anbieter):  # noqa: F811
++    from app import erstattung
++
++    g = _fall(dbs)
++    seite = client.get("/verwaltung/abrechnung", params={"erstattung": "erna"}).text
++    assert 'action="/verwaltung/abrechnung/erstattung/ausfuehren"' in seite and "35,00 € jetzt erstatten" in seite
++    pfad = "/verwaltung/abrechnung/erstattung/ausfuehren"
++    # ohne zweiten Faktor nicht
++    r = client.post(pfad, data={"csrf": admin, "guthaben": g.id, "bestaetigt": "1"}, follow_redirects=False)
++    assert not (r.status_code == 303 and "erstattung_angestossen" in r.headers.get("location", ""))
++    assert anbieter.anfragen == []
++    _faktor_an(client, dbs, _chef(dbs).id)
++    assert client.post(pfad, data={"csrf": admin, "guthaben": g.id}).status_code == 400  # ohne Haken
++    assert client.post(pfad, data={"csrf": admin, "guthaben": "gibt-es-nicht", "bestaetigt": "1"}).status_code == 404
++    r = client.post(pfad, data={"csrf": admin, "guthaben": g.id, "bestaetigt": "1"})
++    assert r.status_code == 200 and "Bleibt von Hand zu überweisen: 10,00 €" in r.text
++    stripe = [a for a in anbieter.anfragen if a.url.path == "/v1/refunds"]
++    paypal = [a for a in anbieter.anfragen if "/captures/" in a.url.path]
++    assert len(stripe) == 1 and b"payment_intent=pi_neuneuneu1" in stripe[0].content and b"amount=545" in stripe[0].content
++    assert stripe[0].headers["Idempotency-Key"].startswith("erstattung-")
++    assert len(paypal) == 1 and paypal[0].url.path == "/v2/payments/captures/CAPTUREPAYPAL1/refund"
++    assert json.loads(paypal[0].content)["amount"] == {"value": "20.90", "currency_code": "EUR"}
++    assert paypal[0].url.host == "api-m.sandbox.paypal.com"
++    # gebucht wird erst mit der Meldung: das Guthaben ist unverändert
++    assert erstattung.erstattbar(dbs, g) == 3500
++    # ein zweiter Klick schickt denselben Auftrag (gleicher Schlüssel) – der Anbieter führt ihn nur einmal aus
++    client.post(pfad, data={"csrf": admin, "guthaben": g.id, "bestaetigt": "1"})
++    stripe2 = [a for a in anbieter.anfragen if a.url.path == "/v1/refunds"]
++    assert stripe2[1].headers["Idempotency-Key"] == stripe[0].headers["Idempotency-Key"]
++
++
++def test_erstatten_meldet_abgelehnte_zahlung(client, dbs, admin, anbieter):  # noqa: F811
++    from app.models import AbrechnungProtokoll
++
++    g = _fall(dbs)
++    anbieter.paypal = 422
++    _faktor_an(client, dbs, _chef(dbs).id)
++    r = client.post("/verwaltung/abrechnung/erstattung/ausfuehren",
++                    data={"csrf": admin, "guthaben": g.id, "bestaetigt": "1"})
++    assert r.status_code == 502 and "CAPTUREPAYPAL1" in r.text
++    arten = {z.was for z in dbs.query(AbrechnungProtokoll).all()}
++    assert {"erstattung_angestossen", "erstattung_fehlgeschlagen"} <= arten
++
++
++def test_fremde_zahlungsbezuege_gehen_nie_raus(dbs, anbieter):
++    from app import abrechnung, erstattung
++
++    _einrichten(dbs)
++    g = abrechnung.guthaben_konto(dbs, _konto(dbs, "erna").id)
++    _bezahlt(dbs, g, 500, 545, ref="../v1/charges")
++    dbs.commit()
++    e = erstattung.erstatten(dbs, g, "test")
++    assert e.fehlgeschlagen == ["../v1/charges"] and anbieter.anfragen == []
++
++
++# ---------------------------------------------------------------- Erweitert-Optionen fest
++def test_erweitert_optionen_fest(client, dbs, admin):  # noqa: F811
++    from app.einstellungen import llm_konfig
++    from app.zusammenfassung import pruefansicht_art
++
++    meta_schreiben(dbs, "llm.weg_lokal", "notizen")
++    meta_schreiben(dbs, "pruefung.ansicht", "gegenpruefung")
++    meta_schreiben(dbs, "llm.api_modell_notizen", "mistral-small-latest")
++    dbs.commit()
++    seite = client.get("/verwaltung/zusammenfassung").text
++    assert 'name="weg_lokal"' not in seite and 'name="pruefansicht"' not in seite
++    assert 'name="api_modell_notizen"' not in seite and 'name="erweitert_fest"' in seite
++    r = client.post("/verwaltung/zusammenfassung", data={
++        "csrf": admin, "art": "lokal", "anbieter": "mistral", "api_modell": "mistral-medium-latest",
++        "lokal_modell": "auto", "lokal_kontext": "12288", "erweitert_fest": "1", "gegenpruefen_feld": "1"},
++        follow_redirects=False)
++    assert r.status_code == 303, r.text[:500]
++    dbs.expire_all()
++    k = llm_konfig(dbs)
++    assert k.weg_lokal == "abschrift" and k.api_modell_notizen == "" and pruefansicht_art(dbs) == "pflicht"
++
++
++# ---------------------------------------------------------------- Ablaufdatum der Anmeldeschlüssel
++def test_ablaufdatum_und_erinnerung(client, dbs, admin, ntfy):  # noqa: F811
++    from app import anmeldedienste, benachrichtigung
++
++    bald = (utcnow() + timedelta(days=20)).date()
++    r = client.post("/verwaltung/anmeldung/microsoft", data={
++        "csrf": admin, "client_id": "abc", "client_secret": "geheim-geheim", "ablauf": bald.isoformat()},
++        follow_redirects=False)
++    assert r.status_code == 303
++    dbs.expire_all()
++    assert anmeldedienste.ablauf(dbs, "microsoft") == bald
++    seite = client.get("/verwaltung/anmeldung").text
++    assert 'name="ablauf"' in seite and "Schlüssel läuft in 20 Tagen ab" in seite
++    assert "Der Schlüssel für Microsoft läuft in 20 Tagen ab." in client.get("/verwaltung/").text
++    assert client.post("/verwaltung/anmeldung/microsoft", data={
++        "csrf": admin, "client_id": "abc", "ablauf": "kein-datum"}).status_code == 400
++    einrichten(dbs)
++    assert "anmeldeschluessel:microsoft" in benachrichtigung.pruefen(dbs)
++    assert any("Microsoft" in n.get("title", "") for n in ntfy)
++    assert "anmeldeschluessel:microsoft" not in benachrichtigung.pruefen(dbs)  # je Stufe nur einmal
++    meta_schreiben(dbs, "oidc.microsoft.ablauf", (utcnow() + timedelta(days=5)).date().isoformat())
++    dbs.commit()
++    assert "anmeldeschluessel:microsoft" in benachrichtigung.pruefen(dbs)  # 7-Tage-Stufe
++    meta_schreiben(dbs, "oidc.microsoft.ablauf", (utcnow() - timedelta(days=1)).date().isoformat())
++    dbs.commit()
++    assert "anmeldeschluessel:microsoft" in benachrichtigung.pruefen(dbs)  # abgelaufen
++    assert "abgelaufen" in client.get("/verwaltung/anmeldung").text
++    # Dienst ausschalten nimmt das Datum mit
++    client.post("/verwaltung/anmeldung/microsoft", data={"csrf": admin, "entfernen": "1"})
++    dbs.expire_all()
++    assert anmeldedienste.ablauf(dbs, "microsoft") is None and not meta_lesen(dbs, "oidc.microsoft.client_secret")
++
++
++# ---------------------------------------------------------------- Einladungsseite
++def test_einladungsseite_zeigt_kampagnentitel(client, dbs, world):
++    from app.models import Campaign
++
++    titel = dbs.get(Campaign, world["cid"]).title
++    code = client.post(f"{API}/campaigns/{world['cid']}/invites", headers=world["gm"]).json()["code"]
++    r = client.get(f"/einladung/{code}")
++    assert r.status_code == 200 and f"Kampagne: {titel}" in r.text
++    assert r.headers["Cache-Control"] == "no-store"
++    assert titel not in r.text.split("</head>")[0]  # nie in den Vorschau-Angaben
++    assert "Kampagne:" not in client.get("/einladung/RABE-12345678").text
++
++
++# ---------------------------------------------------------------- F1 (Sicherheits-Chat 07.11.)
++def test_kopplungsbefehl_nennt_die_serveradresse(client, admin):  # noqa: F811
++    client.post("/verwaltung/assistent/koppeln", data={"csrf": admin, "weiter": "/verwaltung/transkription"})
++    seite = client.get("/verwaltung/transkription").text
++    assert "--server http://testserver</code>" in seite
++    assert "<dd><code>http://testserver</code></dd>" in seite
+diff --git a/tests/test_server_0495.py b/tests/test_server_0495.py
+index ab1a11c..8e069ec 100644
+--- a/tests/test_server_0495.py
++++ b/tests/test_server_0495.py
+@@ -301,7 +301,7 @@ def test_updates_nur_ueber_das_programm(ep):
+                 follow_redirects=False)
+     assert r.status_code == 303
+     seite = ep.get("/verwaltung/updates")
+-    assert seite.status_code == 200 and "aktualisiert das Taleward-Programm selbst" in seite.text
++    assert seite.status_code == 200 and "aktualisiert sich selbst" in seite.text
+     assert "server-jetzt" not in seite.text
+     csrf = csrf_von(ep.get("/verwaltung/").text)
+     assert ep.post("/verwaltung/updates/server-jetzt", data={"csrf": csrf}).status_code == 404
+diff --git a/tests/test_step1b.py b/tests/test_step1b.py
+index 2b4c105..7fc46cc 100644
+--- a/tests/test_step1b.py
++++ b/tests/test_step1b.py
+@@ -226,7 +226,7 @@ def test_einladungsseite(client, world):
+     code = client.post(f"{API}/campaigns/{world['cid']}/invites", headers=world["gm"]).json()["code"]
+     r = client.get(f"/einladung/{code.lower()}")
+     assert r.status_code == 200 and code in r.text and "In Taleward öffnen" in r.text
+-    assert "Rabenfels" not in r.text  # öffentlich: kein Kampagnentitel
++    assert "Rabenfels" not in r.text.split("</head>")[0]  # 0.4.157: Titel nur im Text, nie in den Vorschau-Angaben
+     assert 'src="data:image/svg+xml' in r.text  # QR-Code mit dem Link, ohne Skript
+     assert client.get("/einladung/GIBTS-NICHT").status_code == 404
+ 
+diff --git a/tests/test_verwaltung2.py b/tests/test_verwaltung2.py
+index eced40c..31d2307 100644
+--- a/tests/test_verwaltung2.py
++++ b/tests/test_verwaltung2.py
+@@ -142,7 +142,8 @@ def test_einladungsseite_fuer_leute_ohne_app(client, admin, einladung):  # noqa:
+     assert 'href="https://drive.example/taleward-0.9.0.apk"' in r.text and "Play Store" in r.text
+     assert f'value="{link}"' in r.text and "gültig bis" in r.text
+     assert 'property="og:image" content="http://testserver/verwaltung/static/marke/og-image.png"' in r.text
+-    assert "Einladung zu Taleward" in r.text and "Rabenfels" not in r.text
++    assert "Einladung zu Taleward" in r.text and "Rabenfels" not in r.text.split("</head>")[0]
++    assert "Kampagne: Rabenfels" in r.text  # 0.4.157: wie die Vorschau der App
+     assert "<script" not in r.text
+     en = client.get(f"/einladung/{einladung}", headers={"Accept-Language": "en"}).text
+     assert "Open in Taleward" in en and "Download the app" in en
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index 6808d25..fe5e349 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -112,7 +112,7 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     code, _ = code_erzeugen(dbs)
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.156"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.157"
+ 
+ 
+ def test_engine_requirements_passen_zu_uv_lock(tmp_path):
+diff --git a/uv.lock b/uv.lock
+index f1026ef..f4cf471 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -2138,7 +2138,7 @@ wheels = [
+ 
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.156"
++version = "0.4.157"
+ source = { editable = "." }
+ dependencies = [
+     { name = "alembic" },
+-- 
+2.43.0
+
