@@ -1,5 +1,6 @@
 name: Taleward-Box
 # Baut das Speicherkarten-Abbild für den Raspberry Pi (box/bauen.sh) und veröffentlicht es als Release „box-v…“.
+# S21.6: Bauen (mit sudo) ohne Schreibrecht; nur der zweite Job veröffentlicht.
 # Läuft von selbst nach „Fassung markieren“ (nur, wenn es für die neueste Fassung noch keine Box gibt) oder von Hand.
 on:
   workflow_dispatch:
@@ -10,6 +11,7 @@ on:
   workflow_run:
     workflows: ["Fassung markieren"]
     types: [completed]
+    branches: [main]
 
 permissions: {}
 
@@ -18,7 +20,11 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04-arm
     permissions:
-      contents: write
+      contents: read
+    outputs:
+      v: ${{ steps.f.outputs.v }}
+      weiter: ${{ steps.f.outputs.weiter }}
+      commit: ${{ steps.f.outputs.commit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -36,6 +42,7 @@ jobs:
           printf '%s' "$V" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "Ungültige Fassung: $V"; exit 1; }
           echo "v=$V" >> "$GITHUB_OUTPUT"
           git checkout -q "$V"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           if [ ! -f box/bauen.sh ]; then
             echo "Fassung $V hat noch keine Taleward-Box."; echo "weiter=0" >> "$GITHUB_OUTPUT"
           elif gh release view "box-$V" >/dev/null 2>&1; then
@@ -51,12 +58,39 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q parted e2fsprogs zstd xz-utils
           sudo bash box/bauen.sh "$V" ausgabe
-      - name: Veröffentlichen
+          sudo chown -R "$(id -u):$(id -g)" ausgabe
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: steps.f.outputs.weiter == '1'
+        with:
+          name: box
+          path: |
+            ausgabe/Taleward-Box-*.img.xz
+            ausgabe/Taleward-Box-*.img.xz.sha256
+            ausgabe/taleward-box.json
+            ausgabe/HINWEISE.md
+          retention-days: 1
+
+  veroeffentlichen:
+    needs: box
+    if: needs.box.outputs.weiter == '1'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: box
+          path: ausgabe
+      - name: Veröffentlichen
         env:
           GH_TOKEN: ${{ github.token }}
-          V: ${{ steps.f.outputs.v }}
+          GH_REPO: ${{ github.repository }}
+          V: ${{ needs.box.outputs.v }}
+          COMMIT: ${{ needs.box.outputs.commit }}
         run: |
-          gh release create "box-$V" --target "$(git rev-parse HEAD)" --title "Taleward-Box $V" \
+          set -euo pipefail
+          printf '%s' "$V" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "Ungültige Fassung: $V"; exit 1; }
+          if gh release view "box-$V" >/dev/null 2>&1; then echo "Die Box für $V gibt es schon."; exit 0; fi
+          gh release create "box-$V" --target "$COMMIT" --title "Taleward-Box $V" \
             --notes-file ausgabe/HINWEISE.md \
             ausgabe/Taleward-Box-*.img.xz ausgabe/Taleward-Box-*.img.xz.sha256 ausgabe/taleward-box.json

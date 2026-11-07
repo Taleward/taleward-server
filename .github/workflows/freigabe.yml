@@ -3,10 +3,14 @@ name: Freigabe
 # „freigabe“, Mail „Review deployments“). Ohne Freigabe installieren Server und Worker die Fassung nicht.
 # Ergebnis: freigabe.txt (Repo, Tag, Commit, SHA-256 aller Anhänge) und freigabe.txt.sig am Release des Tags.
 # Läuft nach „Fassung markieren“ oder von Hand (Actions → Freigabe → Run workflow, Fassung z. B. v0.4.38).
+# S22: Vor der Bestätigung baut der erste Job freigabe.txt und zeigt sie mit den Commits seit der letzten Fassung in
+# der Zusammenfassung des Laufs. Nach „Approve“ baut der zweite Job sie neu; weicht sie ab (Anhang ausgetauscht, Tag
+# verschoben), bricht er ab. Nur Tags, deren Commit auf main liegt.
 on:
   workflow_run:
     workflows: ["Fassung markieren"]
     types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       fassung:
@@ -31,8 +35,9 @@ jobs:
     outputs:
       tag: ${{ steps.f.outputs.tag }}
       commit: ${{ steps.f.outputs.commit }}
+      inhalt: ${{ steps.f.outputs.inhalt }}
     steps:
-      - name: Fassung bestimmen
+      - name: Fassung bestimmen und Freigabe zeigen
         id: f
         env:
           GH_TOKEN: ${{ github.token }}
@@ -40,11 +45,13 @@ jobs:
           EINGABE: ${{ inputs.fassung }}
         run: |
           set -euo pipefail
+          cd "$RUNNER_TEMP"
+          gh api "repos/$GH_REPO/git/matching-refs/tags/$PRAEFIX" --paginate -q '.[].ref' \
+            | sed 's#^refs/tags/##' | grep -E "$MUSTER" | sort -V > tags.txt || true
           if [ -n "${EINGABE:-}" ]; then
             TAG=$EINGABE
           else
-            TAG=$(gh api "repos/$GH_REPO/git/matching-refs/tags/$PRAEFIX" --paginate -q '.[].ref' \
-              | sed 's#^refs/tags/##' | grep -E "$MUSTER" | sort -V | tail -1 || true)
+            TAG=$(tail -1 tags.txt || true)
           fi
           if ! printf '%s' "$TAG" | grep -Eq "$MUSTER"; then
             echo "Keine gültige Fassung gefunden."; exit 0
@@ -53,30 +60,9 @@ jobs:
             echo "$TAG ist schon freigegeben."; exit 0
           fi
           COMMIT=$(gh api "repos/$GH_REPO/commits/$TAG" -q .sha)
-          {
-            echo "### Freigabe für $TAG"
-            echo "Commit: \`$COMMIT\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-          { echo "tag=$TAG"; echo "commit=$COMMIT"; } >> "$GITHUB_OUTPUT"
-
-  unterschreiben:
-    needs: ermitteln
-    if: needs.ermitteln.outputs.tag != ''
-    runs-on: ubuntu-24.04
-    environment: freigabe
-    permissions:
-      contents: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-      TAG: ${{ needs.ermitteln.outputs.tag }}
-      COMMIT: ${{ needs.ermitteln.outputs.commit }}
-    steps:
-      - name: Freigabe schreiben
-        run: |
-          set -euo pipefail
-          cd "$RUNNER_TEMP"
-          [ "$(gh api "repos/$GH_REPO/commits/$TAG" -q .sha)" = "$COMMIT" ] || { echo "Tag hat sich verschoben"; exit 1; }
+          printf '%s' "$COMMIT" | grep -Eq '^[0-9a-f]{40}$' || { echo "Commit von $TAG unbekannt"; exit 1; }
+          STAND=$(gh api "repos/$GH_REPO/compare/$COMMIT...main" -q .status)
+          case "$STAND" in ahead|identical) ;; *) echo "::error::$TAG liegt nicht auf main ($STAND)"; exit 1 ;; esac
           mkdir -p anhaenge
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release view "$TAG" --json assets -q '.assets[].name' > namen.txt
@@ -95,6 +81,68 @@ jobs:
             done
           } > inhalt.txt
           mv inhalt.txt freigabe.txt
+          VORHER=$(grep -B1 -x "$TAG" tags.txt | head -1 || true)
+          {
+            echo "### Freigabe für $TAG"
+            echo "Commit \`$COMMIT\` liegt auf main. Diese freigabe.txt wird nach dem Bestätigen unterschrieben:"
+            echo '```'
+            cat freigabe.txt
+            echo '```'
+            if [ -n "$VORHER" ] && [ "$VORHER" != "$TAG" ]; then
+              echo "Änderungen seit $VORHER:"
+              echo '```'
+              gh api "repos/$GH_REPO/compare/$VORHER...$COMMIT" \
+                -q '.commits[] | .sha[0:7] + " " + (.commit.message | split("\n")[0])' | tail -n 100
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          INHALT=$(sha256sum freigabe.txt | cut -d' ' -f1)
+          { echo "tag=$TAG"; echo "commit=$COMMIT"; echo "inhalt=$INHALT"; } >> "$GITHUB_OUTPUT"
+
+  unterschreiben:
+    needs: ermitteln
+    if: needs.ermitteln.outputs.tag != ''
+    runs-on: ubuntu-24.04
+    environment: freigabe
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.ermitteln.outputs.tag }}
+      COMMIT: ${{ needs.ermitteln.outputs.commit }}
+      INHALT: ${{ needs.ermitteln.outputs.inhalt }}
+    steps:
+      - name: Freigabe neu bauen und vergleichen
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          [ "$(gh api "repos/$GH_REPO/commits/$TAG" -q .sha)" = "$COMMIT" ] || { echo "::error::Tag hat sich verschoben"; exit 1; }
+          STAND=$(gh api "repos/$GH_REPO/compare/$COMMIT...main" -q .status)
+          case "$STAND" in ahead|identical) ;; *) echo "::error::$TAG liegt nicht auf main ($STAND)"; exit 1 ;; esac
+          mkdir -p anhaenge
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release view "$TAG" --json assets -q '.assets[].name' > namen.txt
+            if grep -q . namen.txt; then gh release download "$TAG" --dir anhaenge; fi
+          fi
+          {
+            echo "taleward-freigabe 1"
+            echo "repo $GH_REPO"
+            echo "tag $TAG"
+            echo "commit $COMMIT"
+            for d in anhaenge/*; do
+              [ -f "$d" ] || continue
+              n=$(basename "$d")
+              case "$n" in freigabe.txt|freigabe.txt.sig) continue ;; esac
+              echo "datei $(sha256sum "$d" | cut -d' ' -f1) $n"
+            done
+          } > inhalt.txt
+          mv inhalt.txt freigabe.txt
+          if [ "$(sha256sum freigabe.txt | cut -d' ' -f1)" != "$INHALT" ]; then
+            echo "::error::freigabe.txt weicht von der gezeigten ab – nichts unterschrieben."
+            cat freigabe.txt
+            exit 1
+          fi
           cat freigabe.txt
       - name: Unterschreiben
         env:

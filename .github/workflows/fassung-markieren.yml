@@ -118,7 +118,7 @@ jobs:
               echo "Keine NEU.md für ${TAG#v} – Standardtext."
             fi
             if [ ! -s "$NOTIZEN" ]; then
-              printf '%s\n' "Freigegebene Server-Fassung. Installation und Updates: siehe INSTALLATION.md." > "$NOTIZEN"
+              printf '%s\n' "Server-Fassung – wird erst nach der Freigabe installiert. Installation und Updates: siehe INSTALLATION.md." > "$NOTIZEN"
             fi
             gh release create "$TAG" --verify-tag --latest=false --title "Taleward-Server ${TAG#v}" \
               --notes-file "$NOTIZEN"
