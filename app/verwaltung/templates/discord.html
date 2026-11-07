@@ -1,0 +1,45 @@
+{% extends "basis.html" %}
+{% block titel %}{{ _("Discord-Bot") }}{% endblock %}
+{% block inhalt %}
+<h1>{{ _("Discord-Bot") }}</h1>
+<p class="hilfe">{{ _("Der Bot nimmt Online-Runden im Sprachkanal auf, je Person eine eigene Spur. Aufgenommen wird nur, wer zugestimmt hat. Die Spielleitung verbindet ihre Kampagne selbst mit ihrem Discord-Server.") }}</p>
+{% if not faktor %}<div class="hinweis">{{ _("Einschalten und Schlüssel brauchen den zweiten Faktor.") }} <a href="/verwaltung/anmeldung#zweiter-faktor">{{ _("Zweiten Faktor einrichten") }}</a></div>{% endif %}
+
+<div class="karte" id="schalter">
+  <h2>{{ _("Schalter") }}</h2>
+  <p>{% if an %}<span class="marke-status marke-status--gut">{{ _("eingeschaltet") }}</span>{% else %}<span class="marke-status">{{ _("aus") }}</span>{% endif %}</p>
+  <form method="post" action="/verwaltung/discord/schalter">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="an" value="{{ '0' if an else '1' }}">
+    {% if an %}<button class="tw-btn tw-btn--secondary" type="submit">{{ _("Ausschalten") }}</button>
+    {% else %}<button class="tw-btn tw-btn--primary" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Einschalten") }}</button>{% endif %}
+  </form>
+  <p class="hilfe">{{ _("Ausgeschaltet antwortet der Server dem Bot nicht, und die App zeigt nichts davon.") }}</p>
+</div>
+
+<div class="karte" id="schluessel">
+  <h2>{{ _("Schlüssel für den Bot") }}</h2>
+  {% if neu_klartext %}
+  <div class="meldung" role="status">
+    <p><strong>{{ _("Neuer Schlüssel „{name}“ – nur jetzt sichtbar:", name=neu_name) }}</strong></p>
+    <p class="kopierzeile"><code class="ganz">{{ neu_klartext }}</code></p>
+    <p class="hilfe">{{ _("In die Einstellungen des Bots eintragen (TALEWARD_BOT_SCHLUESSEL). Nicht in Chats oder Bildschirmfotos zeigen.") }}</p>
+  </div>
+  {% endif %}
+  {% if schluessel %}
+  <ul class="liste-av">
+  {% for k in schluessel %}
+    <li><span><strong>{{ k.name }}</strong> · {{ zeit(k.created_at) }}{% if k.revoked_at %} · <span class="marke-status">{{ _("widerrufen") }}</span>{% endif %}</span>
+      {% if not k.revoked_at %}<form method="post" action="/verwaltung/discord/schluessel/{{ k.id }}/widerrufen">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Widerrufen") }}</button></form>{% endif %}</li>
+  {% endfor %}
+  </ul>
+  <p class="hilfe">{{ _("Nach dem Widerrufen ruhen die Verbindungen dieses Schlüssels, bis die Spielleitungen neu verbinden.") }}</p>
+  {% else %}<p class="leise">{{ _("Noch kein Schlüssel.") }}</p>{% endif %}
+  <form class="formular formular--zeile" method="post" action="/verwaltung/discord/schluessel">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>{{ _("Name") }} <input type="text" name="name" maxlength="80" value="Discord-Bot"></label>
+    <button class="tw-btn tw-btn--secondary" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Schlüssel erzeugen") }}</button>
+  </form>
+</div>
+{% endblock %}

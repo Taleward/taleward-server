@@ -338,7 +338,7 @@ def test_discord_verbinden_und_trennen(client, world, dbs, dienst, login):
     lt2 = client.post(f"{API}/me/providers/discord/link", headers=w["gm"]).json()["linkToken"]
     zurueck = anmelden_mit(client, dienst, "discord", purpose="link", link_token=lt2)
     r = client.post(f"{API}/auth/oidc/exchange", json={"ticket": zurueck["ticket"], "verifier": VERIFIER})
-    assert r.status_code == 409 and r.json()["code"] == "provider_linked_elsewhere"
+    assert r.status_code == 409 and r.json()["code"] == "provider_in_use"
     # Mit Discord anmelden → Bens Konto
     zurueck = anmelden_mit(client, dienst, "discord")
     r = client.post(f"{API}/auth/oidc/exchange", json={"ticket": zurueck["ticket"], "verifier": VERIFIER}).json()

@@ -33,6 +33,11 @@ def delete_upload_files(upload_id: str) -> None:
     shutil.rmtree(upload_dir(upload_id), ignore_errors=True)
 
 
+def delete_upload_file(upload_id: str, file_id: str) -> None:
+    """0.4.32: alle Teile einer Datei (Spur) eines Uploads löschen."""
+    shutil.rmtree(upload_dir(upload_id) / file_id, ignore_errors=True)
+
+
 def delete_samples(session_id: str) -> None:
     shutil.rmtree(samples_dir(session_id), ignore_errors=True)
 

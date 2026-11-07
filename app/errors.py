@@ -488,6 +488,23 @@ MESSAGES: dict[str, tuple[str, str]] = {
     "seat_not_open": ("Dieser Platz ist nicht (mehr) frei.", "This seat is not open (any more)."),
     "share_unavailable": ("Teilen geht auf diesem Server gerade nicht. Bitte die Verwaltung des Servers fragen.",
                           "Sharing is not available on this server right now. Please ask the server's operator."),
+    # Discord-Bot (0.4.32)
+    "discord_link_required": ("Verknüpfe zuerst dein Konto mit Discord (Konto → Anmeldung), mit demselben Discord-Konto, "
+                              "das den Befehl getippt hat.",
+                              "First link your account with Discord (Account → Sign-in), using the same Discord account "
+                              "that typed the command."),
+    "discord_mismatch": ("Dieser Link gehört zu einem anderen Discord-Konto als dem, das mit deinem Konto verknüpft ist.",
+                         "This link belongs to a different Discord account than the one linked to your account."),
+    "consent_missing.bot": ("Diese Person hat der Aufnahme noch nicht zugestimmt.",
+                            "This person has not agreed to the recording yet."),
+    "consent_revoked.bot": ("Eine Person hat ihre Zustimmung widerrufen. Ihre Spur ist verworfen.",
+                            "A person has withdrawn their consent. Their track has been discarded."),
+    "wrong_state.bot": ("Diese Aufnahme läuft nicht mehr.", "This recording is no longer running."),
+    "already_recording": ("In dieser Kampagne läuft schon eine Aufnahme.",
+                          "A recording is already running in this campaign."),
+    "too_many_tracks": ("Mehr als 12 Spuren gehen nicht.", "More than 12 tracks are not possible."),
+    "provider_in_use": ("Dieses Discord-Konto ist auf diesem Server schon mit einem anderen Konto verknüpft.",
+                        "This Discord account is already linked to another account on this server."),
     # Namen einmal berichtigen (0.4.31)
     "invalid_name_fix": ("Bitte beide Schreibweisen angeben: verschieden, je 3 bis 64 Zeichen, ohne Zeilenumbruch.",
                          "Please enter both spellings: different, 3 to 64 characters each, without line breaks."),

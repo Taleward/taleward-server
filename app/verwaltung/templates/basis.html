@@ -18,7 +18,7 @@
 {% set gruppen = [
   (_("Betrieb"), [("uebersicht", _("Übersicht")), ("warteschlange", _("Warteschlange")), ("transkription", _("Transkription")), ("zusammenfassung", _("Zusammenfassung"))]),
   (_("Mitglieder"), [("konten", _("Konten")), ("sl-freigaben", _("SL-Freigaben")), ("anmeldung", _("Anmeldung"))]),
-  (_("Server"), [("einstellungen", _("Einstellungen")), ("updates", _("Updates")), ("abrechnung", _("Abrechnung"))]),
+  (_("Server"), [("einstellungen", _("Einstellungen")), ("updates", _("Updates")), ("abrechnung", _("Abrechnung")), ("discord", _("Discord-Bot"))]),
 ] %}
 {% macro bereiche(gruppen, aktiv) %}{% for titel, eintraege in gruppen %}
     <p class="leiste__gruppe">{{ titel }}</p>

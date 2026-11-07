@@ -133,6 +133,8 @@ class Campaign(Base):
     # 0.4.28: Spielende dürfen Einträge vorschlagen (Standard an) und Zählerarten am Charakter als JSON
     # [{id, label, hint}] (leer = aus); beides nur über app/kampagnen_einstellungen.aendern
     player_proposals: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    # 0.4.32: Discord-Bot hält an, wenn jemand ohne Zustimmung in den Sprachkanal kommt
+    discord_pause: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     counter_kinds: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
@@ -261,6 +263,13 @@ class GameSession(Base):
     state_updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
+    # 0.4.32 (Discord-Bot): Runde des Bots mit diesem Schlüssel; Unterbrechung, Start, Ereignisse (Pausen, Ende)
+    bot_key_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    recording_started_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    interrupted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    bot_ereignisse: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bot_gestoppt_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
     attendees: Mapped[list["Attendee"]] = relationship(
         back_populates="session", cascade="all, delete-orphan", order_by="Attendee.position"
     )
@@ -276,10 +285,15 @@ class Attendee(Base):
     guest_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     position: Mapped[int] = mapped_column(Integer, default=0)
     consent: Mapped[bool] = mapped_column(Boolean, default=False)
-    consent_source: Mapped[str] = mapped_column(String(16), default="on_site")  # app | on_site
+    consent_source: Mapped[str] = mapped_column(String(16), default="on_site")  # app | on_site | link (0.4.32)
     consent_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
     session: Mapped[GameSession] = relationship(back_populates="attendees")
+    # 0.4.32 (Discord-Bot): Gast per Zustimmungslink – Prüfsumme der Discord-ID nur bis zum Upload (B7), Figur freiwillig
+    discord_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    character_name: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    mit_spur: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")  # vom Bot als Spur angemeldet
+    consent_fassung: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
 
 class SessionSeen(Base):
@@ -435,6 +449,7 @@ class UploadFile(Base):
     size_bytes: Mapped[int] = mapped_column(Integer)
     mime_type: Mapped[str] = mapped_column(String(100))
     track_member_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    track_attendee_id: Mapped[str | None] = mapped_column(String(36), nullable=True)  # 0.4.32
     chunk_count: Mapped[int] = mapped_column(Integer)
 
 
@@ -1084,3 +1099,71 @@ class NameFixUndo(Base):
     session_id: Mapped[str | None] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=True)
     entry_id: Mapped[str | None] = mapped_column(ForeignKey("entries.id", ondelete="CASCADE"), nullable=True)
     proposal_id: Mapped[str | None] = mapped_column(ForeignKey("proposals.id", ondelete="CASCADE"), nullable=True)
+
+
+# ---------------------------------------------------------------- Discord-Bot (0.4.32, app/discord_bot.py)
+class BotKey(Base):
+    """Schlüssel des Discord-Bots: nur die SHA-256, einmal angezeigt, widerrufbar (B1)."""
+
+    __tablename__ = "bot_keys"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(80))
+    hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
+
+class DiscordLink(Base):
+    """Verbindungslink bzw. Drei-Wörter-Code vom Bot (dasselbe Geheimnis, nur Prüfsummen), einmalig, 15 Minuten."""
+
+    __tablename__ = "discord_links"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    code_hash: Mapped[str] = mapped_column(String(64), index=True)
+    bot_key_id: Mapped[str] = mapped_column(ForeignKey("bot_keys.id", ondelete="CASCADE"), index=True)
+    guild_id: Mapped[str] = mapped_column(String(24))
+    guild_name: Mapped[str] = mapped_column(String(100))
+    discord_user_id: Mapped[str] = mapped_column(String(24), index=True)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    used_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class DiscordConnection(Base):
+    """Kampagne ↔ Discord-Server. Gehört dem Bot-Schlüssel, der den Link ausgestellt hat (Y4), und der SL, die verbunden
+    hat (B5)."""
+
+    __tablename__ = "discord_connections"
+    campaign_id: Mapped[str] = mapped_column(ForeignKey("campaigns.id", ondelete="CASCADE"), primary_key=True)
+    guild_id: Mapped[str] = mapped_column(String(24), index=True)
+    guild_name: Mapped[str] = mapped_column(String(100))
+    bot_key_id: Mapped[str] = mapped_column(ForeignKey("bot_keys.id", ondelete="CASCADE"), index=True)
+    discord_user_id: Mapped[str] = mapped_column(String(24))
+    connected_by_member_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    connected_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class ConsentLink(Base):
+    """Zustimmungslink für eine Discord-ID (nur Prüfsumme) und eine Bot-Runde, einmalig, 15 Minuten."""
+
+    __tablename__ = "consent_links"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
+    discord_hash: Mapped[str] = mapped_column(String(64))
+    anzeigename: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    used_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class DiscordProtokoll(Base):
+    """B12: Verbinden, Lösen, Start, Stopp, Verwerfen, Zustimmungen je Kampagne – ohne Audio, ohne Namen von Gästen."""
+
+    __tablename__ = "discord_protokoll"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    campaign_id: Mapped[str] = mapped_column(ForeignKey("campaigns.id", ondelete="CASCADE"), index=True)
+    was: Mapped[str] = mapped_column(String(40))
+    daten: Mapped[str | None] = mapped_column(Text, nullable=True)
+    at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)

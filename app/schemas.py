@@ -26,7 +26,7 @@ CoverPreset = Literal["meadow", "forest", "desert", "city", "cyber", "mountains"
                       "western", "noir", "space-opera", "orient", "necropolis", "manor", "riverside-mystery"]
 COVER_PRESETS: tuple[str, ...] = CoverPreset.__args__  # type: ignore[attr-defined]
 ProcessingState = Literal[
-    "created", "uploading", "queued", "transcribing", "awaiting_speakers",
+    "created", "recording", "no_recording", "uploading", "queued", "transcribing", "awaiting_speakers",
     "summarizing", "awaiting_review", "published", "failed",
 ]
 
@@ -77,6 +77,7 @@ class ServerInfoOut(ApiModel):
     # öffentliche Adresse (G15) – darum hier ein dict statt eines Modells.
     billing: dict | None = None
     share_keys: list["ShareServerKeyOut"] | None = None  # 0.4.30: Signierschlüssel für geteilte Kapitel
+    discord_bot: bool = False  # 0.4.32: Betreiber hat den Discord-Bot eingeschaltet
 
 
 class ShareServerKeyOut(ApiModel):
@@ -524,8 +525,9 @@ class AttendeeOut(ApiModel):
     id: str = ""  # 0.4.32: Kennung des Anwesenden in dieser Runde
     member_id: str | None = None  # genau eines von beiden wird ausgegeben
     guest_name: str | None = None
+    character_name: str | None = None  # 0.4.32: nur Gäste per Zustimmungslink
     consent: bool
-    consent_source: Literal["app", "on_site"]
+    consent_source: Literal["app", "on_site", "link"]
     consent_at: datetime | None
 
 
@@ -554,6 +556,8 @@ class SessionSummaryOut(ApiModel):
 class SessionOut(SessionSummaryOut):
     campaign_id: str
     source: Literal["table", "discord"] | None
+    interrupted: bool = False  # 0.4.32
+    recording_started_at: datetime | None = None  # 0.4.32
     transcription_engine: Literal["local", "external"] | None
     attendees: list[AttendeeOut]
     duration_seconds: int | None
@@ -1095,6 +1099,7 @@ class CampaignSettingsIn(ApiModel):
     allow_character_analysis: bool | None = None
     player_proposals: bool | None = None  # 0.4.28
     counter_kinds: list[CounterKind] | None = Field(default=None, max_length=8)  # 0.4.28, ganze Liste
+    discord_pause_on_unconsented: bool | None = None  # 0.4.32
 
 
 class CampaignSettingsPatch(CampaignSettingsIn):
@@ -1114,6 +1119,7 @@ class CampaignSettingsOut(ApiModel):
     allow_character_analysis: bool
     player_proposals: bool = True  # 0.4.28
     counter_kinds: list[CounterKind] = []  # 0.4.28
+    discord_pause_on_unconsented: bool = False  # 0.4.32
     character_sheet_limits: SheetLimitsOut | None
     locks: list[SettingLockOut]
     updated_at: datetime

@@ -22,7 +22,8 @@ from app.models import Campaign, EinstellungsProtokoll, Member, User
 
 # Name in der Schnittstelle → Spalte der Kampagne
 FELDER = {"allowCloudSummary": "allow_cloud_summary", "allowExternalTranscription": "allow_external_transcription",
-          "allowCharacterAnalysis": "allow_character_analysis", "playerProposals": "player_proposals"}
+          "allowCharacterAnalysis": "allow_character_analysis", "playerProposals": "player_proposals",
+          "discordPauseOnUnconsented": "discord_pause"}
 # Einschalten nur mit Zustimmung zu den Nutzungsbedingungen (Cloud und Auswertung)
 MIT_BEDINGUNGEN = ("allowCloudSummary", "allowExternalTranscription", "allowCharacterAnalysis")
 PROTOKOLL_HOECHSTENS = 100
@@ -104,6 +105,7 @@ def lesen(db: Session, c: Campaign, me: Member) -> schemas.CampaignSettingsOut:
         allow_external_transcription=bool(c.allow_external_transcription),
         allow_character_analysis=bool(c.allow_character_analysis), character_sheet_limits=_bogen_grenzen(db, c),
         player_proposals=c.player_proposals is not False, counter_kinds=spielende_arten(c),
+        discord_pause_on_unconsented=bool(c.discord_pause),
         locks=[schemas.SettingLockOut(field=f, value=w, reason=g) for f, (w, g) in sperren(db).items()],
         updated_at=c.settings_updated_at or c.created_at,
         updated_by_member_id=c.settings_updated_by if me.role == "gm" else None)

@@ -400,7 +400,8 @@ def _tausch(body: schemas.OidcExchangeRequest, request: Request, db: Session) ->
             raise errors.bad_request("ticket_invalid")
         if vorhanden is not None and vorhanden.user_id != u.id:
             db.rollback()
-            raise errors.conflict("provider_linked_elsewhere")
+            # 0.4.32: für Discord eigener Code (je Discord-ID höchstens ein Konto, ohne zu sagen, welches)
+            raise errors.conflict("provider_in_use" if dienst == "discord" else "provider_linked_elsewhere")
         eigene = db.scalar(select(AuthMethod).where(AuthMethod.user_id == u.id, AuthMethod.kind == kind))
         neu_verknuepft = eigene is None or eigene.secret != sub
         if eigene is None:

@@ -2149,6 +2149,10 @@ def einbinden(app: FastAPI) -> None:
     from app.verwaltung import abrechnung_seite, guthaben
 
     app.include_router(abrechnung_seite.router)  # 0.4.85: Verwaltung → Abrechnung
+    from app.verwaltung import discord_seite
+
+    app.include_router(discord_seite.router)  # 0.4.155: Verwaltung → Discord-Bot
+    app.include_router(discord_seite.seiten)
     guthaben.einbinden(app)  # 0.4.85: Seite „Guthaben“ für Spielleitungen
     app.include_router(assistent.router)
     app.include_router(assistent.oeffentlich)

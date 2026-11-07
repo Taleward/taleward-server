@@ -197,4 +197,4 @@ def test_umzugsdatei_kennt_mehrere_empfaenger():
 def test_api_version():
     from app.routers.auth import API_VERSION
 
-    assert API_VERSION == "0.4.31"
+    assert API_VERSION == "0.4.32"

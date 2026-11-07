@@ -6,12 +6,13 @@ import threading
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, Request, Response
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import errors, schemas, storage
-from app.access import current_user, load_session_gm, membership
+from app.access import _bearer, current_user, load_session_gm, membership
 from app.config import get_settings
 from app.db import get_db, utcnow
 from app.errors import sprache
@@ -29,6 +30,17 @@ class FileIn(schemas.ApiModel):
     size_bytes: int = Field(gt=0)
     mime_type: str = Field(min_length=1, max_length=100)
     track_member_id: str | None = None
+    track_attendee_id: str | None = Field(default=None, max_length=64)  # 0.4.32
+
+
+def nutzer_oder_bot(request: Request, creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
+                    db: Session = Depends(get_db)):
+    """0.4.32: Upload mit Nutzer-Token (SL) oder mit dem Schlüssel des Discord-Bots (nur eigene Runden)."""
+    if creds is None and request.headers.get("x-taleward-bot"):
+        from app.routers.discord import bot_schluessel
+
+        return None, bot_schluessel(request, db)
+    return current_user(request, creds, db), None
 
 
 class UploadStart(schemas.ApiModel):
@@ -68,8 +80,8 @@ def _start_out(up: Upload) -> UploadStartOut:
 
 
 def _gleiche_dateien(up: Upload, body: UploadStart) -> bool:
-    alt = [(f.file_name, f.size_bytes, f.track_member_id) for f in up.files]
-    neu = [(f.file_name, f.size_bytes, f.track_member_id) for f in body.files]
+    alt = [(f.file_name, f.size_bytes, f.track_attendee_id or f.track_member_id) for f in up.files]
+    neu = [(f.file_name, f.size_bytes, f.track_attendee_id or f.track_member_id) for f in body.files]
     return up.source == body.source and alt == neu
 
 
@@ -84,26 +96,54 @@ def _pruefe_dateien(s: GameSession, body: UploadStart) -> None:
         if f.size_bytes > maxb:
             raise errors.ApiError(413, "file_too_large", name=f.file_name)
     if body.source == "table":
-        if any(f.track_member_id for f in body.files):
+        if any(f.track_member_id or f.track_attendee_id for f in body.files):
             raise errors.bad_request("track_member_unexpected")
     else:
-        anwesend = {a.member_id for a in s.attendees if a.member_id}
-        ids = [f.track_member_id for f in body.files]
+        anwesend = {a.member_id: a.member_id for a in s.attendees if a.member_id}
+        anwesend.update({a.id: a.member_id for a in s.attendees})  # 0.4.32: trackAttendeeId (auch Gäste)
+        ids = [(f.track_attendee_id or None) if f.track_attendee_id else f.track_member_id for f in body.files]
         if any(i is None or i not in anwesend for i in ids) or len(set(ids)) != len(ids):
+            raise errors.bad_request("track_member_invalid")
+        if any(f.track_member_id and f.track_attendee_id for f in body.files):
             raise errors.bad_request("track_member_invalid")
 
 
+def _spur_mitglied(s: GameSession, f: FileIn) -> str | None:
+    """trackMemberId der Datei – bei trackAttendeeId das Mitglied dieses Anwesenden (Gäste: keins)."""
+    if f.track_attendee_id:
+        a = next((x for x in s.attendees if x.id == f.track_attendee_id), None)
+        return a.member_id if a else None
+    return f.track_member_id
+
+
 @router.post("/sessions/{sessionId}/uploads", status_code=201, response_model=UploadStartOut)
-def start_upload(sessionId: str, body: UploadStart, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    s = load_session_gm(db, sessionId, user).session
-    check_upload_consent(db, s)
-    offen = db.scalar(select(Upload).where(Upload.session_id == s.id, Upload.state == "open"))
-    if offen is not None:
-        if _gleiche_dateien(offen, body):
-            return _start_out(offen)  # App setzt einen abgebrochenen Upload fort
-        raise errors.conflict("upload_in_progress")
-    if s.state not in ("created", "failed"):
-        raise errors.conflict("invalid_state", "invalid_state.upload")
+def start_upload(sessionId: str, body: UploadStart, wer=Depends(nutzer_oder_bot), db: Session = Depends(get_db)):
+    user, bot = wer
+    if bot is not None:  # 0.4.32 (B9, Y3): nur eigene Runden, nur Spuren mit Zustimmung
+        from app import discord_bot
+
+        s = db.get(GameSession, sessionId)
+        if s is None or s.bot_key_id != bot.id:
+            raise errors.not_found("session")
+        if body.source != "discord":
+            raise errors.bad_request("track_member_invalid")
+        offen = db.scalar(select(Upload).where(Upload.session_id == s.id, Upload.state == "open"))
+        if offen is not None:
+            if _gleiche_dateien(offen, body):
+                return _start_out(offen)
+            raise errors.conflict("upload_in_progress")
+        discord_bot.upload_pruefen(db, bot, s, body.files)
+    else:
+        s = load_session_gm(db, sessionId, user).session
+        check_upload_consent(db, s)
+        offen = db.scalar(select(Upload).where(Upload.session_id == s.id, Upload.state == "open"))
+        if offen is not None:
+            if _gleiche_dateien(offen, body):
+                return _start_out(offen)  # App setzt einen abgebrochenen Upload fort
+            raise errors.conflict("upload_in_progress")
+        # 0.4.32: Bot-Runde ohne Ton (no_recording) – die SL kann von Hand hochladen
+        if s.state not in ("created", "failed", "no_recording"):
+            raise errors.conflict("invalid_state", "invalid_state.upload")
     _pruefe_dateien(s, body)
     from app import abrechnung
 
@@ -111,6 +151,8 @@ def start_upload(sessionId: str, body: UploadStart, user: User = Depends(current
     if wartend is not None:
         from app.access import player_can_see_session
 
+        if user is None:
+            raise errors.ApiError(409, "budget_recording_waiting")
         m = membership(db, wartend.campaign_id, user)  # wie GET /sessions/{id}: sonst fehlt die Angabe
         sichtbar = m is not None and (m.role == "gm" or player_can_see_session(wartend))
         raise errors.ApiError(409, "budget_recording_waiting",
@@ -127,7 +169,8 @@ def start_upload(sessionId: str, body: UploadStart, user: User = Depends(current
         up.spans = spielende.spannen_pruefen(body.spans, s.played_at)
     up.files = [
         UploadFile(position=i, file_name=f.file_name, size_bytes=f.size_bytes, mime_type=f.mime_type,
-                   track_member_id=f.track_member_id, chunk_count=math.ceil(f.size_bytes / chunk))
+                   track_member_id=_spur_mitglied(s, f), track_attendee_id=f.track_attendee_id or None,
+                   chunk_count=math.ceil(f.size_bytes / chunk))
         for i, f in enumerate(body.files)
     ]
     db.add(up)
@@ -140,11 +183,17 @@ def start_upload(sessionId: str, body: UploadStart, user: User = Depends(current
     return _start_out(up)
 
 
-def _load_upload(db: Session, upload_id: str, user: User) -> tuple[Upload, GameSession]:
+def _load_upload(db: Session, upload_id: str, user: User | None, bot=None) -> tuple[Upload, GameSession]:
     up = db.get(Upload, upload_id)
     if up is None:
         raise errors.not_found()
     s = db.get(GameSession, up.session_id)
+    if bot is not None:  # 0.4.32: der Bot nur bei Runden, die er selbst angelegt hat, und nur mit gültiger Verbindung
+        from app import discord_bot
+
+        if s.bot_key_id != bot.id or discord_bot.verbindung(db, s.campaign_id) is None:
+            raise errors.not_found()
+        return up, s
     m = membership(db, s.campaign_id, user)
     if m is None or m.role != "gm":  # Uploads gehören der SL; für alle anderen existieren sie nicht
         raise errors.not_found()
@@ -161,14 +210,19 @@ def _expected_size(up: Upload, f: UploadFile, index: int) -> int:
 async def put_chunk(
     uploadId: str, fileId: str, index: int, request: Request,
     x_chunk_sha256: str | None = Header(default=None),
-    user: User = Depends(current_user), db: Session = Depends(get_db),
+    wer=Depends(nutzer_oder_bot), db: Session = Depends(get_db),
 ):
-    up, _ = _load_upload(db, uploadId, user)
+    user, bot = wer
+    up, _ = _load_upload(db, uploadId, user, bot)
     f = next((x for x in up.files if x.id == fileId), None)
     if f is None:
         raise errors.not_found()
     if up.state != "open":
         raise errors.conflict("upload_closed")
+    if f.track_attendee_id:  # 0.4.32 (Y3, B8): Zustimmung bei jedem Teil
+        from app import discord_bot
+
+        discord_bot.teil_pruefen(db, up, f)
     if index < 0 or index >= f.chunk_count:
         raise errors.bad_request("chunk_index_invalid", index=index)
     erwartet = _expected_size(up, f, index)
@@ -202,8 +256,8 @@ def _missing(up: Upload) -> dict[str, list[int]]:
 
 
 @router.get("/uploads/{uploadId}", response_model=UploadStatusOut)
-def upload_status(uploadId: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    up, _ = _load_upload(db, uploadId, user)
+def upload_status(uploadId: str, wer=Depends(nutzer_oder_bot), db: Session = Depends(get_db)):
+    up, _ = _load_upload(db, uploadId, *wer)
     fehlend = _missing(up) if up.state == "open" else {f.id: [] for f in up.files}
     return UploadStatusOut(files=[MissingOut(file_id=k, missing_chunks=v) for k, v in fehlend.items()])
 
@@ -248,8 +302,15 @@ def _messen(db: Session, up: Upload):
 
 
 @router.post("/uploads/{uploadId}/complete", status_code=202, response_model=schemas.ProcessingStatusOut)
-def complete(uploadId: str, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    up, s = _load_upload(db, uploadId, user)
+def complete(uploadId: str, request: Request, wer=Depends(nutzer_oder_bot), db: Session = Depends(get_db)):
+    user, bot = wer
+    up, s = _load_upload(db, uploadId, user, bot)
+    if bot is not None:
+        from app import discord_bot
+
+        user = discord_bot.sl_konto(db, s)  # Stand wie für die SL (Guthaben, Hinweise)
+        if up.state == "open":
+            discord_bot.abschluss_pruefen(db, s, up)
     if up.state == "completed":
         return processing_status(db, s, sprache(request), user)  # doppelt abgeschickt – harmlos
     if up.state == "measuring":
@@ -263,7 +324,8 @@ def complete(uploadId: str, request: Request, user: User = Depends(current_user)
     anzahl = sum(len(v) for v in _missing(up).values())
     if anzahl:
         raise errors.conflict("chunks_missing", count=anzahl)
-    check_upload_consent(db, s)  # Widerruf während des Hochladens
+    if bot is None:
+        check_upload_consent(db, s)  # Widerruf während des Hochladens
     from app import abrechnung
 
     if abrechnung.an(db):  # 0.4.85: Länge selbst messen (Schätzung der Kosten) und die feste Obergrenze je Runde
@@ -286,6 +348,10 @@ def complete(uploadId: str, request: Request, user: User = Depends(current_user)
             raise errors.conflict("recording_too_long", stunden=abrechnung.MAX_AUFNAHME_SEKUNDEN // 3600)
     up.state = "completed"
     up.completed_at = utcnow()
+    if s.bot_key_id:
+        from app import discord_bot
+
+        discord_bot.gaeste_vergessen(db, s)  # B7: Discord-Prüfsummen der Gäste nur bis zum Upload
     create_transcribe_job(db, s, up)
     db.commit()
     return processing_status(db, s, sprache(request), user)

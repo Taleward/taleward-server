@@ -143,6 +143,9 @@ def set_recording_consent(db: Session, me: Member, granted: bool) -> None:
             return
         me.recording_consent_at = None
         action = "revoked"
+        from app import discord_bot
+
+        discord_bot.widerruf_in_der_app(db, me)  # 0.4.32 (B8): Spur in laufenden Bot-Runden sofort verwerfen
     db.add(ConsentLog(campaign_id=me.campaign_id, member_id=me.id, user_id=me.user_id, action=action,
                       recorded_by_user_id=me.user_id, at=now))
 
@@ -295,6 +298,8 @@ def attendee_out(a: Attendee) -> schemas.AttendeeOut:
         daten["member_id"] = a.member_id
     else:
         daten["guest_name"] = a.guest_name
+        if a.character_name:  # 0.4.32: nur Gäste per Zustimmungslink
+            daten["character_name"] = a.character_name
     return schemas.AttendeeOut(**daten)
 
 
@@ -307,6 +312,7 @@ def session_out(s: GameSession, db: Session | None = None, me: Member | None = N
     return schemas.SessionOut(
         id=s.id, number=s.number, title=s.title, played_at=s.played_at, state=s.state, unread_comments=ungelesen,
         campaign_id=s.campaign_id, source=s.source, transcription_engine=s.transcription_engine, attendees=[attendee_out(a) for a in s.attendees],
+        interrupted=bool(s.interrupted), recording_started_at=s.recording_started_at,
         duration_seconds=s.duration_seconds, audio_deleted_at=s.audio_deleted_at, published_at=s.published_at,
     )
 

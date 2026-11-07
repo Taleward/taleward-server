@@ -481,7 +481,7 @@ def absatz_finden(belege: list[tuple[int, float]], sekunde: float) -> int | None
 def live_session_id(db: Session, c: Campaign, me: Member) -> str | None:
     grenze = utcnow() - timedelta(hours=LIVE_STUNDEN)
     s = db.scalar(select(GameSession).where(GameSession.campaign_id == c.id,
-                                            GameSession.state.in_(("created", "uploading")),
+                                            GameSession.state.in_(("created", "recording", "uploading")),
                                             GameSession.played_at >= grenze)
                   .order_by(GameSession.played_at.desc()).limit(1))
     if s is None:

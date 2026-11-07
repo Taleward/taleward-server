@@ -53,7 +53,7 @@ def test_leiste_menue_und_symbole(client, admin):  # noqa: F811
     assert re.findall(r'<p class="leiste__gruppe">([^<]+)</p>', leiste) == ["Betrieb", "Mitglieder", "Server"]
     assert re.findall(r'href="/verwaltung/(\w*)"', leiste)[1:] == [
         "", "warteschlange", "transkription", "zusammenfassung", "konten", "anmeldung", "einstellungen", "updates",
-        "abrechnung"]
+        "abrechnung", "discord"]
     assert 'class="kopf"' not in seite and "abmelden" in leiste  # keine dunkle Kopfleiste mehr
     assert '<details class="menue"><summary>' in seite  # am Handy, ohne JavaScript
     assert seite.count('aria-current="page"') == 3  # Leiste, eingeklapptes Menü und (0.4.131) Reiter

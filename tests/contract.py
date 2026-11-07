@@ -35,8 +35,9 @@ OPTIONAL_FIELDS = {"characterBackstory", "gmNotes", "hiddenFromMemberIds", "memb
                    "gmWarnings",  # 0.4.21: nur für die SL, für Spieler weggelassen
                    "counters", "openPlayerProposals",  # 0.4.28: nur Person selbst bzw. SL, sonst weggelassen
                    "shareKey",  # 0.4.30: nur GET /campaigns/{id}, nur das eigene Mitglied
-                   # 0.4.32 (Discord-Bot): erst mit dem Bau des Bots; bis dahin fehlt = aus bzw. keine Bot-Runde
-                   "interrupted", "recordingStartedAt", "characterName", "discordBot", "discordPauseOnUnconsented",
+                   # 0.4.32: characterName nur bei Gästen per Link; Vorschau eines Verbindungslinks ohne passende
+                   # Discord-ID nur {linked: false}
+                   "characterName", "guildName", "expiresAt", "campaigns",
                    # 0.4.31: nur, wo es zutrifft (Treffer-Ort, Rückgängig, vorhandene Regel)
                    "sessionId", "sessionNumber", "entryId", "proposalId", "readByPlayers", "excerpts", "undoUntil",
                    "undoneAt", "existingRule", "suggestedCorrect", "suggestionSource", "ruleId",

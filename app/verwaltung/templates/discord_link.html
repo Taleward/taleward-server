@@ -1,0 +1,28 @@
+{% extends "basis.html" %}
+{% block titel %}{% if art == "verbinden" %}{{ _("Kampagne mit Discord verbinden") }}{% else %}{{ _("Der Aufnahme zustimmen") }}{% endif %}{% endblock %}
+{% block inhalt %}
+<div class="anmeldung">
+  {% include "_kopf_marke.html" %}
+  <div class="karte">
+    {% if gueltig %}
+    {% if art == "verbinden" %}
+    <h2>{{ _("Kampagne mit Discord verbinden") }}</h2>
+    <p>{{ _("Öffne den Link in Taleward und wähle dort die Kampagne. Das geht nur mit dem Konto, das mit deinem Discord-Konto verknüpft ist.") }}</p>
+    {% else %}
+    <h2>{{ _("Der Aufnahme zustimmen") }}</h2>
+    <p>{{ _("Die Runde im Discord wird aufgenommen. Deine Stimme kommt nur dazu, wenn du zustimmst – in Taleward oder hier im Browser.") }}</p>
+    {% endif %}
+    <p class="leise">{{ _("Server: {name} · {betreiber}", name=angaben.server_name, betreiber=angaben.server_operator) }}</p>
+    <div class="knopfstapel">
+      <a class="tw-btn tw-btn--primary" href="{{ app_link }}">{{ _("In Taleward öffnen") }}</a>
+      {% if browser_link %}<a class="tw-btn tw-btn--secondary" href="{{ browser_link }}" rel="noopener">{% if art == "zustimmen" %}{{ _("Im Browser zustimmen") }}{% else %}{{ _("Im Browser öffnen") }}{% endif %}</a>{% endif %}
+    </div>
+    <p class="hilfe">{{ _("Der Link gilt 15 Minuten und nur einmal.") }}</p>
+    {% else %}
+    <h2>{{ _("Dieser Link gilt nicht") }}</h2>
+    <p>{{ _("Hol dir im Discord mit dem Befehl einen neuen Link.") }}</p>
+    {% endif %}
+  </div>
+  <p class="leise zentriert">{% set ds = angaben.privacy_policy_url|datenschutz_link %}{% if ds %}<a href="{{ ds }}" rel="noopener">{{ _("Datenschutz") }}</a> · {% endif %}{% include "_sprachen.html" %}</p>
+</div>
+{% endblock %}
