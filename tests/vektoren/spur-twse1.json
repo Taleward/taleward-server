@@ -1,0 +1,20 @@
+{
+  "hinweis": "Testschlüssel, niemals produktiv verwenden. Format: siehe docs/spuren-verschluesselt.md",
+  "kem": "DHKEM(X25519, HKDF-SHA256)",
+  "kdf": "HKDF-SHA256",
+  "aead": "AES-256-GCM",
+  "hpkeModus": "base",
+  "info": "taleward-spur-1",
+  "privateKeyHex": "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a",
+  "publicKeyHex": "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a",
+  "publicKeyBase64": "hSDwCYkwp1R0i33ctD73Wg2/Og0mOBr066SpjqqbTmo=",
+  "keyId": "300c9c9603b92a4b39ed3958bf9240114804db4fd373012c0ca47432d63425ae",
+  "sessionId": "ses_testvektor_0001",
+  "attendeeId": "att_testvektor_0001",
+  "chunkSize": 1024,
+  "abschnitte": 4,
+  "klartextBytes": 3971,
+  "klartextSha256": "9104292d51d7b39e0c7bac662c22ba80d6cee1c43e8e77b7ac0c1f474a55a734",
+  "dateiBytes": 4212,
+  "dateiSha256": "f5187ad14c9183067ad310bd6271a0d3f09e6a8bf6da6f5246e7043311ab522e"
+}

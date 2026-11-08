@@ -13,6 +13,7 @@ SL_ID = "222222222222222222"
 BEN_ID = "333333333333333333"
 GAST_ID = "444444444444444444"
 FREMD_ID = "555555555555555555"
+TWSE = "application/vnd.taleward.spur-verschluesselt"  # 0.4.34: der Bot lädt nur verschlüsselt hoch
 
 
 def _discord(dbs, user_name, did):
@@ -160,8 +161,8 @@ def test_bereitschaft_mitglied_gast_und_widerruf_in_der_app(client, bot, dbs):
     ga = client.post(f"{API}/bot/sessions/{sid}/attendees", json={"discordUserId": GAST_ID}, headers=b["h"]).json()
     # Upload beider Spuren beginnt, Ben widerruft in der App → seine Spur ist weg, weitere Teile 409
     r = client.post(f"{API}/sessions/{sid}/uploads", json={"source": "discord", "files": [
-        {"fileName": "ben.ogg", "sizeBytes": 10, "mimeType": "audio/ogg", "trackAttendeeId": a["attendeeId"]},
-        {"fileName": "gast.ogg", "sizeBytes": 10, "mimeType": "audio/ogg", "trackAttendeeId": ga["attendeeId"]}]},
+        {"fileName": "ben.twse", "sizeBytes": 10, "mimeType": TWSE, "trackAttendeeId": a["attendeeId"]},
+        {"fileName": "gast.twse", "sizeBytes": 10, "mimeType": TWSE, "trackAttendeeId": ga["attendeeId"]}]},
         headers=b["h"])
     assert r.status_code == 201, r.text
     up = r.json()

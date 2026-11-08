@@ -185,6 +185,16 @@ def _beim_anbieter(db: Session, v: Bezahlvorgang, cent: int) -> None:
     r.raise_for_status()
 
 
+def _sicher_abgelehnt(fehler: Exception) -> bool:
+    """S64.1: Nur wenn sicher nichts beim Anbieter angekommen ist bzw. er klar abgelehnt hat (4xx), darf die Sperre weg.
+    ValueError kommt vor dem Absenden (Bezug oder Anbieter passt nicht)."""
+    import httpx
+
+    if isinstance(fehler, httpx.HTTPStatusError):
+        return 400 <= fehler.response.status_code < 500
+    return type(fehler) is ValueError
+
+
 @dataclass
 class Ergebnis:
     angestossen_cent: int = 0  # so viel Guthaben geht mit den Meldungen zurück
@@ -231,8 +241,11 @@ def erstatten(db: Session, g: Guthaben, von: str, erneut: bool = False) -> Ergeb
         try:
             _beim_anbieter(db, v, t.beim_anbieter_cent)
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as fehler:
-            v.erstattung_offen_cent = None  # nichts angestoßen – Sperre wieder weg
-            v.erstattung_offen_at = None
+            if _sicher_abgelehnt(fehler):  # nichts angestoßen – Sperre wieder weg
+                v.erstattung_offen_cent = None
+                v.erstattung_offen_at = None
+            # S64.1: Zeitüberschreitung, Verbindungsfehler oder 5xx – vielleicht kam die Erstattung doch an. Sperre bleibt,
+            # bis die Meldung kommt oder die Verwaltung nach einem Blick ins Dashboard „Erneut anstoßen“ wählt.
             e.fehlgeschlagen.append(t.zahlung_ref)
             abrechnung.protokoll(db, von, "erstattung_fehlgeschlagen", g.id, vorgang=v.id,
                                  grund=type(fehler).__name__)

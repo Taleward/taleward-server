@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Taleward API
-  version: 0.4.33
+  version: 0.4.34
   description: |
     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
 
@@ -312,6 +312,13 @@ info:
     Änderungen in 0.4.33 (Verlauf für die SL): GET /campaigns/{id}/discord/log zeigt der SL, wann die Kampagne mit
     Discord verbunden oder gelöst wurde, wann Bot-Aufnahmen liefen und wann über einen Link zugestimmt wurde – ohne Namen,
     ohne Discord-Kennungen, ohne Audio. Ältere Server antworten 404, die App zeigt dann keinen Verlauf.
+    Änderungen in 0.4.34 (Spuren des Bots verschlüsselt): Der Bot legt Tonspuren bis zum Hochladen nur verschlüsselt ab,
+    mit einem öffentlichen Schlüssel des Servers (Schema TrackKey), den er nur in der Antwort von
+    POST /bot/campaigns/{campaignId}/sessions bekommt. Nur der Server kann die Spuren öffnen. Mit dem Bot-Schlüssel nimmt
+    der Upload ab 0.4.34 nur noch verschlüsselte Spuren an (mimeType application/vnd.taleward.spur-verschluesselt,
+    Format „TWSE1“, beschrieben beim Upload); der Server öffnet sie beim Abschluss und verwirft ungültige Spuren
+    (400 track_invalid). Uploads aus der App ändern sich nicht. App-Oberfläche unverändert; ältere Bots ohne trackKey
+    nehmen gegen einen 0.4.34-Server nicht auf.
 
 servers:
   - url: https://taleward.example.org/api/v1
@@ -2487,6 +2494,27 @@ paths:
         Spur. Alle Spuren beginnen beim Startton und sind gleich lang (Pausen und Lücken mit Stille
         aufgefüllt). Höchstens 12 Spuren, 6 Stunden; jede Datei einzeln gegen die Upload-Grenze (413), gedacht sind etwa
         25 MB je Person und Stunde.
+
+        **Ab 0.4.34 nur verschlüsselt mit dem Bot-Schlüssel.** Jede Datei hat `mimeType`
+        `application/vnd.taleward.spur-verschluesselt` und einen Namen auf `.twse`; andere Dateien mit dem Bot-Schlüssel
+        → 400 `track_unencrypted`. Ohne Bot-Schlüssel (App, SL von Hand) ist dieser `mimeType` nicht erlaubt (400). Die
+        Datei beschreibt sich selbst; Schlüsselkennung und HPKE-Kapsel stehen nur im Dateikopf, nicht im JSON (eine
+        Quelle der Wahrheit). Format „TWSE1“ (alle Zahlen big-endian):
+        - Kopf: Kennung `TWSE1` (5 Byte ASCII) ‖ keyId (32 Byte, SHA-256 des öffentlichen Schlüssels, siehe TrackKey) ‖
+          `enc` (32 Byte, HPKE-Kapsel) ‖ versiegelter Inhaltsschlüssel (48 Byte) ‖ u32 chunkSize (Klartext je Abschnitt;
+          der Bot nimmt 65 536, der Server nimmt 1 024 bis 1 048 576 an) ‖ sessionId und attendeeId (je 1 Byte Länge,
+          dann ASCII).
+        - Inhaltsschlüssel: je Spur frisch, 256 Bit Zufall, versiegelt mit HPKE Basismodus (RFC 9180)
+          DHKEM(X25519, HKDF-SHA256) / HKDF-SHA256 / AES-256-GCM, `info` = `taleward-spur-1`, AAD = `TWSE1` ‖ keyId ‖
+          sessionId ‖ attendeeId.
+        - Abschnitte: je u32 Länge des Geheimtexts samt Tag, dann AES-256-GCM mit dem Inhaltsschlüssel, Nonce = 4 Nullbytes
+          ‖ u64 Nummer (ab 0), AAD = `TWSE1` ‖ sessionId ‖ attendeeId ‖ u64 Nummer ‖ letzter (1 Byte, 0/1) ‖ u32
+          Klartextlänge. Jeder Abschnitt außer dem letzten hat genau chunkSize Byte Klartext; der letzte trägt
+          „letzter“ = 1 und darf leer sein; danach folgt nichts mehr.
+        Der Klartext ist eine Ogg/Opus-Spur wie bisher. Genaue Byte-Folge und gemeinsamer Testvektor: Bot-Repo
+        `docs/spuren-verschluesselt.md` und `werkzeuge/testvektor/` (Server und Bot prüfen gegen denselben Vektor).
+        Die Upload-Grenze (413) und die Teile gelten für die verschlüsselte Datei (etwa 0,03 % größer als der Klartext);
+        die Länge (6 Stunden, `recording_too_long`) misst der Server nach dem Öffnen.
       requestBody:
         required: true
         content:
@@ -2510,7 +2538,10 @@ paths:
                         description: Nur bei source=discord – welches Mitglied auf dieser Spur spricht
                       trackAttendeeId:
                         type: string
-                        description: Ab 0.4.32, nur bei source=discord – Anwesender (Mitglied oder Gast, Attendee.id)
+                        description: |
+                          Ab 0.4.32, nur bei source=discord – Anwesender (Mitglied oder Gast, Attendee.id). Ab 0.4.34 muss
+                          er bei verschlüsselten Spuren mit der attendeeId im Dateikopf übereinstimmen (geprüft beim
+                          Abschluss, sonst `track_invalid`).
                 spans:
                   type: array
                   maxItems: 500
@@ -2628,6 +2659,19 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ProcessingStatus" }
+        "400":
+          description: |
+            Ab 0.4.34, nur bei verschlüsselten Spuren des Bots: `track_invalid` – mindestens eine Spur ließ sich nicht
+            öffnen (unbekannte oder abgelaufene keyId, verändertes oder fehlendes Byte, gekürzt ohne letzten Abschnitt,
+            Abschnitte vertauscht, sessionId/attendeeId im Kopf passen nicht zur Runde bzw. zu `trackAttendeeId`).
+            Der Server verwirft genau diese Spuren samt Teilen (Verlauf `track_discarded`); `details.attendeeIds` nennt sie.
+            Der Upload bleibt offen: Ein erneuter Abschluss läuft mit den übrigen Spuren weiter. Waren alle Spuren
+            ungültig, ist der Upload verworfen und die Runde `no_recording` (die SL kann von Hand hochladen); ein erneuter
+            Abschluss gibt dann 409 `upload_closed`. Klartext wird nie gespeichert, bevor alle Abschnitte einer Spur
+            geprüft sind.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "409":
           description: |
             `chunks_missing` – es fehlen noch Teile (die App liefert nach und schließt erneut ab). `upload_closed` – der
@@ -3598,6 +3642,11 @@ paths:
                 properties:
                   sessionId: { type: string }
                   number: { type: integer }
+                  trackKey:
+                    $ref: "#/components/schemas/TrackKey"
+                    description: |
+                      Ab 0.4.34 immer dabei. Ohne trackKey (älterer Server) nimmt der Bot nicht auf, meldet die Runde als
+                      `discarded` und sagt „Server aktualisieren“.
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
@@ -5951,6 +6000,26 @@ components:
         guildName: { type: string }
         connectedAt: { type: string, format: date-time }
         connectedBy: { type: [string, "null"], description: "Mitglied (SL)" }
+
+    TrackKey:
+      type: object
+      description: |
+        Ab 0.4.34: öffentlicher Schlüssel des Servers für Spuren des Bots. Eigenes X25519-Schlüsselpaar nur dafür (nicht
+        der Signierschlüssel für „Kapitel teilen“); der private Teil verlässt den Server nie, geht nicht mit dem Umzug und
+        ist geschützt wie die übrigen Zugänge. Nur in der Antwort von POST /bot/campaigns/{campaignId}/sessions (mit
+        Bot-Schlüssel), nie in ServerInfo oder an die App. Der Betreiber kann ihn erneuern; ältere private Teile behält der
+        Server, bis keine offene Bot-Runde sie mehr braucht (höchstens 30 Stunden nach ihrem Start), danach gibt eine Spur
+        mit dieser keyId `track_invalid`.
+      required: [keyId, publicKey]
+      properties:
+        keyId:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: SHA-256 der 32 Bytes von publicKey, hex klein. Der Bot prüft das nach.
+        publicKey:
+          type: string
+          description: Roher X25519-Schlüssel, 32 Bytes, Base64 (mit Auffüllung, 44 Zeichen)
+          pattern: "^[A-Za-z0-9+/]{43}=$"
 
     DiscordLogEntry:
       type: object

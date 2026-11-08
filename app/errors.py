@@ -499,6 +499,14 @@ MESSAGES: dict[str, tuple[str, str]] = {
                             "This person has not agreed to the recording yet."),
     "consent_revoked.bot": ("Eine Person hat ihre Zustimmung widerrufen. Ihre Spur ist verworfen.",
                             "A person has withdrawn their consent. Their track has been discarded."),
+    "track_unencrypted": ("Der Bot darf Spuren nur verschlüsselt hochladen. Bitte den Bot aktualisieren.",
+                          "The bot may only upload encrypted tracks. Please update the bot."),
+    "track_invalid": ("Mindestens eine Spur ließ sich nicht öffnen und ist verworfen.",
+                      "At least one track could not be opened and has been discarded."),
+    "track_key_unavailable": ("Der Schlüssel für Spuren des Bots ist auf diesem Server gerade nicht lesbar. Bitte die "
+                              "Verwaltung des Servers fragen.",
+                              "The key for the bot's tracks cannot be read on this server right now. Please ask the "
+                              "server's operator."),
     "wrong_state.bot": ("Diese Aufnahme läuft nicht mehr.", "This recording is no longer running."),
     "already_recording": ("In dieser Kampagne läuft schon eine Aufnahme.",
                           "A recording is already running in this campaign."),

@@ -96,10 +96,16 @@ def test_bot_spuren_hoechstens_so_lang_wie_die_aufnahme(client, bot, dbs, monkey
     s = dbs.get(GameSession, sid)
     s.recording_started_at = utcnow() - timedelta(hours=1)
     dbs.commit()
+    import base64
+
+    from app import spuren
+    from tests.test_server_04159 import verschluesseln
+
+    daten = verschluesseln(base64.b64decode(spuren.track_key(dbs)["publicKey"]), sid, a["attendeeId"], b"0123456789")
     up = client.post(f"{API}/sessions/{sid}/uploads", json={"source": "discord", "files": [
-        {"fileName": "ben.ogg", "sizeBytes": 10, "mimeType": "audio/ogg", "trackAttendeeId": a["attendeeId"]}]},
-        headers=h).json()
-    client.put(f"{API}/uploads/{up['uploadId']}/files/{up['files'][0]['fileId']}/chunks/0", content=b"0123456789",
+        {"fileName": "ben.twse", "sizeBytes": len(daten), "mimeType": spuren.MIME,
+         "trackAttendeeId": a["attendeeId"]}]}, headers=h).json()
+    client.put(f"{API}/uploads/{up['uploadId']}/files/{up['files'][0]['fileId']}/chunks/0", content=daten,
                headers={**h, "Content-Type": "application/octet-stream"})
     assert not abrechnung.an(dbs)
     monkeypatch.setattr(abrechnung, "aufnahme_messen", lambda up: 3 * 3600.0)  # 3 h bei 1 h Aufnahme

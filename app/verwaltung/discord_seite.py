@@ -24,8 +24,11 @@ def _faktor(db: Session, user: User) -> bool:
 
 
 def _seite_discord(request: Request, user: User, db: Session, status: int = 200, **ctx) -> HTMLResponse:
+    from app import spuren
+
     antwort = _seite(request, "discord.html", user, db, an=discord_bot.an(db),
-                     schluessel=discord_bot.schluessel_liste(db), faktor=_faktor(db, user), neu=None, **ctx)
+                     schluessel=discord_bot.schluessel_liste(db), faktor=_faktor(db, user), neu=None,
+                     spurschluessel=spuren.stand(db), **ctx)
     antwort.status_code = status
     return antwort
 
@@ -71,6 +74,21 @@ def schluessel_weg(key_id: str, request: Request, user: User = Depends(faktor_fr
     if k is None:
         raise errors.not_found()
     discord_bot.schluessel_widerrufen(db, k)
+    db.commit()
+    return _zurueck("/discord", "gespeichert")
+
+
+@router.post("/discord/spurschluessel", dependencies=[Depends(csrf_pruefen)])
+def spurschluessel_neu(request: Request, user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):
+    """0.4.159 (S65.3): Schlüssel für die Spuren des Bots erneuern – nur mit frischem zweitem Faktor."""
+    from app import spuren
+
+    if not _faktor(db, user):
+        return _ohne_faktor(request, user, db)
+    try:
+        spuren.erneuern(db)
+    except spuren.NichtLesbar:
+        raise errors.ApiError(503, "track_key_unavailable") from None
     db.commit()
     return _zurueck("/discord", "gespeichert")
 

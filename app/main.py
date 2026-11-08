@@ -62,6 +62,9 @@ def _wartung_starten() -> threading.Event | None:
                     from app import discord_bot
 
                     discord_bot.wartung(db)  # 0.4.155: Bot-Runden ohne Ton nach 30 Stunden, alte Links weg
+                    from app import spuren
+
+                    spuren.wartung(db)  # 0.4.159 (S65.3): abgelaufene ältere Spuren-Schlüssel weg
                     db.commit()
                 if any(ergebnis.values()):
                     log.info("Wartung: %s", ergebnis)

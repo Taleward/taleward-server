@@ -224,9 +224,12 @@ def bot_readiness(campaignId: str, body: BereitIn, k: BotKey = Depends(bot_schlu
 
 @router.post("/bot/campaigns/{campaignId}/sessions", tags=["Discord"], status_code=201)
 def bot_session(campaignId: str, body: RundeIn, k: BotKey = Depends(bot_schluessel), db: Session = Depends(get_db)):
+    from app import spuren
+
+    schluessel = spuren.track_key(db)  # 0.4.34 (S65): vorher, damit ohne lesbaren Schlüssel keine Runde entsteht
     s = db_.runde_anlegen(db, k, campaignId, body.guild_id, body.discord_user_id, body.started_at)
     db.commit()
-    return {"sessionId": s.id, "number": s.number}
+    return {"sessionId": s.id, "number": s.number, "trackKey": schluessel}
 
 
 @router.post("/bot/sessions/{sessionId}/attendees", tags=["Discord"])

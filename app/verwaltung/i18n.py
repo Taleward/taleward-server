@@ -1548,6 +1548,15 @@ EN: dict[str, str] = {
     'angestoßen {zeit}, Meldung fehlt': 'started {zeit}, report missing',
     'Erneut anstoßen – nur, wenn die Erstattung im Dashboard des Anbieters fehlt': "Start again – only if the refund is missing in the provider's dashboard",
     'Für {refs} läuft schon eine Erstattung, die Meldung fehlt. Im Dashboard nachsehen, sonst „Erneut anstoßen“.': 'A refund for {refs} is already under way, the report is missing. Check the dashboard, otherwise “Start again”.',
+    # 0.4.159: Spuren-Schlüssel des Bots
+    "Schlüssel für die Spuren": "Key for the tracks",
+    "Der Bot verschlüsselt jede Spur mit diesem Schlüssel. Öffnen kann sie nur dieser Server.": "The bot encrypts every track with this key. Only this server can open them.",
+    "Der Schlüssel lässt sich gerade nicht lesen. Bitte den Server unter dem Nutzer starten, der ihn angelegt hat.": "The key cannot be read right now. Please start the server as the user who created it.",
+    "Kennung": "ID",
+    "{n} älterer bleibt bis zum Ende der offenen Bot-Runden": "{n} older one is kept until the open bot sessions end",
+    "Entsteht mit der ersten Aufnahme des Bots.": "Created with the bot's first recording.",
+    "Schlüssel erneuern": "Renew key",
+    "Nur nötig, wenn der Server in fremde Hände geraten sein könnte. Laufende Aufnahmen bleiben lesbar.": "Only needed if the server may have fallen into the wrong hands. Running recordings stay readable.",
 }
 
 WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}

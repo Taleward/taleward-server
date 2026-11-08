@@ -85,13 +85,19 @@ def _gleiche_dateien(up: Upload, body: UploadStart) -> bool:
     return up.source == body.source and alt == neu
 
 
-def _pruefe_dateien(s: GameSession, body: UploadStart) -> None:
+def _pruefe_dateien(s: GameSession, body: UploadStart, bot: bool = False) -> None:
+    from app import spuren
+
     if not body.files:
         raise errors.bad_request("files_empty")
     maxb = get_settings().max_file_bytes
     for f in body.files:
         mime = f.mime_type.lower()
-        if not mime.startswith(ERLAUBTE_MIME):
+        if bot:  # 0.4.34 (S65): mit dem Bot-Schlüssel nur verschlüsselte Spuren
+            if mime != spuren.MIME or not f.file_name.lower().endswith(spuren.ENDUNG):
+                raise errors.bad_request("track_unencrypted")
+            f.mime_type = spuren.MIME
+        elif not mime.startswith(ERLAUBTE_MIME):
             raise errors.bad_request("unsupported_audio", name=f.file_name)
         if f.size_bytes > maxb:
             raise errors.ApiError(413, "file_too_large", name=f.file_name)
@@ -144,7 +150,7 @@ def start_upload(sessionId: str, body: UploadStart, wer=Depends(nutzer_oder_bot)
         # 0.4.32: Bot-Runde ohne Ton (no_recording) – die SL kann von Hand hochladen
         if s.state not in ("created", "failed", "no_recording"):
             raise errors.conflict("invalid_state", "invalid_state.upload")
-    _pruefe_dateien(s, body)
+    _pruefe_dateien(s, body, bot is not None)
     from app import abrechnung
 
     wartend = abrechnung.wartende_aufnahme(db, s)  # 0.4.24: ohne Guthaben höchstens eine wartende Aufnahme
@@ -223,6 +229,11 @@ async def put_chunk(
         from app import discord_bot
 
         discord_bot.teil_pruefen(db, up, f)
+    if bot is not None:  # 0.4.34: eine schon geöffnete Spur nimmt keine Teile mehr an
+        from app import spuren
+
+        if f.mime_type != spuren.MIME:
+            raise errors.conflict("upload_closed")
     if index < 0 or index >= f.chunk_count:
         raise errors.bad_request("chunk_index_invalid", index=index)
     erwartet = _expected_size(up, f, index)
@@ -270,7 +281,7 @@ _MESSPLAETZE = threading.BoundedSemaphore(2)  # höchstens zwei Messungen zuglei
 MESSPLATZ_WARTEN_S = 60  # 0.4.99: Fäden nicht lange belegen (vorher 600 s) – danach 429 wie bisher
 
 
-def _messen(db: Session, up: Upload):
+def _messen(db: Session, up: Upload, s: GameSession | None = None, oeffnen: bool = False):
     """0.4.91: Das Dekodieren dauert (etwa 12 s je Stunde). Solange gemessen wird, steht der Upload auf
     „measuring“: keine Teile mehr (sonst ließe sich nach der Messung tauschen) und kein zweites Messen. Ein Stand
     „measuring“ ohne laufende Messung in diesem Prozess (Neustart mittendrin) gilt wieder als offen."""
@@ -289,9 +300,14 @@ def _messen(db: Session, up: Upload):
             db.commit()
             raise errors.ApiError(429, "too_many_requests")
         try:
+            if oeffnen:  # 0.4.34 (S65): verschlüsselte Spuren des Bots erst jetzt öffnen
+                from app import spuren
+
+                spuren.alle_oeffnen(db, up, s)
             return abrechnung.aufnahme_messen(up)
         except Exception:
-            up.state = "open"
+            if up.state != "aborted":
+                up.state = "open"
             db.commit()
             raise
         finally:
@@ -326,10 +342,11 @@ def complete(uploadId: str, request: Request, wer=Depends(nutzer_oder_bot), db: 
         raise errors.conflict("chunks_missing", count=anzahl)
     if bot is None:
         check_upload_consent(db, s)  # Widerruf während des Hochladens
-    from app import abrechnung
+    from app import abrechnung, spuren
 
-    if abrechnung.an(db) or bot is not None:  # 0.4.85: Länge selbst messen; 0.4.156: Bot-Runden immer (B9)
-        dauer = _messen(db, up)
+    oeffnen = spuren.braucht_oeffnen(up)
+    if abrechnung.an(db) or bot is not None or oeffnen:  # 0.4.85: Länge selbst messen; 0.4.156: Bot-Runden immer
+        dauer = _messen(db, up, s, oeffnen)
         if dauer is _LAEUFT:  # zweiter Aufruf, während gemessen wird – harmlos, der erste schließt ab
             return processing_status(db, s, sprache(request), user)
         up.dauer_sekunden = dauer

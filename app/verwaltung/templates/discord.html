@@ -1,5 +1,18 @@
 {% extends "basis.html" %}
-{% block titel %}{{ _("Discord-Bot") }}{% endblock %}
+{% block titel %}{{ _("Discord-Bot") }}
+<div class="karte" id="spurschluessel">
+  <h2>{{ _("Schlüssel für die Spuren") }}</h2>
+  <p class="hilfe">{{ _("Der Bot verschlüsselt jede Spur mit diesem Schlüssel. Öffnen kann sie nur dieser Server.") }}</p>
+  {% if spurschluessel and not spurschluessel.lesbar %}<div class="hinweis">{{ _("Der Schlüssel lässt sich gerade nicht lesen. Bitte den Server unter dem Nutzer starten, der ihn angelegt hat.") }}</div>
+  {% elif spurschluessel %}<p>{{ _("Kennung") }} <code>{{ spurschluessel.kennung }}</code>{% if spurschluessel.alt %} · {{ _("{n} älterer bleibt bis zum Ende der offenen Bot-Runden", n=spurschluessel.alt) }}{% endif %}</p>
+  {% else %}<p class="leise">{{ _("Entsteht mit der ersten Aufnahme des Bots.") }}</p>{% endif %}
+  <form method="post" action="/verwaltung/discord/spurschluessel">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="tw-btn tw-btn--secondary" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Schlüssel erneuern") }}</button>
+  </form>
+  <p class="hilfe">{{ _("Nur nötig, wenn der Server in fremde Hände geraten sein könnte. Laufende Aufnahmen bleiben lesbar.") }}</p>
+</div>
+{% endblock %}
 {% block inhalt %}
 <h1>{{ _("Discord-Bot") }}</h1>
 <p class="hilfe">{{ _("Der Bot nimmt Online-Runden im Sprachkanal auf, nur wer zugestimmt hat. Die Spielleitung verbindet ihre Kampagne selbst.") }}</p>
@@ -41,5 +54,18 @@
     <label>{{ _("Name") }} <input type="text" name="name" maxlength="80" value="Discord-Bot"></label>
     <button class="tw-btn tw-btn--secondary" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Schlüssel erzeugen") }}</button>
   </form>
+</div>
+
+<div class="karte" id="spurschluessel">
+  <h2>{{ _("Schlüssel für die Spuren") }}</h2>
+  <p class="hilfe">{{ _("Der Bot verschlüsselt jede Spur mit diesem Schlüssel. Öffnen kann sie nur dieser Server.") }}</p>
+  {% if spurschluessel and not spurschluessel.lesbar %}<div class="hinweis">{{ _("Der Schlüssel lässt sich gerade nicht lesen. Bitte den Server unter dem Nutzer starten, der ihn angelegt hat.") }}</div>
+  {% elif spurschluessel %}<p>{{ _("Kennung") }} <code>{{ spurschluessel.kennung }}</code>{% if spurschluessel.alt %} · {{ _("{n} älterer bleibt bis zum Ende der offenen Bot-Runden", n=spurschluessel.alt) }}{% endif %}</p>
+  {% else %}<p class="leise">{{ _("Entsteht mit der ersten Aufnahme des Bots.") }}</p>{% endif %}
+  <form method="post" action="/verwaltung/discord/spurschluessel">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="tw-btn tw-btn--secondary" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Schlüssel erneuern") }}</button>
+  </form>
+  <p class="hilfe">{{ _("Nur nötig, wenn der Server in fremde Hände geraten sein könnte. Laufende Aufnahmen bleiben lesbar.") }}</p>
 </div>
 {% endblock %}
