@@ -302,6 +302,17 @@ def csrf_pruefen(request: Request, csrf: str = Form("")) -> None:
         raise errors.forbidden()
 
 
+HANDY = ("android", "iphone", "ipad", "ipod")
+
+
+def ist_handy(request: Request) -> bool:
+    """0.4.160: Grobe Unterscheidung nach dem User-Agent für Landeseiten (Einladung, Discord, Zustimmung). Am PC läuft
+    „In Taleward öffnen“ (taleward://) ins Leere, dort steht „Im Browser öffnen“ vorn. Nur für die Reihenfolge der
+    Knöpfe, nie für Entscheidungen; beide Wege bleiben sichtbar (iPads melden sich teils als Mac)."""
+    ua = request.headers.get("user-agent", "")[:512].lower()
+    return any(w in ua for w in HANDY)
+
+
 def _seite(request: Request, name: str, user: User | None, db: Session, status_code: int = 200,
            **ctx) -> HTMLResponse:
     from app.einrichtung import betriebsart
@@ -314,7 +325,7 @@ def _seite(request: Request, name: str, user: User | None, db: Session, status_c
         "user": user, "angaben": angaben(db), "csrf": getattr(request.state, "csrf", ""), "meldung": meldung,
         "aktiv": name.removesuffix(".html"), "_": _, "sprache": sprache, "sprachen": SPRACHEN,
         "zeit": _zeitformat(sprache), "groesse": _groesse, "leitsatz": None,
-        "einzelplatz": get_settings().taleward_einzelplatz,
+        "einzelplatz": get_settings().taleward_einzelplatz, "handy": ist_handy(request),
         # 0.4.130: Betriebsart für alle Seiten – bei „Nur Cloud“ klappen Worker-Teile zu
         "betrieb": betriebsart(db) if user is not None else None, **ctx,
     }, status_code=status_code)

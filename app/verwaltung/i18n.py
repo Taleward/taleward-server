@@ -1557,6 +1557,8 @@ EN: dict[str, str] = {
     "Entsteht mit der ersten Aufnahme des Bots.": "Created with the bot's first recording.",
     "Schlüssel erneuern": "Renew key",
     "Nur nötig, wenn der Server in fremde Hände geraten sein könnte. Laufende Aufnahmen bleiben lesbar.": "Only needed if the server may have fallen into the wrong hands. Running recordings stay readable.",
+    # 0.4.160: Landeseiten am PC
+    "Nur am Handy mit installierter App. Am PC: Im Browser öffnen.": "Only on a phone with the app installed. On a computer: open in the browser.",
 }
 
 WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}

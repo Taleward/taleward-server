@@ -139,9 +139,9 @@ def test_web_app_vom_eigenen_server(client, dbs, world):
     assert client.get("/app/%2e%2e/%2e%2e/geheimnis.txt").status_code == 404
     # Einladungsseite verweist jetzt auf die Web-App dieses Servers
     code = client.post(f"{API}/campaigns/{world['cid']}/invites", headers=world["gm"]).json()["code"]
-    seite = client.get(f"/einladung/{code}").text
+    seite = client.get(f"/einladung/{code}", headers={"User-Agent": "Mozilla/5.0 (Linux; Android 15)"}).text
     assert "http://testserver/app/#/verbinden?invite=http%3A%2F%2Ftestserver%2Feinladung%2F" in seite
-    assert "Für lange Aufnahmen am Handy die App verwenden." in seite
+    assert "Für lange Aufnahmen am Handy die App verwenden." in seite  # am Handy; am PC steht „Im Browser“ vorn
 
 
 def test_web_zip_mit_boesem_pfad_wird_abgelehnt(client, dbs):

@@ -13,10 +13,13 @@
     <p>{{ _("Die Runde im Discord wird aufgenommen. Deine Stimme kommt nur dazu, wenn du zustimmst – in Taleward oder hier im Browser.") }}</p>
     {% endif %}
     <p class="leise">{{ _("Server: {name} · {betreiber}", name=angaben.server_name, betreiber=angaben.server_operator) }}</p>
+    {% set pc = browser_link and not handy %}
     <div class="knopfstapel">
-      <a class="tw-btn tw-btn--primary" href="{{ app_link }}">{{ _("In Taleward öffnen") }}</a>
-      {% if browser_link %}<a class="tw-btn tw-btn--secondary" href="{{ browser_link }}" rel="noopener">{% if art == "zustimmen" %}{{ _("Im Browser zustimmen") }}{% else %}{{ _("Im Browser öffnen") }}{% endif %}</a>{% endif %}
+      {% if browser_link and pc %}<a class="tw-btn tw-btn--primary" href="{{ browser_link }}" rel="noopener">{% if art == "zustimmen" %}{{ _("Im Browser zustimmen") }}{% else %}{{ _("Im Browser öffnen") }}{% endif %}</a>{% endif %}
+      <a class="tw-btn {% if pc %}tw-btn--secondary{% else %}tw-btn--primary{% endif %}" href="{{ app_link }}">{{ _("In Taleward öffnen") }}</a>
+      {% if browser_link and not pc %}<a class="tw-btn tw-btn--secondary" href="{{ browser_link }}" rel="noopener">{% if art == "zustimmen" %}{{ _("Im Browser zustimmen") }}{% else %}{{ _("Im Browser öffnen") }}{% endif %}</a>{% endif %}
     </div>
+    {% if pc %}<p class="hilfe">{{ _("Nur am Handy mit installierter App. Am PC: Im Browser öffnen.") }}</p>{% endif %}
     <p class="hilfe">{{ _("Der Link gilt 15 Minuten und nur einmal.") }}</p>
     {% else %}
     <h2>{{ _("Dieser Link gilt nicht") }}</h2>

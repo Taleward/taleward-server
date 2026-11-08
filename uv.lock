@@ -2138,7 +2138,7 @@ wheels = [
 
 [[package]]
 name = "taleward-server"
-version = "0.4.159"
+version = "0.4.160"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
