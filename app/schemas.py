@@ -1091,6 +1091,7 @@ class BookmarkOut(ApiModel):
     offset_ms: int | None
     recap_paragraph: int | None
     created_at: datetime
+    source: str = "app"
 
 
 class CampaignSettingsIn(ApiModel):

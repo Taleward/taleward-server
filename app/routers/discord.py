@@ -63,6 +63,12 @@ class EreignisIn(_Streng):
     at: datetime
 
 
+class MerkenIn(_Streng):
+    discord_user_id: str = Field(pattern=SNOW)
+    at: datetime
+    note: str | None = Field(default=None, max_length=280)
+
+
 class ZustimmenIn(_Streng):
     consent: bool
     guest_name: str | None = Field(default=None, max_length=40)
@@ -252,6 +258,14 @@ def bot_event(sessionId: str, body: EreignisIn, k: BotKey = Depends(bot_schluess
     db_.ereignis(db, k, sessionId, body.type, body.at)
     db.commit()
     return Response(status_code=204)
+
+
+@router.post("/bot/sessions/{sessionId}/bookmarks", tags=["Discord"], status_code=201)
+def bot_bookmark(sessionId: str, body: MerkenIn, k: BotKey = Depends(bot_schluessel), db: Session = Depends(get_db)):
+    """0.4.35: `/taleward merken` – Stelle für ein Mitglied der laufenden Bot-Runde (Regeln in discord_bot.merken)."""
+    antwort = db_.merken(db, k, sessionId, body.discord_user_id, body.at, body.note)
+    db.commit()
+    return antwort
 
 
 @router.delete("/bot/sessions/{sessionId}/tracks/{attendeeId}", tags=["Discord"], status_code=204)

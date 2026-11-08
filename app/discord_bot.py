@@ -461,6 +461,40 @@ def ereignis(db: Session, k: BotKey, session_id: str, typ: str, at: datetime) ->
             runde_entfernen(db, s)
 
 
+def merken(db: Session, k: BotKey, session_id: str, discord_id: str, at: datetime, note: str | None) -> dict:
+    """0.4.35 (M2): Stelle für ein Mitglied merken. Nur eigene Bot-Runde in recording; das Mitglied nur über die
+    verknüpfte Discord-ID unter den Anwesenden dieser Runde mit Spur und gültiger Zustimmung – sonst 404 ohne Grund. Gast
+    → 409. Danach genau wie „Merken“ in der App (spielende.merken: 200 je Runde, 60/min je Mitglied). Antwort ohne
+    Kennung der Merkstelle."""
+    from app import aliasse, schemas, spielende
+
+    s, c, _v = _runde_fuer_bot(db, k, session_id)
+    _snowflake(discord_id)
+    if s.state != "recording":
+        raise errors.conflict("session_not_recording")
+    m = _mitglied_zu(db, c, discord_id)
+    a = _anwesend(db, s, m, discord_id) if m is not None else None
+    if m is not None and a is not None:
+        try:
+            zustimmung_pruefen(db, c, a)
+        except errors.ApiError:
+            a = None
+    if m is None or a is None:
+        gast = _anwesend(db, s, None, discord_id) if m is None else None
+        if gast is not None and gast.mit_spur and gast.consent:
+            raise errors.conflict("guest_no_bookmarks")
+        raise errors.not_found("session")
+    at = _utc(at)
+    start = _utc(s.recording_started_at or s.played_at)
+    if at < start or at > utcnow() + spielende.MERKEN_ZUKUNFT:
+        raise errors.bad_request("bookmark_time_invalid")
+    text = aliasse.zeichen_bereinigen(note or "")[:280] or None
+    b = spielende.merken(db, s, m, schemas.BookmarkIn(at=at, note=text))
+    b.source = "discord"
+    db.flush()
+    return {"offsetMs": spielende.bot_versatz_ms(s, at)}
+
+
 def aufnehmen(db: Session, k: BotKey, session_id: str, discord_id: str) -> Attendee:
     s, c, _v = _runde_fuer_bot(db, k, session_id)
     _snowflake(discord_id)

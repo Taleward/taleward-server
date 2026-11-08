@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Taleward API
-  version: 0.4.34
+  version: 0.4.35
   description: |
     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
 
@@ -319,6 +319,11 @@ info:
     Format „TWSE1“, beschrieben beim Upload); der Server öffnet sie beim Abschluss und verwirft ungültige Spuren
     (400 track_invalid). Uploads aus der App ändern sich nicht. App-Oberfläche unverändert; ältere Bots ohne trackKey
     nehmen gegen einen 0.4.34-Server nicht auf.
+    Änderungen in 0.4.35 (Stelle merken über den Bot): POST /bot/sessions/{sessionId}/bookmarks legt für ein Mitglied, das
+    in der laufenden Bot-Runde mit Zustimmung aufgenommen wird, eine gemerkte Stelle an – wie „Merken“ in der App
+    (`/taleward merken`). Die Stelle erscheint in der App über GET /sessions/{id}/bookmarks wie jede andere; offsetMs
+    rechnet der Server bei Bot-Runden aus dem Start und den Pausen. Bookmark.source (app | discord, fehlt = app); die App
+    zeigt bei solchen Stellen „Über Discord gemerkt“. Ältere Apps übergehen das Feld.
 
 servers:
   - url: https://taleward.example.org/api/v1
@@ -3753,6 +3758,54 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /bot/sessions/{sessionId}/bookmarks:
+    parameters: [{ $ref: "#/components/parameters/sessionId" }]
+    post:
+      tags: [Discord]
+      summary: "Bot: Stelle für eine Person merken (`/taleward merken`; ab 0.4.35)"
+      description: |
+        Nur eigene Bot-Runden dieses Schlüssels im Zustand recording (sonst 404 bzw. 409 `session_not_recording`). Der
+        Server sucht über `discordUserId` das Mitglied unter den Anwesenden dieser Runde mit Spur und gültiger Zustimmung
+        (über die verknüpfte Discord-ID des Kontos). Nicht gefunden, Spur verworfen oder Zustimmung widerrufen → 404 (ohne
+        Angabe, warum). Gast ohne Konto → 409 `guest_no_bookmarks` (Gäste merken nichts, es gibt kein Konto, dem die
+        Stelle gehören könnte).
+        Die Stelle gehört danach dem Mitglied, genau wie über POST /sessions/{id}/bookmarks: nur es sieht sie, nie die
+        SL, auch nicht als Anzahl; nie an ein Sprachmodell, nie in Kapitel oder Vorschläge; gelöscht mit Runde, Konto oder
+        Austritt; nicht im Umzug; höchstens 200 je Mitglied und Runde (409 `bookmark_limit`), 60 je Minute und Mitglied
+        (429). `note` bereinigt der Server wie andere Texte vom Bot (Steuerzeichen, Länge). `at` liegt zwischen
+        `recordingStartedAt` und jetzt + 5 Minuten (sonst 400). `offsetMs` rechnet der Server bei Bot-Runden aus
+        `recordingStartedAt` und den `pause`/`resume`-Ereignissen (in einer Pause: null). Der Bot zeigt die Antwort nur der
+        Person selbst (ephemeral) und speichert weder Notiz noch Stelle. Die Stelle trägt `source: discord`.
+      security: [{ botKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [discordUserId, at]
+              properties:
+                discordUserId: { $ref: "#/components/schemas/DiscordSnowflake" }
+                at: { type: string, format: date-time, description: "Zeitpunkt des Befehls" }
+                note: { type: [string, "null"], maxLength: 280 }
+      responses:
+        "201":
+          description: Gemerkt. Bewusst ohne Kennung der Merkstelle – löschen kann nur das Mitglied selbst in der App.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [offsetMs]
+                properties:
+                  offsetMs:
+                    type: [integer, "null"]
+                    description: Zeit in der Aufnahme; null in einer Pause
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
   /bot/sessions/{sessionId}/tracks/{attendeeId}:
     parameters:
       - { $ref: "#/components/parameters/sessionId" }
@@ -5462,12 +5515,21 @@ components:
         note: { type: [string, "null"] }
         offsetMs:
           type: [integer, "null"]
-          description: Zeit in der Aufnahme (aus Upload spans); null, solange unbekannt oder außerhalb der Aufnahme
+          description: |
+            Zeit in der Aufnahme (aus Upload spans; ab 0.4.35 bei Bot-Runden aus Start und Pausen); null, solange
+            unbekannt oder außerhalb der Aufnahme
         recapParagraph:
           type: [integer, "null"]
           description: |
             Nach dem Veröffentlichen: Absatz des Kapitels (ab 0 in Recap.text), der diese Stelle erzählt – soweit der
             Server ihn über die Belege findet; sonst null. Nur ein Hinweis, das Kapitel ändert sich dadurch nicht.
+        source:
+          type: string
+          enum: [app, discord]
+          description: |
+            Ab 0.4.35: woher die Stelle kam – `app` (POST /sessions/{id}/bookmarks) oder `discord` (über den Bot,
+            `/taleward merken`). Fehlt das Feld, gilt `app`. Die App zeigt „Über Discord gemerkt“, damit die Person eine
+            nicht selbst in der App gesetzte Stelle erkennt und löschen kann.
         createdAt: { type: string, format: date-time }
 
     CounterKind:

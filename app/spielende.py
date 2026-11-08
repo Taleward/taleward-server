@@ -366,14 +366,19 @@ def merkstellen(db: Session, s: GameSession, me: Member) -> list[schemas.Bookmar
                              .order_by(Bookmark.at, Bookmark.id)))
     if not zeilen:
         return []
-    achse = zeitachse(db, s)
+    bot = s.bot_key_id is not None
+    achse = None if bot else zeitachse(db, s)
     absaetze = _absatz_belege(db, s)
     aus = []
     for b in zeilen:
-        versatz = versatz_ms(achse, b.at) if achse else None
+        if bot:  # 0.4.35: Bot-Runden aus Start und Pausen
+            versatz = bot_versatz_ms(s, b.at)
+        else:
+            versatz = versatz_ms(achse, b.at) if achse else None
         absatz = absatz_finden(absaetze, versatz / 1000) if versatz is not None and absaetze else None
         aus.append(schemas.BookmarkOut(id=b.id, session_id=b.session_id, at=b.at, note=b.note, offset_ms=versatz,
-                                       recap_paragraph=absatz, created_at=b.created_at))
+                                       recap_paragraph=absatz, created_at=b.created_at,
+                                       source=b.source if b.source in ("app", "discord") else "app"))
     return aus
 
 
@@ -434,6 +439,43 @@ def zeitachse(db: Session, s: GameSession) -> list[tuple[float, float]] | None:
         return None
     beginn = _utc(s.played_at).timestamp()
     return [(beginn, beginn + float(laenge))]
+
+
+def bot_versatz_ms(s: GameSession, at: datetime) -> int | None:
+    """0.4.35: Zeit in der Aufnahme einer Bot-Runde. Die Spuren laufen auch in Pausen weiter (dort still), also zählt die
+    Zeit seit dem Startton; in einer Pause (zwischen `pause` und `resume`) aber None. Vor dem Start, nach dem Ende
+    (`stopped`) bzw. nach der gemessenen Länge: None."""
+    start = _utc(s.recording_started_at or s.played_at)
+    t = _utc(at)
+    if t < start:
+        return None
+    try:
+        ereignisse = json.loads(s.bot_ereignisse or "[]")
+    except ValueError:
+        ereignisse = []
+    zeitlich = []
+    for e in ereignisse if isinstance(ereignisse, list) else []:
+        try:
+            zeitlich.append((_utc(datetime.fromisoformat(str(e.get("at")).replace("Z", "+00:00"))), e.get("type")))
+        except (TypeError, ValueError, AttributeError):
+            continue
+    pausiert = False
+    for wann, typ in sorted(zeitlich, key=lambda x: x[0]):
+        if wann > t:
+            break
+        e = {"type": typ}
+        if e.get("type") == "pause":
+            pausiert = True
+        elif e.get("type") == "resume":
+            pausiert = False
+        elif e.get("type") == "stopped":
+            return None
+    if pausiert:
+        return None
+    ms = int(round((t - start).total_seconds() * 1000))
+    if s.duration_seconds is not None and ms > s.duration_seconds * 1000:
+        return None
+    return ms
 
 
 def versatz_ms(achse: list[tuple[float, float]], at: datetime) -> int | None:

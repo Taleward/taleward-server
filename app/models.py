@@ -845,6 +845,8 @@ class Bookmark(Base):
     at: Mapped[datetime] = mapped_column(UTCDateTime)
     note: Mapped[str | None] = mapped_column(String(280), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    # 0.4.35: app | discord (über den Bot, /taleward merken) – die App zeigt „Über Discord gemerkt“
+    source: Mapped[str] = mapped_column(String(16), default="app", server_default="app")
 
 
 # ---------------------------------------------------------------- Passkeys und vertraute Geräte (0.4.143)
