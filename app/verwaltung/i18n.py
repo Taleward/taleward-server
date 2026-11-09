@@ -1559,6 +1559,18 @@ EN: dict[str, str] = {
     "Nur nötig, wenn der Server in fremde Hände geraten sein könnte. Laufende Aufnahmen bleiben lesbar.": "Only needed if the server may have fallen into the wrong hands. Running recordings stay readable.",
     # 0.4.160: Landeseiten am PC
     "Nur am Handy mit installierter App. Am PC: Im Browser öffnen.": "Only on a phone with the app installed. On a computer: open in the browser.",
+    # 0.4.162: Rechtstexte des Discord-Bots
+    "Datenschutzerklärung für den Discord-Bot": "Privacy policy for the Discord bot",
+    "Nutzungsbedingungen für den Discord-Bot": "Terms of use for the Discord bot",
+    "Discord-Bot: Datenschutz": "Discord bot: privacy",
+    "Discord-Bot: Nutzungsbedingungen": "Discord bot: terms",
+    "Datenschutz und Nutzungsbedingungen des Bots": "Privacy policy and terms of the bot",
+    "Erscheinen unter /discord-bot/datenschutz und /discord-bot/nutzungsbedingungen, sobald sie veröffentlicht sind.": "Shown at /discord-bot/datenschutz and /discord-bot/nutzungsbedingungen once published.",
+    "Rechtstexte des Discord-Bots": "Legal texts of the Discord bot",
+    "Zurück zum Discord-Bot": "Back to the Discord bot",
+    "Das sind Vorlagen, keine Rechtsberatung. Name, Anschrift und Kontakt kommen aus deinen Angaben zum Betreiber. Bitte lesen und die Stellen in [eckigen Klammern] ausfüllen: Aufsichtsbehörde, Hoster des Bots mit Anschrift, Ort des Rechenzentrums und wie viele Tage Sicherungen aufbewahrt werden. Deutsch und Englisch werden zusammen veröffentlicht.": "These are templates, not legal advice. Name, address and contact come from your operator details. Please read them and fill in the places in [square brackets]: supervisory authority, the bot's hosting provider with address, location of the data centre and how many days backups are kept. German and English are published together.",
+    "Veröffentlichen geht nur mit eingerichtetem zweitem Faktor.": "Publishing requires a second factor to be set up.",
+    "Datenschutzerklärung": "Privacy policy",
 }
 
 WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}

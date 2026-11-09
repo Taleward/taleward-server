@@ -1,9 +1,7 @@
-Fassung 0.4.161
+Fassung 0.4.162
 
 ## Was ist neu
 
-- Discord-Bot: Mit „/taleward merken“ merkt sich ein Mitglied eine Stelle der laufenden Runde. Sie erscheint in der App bei den eigenen Merkstellen, nur für diese Person.
-- Einladungen und Discord-Links am PC: „Im Browser öffnen“ steht jetzt vorn. „In Taleward öffnen“ klappt nur am Handy mit installierter App, und das steht jetzt auch dabei.
-- Seit 0.4.159: Der Discord-Bot legt Tonspuren nur noch verschlüsselt ab. Öffnen kann sie nur dein Server.
-- Seit 0.4.158: Spielleitungen sehen den Verlauf der Discord-Anbindung ihrer Kampagne, ohne Namen.
+- Datenschutzerklärung und Nutzungsbedingungen des Discord-Bots stehen jetzt auf dem Server. Gepflegt werden sie unter Verwaltung → Discord-Bot, zu sehen unter /discord-bot/datenschutz und /discord-bot/nutzungsbedingungen.
+- Der Discord-Bot erfährt Widerrufe zuverlässiger, auch wenn in einer Runde viele auf „Zustimmen“ drücken.
 - Kleinere Verbesserungen.

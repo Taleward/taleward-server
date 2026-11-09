@@ -40,7 +40,7 @@ SCHALTER = "discord.bot"
 LINK_MINUTEN = 15
 LINKS_JE_STUNDE = 10  # je Discord-ID
 ZUSTIMMUNGSLINKS_JE_RUNDE = 5  # je Discord-ID und Runde
-BEREITSCHAFT_JE_STUNDE = 120  # je Kampagne
+BEREITSCHAFT_JE_STUNDE = 360  # je Kampagne bzw. je laufender Bot-Runde (D5.1: der Takt alle 30 s braucht 120)
 BEREITSCHAFT_IDS = 25
 RUNDEN_JE_TAG = 10  # je Kampagne
 MAX_SPUREN = 12
@@ -379,13 +379,16 @@ def bereitschaft(db: Session, k: BotKey, campaign_id: str, ids: list[str], sessi
         raise errors.bad_request("validation_error")
     for i in ids:
         _snowflake(i)
-    if not ZAEHLER.versuch(f"discord-bereit:{c.id}", BEREITSCHAFT_JE_STUNDE, 3600):
-        raise errors.ApiError(429, "too_many_requests")
     s = None
     if session_id:
         s = db.get(GameSession, session_id[:64])
         if s is None or s.campaign_id != c.id or s.bot_key_id != k.id:
             s = None
+    # D5.1: Der Takt einer laufenden Bot-Runde zählt für sich, damit Klicks auf „Zustimmen“ und /taleward bereit ihn nie
+    # ausbremsen (sonst kämen Widerrufe beim Bot nicht mehr an). Die Grenze je Bot-Schlüssel gilt zusätzlich.
+    topf = f"discord-bereit-runde:{s.id}" if s is not None and s.state == "recording" else f"discord-bereit:{c.id}"
+    if not ZAEHLER.versuch(topf, BEREITSCHAFT_JE_STUNDE, 3600):
+        raise errors.ApiError(429, "too_many_requests")
     zustaende = {}
     for i in dict.fromkeys(ids):
         z, a = zustand(db, c, s, i)

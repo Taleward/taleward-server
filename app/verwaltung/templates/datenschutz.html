@@ -4,6 +4,6 @@
 <article class="karte text">
 {{ inhalt|safe }}
 </article>
-<p class="leise zentriert"><a href="/datenschutz">{{ _("Datenschutz") }}</a> · <a href="/impressum">{{ _("Impressum") }}</a> · <a href="/konto-loeschen">{{ _("Konto löschen") }}</a> · {% include "_sprachen.html" %}</p>
+<p class="leise zentriert"><a href="/datenschutz">{{ _("Datenschutz") }}</a> · <a href="/impressum">{{ _("Impressum") }}</a> · <a href="/konto-loeschen">{{ _("Konto löschen") }}</a>{% if bot_seiten %} · <a href="/discord-bot/datenschutz">{{ _("Discord-Bot: Datenschutz") }}</a> · <a href="/discord-bot/nutzungsbedingungen">{{ _("Discord-Bot: Nutzungsbedingungen") }}</a>{% endif %} · {% include "_sprachen.html" %}</p>
 
 {% endblock %}

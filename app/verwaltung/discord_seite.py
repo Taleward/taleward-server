@@ -93,6 +93,67 @@ def spurschluessel_neu(request: Request, user: User = Depends(faktor_frisch), db
     return _zurueck("/discord", "gespeichert")
 
 
+# ---------------------------------------------------------------- Rechtstexte des Bots (0.4.162)
+def _bot_rechtstexte_seite(request: Request, user: User, db: Session, status: int = 200, entwurf: dict | None = None,
+                           vorlage: str = "", **ctx) -> HTMLResponse:
+    from app import rechtstexte, rechtstexte_bot
+
+    texte = {}
+    for art in rechtstexte_bot.ARTEN:
+        for s in rechtstexte.SPRACHEN:
+            if entwurf and art in entwurf:
+                texte[(art, s)] = entwurf[art][s]
+            elif vorlage == art:
+                texte[(art, s)] = rechtstexte.vorlage(db, art, s)
+            else:
+                texte[(art, s)] = rechtstexte.text_oder_vorlage(db, art, s)
+    antwort = _seite(request, "discord_rechtstexte.html", user, db, texte=texte,
+                     stand={a: rechtstexte.stand_anzeige(rechtstexte.stand(db, a), "de") for a in rechtstexte_bot.ARTEN},
+                     veroeffentlicht={a: rechtstexte.veroeffentlicht(db, a) for a in rechtstexte_bot.ARTEN},
+                     pfade=rechtstexte_bot.PFADE, faktor=_faktor(db, user), **ctx)
+    antwort.status_code = status
+    return antwort
+
+
+@router.get("/discord/rechtstexte", response_class=HTMLResponse)
+def bot_rechtstexte(request: Request, vorlage: str = "", user: User = Depends(verwalter),
+                    db: Session = Depends(get_db)):
+    return _bot_rechtstexte_seite(request, user, db, vorlage=vorlage)
+
+
+@router.post("/discord/rechtstexte", dependencies=[Depends(csrf_pruefen)])
+def bot_rechtstexte_speichern(request: Request, art: str = Form(""), aktion: str = Form(""), text_de: str = Form(""),
+                              text_en: str = Form(""), user: User = Depends(faktor_frisch),
+                              db: Session = Depends(get_db)):
+    """Veröffentlichen bzw. Zurückziehen nur mit zweitem Faktor (frisch) und CSRF. Mit offener [Klammer] geht nichts."""
+    from app import rechtstexte, rechtstexte_bot
+    from app.verwaltung.router import tr
+
+    _ = tr(request)
+    if not _faktor(db, user):
+        return _ohne_faktor(request, user, db)
+    if art not in rechtstexte_bot.ARTEN:
+        return _bot_rechtstexte_seite(request, user, db, 400, fehler=_("Bitte einen der beiden Texte wählen."))
+    if aktion == "zurueckziehen":
+        rechtstexte.zurueckziehen(db, art)
+        db.commit()
+        return _zurueck(f"/discord/rechtstexte#{art}", "gespeichert")
+    entwurf = {art: {"de": text_de, "en": text_en}}
+    for s, inhalt in (("de", text_de), ("en", text_en)):
+        sprache = _("Deutsch") if s == "de" else _("Englisch")
+        if len(inhalt.strip()) < rechtstexte.MIN_TEXT:
+            return _bot_rechtstexte_seite(request, user, db, 400, entwurf=entwurf, fehler_art=art,
+                                          fehler=_("Der Text auf {sprache} fehlt oder ist zu kurz.", sprache=sprache))
+        offen = rechtstexte.offene_stellen(inhalt)
+        if offen:
+            return _bot_rechtstexte_seite(request, user, db, 400, entwurf=entwurf, fehler_art=art, fehler=_(
+                "Im Text auf {sprache} sind noch {n} Stellen in eckigen Klammern offen. Bitte ausfüllen oder entfernen.",
+                sprache=sprache, n=offen))
+    rechtstexte.speichern(db, art, text_de, text_en)
+    db.commit()
+    return _zurueck(f"/discord/rechtstexte#{art}", "gespeichert")
+
+
 def _landeseite(request: Request, db: Session, art: str, token: str) -> HTMLResponse:
     from app import webapp
     from app.einstellungen import oeffentliche_adresse

@@ -513,6 +513,18 @@ def widerruf(request: Request, db: Session = Depends(get_db)):
     return _rechtstext(request, db, "widerruf", tr(request)("Widerrufsbelehrung"))
 
 
+# -- Rechtstexte des Discord-Bots (0.4.162), bearbeitet unter Verwaltung → Discord-Bot → Rechtstexte. Nicht
+# veröffentlicht (oder mit offenen Platzhaltern nie veröffentlicht) → 404 wie die übrigen.
+@oeffentlich.get("/discord-bot/datenschutz", response_class=HTMLResponse)
+def discord_bot_datenschutz(request: Request, db: Session = Depends(get_db)):
+    return _rechtstext(request, db, "bot_datenschutz", tr(request)("Datenschutzerklärung für den Discord-Bot"))
+
+
+@oeffentlich.get("/discord-bot/nutzungsbedingungen", response_class=HTMLResponse)
+def discord_bot_nutzungsbedingungen(request: Request, db: Session = Depends(get_db)):
+    return _rechtstext(request, db, "bot_nutzung", tr(request)("Nutzungsbedingungen für den Discord-Bot"))
+
+
 # -- Nutzungsbedingungen (0.4.22): jeder Server hat welche – Vorlage dieses Servers, eigener Text oder eigener Link
 def _nb_schritt(request: Request, user: User, db: Session, **ctx):
     from app import nutzungsbedingungen

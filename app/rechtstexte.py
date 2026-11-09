@@ -26,8 +26,14 @@ MAX_TEXT = 40000
 MIN_TEXT = 200
 
 
+def _alle_arten() -> tuple[str, ...]:
+    from app import rechtstexte_bot
+
+    return ARTEN + rechtstexte_bot.ARTEN  # 0.4.162: dazu die Rechtstexte des Discord-Bots
+
+
 def _schluessel(art: str, teil: str) -> str:
-    if art not in ARTEN:
+    if art not in _alle_arten():
         raise KeyError(art)
     return f"rechtstext.{art}.{teil}"
 
@@ -125,6 +131,10 @@ def _euro_en(cent: int) -> str:
 
 
 def vorlage(db: Session, art: str, sprache: str = "de") -> str:
+    from app import rechtstexte_bot
+
+    if art in rechtstexte_bot.ARTEN:
+        return rechtstexte_bot.vorlage(db, art, sprache)
     en = sprache == "en"
     a = _angaben(db, en)
     if art == "bedingungen":

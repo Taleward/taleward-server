@@ -305,6 +305,16 @@ def csrf_pruefen(request: Request, csrf: str = Form("")) -> None:
 HANDY = ("android", "iphone", "ipad", "ipod")
 
 
+def _bot_seiten(db: Session) -> bool:
+    """0.4.162: Links auf die Rechtstexte des Discord-Bots im Fuß, wenn der Bot an und beides veröffentlicht ist."""
+    try:
+        from app import discord_bot, rechtstexte
+
+        return discord_bot.an(db) and all(rechtstexte.veroeffentlicht(db, a) for a in ("bot_datenschutz", "bot_nutzung"))
+    except Exception:  # Fuß nie an einer Einstellung scheitern lassen
+        return False
+
+
 def ist_handy(request: Request) -> bool:
     """0.4.160: Grobe Unterscheidung nach dem User-Agent für Landeseiten (Einladung, Discord, Zustimmung). Am PC läuft
     „In Taleward öffnen“ (taleward://) ins Leere, dort steht „Im Browser öffnen“ vorn. Nur für die Reihenfolge der
@@ -326,6 +336,7 @@ def _seite(request: Request, name: str, user: User | None, db: Session, status_c
         "aktiv": name.removesuffix(".html"), "_": _, "sprache": sprache, "sprachen": SPRACHEN,
         "zeit": _zeitformat(sprache), "groesse": _groesse, "leitsatz": None,
         "einzelplatz": get_settings().taleward_einzelplatz, "handy": ist_handy(request),
+        "bot_seiten": _bot_seiten(db),
         # 0.4.130: Betriebsart für alle Seiten – bei „Nur Cloud“ klappen Worker-Teile zu
         "betrieb": betriebsart(db) if user is not None else None, **ctx,
     }, status_code=status_code)

@@ -1,0 +1,27 @@
+{% extends "basis.html" %}
+{% block titel %}{{ _("Rechtstexte des Discord-Bots") }}{% endblock %}
+{% block inhalt %}
+<h1>{{ _("Rechtstexte des Discord-Bots") }}</h1>
+<p class="leise"><a href="/verwaltung/discord">{{ _("Zurück zum Discord-Bot") }}</a></p>
+<div class="schmal">
+<div class="meldung">{{ _("Das sind Vorlagen, keine Rechtsberatung. Name, Anschrift und Kontakt kommen aus deinen Angaben zum Betreiber. Bitte lesen und die Stellen in [eckigen Klammern] ausfüllen: Aufsichtsbehörde, Hoster des Bots mit Anschrift, Ort des Rechenzentrums und wie viele Tage Sicherungen aufbewahrt werden. Deutsch und Englisch werden zusammen veröffentlicht.") }}</div>
+{% if not faktor %}<p class="hinweis">{{ _("Veröffentlichen geht nur mit eingerichtetem zweitem Faktor.") }}</p>{% endif %}
+{% if fehler and not fehler_art %}<p class="meldung meldung--fehler" role="alert">{{ fehler }}</p>{% endif %}
+{% for art, titel in [("bot_datenschutz", _("Datenschutzerklärung")), ("bot_nutzung", _("Nutzungsbedingungen"))] %}
+<div class="karte" id="{{ art }}">
+  <h2>{{ titel }}</h2>
+  <p class="hilfe">{% if veroeffentlicht[art] %}{{ _("Veröffentlicht") }} ({{ stand[art] }}) · <a href="{{ pfade[art] }}" target="_blank" rel="noopener">{{ _("Ansehen") }}</a>{% else %}{{ _("Noch nicht veröffentlicht. Unten steht die Vorlage.") }}{% endif %}</p>
+  {% if fehler and fehler_art == art %}<p class="meldung meldung--fehler" role="alert">{{ fehler }}</p>{% endif %}
+  <form class="formular formular--breit" method="post" action="/verwaltung/discord/rechtstexte">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="art" value="{{ art }}">
+    <label>{{ _("Deutsch") }} <textarea name="text_de" rows="18" lang="de">{{ texte[(art, "de")] }}</textarea></label>
+    <label>{{ _("Englisch") }} <textarea name="text_en" rows="18" lang="en">{{ texte[(art, "en")] }}</textarea>
+      <span class="hilfe">{{ _("Überschriften mit „## “, Aufzählungen mit „- “, Absätze durch Leerzeilen.") }}</span></label>
+    <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit" name="aktion" value="veroeffentlichen" {% if not faktor %}disabled{% endif %}>{{ _("Veröffentlichen") }}</button>
+      <a class="tw-btn tw-btn--quiet" href="/verwaltung/discord/rechtstexte?vorlage={{ art }}#{{ art }}">{{ _("Vorlage neu laden") }}</a>
+      {% if veroeffentlicht[art] %}<button class="tw-btn tw-btn--quiet" type="submit" name="aktion" value="zurueckziehen" formnovalidate {% if not faktor %}disabled{% endif %}>{{ _("Zurückziehen") }}</button>{% endif %}</div>
+  </form>
+</div>
+{% endfor %}
+</div>
+{% endblock %}
