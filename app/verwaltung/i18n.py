@@ -1571,6 +1571,11 @@ EN: dict[str, str] = {
     "Das sind Vorlagen, keine Rechtsberatung. Name, Anschrift und Kontakt kommen aus deinen Angaben zum Betreiber. Bitte lesen und die Stellen in [eckigen Klammern] ausfüllen: Aufsichtsbehörde, Hoster des Bots mit Anschrift, Ort des Rechenzentrums und wie viele Tage Sicherungen aufbewahrt werden. Deutsch und Englisch werden zusammen veröffentlicht.": "These are templates, not legal advice. Name, address and contact come from your operator details. Please read them and fill in the places in [square brackets]: supervisory authority, the bot's hosting provider with address, location of the data centre and how many days backups are kept. German and English are published together.",
     "Veröffentlichen geht nur mit eingerichtetem zweitem Faktor.": "Publishing requires a second factor to be set up.",
     "Datenschutzerklärung": "Privacy policy",
+    # 0.4.163
+    "Englisch (freiwillig)": "English (optional)",
+    "Wer die Seite auf Englisch öffnet, sieht diesen Text. Leer lassen: Dann steht dort die deutsche Fassung.": "Anyone opening the page in English sees this text. Leave it empty to show the German version there.",
+    "Die englische Fassung ist zu kurz. Ausfüllen oder das Feld leeren.": "The English version is too short. Fill it in or empty the field.",
+    "In der englischen Fassung sind noch {n} Stellen in eckigen Klammern offen. Bitte ausfüllen, entfernen oder das Feld leeren.": "There are still {n} parts in square brackets in the English version. Please fill them in, remove them or empty the field.",
 }
 
 WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}

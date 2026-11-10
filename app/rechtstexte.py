@@ -355,13 +355,15 @@ ANBIETER_ANSCHRIFT = {
 ANBIETER_HINWEISE = {"stripe": "stripe.com/de/privacy", "paypal": "paypal.com/de/legalhub/privacy-full"}
 
 
-def datenschutz_abschnitt(db: Session) -> list[str]:
+def datenschutz_abschnitt(db: Session, sprache: str = "de") -> list[str]:
     """Abschnitt „Guthaben und Zahlungen“ für die Datenschutz-Vorlage (nur bei eingeschalteter Abrechnung)."""
     from app import abrechnung, zahlung
 
     if not abrechnung.an(db):
         return []
     wege = zahlung.bereit(db) or list(zahlung.ANBIETER)
+    if sprache == "en":
+        return _datenschutz_abschnitt_en(wege)
     teile = ["## Guthaben und Zahlungen",
              "Wenn du als Spielleitung Guthaben nutzt, speichert der Server dazu: Buchungen (Betrag, Zeitpunkt, Art, "
              "zugehörige Verarbeitung), Bezahlvorgänge (Betrag, Gebühr, Zahlungsanbieter, dessen Kennung des Vorgangs, "
@@ -383,3 +385,36 @@ def datenschutz_abschnitt(db: Session) -> list[str]:
              "ist, höchstens [90] Tage. Eine Bankverbindung, nach der wir für eine Erstattung per Mail fragen, bleibt "
              "nur im Postfach und wird nach der Überweisung gelöscht."]
     return teile
+
+
+ANBIETER_ANSCHRIFT_EN = {
+    "stripe": "Stripe Payments Europe, Limited, 1 Grand Canal Street Lower, Grand Canal Dock, Dublin, D02 H210, Ireland "
+              "[check the address on stripe.com before publishing]",
+    "paypal": "PayPal (Europe) S.à r.l. et Cie, S.C.A., 22–24 Boulevard Royal, L-2449 Luxembourg "
+              "[check the address on paypal.com before publishing]",
+}
+ANBIETER_HINWEISE_EN = {"stripe": "stripe.com/privacy", "paypal": "paypal.com/legalhub/privacy-full"}
+
+
+def _datenschutz_abschnitt_en(wege: list[str]) -> list[str]:
+    """0.4.163: der Abschnitt „Guthaben und Zahlungen“ für die englische Vorlage."""
+    return ["## Credit and payments",
+            "If you use credit as a game master, the server stores: bookings (amount, time, type, related processing), "
+            "payment transactions (amount, fee, payment provider, its identifier of the transaction, status, time and "
+            "version of your consent to immediate start) and your credit settings. The server does not see or store "
+            "card details, bank details or login details for the payment provider. The legal basis is the performance "
+            "of the contract (Art. 6(1)(b) GDPR) and the statutory retention obligation for accounting records "
+            "(Art. 6(1)(c) GDPR with § 147 AO).",
+            "Payment takes place on the pages of:\n" + "\n".join(f"- {ANBIETER_ANSCHRIFT_EN[w]}" for w in wege),
+            "The server only passes the amount, the currency and an internal identifier of the transaction to the "
+            "provider – no names, no campaign or game content. What you enter there yourself (e.g. name, email "
+            "address, payment details) is collected by the provider under its own responsibility, also to prevent "
+            "fraud; its privacy notices apply (" + ", ".join(ANBIETER_HINWEISE_EN[w] for w in wege) + "). "
+            + ("Both providers may" if len(wege) > 1 else "The provider may")
+            + " also transfer data to the USA [check the basis according to the provider, e.g. EU-US Data Privacy "
+            "Framework or standard contractual clauses].",
+            "We keep bookings and payment transactions for [8] years (retention period for accounting records), "
+            "counted from the end of the calendar year of the booking. If you delete your account, they remain until "
+            "then without reference to you. If credit still has to be refunded, we keep your email address for that "
+            "until it is refunded, at most [90] days. Bank details we ask for by email for a refund stay only in the "
+            "mailbox and are deleted after the transfer."]

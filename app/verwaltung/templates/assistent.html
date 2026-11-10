@@ -164,8 +164,10 @@
       <details><summary>{{ _("Aktuelle Vorlage ansehen") }}</summary><pre class="vorlage">{{ vorlage_text }}</pre></details>
       <button class="tw-btn tw-btn--quiet tw-btn--klein" type="submit" name="aktion" value="gesehen">{{ _("Passt so") }}</button>
     </div>{% endif %}
-    <label>{{ _("Text") }} <textarea name="text" rows="24">{{ text }}</textarea>
+    <label>{{ _("Deutsch") }} <textarea name="text" rows="24" lang="de">{{ text }}</textarea>
       <span class="hilfe">{{ _("Überschriften mit „## “, Aufzählungen mit „- “, Absätze durch Leerzeilen.") }}</span></label>
+    <label>{{ _("Englisch (freiwillig)") }} <textarea name="text_en" rows="24" lang="en">{{ text_en }}</textarea>
+      <span class="hilfe">{{ _("Wer die Seite auf Englisch öffnet, sieht diesen Text. Leer lassen: Dann steht dort die deutsche Fassung.") }}</span></label>
     <div class="knopfzeile"><button class="tw-btn tw-btn--primary" type="submit" name="aktion" value="veroeffentlichen">{{ _("Datenschutzhinweis veröffentlichen") }}</button>
       <button class="tw-btn tw-btn--quiet" type="submit" name="aktion" value="neu">{{ _("Vorlage neu erzeugen") }}</button></div>
     {% if veroeffentlicht %}<p class="hilfe"><a href="/datenschutz" target="_blank" rel="noopener">{{ _("Veröffentlichte Fassung ansehen") }}</a></p>{% endif %}

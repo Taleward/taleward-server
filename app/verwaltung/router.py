@@ -2144,7 +2144,8 @@ def passwort_seite_setzen(token: str, request: Request, password: str = Form("")
 def sprache_waehlen(code: str, weiter: str = "/verwaltung/"):
     """Sprache der Weboberfläche wählen (Cookie für ein Jahr). Nur Rücksprung auf eigene Seiten."""
     if not weiter.startswith(("/verwaltung", "/einladung", "/konto-loeschen", "/datenschutz", "/impressum",
-                              "/nutzungsbedingungen", "/guthaben", "/widerruf")) or "//" in weiter \
+                              "/nutzungsbedingungen", "/guthaben", "/widerruf", "/discord-bot/", "/discord/",
+                              "/zustimmen/")) or "//" in weiter \
             or "\\" in weiter:
         weiter = "/verwaltung/"
     antwort = RedirectResponse(weiter, status_code=303)
@@ -2162,6 +2163,9 @@ SICHERHEITS_KOPFZEILEN = {
     "Cache-Control": "no-store",
     "X-Frame-Options": "DENY",
 }
+
+# Schnittstellen-Beschreibung (Swagger lädt eigene Skripte und Stile) – bekommt die HTML-Kopfzeilen nicht
+DOKU_PFAD = "/api/v1/docs"
 
 # Web-App unter /app/ (gleiche Herkunft wie /verwaltung): nur eigene Skripte, keine Einbettung. Verbindungen und
 # Bilder auch zu anderen Taleward-Servern (die App kann mehrere verbinden), Stil-Attribute von React erlaubt.
@@ -2244,6 +2248,11 @@ def einbinden(app: FastAPI) -> None:
                 antwort.headers.setdefault(k, v)
         elif pfad == "/app" or pfad.startswith("/app/"):
             for k, v in einbettbar(WEBAPP_KOPFZEILEN, get_settings().einzelplatz_huelle).items():
+                antwort.headers.setdefault(k, v)
+        elif antwort.headers.get("content-type", "").startswith("text/html") and not pfad.startswith(DOKU_PFAD):
+            # 0.4.163 (S66): jede andere HTML-Seite (Rechtsseiten, /discord/<token>, /zustimmen/<token>, Fehlerseiten …)
+            # bekommt dieselben Kopfzeilen – statt einer Liste, die bei neuen Seiten vergessen werden kann
+            for k, v in SICHERHEITS_KOPFZEILEN.items():
                 antwort.headers.setdefault(k, v)
         if request.url.scheme == "https":  # hinter Caddy (X-Forwarded-Proto); im Heimnetz ohne TLS nicht
             antwort.headers.setdefault("Strict-Transport-Security", HSTS)

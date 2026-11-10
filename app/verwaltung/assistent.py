@@ -355,27 +355,46 @@ def zusammenfassung_speichern(request: Request, wahl: str = Form(""), mistral_ke
 def datenschutz(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)):
     from app.datenschutz import vorlage
 
+    from app import datenschutz_en
+
     text = meta_lesen(db, "datenschutz.text") or vorlage(db)
+    text_en = meta_lesen(db, "datenschutz.text_en") or ""
+    if not text_en and meta_lesen(db, "datenschutz.text"):
+        # 0.4.163: bisher stand die englische Fassung von Hand im selben Feld – nur zum Übernehmen vorschlagen
+        text, text_en = _englisch_abtrennen(text)
+    if not text_en:
+        text_en = datenschutz_en.vorlage(db)
     eigen = angaben(db).privacy_policy_url
     from app.datenschutz import vorlage_neuer
 
     neuer = vorlage_neuer(db)
-    return _schritt(request, user, db, "datenschutz", text=text,
+    return _schritt(request, user, db, "datenschutz", text=text, text_en=text_en,
                     eigener_link=eigen if eigen and not eigen.endswith("/datenschutz") else "",
                     veroeffentlicht=bool(meta_lesen(db, "datenschutz.text")), vorlage_neuer=neuer,
                     vorlage_text=vorlage(db) if neuer else "")
 
 
+def _englisch_abtrennen(text: str) -> tuple[str, str]:
+    """Steht im deutschen Feld eine englische Fassung ab einer Überschrift „# English…“, beides trennen (0.4.163)."""
+    import re
+
+    m = re.search(r"(?m)^# English\b", text)
+    if not m:
+        return text, ""
+    return text[:m.start()].rstrip(), text[m.start():].strip()
+
+
 @router.post("/assistent/datenschutz", dependencies=[Depends(csrf_pruefen)])
-def datenschutz_speichern(request: Request, aktion: str = Form(""), text: str = Form(""),
+def datenschutz_speichern(request: Request, aktion: str = Form(""), text: str = Form(""), text_en: str = Form(""),
                           eigener_link: str = Form(""), user: User = Depends(verwalter),
                           db: Session = Depends(get_db)):
+    from app import datenschutz_en
     from app.datenschutz import vorlage
 
     _ = tr(request)
 
     def fehler(t, inhalt):
-        return _fehler(request, user, db, "datenschutz", t, text=inhalt, eigener_link=eigener_link,
+        return _fehler(request, user, db, "datenschutz", t, text=inhalt, text_en=text_en, eigener_link=eigener_link,
                        veroeffentlicht=bool(meta_lesen(db, "datenschutz.text")))
 
     if aktion == "gesehen":  # 0.4.157: Hinweis auf neuere Vorlage wegklicken, Text bleibt
@@ -386,8 +405,10 @@ def datenschutz_speichern(request: Request, aktion: str = Form(""), text: str = 
         return _weiter("datenschutz")
     if aktion == "neu":
         meta_schreiben(db, "datenschutz.text", "")
+        meta_schreiben(db, "datenschutz.text_en", "")
         db.commit()
-        return _schritt(request, user, db, "datenschutz", text=vorlage(db), eigener_link="", veroeffentlicht=False)
+        return _schritt(request, user, db, "datenschutz", text=vorlage(db), text_en=datenschutz_en.vorlage(db),
+                        eigener_link="", veroeffentlicht=False)
     if aktion == "link":
         link = eigener_link.strip()
         if not betreiber_link(link):
@@ -396,13 +417,20 @@ def datenschutz_speichern(request: Request, aktion: str = Form(""), text: str = 
         db.commit()
         return _weiter("datenschutz")
     inhalt = text.strip()
+    inhalt_en = text_en.strip()  # 0.4.163: englische Fassung, freiwillig – leer heißt: auf Englisch steht die deutsche
     if len(inhalt) < 200:
         return fehler(_("Der Datenschutzhinweis ist zu kurz."), text)
+    if inhalt_en and len(inhalt_en) < 200:
+        return fehler(_("Die englische Fassung ist zu kurz. Ausfüllen oder das Feld leeren."), text)
     offen = inhalt.count("[")
     if offen:
         return fehler(_("Es sind noch {n} Stellen in eckigen Klammern offen. Bitte ausfüllen oder entfernen.",
                         n=offen), text)
+    offen = inhalt_en.count("[")
+    if offen:
+        return fehler(_("In der englischen Fassung sind noch {n} Stellen in eckigen Klammern offen. Bitte ausfüllen, entfernen oder das Feld leeren.", n=offen), text)  # noqa: E501
     meta_schreiben(db, "datenschutz.text", inhalt[:50000])
+    meta_schreiben(db, "datenschutz.text_en", inhalt_en[:50000])
     from app.datenschutz import vorlage_gesehen
 
     vorlage_gesehen(db)
@@ -416,6 +444,8 @@ def datenschutz_oeffentlich(request: Request, db: Session = Depends(get_db)):
     from app.datenschutz import html
 
     text = meta_lesen(db, "datenschutz.text")
+    if text and sprache_von(request) == "en":
+        text = meta_lesen(db, "datenschutz.text_en") or text  # 0.4.163: ohne englische Fassung die deutsche
     if not text:
         _ = tr(request)
         return _seite(request, "hinweis_seite.html", None, db, status_code=404, titel=_("Datenschutz"),
