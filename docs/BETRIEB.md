@@ -279,6 +279,34 @@ laufen dort immer im Testmodus, auch wenn jemand Live-Schlüssel einträgt.
 Ausschalten mit `sudo bash /opt/taleward/test-instanz.sh aus` (die Daten bleiben liegen). Die Testinstanz läuft mit
 derselben Fassung wie der Server und wird mit ihm aktualisiert; ihre eigene Seite „Updates“ ist dort ohne Wirkung.
 
+## Zusatz-App neben dem Server (optional)
+
+Auf demselben VPS kann eine eigene, von Taleward getrennte Anwendung laufen (eigener Ordner, eigene Compose-Datei,
+eigene Adresse). Die Anschlüsse 80 und 443 gehören dem Caddy von Taleward; er leitet die Adresse der Zusatz-App weiter.
+
+1. Beim Domain-Anbieter die Adresse auf den Server zeigen lassen (A und ggf. AAAA).
+2. In der Compose-Datei der Zusatz-App den Container ins Netz von Taleward hängen und keinen Anschluss nach außen öffnen:
+   ```yaml
+   services:
+     meine-app:
+       # … Bild, Daten usw. …
+       expose: ["8080"]
+       networks: [taleward-zusatz]
+   networks:
+     taleward-zusatz:
+       external: true
+   ```
+3. Auf dem Server: `sudo bash /opt/taleward/zusatz-app.sh an app.example.org meine-app:8080`
+   (`liste` zeigt alle, `aus app.example.org` schaltet ab). Höchstens fünf Zusatz-Apps.
+
+In diesem Netz hängt von Taleward nur Caddy; Server, Testinstanz und Worker erreicht die Zusatz-App nicht. Die Regel
+entsteht immer aus derselben Vorlage (Weiterleitung, keine Angaben zur Software, HSTS, Größengrenze 16 MB, keine
+Protokolle); eigener Caddy-Text ist nicht vorgesehen. Die Adressen von Server, Testinstanz und Website sind gesperrt.
+Bevor eine Regel gilt, prüft Caddy die ganze Konfiguration; klappt das nicht, bleibt alles, wie es war. Passt eine
+Regel nach einem Update von Taleward nicht mehr, schaltet das Update sie ab (`/opt/taleward/extra-caddy/aus/`) und
+Taleward läuft weiter. **Zusatz-Apps gehören nicht zur Sicherung von Taleward und gehen beim Umzug nicht mit** – um
+ihre Daten kümmert sich, wer sie betreibt.
+
 ## Updates für App und Worker
 
 Der Server fragt einmal am Tag bei GitHub nach neuen Fassungen (**Updates**):

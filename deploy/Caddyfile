@@ -38,3 +38,7 @@ import /etc/caddy/website/*.caddy
 
 # Optional: Testinstanz neben dem Server (test-instanz.sh legt die Regel an; ohne Datei passiert nichts).
 import /etc/caddy/test/*.caddy
+
+# Optional: eigene Zusatz-Apps neben Taleward (zusatz-app.sh legt die Regeln aus einer festen Vorlage an; ohne Datei
+# passiert nichts). Die globalen Protokoll-Regeln oben gelten auch für sie.
+import /etc/caddy/extra/*.caddy

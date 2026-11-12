@@ -123,6 +123,32 @@ gesund() {
   return 1
 }
 
+# Zusatz-Apps (zusatz-app.sh) dürfen Taleward nie offline nehmen: Passt eine ihrer Regeln nach einem Update nicht mehr
+# zu Caddy, kommt sie nach extra-caddy/aus/ und Caddy startet ohne sie
+caddy_ok() {
+  docker compose run --rm --no-deps -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile \
+    >/dev/null 2>&1
+}
+zusatz_absichern() {
+  local regel name geparkt=""
+  compgen -G "extra-caddy/*.caddy" >/dev/null || return 0
+  caddy_ok && return 0
+  mkdir -p extra-caddy/aus
+  for regel in extra-caddy/*.caddy; do
+    mv -f "$regel" extra-caddy/aus/
+    geparkt="$geparkt ${regel##*/}"
+  done
+  for name in $geparkt; do  # einzeln zurück – nur was zu Caddy passt, bleibt an
+    mv -f "extra-caddy/aus/$name" extra-caddy/
+    if ! caddy_ok; then
+      mv -f "extra-caddy/$name" extra-caddy/aus/
+      echo "[taleward] Zusatz-App ${name%.caddy} abgeschaltet: ihre Regel passt nicht mehr (extra-caddy/aus/)."
+    fi
+  done
+  docker compose up -d caddy >/dev/null 2>&1 || true
+  docker compose restart caddy >/dev/null 2>&1 || true
+}
+
 wert_setzen() {  # name, wert in .env
   if grep -q "^$1=" .env; then
     sed -i "s/^$1=.*/$1=$2/" .env
@@ -216,12 +242,12 @@ if grundbild_bauen && docker compose build >>"$BAULOG" 2>&1 \
   [ "$(sed -n 's/^TALEWARD_MODUS=//p' .env)" = "heimnetz" ] && compose=docker-compose.heimnetz.yml
   for paar in aktualisieren.sh:aktualisieren.sh "$compose":docker-compose.yml Caddyfile:Caddyfile \
               website-zugang.sh:website-zugang.sh website-neu-laden.sh:website-neu-laden.sh \
-              website_regeln.py:website_regeln.py test-instanz.sh:test-instanz.sh; do
+              website_regeln.py:website_regeln.py test-instanz.sh:test-instanz.sh zusatz-app.sh:zusatz-app.sh; do
     quelle=${paar%%:*}; datei=${paar##*:}
     if curl -fsL "$QUELLE/$quelle" -o "$datei.neu"; then mv "$datei.neu" "$datei"; else rm -f "$datei.neu"; fi
   done
-  chmod 755 aktualisieren.sh website-zugang.sh website-neu-laden.sh test-instanz.sh 2>/dev/null || true
-  mkdir -p website-caddy test-caddy
+  chmod 755 aktualisieren.sh website-zugang.sh website-neu-laden.sh test-instanz.sh zusatz-app.sh 2>/dev/null || true
+  mkdir -p website-caddy test-caddy extra-caddy   # extra-caddy (Zusatz-Apps) wird nie überschrieben
   # Neu eingerichtete Website: die geprüfte Kopie des Neuladers mitziehen (website-zugang.sh legt sie an)
   if [ -f /usr/local/sbin/taleward-website-neu-laden ] && [ -f website-neu-laden.sh ]; then
     install -m 755 -o root -g root website-neu-laden.sh /usr/local/sbin/taleward-website-neu-laden || true
@@ -232,6 +258,7 @@ if grundbild_bauen && docker compose build >>"$BAULOG" 2>&1 \
      && docker compose ps --status running --services 2>/dev/null | grep -qx caddy; then
     docker compose restart caddy >/dev/null 2>&1 || true
   fi
+  zusatz_absichern
   # Platz sparen (kleine Platten): ungenutzte Bilder und Bau-Zwischenstände, die älter als eine Woche sind
   docker image prune -af --filter "until=168h" >/dev/null 2>&1 || true
   # Bau-Zwischenstände nur ohne eingebauten Worker – sonst müsste er sein großes KI-Paket neu laden

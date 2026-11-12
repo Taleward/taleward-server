@@ -1,7 +1,9 @@
-Fassung 0.4.163
+Fassung 0.4.164
 
 ## Was ist neu
 
-- Den Datenschutzhinweis des Servers gibt es jetzt auch auf Englisch: eigenes Feld beim Datenschutzhinweis in der Verwaltung, mit englischer Vorlage. Wer die Seite auf Englisch öffnet, sieht diese Fassung.
-- „English“ auf den Rechtsseiten des Discord-Bots führt jetzt zur englischen Fassung statt zur Anmeldung.
+- Neben dem Server kann jetzt eine eigene Zusatz-App auf demselben Server laufen, mit eigener Adresse. Eingerichtet wird sie mit einem Befehl (`zusatz-app.sh`), Beschreibung in der Betriebsanleitung. Sie erreicht Taleward selbst nicht.
+- Passt eine solche Regel nach einem Update nicht mehr, wird sie abgeschaltet – Taleward läuft weiter.
+- Den Datenschutzhinweis gibt es jetzt auch auf Englisch (eigenes Feld in der Verwaltung, mit Vorlage).
+- „English“ auf den Rechtsseiten des Discord-Bots führt zur englischen Fassung.
 - Kleinere Verbesserungen.

@@ -90,8 +90,14 @@ services:
       - ./website-caddy:/etc/caddy/website:ro
       # Optional: Testinstanz (test-instanz.sh legt die Regel an); sonst leer
       - ./test-caddy:/etc/caddy/test:ro
+      # Optional: Zusatz-Apps neben Taleward (zusatz-app.sh legt die Regeln an); sonst leer
+      - ./extra-caddy:/etc/caddy/extra:ro
       - caddy-daten:/data
       - caddy-config:/config
+    networks:
+      default:
+      # Nur Caddy hängt in diesem Netz – Zusatz-Apps erreichen darüber nie den Server, die Testinstanz oder Worker
+      zusatz:
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }
@@ -177,3 +183,9 @@ volumes:
   ollama-modelle:
   caddy-daten:
   caddy-config:
+
+networks:
+  # Für Zusatz-Apps neben Taleward (docs/BETRIEB.md): sie verbinden sich mit „external: true“. Fester Name, damit er
+  # nicht vom Ordnernamen abhängt; angelegt wird es hier, also scheitert „docker compose up“ nie daran.
+  zusatz:
+    name: taleward-zusatz

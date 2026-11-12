@@ -66,4 +66,5 @@ def test_datenschutz_vorlage_nennt_die_frist():
 def test_update_startet_caddy_bei_neuer_caddyfile_neu():
     akt = (WURZEL / "deploy" / "aktualisieren.sh").read_text(encoding="utf-8")
     assert 'caddy_vorher=$(sha256sum Caddyfile' in akt and "docker compose restart caddy" in akt
-    assert akt.index("caddy_vorher=") < akt.index('for paar in aktualisieren.sh') < akt.index("restart caddy")
+    vorher = akt.index("caddy_vorher=")  # 0.4.164: zusatz_absichern weiter oben startet Caddy ebenfalls neu
+    assert vorher < akt.index('for paar in aktualisieren.sh') < akt.index("restart caddy", vorher)
