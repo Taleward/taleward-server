@@ -1,0 +1,652 @@
+From c3777d8db37f7efe007eba750cf1aed2e8ed0f31 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Thu, 12 Nov 2026 22:31:16 +0100
+Subject: [PATCH] Server 0.4.164
+
+---
+ NEU.md                       |   8 +-
+ deploy/Caddyfile             |   4 +
+ deploy/aktualisieren.sh      |  33 ++++++-
+ deploy/docker-compose.yml    |  12 +++
+ deploy/zusatz-app.sh         | 141 +++++++++++++++++++++++++++
+ docs/BETRIEB.md              |  28 ++++++
+ install.sh                   |   4 +-
+ pyproject.toml               |   2 +-
+ tests/test_aktualisierung.py |   2 +-
+ tests/test_assistent.py      |   2 +-
+ tests/test_modellablage.py   |   2 +-
+ tests/test_server_04121.py   |   2 +-
+ tests/test_server_04124.py   |   4 +-
+ tests/test_server_04126.py   |   3 +-
+ tests/test_server_04164.py   | 179 +++++++++++++++++++++++++++++++++++
+ tests/test_worker_app.py     |   2 +-
+ uv.lock                      |   2 +-
+ 17 files changed, 412 insertions(+), 18 deletions(-)
+ create mode 100644 deploy/zusatz-app.sh
+ create mode 100644 tests/test_server_04164.py
+
+diff --git a/NEU.md b/NEU.md
+index dd0cd68..8a1bf23 100644
+--- a/NEU.md
++++ b/NEU.md
+@@ -1,7 +1,9 @@
+-Fassung 0.4.163
++Fassung 0.4.164
+ 
+ ## Was ist neu
+ 
+-- Den Datenschutzhinweis des Servers gibt es jetzt auch auf Englisch: eigenes Feld beim Datenschutzhinweis in der Verwaltung, mit englischer Vorlage. Wer die Seite auf Englisch öffnet, sieht diese Fassung.
+-- „English“ auf den Rechtsseiten des Discord-Bots führt jetzt zur englischen Fassung statt zur Anmeldung.
++- Neben dem Server kann jetzt eine eigene Zusatz-App auf demselben Server laufen, mit eigener Adresse. Eingerichtet wird sie mit einem Befehl (`zusatz-app.sh`), Beschreibung in der Betriebsanleitung. Sie erreicht Taleward selbst nicht.
++- Passt eine solche Regel nach einem Update nicht mehr, wird sie abgeschaltet – Taleward läuft weiter.
++- Den Datenschutzhinweis gibt es jetzt auch auf Englisch (eigenes Feld in der Verwaltung, mit Vorlage).
++- „English“ auf den Rechtsseiten des Discord-Bots führt zur englischen Fassung.
+ - Kleinere Verbesserungen.
+diff --git a/deploy/Caddyfile b/deploy/Caddyfile
+index feb0559..8d3bb00 100644
+--- a/deploy/Caddyfile
++++ b/deploy/Caddyfile
+@@ -38,3 +38,7 @@ import /etc/caddy/website/*.caddy
+ 
+ # Optional: Testinstanz neben dem Server (test-instanz.sh legt die Regel an; ohne Datei passiert nichts).
+ import /etc/caddy/test/*.caddy
++
++# Optional: eigene Zusatz-Apps neben Taleward (zusatz-app.sh legt die Regeln aus einer festen Vorlage an; ohne Datei
++# passiert nichts). Die globalen Protokoll-Regeln oben gelten auch für sie.
++import /etc/caddy/extra/*.caddy
+diff --git a/deploy/aktualisieren.sh b/deploy/aktualisieren.sh
+index 5395b57..b36b725 100755
+--- a/deploy/aktualisieren.sh
++++ b/deploy/aktualisieren.sh
+@@ -123,6 +123,32 @@ gesund() {
+   return 1
+ }
+ 
++# Zusatz-Apps (zusatz-app.sh) dürfen Taleward nie offline nehmen: Passt eine ihrer Regeln nach einem Update nicht mehr
++# zu Caddy, kommt sie nach extra-caddy/aus/ und Caddy startet ohne sie
++caddy_ok() {
++  docker compose run --rm --no-deps -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile \
++    >/dev/null 2>&1
++}
++zusatz_absichern() {
++  local regel name geparkt=""
++  compgen -G "extra-caddy/*.caddy" >/dev/null || return 0
++  caddy_ok && return 0
++  mkdir -p extra-caddy/aus
++  for regel in extra-caddy/*.caddy; do
++    mv -f "$regel" extra-caddy/aus/
++    geparkt="$geparkt ${regel##*/}"
++  done
++  for name in $geparkt; do  # einzeln zurück – nur was zu Caddy passt, bleibt an
++    mv -f "extra-caddy/aus/$name" extra-caddy/
++    if ! caddy_ok; then
++      mv -f "extra-caddy/$name" extra-caddy/aus/
++      echo "[taleward] Zusatz-App ${name%.caddy} abgeschaltet: ihre Regel passt nicht mehr (extra-caddy/aus/)."
++    fi
++  done
++  docker compose up -d caddy >/dev/null 2>&1 || true
++  docker compose restart caddy >/dev/null 2>&1 || true
++}
++
+ wert_setzen() {  # name, wert in .env
+   if grep -q "^$1=" .env; then
+     sed -i "s/^$1=.*/$1=$2/" .env
+@@ -216,12 +242,12 @@ if grundbild_bauen && docker compose build >>"$BAULOG" 2>&1 \
+   [ "$(sed -n 's/^TALEWARD_MODUS=//p' .env)" = "heimnetz" ] && compose=docker-compose.heimnetz.yml
+   for paar in aktualisieren.sh:aktualisieren.sh "$compose":docker-compose.yml Caddyfile:Caddyfile \
+               website-zugang.sh:website-zugang.sh website-neu-laden.sh:website-neu-laden.sh \
+-              website_regeln.py:website_regeln.py test-instanz.sh:test-instanz.sh; do
++              website_regeln.py:website_regeln.py test-instanz.sh:test-instanz.sh zusatz-app.sh:zusatz-app.sh; do
+     quelle=${paar%%:*}; datei=${paar##*:}
+     if curl -fsL "$QUELLE/$quelle" -o "$datei.neu"; then mv "$datei.neu" "$datei"; else rm -f "$datei.neu"; fi
+   done
+-  chmod 755 aktualisieren.sh website-zugang.sh website-neu-laden.sh test-instanz.sh 2>/dev/null || true
+-  mkdir -p website-caddy test-caddy
++  chmod 755 aktualisieren.sh website-zugang.sh website-neu-laden.sh test-instanz.sh zusatz-app.sh 2>/dev/null || true
++  mkdir -p website-caddy test-caddy extra-caddy   # extra-caddy (Zusatz-Apps) wird nie überschrieben
+   # Neu eingerichtete Website: die geprüfte Kopie des Neuladers mitziehen (website-zugang.sh legt sie an)
+   if [ -f /usr/local/sbin/taleward-website-neu-laden ] && [ -f website-neu-laden.sh ]; then
+     install -m 755 -o root -g root website-neu-laden.sh /usr/local/sbin/taleward-website-neu-laden || true
+@@ -232,6 +258,7 @@ if grundbild_bauen && docker compose build >>"$BAULOG" 2>&1 \
+      && docker compose ps --status running --services 2>/dev/null | grep -qx caddy; then
+     docker compose restart caddy >/dev/null 2>&1 || true
+   fi
++  zusatz_absichern
+   # Platz sparen (kleine Platten): ungenutzte Bilder und Bau-Zwischenstände, die älter als eine Woche sind
+   docker image prune -af --filter "until=168h" >/dev/null 2>&1 || true
+   # Bau-Zwischenstände nur ohne eingebauten Worker – sonst müsste er sein großes KI-Paket neu laden
+diff --git a/deploy/docker-compose.yml b/deploy/docker-compose.yml
+index 71c5112..37f591f 100644
+--- a/deploy/docker-compose.yml
++++ b/deploy/docker-compose.yml
+@@ -90,8 +90,14 @@ services:
+       - ./website-caddy:/etc/caddy/website:ro
+       # Optional: Testinstanz (test-instanz.sh legt die Regel an); sonst leer
+       - ./test-caddy:/etc/caddy/test:ro
++      # Optional: Zusatz-Apps neben Taleward (zusatz-app.sh legt die Regeln an); sonst leer
++      - ./extra-caddy:/etc/caddy/extra:ro
+       - caddy-daten:/data
+       - caddy-config:/config
++    networks:
++      default:
++      # Nur Caddy hängt in diesem Netz – Zusatz-Apps erreichen darüber nie den Server, die Testinstanz oder Worker
++      zusatz:
+     logging:
+       driver: json-file
+       options: { max-size: "10m", max-file: "5" }
+@@ -177,3 +183,9 @@ volumes:
+   ollama-modelle:
+   caddy-daten:
+   caddy-config:
++
++networks:
++  # Für Zusatz-Apps neben Taleward (docs/BETRIEB.md): sie verbinden sich mit „external: true“. Fester Name, damit er
++  # nicht vom Ordnernamen abhängt; angelegt wird es hier, also scheitert „docker compose up“ nie daran.
++  zusatz:
++    name: taleward-zusatz
+diff --git a/deploy/zusatz-app.sh b/deploy/zusatz-app.sh
+new file mode 100644
+index 0000000..f53a052
+--- /dev/null
++++ b/deploy/zusatz-app.sh
+@@ -0,0 +1,141 @@
++#!/bin/bash
++# Optional: eine eigene Zusatz-App neben dem Server auf demselben VPS (docs/BETRIEB.md, „Zusatz-App neben dem Server“).
++# Der Caddy von Taleward leitet eine eigene Adresse an einen Container weiter, der im Docker-Netz „taleward-zusatz“
++# hängt. In diesem Netz ist von Taleward nur Caddy – Server, Testinstanz und Worker erreicht die Zusatz-App nie.
++# Die Regel entsteht immer aus derselben festen Vorlage; eigener Caddy-Text ist nicht vorgesehen.
++#
++#   sudo bash /opt/taleward/zusatz-app.sh an app.example.org meine-app:8080   # einschalten bzw. Ziel ändern
++#   sudo bash /opt/taleward/zusatz-app.sh aus app.example.org                 # ausschalten
++#   sudo bash /opt/taleward/zusatz-app.sh liste                               # was ist eingerichtet
++# shellcheck disable=SC1111  # deutsche Anführungszeichen sind Absicht
++set -euo pipefail
++ZIEL=${TALEWARD_ZIEL:-/opt/taleward}
++ENV="$ZIEL/.env"
++REGELN="$ZIEL/extra-caddy"
++HOECHSTENS=5
++# Namen, die zu Taleward gehören – dorthin leitet keine Zusatz-Regel
++VERBOTEN="server testserver caddy worker worker-cpu ollama ollama-cpu localhost"
++cd "$ZIEL"
++
++wert() { sed -n "s/^$1=//p" "$ENV" | tail -1; }
++caddy_ok() {  # Gesamte Caddy-Konfiguration samt aller Zusatz-Regeln prüfen, ohne den laufenden Caddy anzufassen
++  docker compose run --rm --no-deps -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile \
++    >/dev/null 2>&1
++}
++neu_laden() {  # Laufenden Caddy neu laden; schlägt das fehl, behält Caddy die alte Konfiguration
++  if docker compose ps --status running --services 2>/dev/null | grep -qx caddy; then
++    docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1
++  else
++    docker compose up -d caddy >/dev/null 2>&1
++  fi
++}
++adresse_pruefen() {  # gibt die Adresse in Kleinbuchstaben aus oder bricht ab
++  local adresse
++  adresse=$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')
++  if ! [[ "$adresse" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] || [ ${#adresse} -gt 253 ]; then
++    echo "Bitte eine Adresse angeben, z. B.: sudo bash $0 an app.example.org meine-app:8080" >&2
++    exit 2
++  fi
++  echo "$adresse"
++}
++
++[ -f "$ENV" ] || { echo "Keine Einstellungen gefunden ($ENV) – ist Taleward hier installiert?" >&2; exit 1; }
++mkdir -p "$REGELN"
++
++case "${1:-}" in
++  an)
++    adresse=$(adresse_pruefen "${2:-}")
++    for besetzt in "$(wert TALEWARD_DOMAIN)" "$(wert TALEWARD_TEST_DOMAIN)" $(wert WEBSITE_DOMAINS); do
++      if [ -n "$besetzt" ] && [ "$adresse" = "$(printf '%s' "$besetzt" | tr '[:upper:]' '[:lower:]')" ]; then
++        echo "Abgelehnt: Die Adresse gehört schon zu Taleward (Server, Testinstanz oder Website)." >&2
++        exit 1
++      fi
++    done
++    ziel=${3:-}
++    container=${ziel%:*}
++    port=${ziel##*:}
++    if [ "$ziel" = "$container" ] || ! [[ "$container" =~ ^[a-z0-9][a-z0-9_.-]{0,62}$ ]] \
++       || ! [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] || [ "$port" -gt 65535 ]; then
++      echo "Bitte das Ziel als <container>:<port> angeben, z. B. meine-app:8080 (Kleinbuchstaben, Ziffern, - _ .)." >&2
++      exit 2
++    fi
++    for name in $VERBOTEN; do
++      if [ "$container" = "$name" ]; then
++        echo "Abgelehnt: „$container“ ist ein Teil von Taleward." >&2
++        exit 1
++      fi
++    done
++    if [[ "$container" =~ ^taleward[-_.] ]]; then
++      echo "Abgelehnt: Namen, die mit „taleward-“ beginnen, gehören zu Taleward." >&2
++      exit 1
++    fi
++    datei="$REGELN/$adresse.caddy"
++    anzahl=$(find "$REGELN" -maxdepth 1 -name '*.caddy' ! -name "$adresse.caddy" | wc -l)
++    if [ "$anzahl" -ge "$HOECHSTENS" ]; then
++      echo "Abgelehnt: Es sind schon $HOECHSTENS Zusatz-Apps eingerichtet. Erst eine ausschalten." >&2
++      exit 1
++    fi
++    alt=""
++    [ -f "$datei" ] && alt=$(cat "$datei")
++    cat >"$datei.neu" <<EOF
++# Von zusatz-app.sh angelegt – nicht von Hand ändern. Ausschalten: sudo bash $ZIEL/zusatz-app.sh aus $adresse
++$adresse {
++	encode zstd gzip
++	header {
++		-Server
++		-Via
++		Strict-Transport-Security "max-age=31536000"
++		X-Content-Type-Options "nosniff"
++		Referrer-Policy "strict-origin-when-cross-origin"
++		defer
++	}
++	request_body {
++		max_size 16MB
++	}
++	reverse_proxy $container:$port
++}
++EOF
++    mv -f "$datei.neu" "$datei"
++    if ! caddy_ok; then
++      if [ -n "$alt" ]; then printf '%s\n' "$alt" >"$datei"; else rm -f "$datei"; fi
++      echo "Abgelehnt: Caddy nimmt die Regel nicht an. Es bleibt alles, wie es war." >&2
++      exit 1
++    fi
++    if ! neu_laden; then
++      if [ -n "$alt" ]; then printf '%s\n' "$alt" >"$datei"; else rm -f "$datei"; fi
++      neu_laden || true
++      echo "Caddy konnte die Regel nicht laden. Es bleibt alles, wie es war." >&2
++      exit 1
++    fi
++    echo "Zusatz-App unter https://$adresse → $container:$port (das Zertifikat holt Caddy in der ersten Minute)."
++    echo "Der Container muss im Docker-Netz „taleward-zusatz“ hängen (docs/BETRIEB.md)."
++    ;;
++  aus)
++    adresse=$(adresse_pruefen "${2:-}")
++    if [ ! -f "$REGELN/$adresse.caddy" ]; then
++      echo "Für $adresse ist keine Zusatz-App eingerichtet." >&2
++      exit 1
++    fi
++    rm -f "$REGELN/$adresse.caddy"
++    neu_laden || true
++    echo "Zusatz-App $adresse ist aus. Der Container selbst läuft weiter, bis du ihn anhältst."
++    ;;
++  liste)
++    gefunden=0
++    for datei in "$REGELN"/*.caddy; do
++      [ -f "$datei" ] || continue
++      gefunden=1
++      printf '%s → %s\n' "$(basename "$datei" .caddy)" "$(sed -n 's/^\treverse_proxy //p' "$datei")"
++    done
++    for datei in "$REGELN"/aus/*.caddy; do
++      [ -f "$datei" ] || continue
++      gefunden=1
++      printf '%s (abgeschaltet, passte nach einem Update nicht mehr)\n' "$(basename "$datei" .caddy)"
++    done
++    [ "$gefunden" = 1 ] || echo "Keine Zusatz-App eingerichtet."
++    ;;
++  *)
++    echo "Aufruf: sudo bash $0 an <adresse> <container>:<port> | aus <adresse> | liste" >&2
++    exit 2
++    ;;
++esac
+diff --git a/docs/BETRIEB.md b/docs/BETRIEB.md
+index 3d7fdb7..46b4d81 100644
+--- a/docs/BETRIEB.md
++++ b/docs/BETRIEB.md
+@@ -279,6 +279,34 @@ laufen dort immer im Testmodus, auch wenn jemand Live-Schlüssel einträgt.
+ Ausschalten mit `sudo bash /opt/taleward/test-instanz.sh aus` (die Daten bleiben liegen). Die Testinstanz läuft mit
+ derselben Fassung wie der Server und wird mit ihm aktualisiert; ihre eigene Seite „Updates“ ist dort ohne Wirkung.
+ 
++## Zusatz-App neben dem Server (optional)
++
++Auf demselben VPS kann eine eigene, von Taleward getrennte Anwendung laufen (eigener Ordner, eigene Compose-Datei,
++eigene Adresse). Die Anschlüsse 80 und 443 gehören dem Caddy von Taleward; er leitet die Adresse der Zusatz-App weiter.
++
++1. Beim Domain-Anbieter die Adresse auf den Server zeigen lassen (A und ggf. AAAA).
++2. In der Compose-Datei der Zusatz-App den Container ins Netz von Taleward hängen und keinen Anschluss nach außen öffnen:
++   ```yaml
++   services:
++     meine-app:
++       # … Bild, Daten usw. …
++       expose: ["8080"]
++       networks: [taleward-zusatz]
++   networks:
++     taleward-zusatz:
++       external: true
++   ```
++3. Auf dem Server: `sudo bash /opt/taleward/zusatz-app.sh an app.example.org meine-app:8080`
++   (`liste` zeigt alle, `aus app.example.org` schaltet ab). Höchstens fünf Zusatz-Apps.
++
++In diesem Netz hängt von Taleward nur Caddy; Server, Testinstanz und Worker erreicht die Zusatz-App nicht. Die Regel
++entsteht immer aus derselben Vorlage (Weiterleitung, keine Angaben zur Software, HSTS, Größengrenze 16 MB, keine
++Protokolle); eigener Caddy-Text ist nicht vorgesehen. Die Adressen von Server, Testinstanz und Website sind gesperrt.
++Bevor eine Regel gilt, prüft Caddy die ganze Konfiguration; klappt das nicht, bleibt alles, wie es war. Passt eine
++Regel nach einem Update von Taleward nicht mehr, schaltet das Update sie ab (`/opt/taleward/extra-caddy/aus/`) und
++Taleward läuft weiter. **Zusatz-Apps gehören nicht zur Sicherung von Taleward und gehen beim Umzug nicht mit** – um
++ihre Daten kümmert sich, wer sie betreibt.
++
+ ## Updates für App und Worker
+ 
+ Der Server fragt einmal am Tag bei GitHub nach neuen Fassungen (**Updates**):
+diff --git a/install.sh b/install.sh
+index da13e9d..3200048 100755
+--- a/install.sh
++++ b/install.sh
+@@ -256,10 +256,10 @@ curl -fsSL "$QUELLE/deploy/$COMPOSE" -o "$ZIEL/docker-compose.yml"
+ curl -fsSL "$QUELLE/deploy/Caddyfile" -o "$ZIEL/Caddyfile"
+ curl -fsSL "$QUELLE/deploy/aktualisieren.sh" -o "$ZIEL/aktualisieren.sh" && chmod +x "$ZIEL/aktualisieren.sh"
+ # Optional: statische Website neben dem Server (docs/BETRIEB.md, „Website mitliefern“) – ohne Einrichtung bleibt das leer
+-for datei in website-zugang.sh website-neu-laden.sh website_regeln.py test-instanz.sh; do
++for datei in website-zugang.sh website-neu-laden.sh website_regeln.py test-instanz.sh zusatz-app.sh; do
+   curl -fsSL "$QUELLE/deploy/$datei" -o "$ZIEL/$datei" && chmod 755 "$ZIEL/$datei"
+ done
+-mkdir -p "$ZIEL/website-caddy" "$ZIEL/test-caddy"
++mkdir -p "$ZIEL/website-caddy" "$ZIEL/test-caddy" "$ZIEL/extra-caddy"
+ # Feste Fassung: neuestes Tag v…; die automatischen Updates gehen von dort weiter
+ VERSION=$(alt_wert TALEWARD_VERSION)
+ if [ -z "$VERSION" ]; then
+diff --git a/pyproject.toml b/pyproject.toml
+index e66211f..43a71fb 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,6 +1,6 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.163"
++version = "0.4.164"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+ license-files = ["LICENSE"]
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index 7733143..3e261df 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -153,7 +153,7 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     monkeypatch.setattr(benachrichtigung, "melden", lambda db, art, **w: gemeldet.append((art, w)))
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.163"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.164"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+     monkeypatch.setenv("TALEWARD_DOCKER", "1")
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index a2842c4..48a237d 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -134,7 +134,7 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     assert r.status_code == 201 and r.json()["name"] == "gaming-pc"
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.163"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.164"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+     assert "gaming-pc" in seite and "bereit" in seite
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index bdd3e3e..67ea3e6 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -83,7 +83,7 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/models", params={"repo": REPO}, headers=h).status_code == 404
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.163"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.164"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+                headers=h)
+diff --git a/tests/test_server_04121.py b/tests/test_server_04121.py
+index 377bd4f..7006789 100644
+--- a/tests/test_server_04121.py
++++ b/tests/test_server_04121.py
+@@ -33,7 +33,7 @@ def test_zugang_nur_hochladen_und_neu_laden():
+ 
+ def test_installation_und_update_bringen_die_skripte_mit():
+     install = (WURZEL / "install.sh").read_text(encoding="utf-8")
+-    assert "for datei in website-zugang.sh website-neu-laden.sh website_regeln.py test-instanz.sh; do" in install
++    assert "for datei in website-zugang.sh website-neu-laden.sh website_regeln.py test-instanz.sh zusatz-app.sh; do" in install
+     akt = (DEPLOY / "aktualisieren.sh").read_text(encoding="utf-8")
+     assert "website-zugang.sh:website-zugang.sh website-neu-laden.sh:website-neu-laden.sh" in akt
+     assert 'docker image prune -af --filter "until=168h"' in akt
+diff --git a/tests/test_server_04124.py b/tests/test_server_04124.py
+index 0d26b97..afa9f8b 100644
+--- a/tests/test_server_04124.py
++++ b/tests/test_server_04124.py
+@@ -186,6 +186,6 @@ def test_e_hochladen_nur_mit_unschaedlichen_verknuepfungen():
+     z = (DEPLOY / "website-zugang.sh").read_text(encoding="utf-8")
+     assert '"rsync --server "*) exec /usr/bin/rrsync -wo -munge $ORDNER ;;' in z  # rrsync 3.2.7: -munge
+     assert 'setzen WEBSITE_DOMAINS "$DOMAINS"' in z and "website_regeln.py\" adressen" in z
+-    for datei, zeile in ((WURZEL / "install.sh", "website_regeln.py test-instanz.sh; do"),
+-                         (DEPLOY / "aktualisieren.sh", "website_regeln.py:website_regeln.py test-instanz.sh:test-instanz.sh; do")):  # noqa: E501
++    for datei, zeile in ((WURZEL / "install.sh", "website_regeln.py test-instanz.sh zusatz-app.sh; do"),
++                         (DEPLOY / "aktualisieren.sh", "website_regeln.py:website_regeln.py test-instanz.sh:test-instanz.sh zusatz-app.sh:zusatz-app.sh; do")):  # noqa: E501
+         assert zeile in datei.read_text(encoding="utf-8")
+diff --git a/tests/test_server_04126.py b/tests/test_server_04126.py
+index 83aa962..7ae804d 100644
+--- a/tests/test_server_04126.py
++++ b/tests/test_server_04126.py
+@@ -66,4 +66,5 @@ def test_datenschutz_vorlage_nennt_die_frist():
+ def test_update_startet_caddy_bei_neuer_caddyfile_neu():
+     akt = (WURZEL / "deploy" / "aktualisieren.sh").read_text(encoding="utf-8")
+     assert 'caddy_vorher=$(sha256sum Caddyfile' in akt and "docker compose restart caddy" in akt
+-    assert akt.index("caddy_vorher=") < akt.index('for paar in aktualisieren.sh') < akt.index("restart caddy")
++    vorher = akt.index("caddy_vorher=")  # 0.4.164: zusatz_absichern weiter oben startet Caddy ebenfalls neu
++    assert vorher < akt.index('for paar in aktualisieren.sh') < akt.index("restart caddy", vorher)
+diff --git a/tests/test_server_04164.py b/tests/test_server_04164.py
+new file mode 100644
+index 0000000..8154481
+--- /dev/null
++++ b/tests/test_server_04164.py
+@@ -0,0 +1,179 @@
++"""Server 0.4.164: Platz für eine Zusatz-App neben dem Server (deploy/zusatz-app.sh, Netz taleward-zusatz)."""
++import json
++import os
++import re
++import shutil
++import subprocess
++from pathlib import Path
++
++import pytest
++import yaml
++
++WURZEL = Path(__file__).resolve().parent.parent
++DEPLOY = WURZEL / "deploy"
++ENV = ("TALEWARD_DOMAIN=srv.example.org\nTALEWARD_TEST_DOMAIN=test.example.org\n"
++       "WEBSITE_DOMAINS=example.org www.example.org\n")
++
++
++def _ordner(tmp_path, pruefung_ok=True):
++    ziel = tmp_path / "taleward"
++    ziel.mkdir()
++    (ziel / ".env").write_text(ENV, encoding="utf-8")
++    stub = tmp_path / "bin"
++    stub.mkdir()
++    # docker-Attrappe: merkt sich Aufrufe; „run … caddy validate“ scheitert, wenn pruefung.txt „nein“ sagt oder eine
++    # Regel „kaputt“ enthält; „ps“ meldet Caddy als laufend
++    (stub / "docker").write_text(f"""#!/bin/sh
++echo "$@" >> "{tmp_path}/aufrufe"
++case "$*" in
++  *"run "*validate*)
++    [ "$(cat "{tmp_path}/pruefung.txt")" = ja ] || exit 1
++    if grep -l kaputt extra-caddy/*.caddy >/dev/null 2>&1; then exit 1; fi
++    exit 0 ;;
++  *"ps "*) echo caddy ;;
++esac
++exit 0
++""")
++    (stub / "docker").chmod(0o755)
++    (tmp_path / "pruefung.txt").write_text("ja" if pruefung_ok else "nein")
++    return ziel, stub
++
++
++def _aufruf(ziel, stub, *args):
++    env = {**os.environ, "TALEWARD_ZIEL": str(ziel), "PATH": f"{stub}:{os.environ['PATH']}"}
++    return subprocess.run(["bash", str(DEPLOY / "zusatz-app.sh"), *args], capture_output=True, text=True, env=env)
++
++
++def test_an_liste_aus(tmp_path):
++    ziel, stub = _ordner(tmp_path)
++    r = _aufruf(ziel, stub, "an", "App.Example.org", "meine-app:8080")
++    assert r.returncode == 0, r.stderr
++    regel = (ziel / "extra-caddy" / "app.example.org.caddy").read_text()
++    zeilen = [z.strip() for z in regel.splitlines() if z.strip() and not z.startswith("#")]
++    assert zeilen == ["app.example.org {", "encode zstd gzip", "header {", "-Server", "-Via",
++                      'Strict-Transport-Security "max-age=31536000"', 'X-Content-Type-Options "nosniff"',
++                      'Referrer-Policy "strict-origin-when-cross-origin"', "defer", "}", "request_body {",
++                      "max_size 16MB", "}", "reverse_proxy meine-app:8080", "}"]
++    for verboten in ("import", "root", "file_server", "log", "{$"):
++        assert verboten not in regel.split("\n", 1)[1]
++    aufrufe = (tmp_path / "aufrufe").read_text()
++    assert "validate" in aufrufe and "caddy reload" in aufrufe
++    assert "app.example.org → meine-app:8080" in _aufruf(ziel, stub, "liste").stdout
++    # Ziel ändern ersetzt die Regel
++    assert _aufruf(ziel, stub, "an", "app.example.org", "andere-app:3000").returncode == 0
++    assert "reverse_proxy andere-app:3000" in (ziel / "extra-caddy" / "app.example.org.caddy").read_text()
++    r = _aufruf(ziel, stub, "aus", "app.example.org")
++    assert r.returncode == 0 and not (ziel / "extra-caddy" / "app.example.org.caddy").exists()
++    assert _aufruf(ziel, stub, "aus", "app.example.org").returncode != 0
++
++
++@pytest.mark.parametrize("adresse", ["srv.example.org", "SRV.example.org", "test.example.org", "www.example.org",
++                                     "example.org", "*.example.org", "", "a b.example.org", "a;b.org", "localhost",
++                                     "app.example.org\nX=1", "-x.example.org", "app.example.org:443", "http://a.org"])
++def test_abgelehnte_adressen(tmp_path, adresse):
++    ziel, stub = _ordner(tmp_path)
++    assert _aufruf(ziel, stub, "an", adresse, "meine-app:8080").returncode != 0
++    assert not list((ziel / "extra-caddy").glob("*.caddy"))
++
++
++@pytest.mark.parametrize("ziel_", ["server:8000", "testserver:8000", "caddy:80", "worker:1", "ollama:11434",
++                                   "taleward-server-1:8000", "taleward_server_1:8000", "meine-app", "meine-app:",
++                                   "meine-app:0", "meine-app:70000", "meine-app:080", "Meine-App:8080", "a;b:80",
++                                   "meine app:80", "-x:80", "meine-app:80:90", "http://meine-app:80", ""])
++def test_abgelehnte_ziele(tmp_path, ziel_):
++    ziel, stub = _ordner(tmp_path)
++    assert _aufruf(ziel, stub, "an", "app.example.org", ziel_).returncode != 0
++    assert not list((ziel / "extra-caddy").glob("*.caddy"))
++
++
++def test_hoechstens_fuenf(tmp_path):
++    ziel, stub = _ordner(tmp_path)
++    for i in range(5):
++        assert _aufruf(ziel, stub, "an", f"app{i}.example.org", f"app{i}:80").returncode == 0
++    assert _aufruf(ziel, stub, "an", "app5.example.org", "app5:80").returncode != 0
++    assert _aufruf(ziel, stub, "an", "app0.example.org", "neu:81").returncode == 0  # ändern geht weiter
++
++
++def test_abgelehnte_pruefung_laesst_alles_wie_es_war(tmp_path):
++    ziel, stub = _ordner(tmp_path)
++    assert _aufruf(ziel, stub, "an", "app.example.org", "meine-app:8080").returncode == 0
++    vorher = (ziel / "extra-caddy" / "app.example.org.caddy").read_text()
++    (tmp_path / "pruefung.txt").write_text("nein")
++    assert _aufruf(ziel, stub, "an", "app.example.org", "andere:9000").returncode != 0
++    assert (ziel / "extra-caddy" / "app.example.org.caddy").read_text() == vorher
++    assert _aufruf(ziel, stub, "an", "neu.example.org", "neu:9000").returncode != 0
++    assert not (ziel / "extra-caddy" / "neu.example.org.caddy").exists()
++    assert "caddy reload" not in (tmp_path / "aufrufe").read_text().split("validate")[-1]
++
++
++# ---------------------------------------------------------------- Compose und Caddyfile
++def test_netz_nur_mit_caddy():
++    compose = yaml.safe_load((DEPLOY / "docker-compose.yml").read_text())
++    assert compose["networks"]["zusatz"] == {"name": "taleward-zusatz"}  # nicht external: up scheitert nie daran
++    for name, dienst in compose["services"].items():
++        netze = dienst.get("networks") or {}
++        if name == "caddy":
++            assert set(netze) == {"default", "zusatz"}
++            assert "./extra-caddy:/etc/caddy/extra:ro" in dienst["volumes"]
++        else:
++            assert "zusatz" not in netze, name
++    assert "import /etc/caddy/extra/*.caddy" in (DEPLOY / "Caddyfile").read_text()
++
++
++def test_update_und_installation_lassen_die_regeln_stehen():
++    akt = (DEPLOY / "aktualisieren.sh").read_text()
++    assert "zusatz-app.sh:zusatz-app.sh" in akt and "mkdir -p website-caddy test-caddy extra-caddy" in akt
++    assert not re.search(r"rm [^\n]*extra-caddy", akt) and "extra-caddy:" not in akt  # nie überschrieben
++    assert "zusatz_absichern\n  # Platz sparen" in akt
++    inst = (WURZEL / "install.sh").read_text()
++    assert "zusatz-app.sh; do" in inst and '"$ZIEL/extra-caddy"' in inst
++
++
++def _absichern(tmp_path, regeln):
++    """Die Funktionen caddy_ok/zusatz_absichern aus aktualisieren.sh allein ausführen."""
++    ziel, stub = _ordner(tmp_path)
++    akt = (DEPLOY / "aktualisieren.sh").read_text()
++    funktionen = akt[akt.index("caddy_ok() {"):akt.index("wert_setzen() {")]
++    (ziel / "extra-caddy").mkdir()
++    for name, inhalt in regeln.items():
++        (ziel / "extra-caddy" / name).write_text(inhalt)
++    env = {**os.environ, "PATH": f"{stub}:{os.environ['PATH']}"}
++    r = subprocess.run(["bash", "-c", funktionen + "\nzusatz_absichern"], cwd=ziel, capture_output=True, text=True,
++                       env=env)
++    return ziel, r
++
++
++def test_kaputte_regel_legt_taleward_nicht_lahm(tmp_path):
++    ziel, r = _absichern(tmp_path, {"gut.example.org.caddy": "gut", "kaputt.example.org.caddy": "kaputt"})
++    assert r.returncode == 0
++    assert (ziel / "extra-caddy" / "gut.example.org.caddy").exists()
++    assert (ziel / "extra-caddy" / "aus" / "kaputt.example.org.caddy").exists()
++    assert not (ziel / "extra-caddy" / "kaputt.example.org.caddy").exists()
++    assert "kaputt.example.org abgeschaltet" in r.stdout
++    assert "restart caddy" in (tmp_path / "aufrufe").read_text()
++
++
++def test_ohne_regeln_oder_wenn_alles_passt_nichts_anfassen(tmp_path):
++    ziel, r = _absichern(tmp_path, {"gut.example.org.caddy": "gut"})
++    assert r.returncode == 0 and (ziel / "extra-caddy" / "gut.example.org.caddy").exists()
++    assert "restart" not in (tmp_path / "aufrufe").read_text()
++    (tmp_path / "aufrufe").unlink()
++    shutil.rmtree(tmp_path / "taleward")
++    shutil.rmtree(tmp_path / "bin")
++    ziel, r = _absichern(tmp_path, {})
++    assert r.returncode == 0 and not (tmp_path / "aufrufe").exists()  # ohne Regeln nicht einmal prüfen
++
++
++def test_caddy_nimmt_die_regel_an(tmp_path):
++    caddy = os.environ.get("CADDY") or shutil.which("caddy")
++    if not caddy:
++        pytest.skip("Caddy nicht vorhanden")
++    ziel, stub = _ordner(tmp_path)
++    assert _aufruf(ziel, stub, "an", "app.example.org", "meine-app:8080").returncode == 0
++    datei = tmp_path / "Caddyfile"
++    datei.write_text((DEPLOY / "Caddyfile").read_text().replace("/etc/caddy/extra/", f"{ziel}/extra-caddy/"))
++    env = {**os.environ, "ACME_EMAIL": "a@example.org", "TALEWARD_DOMAIN": "srv.example.org"}
++    r = subprocess.run([caddy, "adapt", "--adapter", "caddyfile", "--config", str(datei)], capture_output=True,
++                       text=True, env=env)
++    assert r.returncode == 0, r.stderr
++    assert "meine-app:8080" in json.dumps(json.loads(r.stdout))
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index 9fdb95d..1b1e96d 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -112,7 +112,7 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     code, _ = code_erzeugen(dbs)
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.163"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.164"
+ 
+ 
+ def test_engine_requirements_passen_zu_uv_lock(tmp_path):
+diff --git a/uv.lock b/uv.lock
+index 7080f84..6956f28 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -2138,7 +2138,7 @@ wheels = [
+ 
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.163"
++version = "0.4.164"
+ source = { editable = "." }
+ dependencies = [
+     { name = "alembic" },
+-- 
+2.43.0
+
