@@ -1582,7 +1582,9 @@ WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}
 
 
 def sprache_von(request: Request) -> str:
-    wahl = request.cookies.get(COOKIE)
+    from app import kekse
+
+    wahl = kekse.lesen(request, COOKIE)
     if wahl in SPRACHEN:
         return wahl
     for teil in (request.headers.get("accept-language") or "").split(","):

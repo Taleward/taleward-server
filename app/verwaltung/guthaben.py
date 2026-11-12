@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import abrechnung, begrenzung, errors, rechtstexte, zahlung
+from app import abrechnung, begrenzung, errors, kekse, rechtstexte, zahlung
 from app.config import get_settings
 from app.db import get_db, server_id, utcnow
 from app.models import AuthMethod, Campaign, Guthaben, Job, Member, User
@@ -81,7 +81,7 @@ def _an(db: Session = Depends(get_db)) -> None:
 
 
 def _person(request: Request, db: Session) -> User | None:
-    wert = request.cookies.get(COOKIE)
+    wert = kekse.lesen(request, COOKIE)
     if not wert:
         return None
     try:
@@ -113,13 +113,13 @@ def _frisch(request: Request, user: User = Depends(_angemeldet), db: Session = D
     Sitzung)."""
     from app.verwaltung import zweiter_faktor
 
-    if not zweiter_faktor.frisch(db, user.id, "guthaben", sitzung=_jti(request.cookies.get(COOKIE, ""))):
+    if not zweiter_faktor.frisch(db, user.id, "guthaben", sitzung=_jti(kekse.lesen(request, COOKIE) or "")):
         raise _FaktorNoetig()
     return user
 
 
 def _csrf_pruefen(request: Request, csrf: str = Form("")) -> None:
-    wert = request.cookies.get(COOKIE, "")
+    wert = kekse.lesen(request, COOKIE) or ""
     if not wert or not hmac.compare_digest(csrf, _csrf(wert)):
         raise errors.forbidden()
 
@@ -176,8 +176,8 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
     if zweiter_faktor.aktiv(db, user.id) and not vertraut.pruefen(request, db, user, "guthaben"):  # erst noch der Code
         wert = _token(user, f"{server_id()}:guthaben-code", timedelta(minutes=CODE_MINUTEN))
         antwort = _code_seite(request, db, user=user, bindung=_jti(wert))
-        antwort.set_cookie(COOKIE_CODE, wert, max_age=CODE_MINUTEN * 60, httponly=True, samesite="strict",
-                           secure=request.url.scheme == "https", path="/guthaben")
+        kekse.setzen(antwort, request, COOKIE_CODE, wert, pfad="/guthaben", max_age=CODE_MINUTEN * 60, httponly=True,
+                     samesite="strict")
         db.commit()
         return antwort
     from app import geraete
@@ -197,9 +197,9 @@ def _token(user: User, aud: str, dauer: timedelta) -> str:
 def _sitzung(request: Request, user: User, token: str | None = None) -> RedirectResponse:
     antwort = _zurueck()
     wert = token or _token(user, _aud(), timedelta(hours=STUNDEN))
-    antwort.set_cookie(COOKIE, wert, max_age=STUNDEN * 3600, httponly=True,
-                       samesite="strict", secure=request.url.scheme == "https", path="/guthaben")
-    antwort.delete_cookie(COOKIE_CODE, path="/guthaben")
+    kekse.setzen(antwort, request, COOKIE, wert, pfad="/guthaben", max_age=STUNDEN * 3600, httponly=True,
+                 samesite="strict")
+    kekse.loeschen(antwort, request, COOKIE_CODE, pfad="/guthaben")
     return antwort
 
 
@@ -231,7 +231,7 @@ def anmelden_code(request: Request, code: str = Form(""), passkey: str = Form(""
     from app.verwaltung import zweiter_faktor
     from app.verwaltung.router import _versuch
 
-    wert = request.cookies.get(COOKIE_CODE)
+    wert = kekse.lesen(request, COOKIE_CODE)
     try:
         daten = jwt.decode(wert or "", get_settings().jwt_secret, algorithms=["HS256"],
                            audience=f"{server_id()}:guthaben-code")
@@ -275,7 +275,7 @@ def _bestaetigen_zeigen(request: Request, db: Session, user: User, fehler: str |
 
     if not zweiter_faktor.aktiv(db, user.id):
         return _zurueck()
-    optionen = passkeys.anmeldung_beginnen(db, user, _jti(request.cookies.get(COOKIE, "")))
+    optionen = passkeys.anmeldung_beginnen(db, user, _jti(kekse.lesen(request, COOKIE) or ""))
     db.commit()
     antwort = _seite(request, "bestaetigen.html", None, db, fehler=fehler, passkey_optionen=optionen,
                      ziel="/guthaben/bestaetigen", weiter="/guthaben", zurueck="/guthaben",
@@ -297,7 +297,7 @@ def bestaetigen(request: Request, code: str = Form(""), passkey: str = Form(""),
     if versuch is None:
         return _bestaetigen_zeigen(request, db, user,
                                    tr(request)("Zu viele Fehlversuche. Bitte in ein paar Minuten erneut versuchen."), 429)
-    bindung = _jti(request.cookies.get(COOKIE, ""))
+    bindung = _jti(kekse.lesen(request, COOKIE) or "")
     if (passkeys.anmeldung_pruefen(db, user, bindung, passkey) if passkey.strip()
             else zweiter_faktor.pruefen(db, user.id, code)):
         ZAEHLER.freigeben(versuch)
@@ -311,9 +311,9 @@ def bestaetigen(request: Request, code: str = Form(""), passkey: str = Form(""),
 
 
 @router.post("/abmelden", dependencies=[Depends(_an), Depends(_csrf_pruefen)])
-def abmelden():
+def abmelden(request: Request):
     antwort = _zurueck()
-    antwort.delete_cookie(COOKIE, path="/guthaben")
+    kekse.loeschen(antwort, request, COOKIE, pfad="/guthaben")
     return antwort
 
 

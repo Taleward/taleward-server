@@ -88,9 +88,13 @@ class Authenticator:
                                         "signature": _b64(sig), "userHandle": None}})
 
 
-def _https_an(dbs):
+def _https_an(dbs, client=None):
     meta_schreiben(dbs, "angabe.public_url", HTTPS)
     dbs.commit()
+    if client is not None:
+        from tests.faktor_hilfe import https_sitzung
+
+        https_sitzung(client)
 
 
 def _faktor_an(client, dbs, user_id) -> list[str]:
@@ -142,7 +146,7 @@ def test_passkey_nur_mit_https_und_code(client, dbs, admin):  # noqa: F811
     meta_schreiben(dbs, "angabe.public_url", f"http://{HOST}")  # http reicht nicht
     dbs.commit()
     assert not passkeys.verfuegbar(dbs)
-    _https_an(dbs)
+    _https_an(dbs, client)
     assert passkeys.verfuegbar(dbs) and passkeys.herkunft(dbs) == (HOST, HTTPS)
     assert "Passkey hinzufügen" in client.get(f"{HTTPS}/verwaltung/anmeldung").text
 
@@ -152,7 +156,7 @@ def test_passkey_einrichten_und_anmelden(client, dbs, admin, konto_post):  # noq
 
     chef = _chef(dbs)
     chef.email = "chef@example.org"
-    _https_an(dbs)
+    _https_an(dbs, client)
     codes = _faktor_an(client, dbs, chef.id)
     auth = Authenticator()
     r, optionen = _passkey_anlegen(client, dbs, admin, auth)
@@ -196,7 +200,7 @@ def test_passkey_abgelehnt_bei_falscher_herkunft_rp_zaehler_und_flags(client, db
     from app.models import Passkey
 
     chef = _chef(dbs)
-    _https_an(dbs)
+    _https_an(dbs, client)
     _faktor_an(client, dbs, chef.id)
     auth = Authenticator()
     r, _o = _passkey_anlegen(client, dbs, admin, auth)
@@ -269,7 +273,7 @@ def test_passkey_einrichten_abgelehnt_und_grenzen(client, dbs, admin):  # noqa: 
     from app.models import Passkey
 
     chef = _chef(dbs)
-    _https_an(dbs)
+    _https_an(dbs, client)
     _faktor_an(client, dbs, chef.id)
     auth = Authenticator()
     # falscher type, crossOrigin, fremde Herkunft, alte Challenge
@@ -327,7 +331,7 @@ def test_passkey_entfernen_faktor_aus_konto_loeschen_export(client, dbs, admin):
     from app.verwaltung import zweiter_faktor as zf
 
     chef = _chef(dbs)
-    _https_an(dbs)
+    _https_an(dbs, client)
     _faktor_an(client, dbs, chef.id)
     auth = Authenticator()
     _passkey_anlegen(client, dbs, admin, auth)
@@ -457,15 +461,15 @@ def test_vertrautes_geraet_ueberspringt_den_code(client, dbs, admin, konto_post)
     assert g.bereich == "verwaltung" and (g.expires_at - g.created_at).days == 30
     assert konto_post and "Neues vertrautes Gerät" in konto_post[-1]["betreff"]
     # nächste Anmeldung: Passwort reicht; frischer Faktor ist dort NICHT gesetzt
-    sitzung = client.cookies.get("tw_verwaltung")
-    client.cookies.delete("tw_verwaltung", path="/verwaltung")
+    sitzung = client.cookies.get("__Host-tw_verwaltung")
+    client.cookies.delete("__Host-tw_verwaltung")
     meta_schreiben(dbs, f"verwaltung.faktor_frisch.verwaltung.{chef.id}", "1")
     dbs.commit()
     r = client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"}, follow_redirects=False)
     # 0.4.149 (S58): ohne Meldeweg steht der Hinweis „Neues vertrautes Gerät“ beim nächsten Anmelden an einem
     # ANDEREN Gerät – das neue Gerät selbst sieht ihn nicht und kann ihn so auch nicht wegklicken
     assert r.status_code == 303 and r.headers["location"] == "/verwaltung/"
-    assert sitzung != client.cookies.get("tw_verwaltung")
+    assert sitzung != client.cookies.get("__Host-tw_verwaltung")
     merkzeichen = client.cookies.get("__Host-tw_vertraut")
     client.cookies.delete("__Host-tw_vertraut")
     r = _anmelden_mit_code(client, codes)  # anderer Browser: Passwort und Code
@@ -489,7 +493,7 @@ def test_vertrautes_geraet_ueberspringt_den_code(client, dbs, admin, konto_post)
     assert "Vertraute Geräte" in seite and "Alle entfernen" in seite
     r = client.post(f"{HTTPS}/verwaltung/vertraute-geraete/entfernen", data={"csrf": csrf, "geraet": g.id}, follow_redirects=False)
     assert "vertraut_weg" in r.headers["location"]
-    client.cookies.delete("tw_verwaltung", path="/verwaltung")
+    client.cookies.delete("__Host-tw_verwaltung")
     r = client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"}, follow_redirects=False)
     assert r.headers["location"] == "/verwaltung/anmelden/code"  # Merkzeichen weg → Code
     # Passwortwechsel (token_version), Faktor neu, Ablauf → Code
@@ -506,7 +510,7 @@ def test_vertrautes_geraet_ueberspringt_den_code(client, dbs, admin, konto_post)
         else:
             g.expires_at = g.created_at
         dbs.commit()
-        client.cookies.delete("tw_verwaltung", path="/verwaltung")
+        client.cookies.delete("__Host-tw_verwaltung")
         r = client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"},
                         follow_redirects=False)
         assert r.headers["location"] == "/verwaltung/anmelden/code", aenderung
@@ -527,7 +531,7 @@ def test_guthaben_passkey_vertrauen_und_geldschritt(client, world, dbs):
     from tests.test_abrechnung_0485 import _modus
 
     _modus(dbs)
-    _https_an(dbs)
+    _https_an(dbs, client)
     anna = dbs.scalar(select(User).where(User.username == "anna"))
     codes = _faktor_an(client, dbs, anna.id)
     # Passkey direkt anlegen (die Guthaben-Seite hat keine Verwaltung dafür – das geht nur über die Verwaltung)
@@ -552,7 +556,7 @@ def test_guthaben_passkey_vertrauen_und_geldschritt(client, world, dbs):
     r = client.post(f"{HTTPS}/guthaben/gutschein", data={"csrf": csrf, "code": "XXXX-XXXX-XXXX-XXXX"}, follow_redirects=False)
     assert r.status_code in (200, 303, 400) and "bestaetigen" not in r.headers.get("location", "")
     # Neue Anmeldung über das vertraute Gerät: ohne Code, aber Geld-Schritt → Bestätigungsseite
-    client.cookies.delete("tw_guthaben", path="/guthaben")
+    client.cookies.delete("__Host-tw_guthaben")
     r = client.post(f"{HTTPS}/guthaben/anmelden", data={"username": "anna", "password": "geheim123"}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/guthaben"
     meta_schreiben(dbs, f"verwaltung.faktor_frisch.guthaben.{anna.id}", "1")

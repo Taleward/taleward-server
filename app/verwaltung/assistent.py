@@ -42,8 +42,10 @@ def _weiter(schritt: str) -> RedirectResponse:
 
 
 def _anmelden(antwort: RedirectResponse, request: Request, db: Session, user: User) -> RedirectResponse:
-    antwort.set_cookie(COOKIE, _cookie_wert(db, user), max_age=SITZUNG_STUNDEN * 3600, httponly=True,
-                       samesite="strict", secure=request.url.scheme == "https", path="/verwaltung")
+    from app import kekse
+
+    kekse.setzen(antwort, request, COOKIE, _cookie_wert(db, user), pfad="/verwaltung", max_age=SITZUNG_STUNDEN * 3600,
+                 httponly=True, samesite="strict")
     return antwort
 
 

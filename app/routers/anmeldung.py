@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app import anmeldedienste, begrenzung, einmal, errors, mail, schemas
+from app import anmeldedienste, begrenzung, einmal, errors, kekse, mail, schemas
 from app.access import current_user
 from app.db import get_db, server_id, utcnow
 from app.einstellungen import mail_adresse, oeffentliche_adresse
@@ -317,9 +317,10 @@ def dienst_start(provider: str, request: Request, challenge: str = "", purpose: 
     # Bindung an diesen Browser. Apple antwortet per Formular (POST von fremder Seite) → über HTTPS SameSite=None,
     # sonst (Heimnetz ohne HTTPS) Lax; nur der Rückweg-Pfad bekommt das Cookie.
     https = basis.startswith("https://")
-    antwort.set_cookie(anmeldedienste.bindung_cookie(zustand), geheimnis,
-                       max_age=int(anmeldedienste.ZUSTAND_GUELTIG.total_seconds()), path="/auth/oidc/",
-                       httponly=True, secure=https, samesite="none" if https else "lax")
+    # 0.4.165 (S68): über HTTPS mit Vorsatz „__Host-“ (Pfad dann „/“), sonst wie bisher nur der Rückweg-Pfad
+    kekse.setzen(antwort, request, anmeldedienste.bindung_cookie(zustand), geheimnis, pfad="/auth/oidc/", sicher=https,
+                 max_age=int(anmeldedienste.ZUSTAND_GUELTIG.total_seconds()), httponly=True,
+                 samesite="none" if https else "lax")
     antwort.headers["Cache-Control"] = "no-store"
     return antwort
 
@@ -345,16 +346,26 @@ def _zur_app(ziel: str, status: int = 303, state: str = "", request: Request | N
         antwort.headers["content-length"] = str(len(antwort.body))
     antwort.headers["Cache-Control"] = "no-store"
     antwort.headers["Referrer-Policy"] = "no-referrer"
-    if state:  # Bindung verbraucht – Cookie entfernen
-        antwort.delete_cookie(anmeldedienste.bindung_cookie(state), path="/auth/oidc/")
+    if state and request is not None and db is not None:  # Bindung verbraucht – Cookie entfernen
+        kekse.loeschen(antwort, request, anmeldedienste.bindung_cookie(state), pfad="/auth/oidc/",
+                       sicher=oeffentliche_adresse(db, request).startswith("https://"))
     return antwort
+
+
+def _bindung(request: Request, db: Session, state: str) -> dict:
+    """0.4.165 (S68): nur das Bindungs-Cookie dieses Ablaufs unter dem erwarteten Namen (über HTTPS „__Host-…“);
+    kommt es doppelt, gilt keins."""
+    basis = anmeldedienste.bindung_cookie(state)
+    wert = kekse.lesen(request, basis, sicher=oeffentliche_adresse(db, request).startswith("https://"))
+    return {basis: wert} if wert else {}
 
 
 @seiten.get("/auth/oidc/{provider}/callback")
 def dienst_rueckkehr(provider: str, request: Request, db: Session = Depends(get_db)):
     werte = dict(request.query_params)
     return _zur_app(anmeldedienste.rueckkehr(db, provider, werte, oeffentliche_adresse(db, request),
-                                             cookies=request.cookies), state=werte.get("state") or "",
+                                             cookies=_bindung(request, db, werte.get("state") or "")),
+                    state=werte.get("state") or "",
                     request=request, db=db, provider=provider)
 
 
@@ -364,7 +375,7 @@ def dienst_rueckkehr_formular(provider: str, request: Request, code: str = Form(
     """Apple schickt die Antwort als Formular (response_mode=form_post)."""
     werte = {"code": code, "state": state, "error": error, "user": user}
     return _zur_app(anmeldedienste.rueckkehr(db, provider, {k: v for k, v in werte.items() if v},
-                                             oeffentliche_adresse(db, request), cookies=request.cookies),
+                                             oeffentliche_adresse(db, request), cookies=_bindung(request, db, state)),
                     state=state, request=request, db=db, provider=provider)
 
 

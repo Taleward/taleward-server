@@ -36,13 +36,13 @@ def test_vertrautes_geraet_erbt_den_frischen_faktor_nicht(client, dbs, admin):  
     """Wer mit Passwort und vertrautem Gerät hereinkommt, während die Person gerade woanders bestätigt hat, muss den
     Faktor selbst zeigen."""
     chef = _chef(dbs)
-    _https_an(dbs)
+    _https_an(dbs, client)
     codes = _faktor_an(client, dbs, chef.id)
     assert _anmelden_mit_code(client, codes, vertrauen=True).status_code == 303  # Sitzung A, frisch
-    sitzung_a = client.cookies.get("tw_verwaltung")
+    sitzung_a = client.cookies.get("__Host-tw_verwaltung")
     csrf_a = client.get(f"{HTTPS}/verwaltung/konten").text.split('name="csrf" value="')[1].split('"')[0]
     # Sitzung B: dasselbe Konto über das vertraute Gerät (nur Passwort), innerhalb der fünf Minuten
-    client.cookies.delete("tw_verwaltung", path="/verwaltung")
+    client.cookies.delete("__Host-tw_verwaltung")
     r = client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"},
                     follow_redirects=False)
     assert r.status_code == 303 and "anmelden/code" not in r.headers["location"]
@@ -51,8 +51,8 @@ def test_vertrautes_geraet_erbt_den_frischen_faktor_nicht(client, dbs, admin):  
                     data={"csrf": csrf_b, "username": "neu-b", "display_name": "N", "password": "sehrgeheim12"})
     assert r.headers["location"].startswith("/verwaltung/bestaetigen")
     # Sitzung A darf weiter
-    client.cookies.delete("tw_verwaltung", path="/verwaltung")
-    client.cookies.set("tw_verwaltung", sitzung_a, path="/verwaltung")
+    client.cookies.delete("__Host-tw_verwaltung")
+    client.cookies.set("__Host-tw_verwaltung", sitzung_a)
     r = client.post(f"{HTTPS}/verwaltung/konten", follow_redirects=False,
                     data={"csrf": csrf_a, "username": "neu-a", "display_name": "N", "password": "sehrgeheim12"})
     assert "konto_angelegt" in r.headers["location"]
@@ -100,7 +100,7 @@ def test_merkzeichen_nur_aus_dem_richtigen_cookie_und_immer_neu(client, dbs, adm
 
     chef = _chef(dbs)
     chef.email = "chef@example.org"
-    _https_an(dbs)
+    _https_an(dbs, client)
     codes = _faktor_an(client, dbs, chef.id)
     # untergeschobenes Merkzeichen ohne __Host- (könnte eine Subdomain setzen): unter https nicht gelesen, nicht übernommen
     client.cookies.clear()

@@ -30,7 +30,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import links as links_modul
-from app import begrenzung, errors, queue
+from app import begrenzung, errors, kekse, queue
 from app.abrechnung import TOKENS_SCHAETZUNG
 from app.config import get_settings
 from app.db import get_db, server_id, utcnow
@@ -246,7 +246,7 @@ def _weiter_pfad(request: Request) -> str:
 
 def sitzung(request: Request, db: Session = Depends(get_db)) -> User:
     """Gültige Verwaltungs-Sitzung (auch das Einrichtungskonto)."""
-    wert = request.cookies.get(COOKIE)
+    wert = kekse.lesen(request, COOKIE)
     if not wert:
         raise NichtAngemeldet()
     try:
@@ -297,7 +297,7 @@ def faktor_frisch(request: Request, user: User = Depends(verwalter), db: Session
 
 
 def csrf_pruefen(request: Request, csrf: str = Form("")) -> None:
-    wert = request.cookies.get(COOKIE, "")
+    wert = kekse.lesen(request, COOKIE) or ""
     if not wert or not hmac.compare_digest(csrf, _csrf(wert)):
         raise errors.forbidden()
 
@@ -407,8 +407,8 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
             if not user.setup_account and zweiter_faktor.aktiv(db, user.id) \
                     and not vertraut.pruefen(request, db, user, "verwaltung"):  # erst noch der Code (0.4.143: S44)
                 antwort = RedirectResponse("/verwaltung/anmelden/code", status_code=303)
-                antwort.set_cookie(COOKIE_CODE, _code_cookie(db, user), max_age=CODE_MINUTEN * 60, httponly=True,
-                                   samesite="strict", secure=request.url.scheme == "https", path="/verwaltung")
+                kekse.setzen(antwort, request, COOKIE_CODE, _code_cookie(db, user), pfad="/verwaltung",
+                             max_age=CODE_MINUTEN * 60, httponly=True, samesite="strict")
                 db.commit()  # ein abgelaufenes Merkzeichen ist jetzt weg
                 return antwort
             hinweis = (vertraut.hinweis_abholen(db, user.id, vertraut.aktuelles(request, "verwaltung"))
@@ -443,7 +443,7 @@ def _code_cookie(db: Session, user: User) -> str:
 
 def _wartet_auf_code(request: Request, db: Session) -> User | None:
     """Konto, das nach richtigem Passwort noch den Code eingeben muss (kurzlebiges Cookie), sonst None."""
-    wert = request.cookies.get(COOKIE_CODE)
+    wert = kekse.lesen(request, COOKIE_CODE)
     if not wert:
         return None
     try:
@@ -457,14 +457,14 @@ def _wartet_auf_code(request: Request, db: Session) -> User | None:
 
 
 def _sitzung_setzen(antwort: Response, request: Request, db: Session, user: User, wert: str | None = None) -> None:
-    antwort.set_cookie(COOKIE, wert or _cookie_wert(db, user), max_age=SITZUNG_STUNDEN * 3600, httponly=True,
-                       samesite="strict", secure=request.url.scheme == "https", path="/verwaltung")
+    kekse.setzen(antwort, request, COOKIE, wert or _cookie_wert(db, user), pfad="/verwaltung",
+                 max_age=SITZUNG_STUNDEN * 3600, httponly=True, samesite="strict")
 
 
 def _code_bindung(request: Request) -> str:
     """0.4.143: Kennung des laufenden Code-Schritts (jti des Code-Cookies) – daran hängt die Passkey-Challenge."""
     try:
-        return jwt.decode(request.cookies.get(COOKIE_CODE, ""), options={"verify_signature": False}).get("jti") or "-"
+        return jwt.decode(kekse.lesen(request, COOKIE_CODE) or "", options={"verify_signature": False}).get("jti") or "-"
     except jwt.PyJWTError:
         return "-"
 
@@ -479,7 +479,7 @@ def _jti(wert: str) -> str:
 def _sitzungs_bindung(request: Request) -> str:
     """0.4.143: Kennung der Sitzung (jti des Sitzungs-Cookies) für Challenges beim Einrichten und Bestätigen."""
     try:
-        return jwt.decode(request.cookies.get(COOKIE, ""), options={"verify_signature": False}).get("jti") or "-"
+        return jwt.decode(kekse.lesen(request, COOKIE) or "", options={"verify_signature": False}).get("jti") or "-"
     except jwt.PyJWTError:
         return "-"
 
@@ -527,7 +527,7 @@ def code_pruefen(request: Request, code: str = Form(""), passkey: str = Form("")
         hinweis = vertraut.hinweis_abholen(db, user.id)
         antwort = _zurueck("/", "vertraut_neu" if hinweis else None)
         _sitzung_setzen(antwort, request, db, user, wert)
-        antwort.delete_cookie(COOKIE_CODE, path="/verwaltung")
+        kekse.loeschen(antwort, request, COOKIE_CODE, pfad="/verwaltung")
         if vertrauen == "ja":
             vertraut.merken(antwort, request, db, user, "verwaltung")
         geraete.anmeldung(antwort, request, db, user, "verwaltung")  # 0.4.141: Mail nur bei neuem Gerät
@@ -764,11 +764,11 @@ def netz_erlaubt(host: str | None) -> bool:
 
 
 @router.post("/abmelden", dependencies=[Depends(csrf_pruefen)])
-def abmelden(user: User = Depends(sitzung), db: Session = Depends(get_db)):
+def abmelden(request: Request, user: User = Depends(sitzung), db: Session = Depends(get_db)):
     meta_schreiben(db, f"verwaltung.abgemeldet.{user.id}", str(int(time.time())))
     db.commit()
     antwort = RedirectResponse("/verwaltung/anmelden?ok=abgemeldet", status_code=303)
-    antwort.delete_cookie(COOKIE, path="/verwaltung")
+    kekse.loeschen(antwort, request, COOKIE, pfad="/verwaltung")
     return antwort
 
 
@@ -2141,7 +2141,7 @@ def passwort_seite_setzen(token: str, request: Request, password: str = Form("")
 
 
 @seiten.get("/verwaltung/sprache/{code}")
-def sprache_waehlen(code: str, weiter: str = "/verwaltung/"):
+def sprache_waehlen(code: str, request: Request, weiter: str = "/verwaltung/"):
     """Sprache der Weboberfläche wählen (Cookie für ein Jahr). Nur Rücksprung auf eigene Seiten."""
     if not weiter.startswith(("/verwaltung", "/einladung", "/konto-loeschen", "/datenschutz", "/impressum",
                               "/nutzungsbedingungen", "/guthaben", "/widerruf", "/discord-bot/", "/discord/",
@@ -2150,7 +2150,7 @@ def sprache_waehlen(code: str, weiter: str = "/verwaltung/"):
         weiter = "/verwaltung/"
     antwort = RedirectResponse(weiter, status_code=303)
     if code in SPRACHEN:
-        antwort.set_cookie("tw_sprache", code, max_age=365 * 24 * 3600, samesite="lax", path="/")
+        kekse.setzen(antwort, request, "tw_sprache", code, pfad="/", max_age=365 * 24 * 3600, samesite="lax")
     return antwort
 
 
@@ -2236,6 +2236,7 @@ def einbinden(app: FastAPI) -> None:
                 antwort.headers.setdefault(k, v)
             return antwort
         antwort: Response = await call_next(request)
+        kekse.alte_aufraeumen(request, antwort)  # 0.4.165 (S68): Cookies von vor dem Umstieg auf „__Host-“
         if pfad.startswith("/verwaltung/static/"):
             antwort.headers.setdefault("Cache-Control", "public, max-age=86400")  # Stil und Logo dürfen zwischengespeichert werden
             antwort.headers.setdefault("X-Content-Type-Options", "nosniff")

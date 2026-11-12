@@ -30,7 +30,9 @@ def _hash(wert: str) -> str:
 
 def bekannt(request: Request, db: Session, user: User) -> bool:
     """Trägt der Browser ein Cookie, das zu diesem Konto gehört? Dann den Zeitpunkt nachziehen."""
-    wert = request.cookies.get(COOKIE) or ""
+    from app import kekse
+
+    wert = kekse.lesen(request, COOKIE) or ""
     if not (16 <= len(wert) <= 200):
         return False
     g = db.get(BekanntesGeraet, _hash(wert))
@@ -48,8 +50,10 @@ def merken(antwort: Response, request: Request, db: Session, user: User, ort: st
                                .order_by(BekanntesGeraet.last_seen_at.desc())))
     for alt in bekannte[MAX_JE_KONTO - 1:]:  # Platz für das neue lassen
         db.delete(alt)
-    antwort.set_cookie(COOKIE, wert, max_age=GERAET_TAGE * 86400, httponly=True, samesite="strict",
-                       secure=request.url.scheme == "https", path="/")
+    from app import kekse
+
+    kekse.setzen(antwort, request, COOKIE, wert, pfad="/", max_age=GERAET_TAGE * 86400, httponly=True,
+                 samesite="strict")
 
 
 def anmeldung(antwort: Response, request: Request, db: Session, user: User, ort: str) -> None:
