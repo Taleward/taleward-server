@@ -2250,7 +2250,8 @@ def einbinden(app: FastAPI) -> None:
         elif pfad == "/app" or pfad.startswith("/app/"):
             for k, v in einbettbar(WEBAPP_KOPFZEILEN, get_settings().einzelplatz_huelle).items():
                 antwort.headers.setdefault(k, v)
-        elif antwort.headers.get("content-type", "").startswith("text/html") and not pfad.startswith(DOKU_PFAD):
+        elif (antwort.headers.get("content-type", "").startswith("text/html")
+              and pfad not in (DOKU_PFAD, DOKU_PFAD + "/")):
             # 0.4.163 (S66): jede andere HTML-Seite (Rechtsseiten, /discord/<token>, /zustimmen/<token>, Fehlerseiten …)
             # bekommt dieselben Kopfzeilen – statt einer Liste, die bei neuen Seiten vergessen werden kann
             for k, v in SICHERHEITS_KOPFZEILEN.items():

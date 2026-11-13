@@ -31,12 +31,27 @@ case "$*" in
     if grep -l kaputt extra-caddy/*.caddy >/dev/null 2>&1; then exit 1; fi
     exit 0 ;;
   *"ps "*) echo caddy ;;
+  *"network inspect"*) cat "{tmp_path}/netz-ids" 2>/dev/null ;;
+  *"inspect "*) cat "{tmp_path}/container.txt" 2>/dev/null ;;
 esac
 exit 0
 """)
     (stub / "docker").chmod(0o755)
     (tmp_path / "pruefung.txt").write_text("ja" if pruefung_ok else "nein")
+    netz(tmp_path)
     return ziel, stub
+
+
+ZUSATZ_NAMEN = ["meine-app", "andere-app", "neu"] + [f"app{i}" for i in range(6)]
+
+
+def netz(tmp_path, zeilen=None):
+    """Nachgebildetes Netz taleward-zusatz: Caddy von Taleward und je Name ein Container der Zusatz-App (S69)."""
+    zeilen = zeilen if zeilen is not None else [
+        "taleward-caddy-1 taleward_default=caddy, taleward_kern=caddy, taleward-zusatz=caddy,"] + [
+        f"zusatz-{n}-1 taleward-zusatz={n},zusatz-{n}-1, zusatz_default={n}," for n in ZUSATZ_NAMEN]
+    (tmp_path / "netz-ids").write_text(" ".join(f"id{i}" for i in range(len(zeilen))) + "\n")
+    (tmp_path / "container.txt").write_text("".join(z + "\n" for z in zeilen))
 
 
 def _aufruf(ziel, stub, *args):
@@ -113,7 +128,7 @@ def test_netz_nur_mit_caddy():
     for name, dienst in compose["services"].items():
         netze = dienst.get("networks") or {}
         if name == "caddy":
-            assert set(netze) == {"default", "zusatz"}
+            assert set(netze) == {"default", "kern", "zusatz"}  # kern seit 0.4.166 (S69)
             assert "./extra-caddy:/etc/caddy/extra:ro" in dienst["volumes"]
         else:
             assert "zusatz" not in netze, name
@@ -129,11 +144,13 @@ def test_update_und_installation_lassen_die_regeln_stehen():
     assert "zusatz-app.sh; do" in inst and '"$ZIEL/extra-caddy"' in inst
 
 
-def _absichern(tmp_path, regeln):
-    """Die Funktionen caddy_ok/zusatz_absichern aus aktualisieren.sh allein ausführen."""
+def _absichern(tmp_path, regeln, netz_zeilen=None):
+    """Die Funktionen caddy_ok/zusatz_absichern (samt S69-Prüfung) aus aktualisieren.sh allein ausführen."""
     ziel, stub = _ordner(tmp_path)
+    if netz_zeilen is not None:
+        netz(tmp_path, netz_zeilen)
     akt = (DEPLOY / "aktualisieren.sh").read_text()
-    funktionen = akt[akt.index("caddy_ok() {"):akt.index("wert_setzen() {")]
+    funktionen = akt[akt.index("# S69: Wer hängt"):akt.index("wert_setzen() {")]
     (ziel / "extra-caddy").mkdir()
     for name, inhalt in regeln.items():
         (ziel / "extra-caddy" / name).write_text(inhalt)

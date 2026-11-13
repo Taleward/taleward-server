@@ -396,7 +396,7 @@ class OllamaKlient:
                 status, fehler, d = self._streamen(body)
             except httpx.ReadTimeout as e:
                 raise SprachmodellFehler(f"Ollama antwortet seit {int(self.STILLSTAND_S)} s nicht mehr – "
-                                         "Modell hängt oder der Rechner ist überlastet.") from e
+                                         "Modell hängt oder der Worker ist überlastet.") from e
             except httpx.HTTPError as e:
                 raise SprachmodellFehler(f"Ollama ist nicht erreichbar ({type(e).__name__}).") from e
             if (status >= 400 or fehler) and "repeat" in fehler and versuch + 1 < len(self.VERSUCHE):

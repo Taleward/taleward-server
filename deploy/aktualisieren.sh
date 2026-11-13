@@ -125,13 +125,69 @@ gesund() {
 
 # Zusatz-Apps (zusatz-app.sh) dürfen Taleward nie offline nehmen: Passt eine ihrer Regeln nach einem Update nicht mehr
 # zu Caddy, kommt sie nach extra-caddy/aus/ und Caddy startet ohne sie
+# S69: Wer hängt im Netz der Zusatz-Apps? Je Container eine Zeile „<name> ,<netze>, ,<namen im Zusatz-Netz>,“
+zusatz_container() {
+  local ids name rest feld netze namen
+  ids=$(docker network inspect taleward-zusatz -f '{{range $id, $c := .Containers}}{{$id}} {{end}}' 2>/dev/null) \
+    || return 0
+  [ -n "${ids// /}" ] || return 0
+  # shellcheck disable=SC2086,SC2016  # mehrere Kennungen; $n/$v sind Teil der Docker-Vorlage
+  docker inspect -f '{{slice .Name 1}}{{range $n, $v := .NetworkSettings.Networks}} {{$n}}={{range $v.Aliases}}{{.}},{{end}}{{end}}' \
+    $ids 2>/dev/null | while read -r name rest; do
+    netze=","; namen=",$name,"
+    for feld in $rest; do
+      netze="$netze${feld%%=*},"
+      [ "${feld%%=*}" = taleward-zusatz ] && namen="$namen${feld#*=}"
+    done
+    echo "$name $netze $namen"
+  done
+}
+projekt() {  # Name des Compose-Projekts von Taleward (Netze heißen <projekt>_default und <projekt>_kern)
+  local p
+  p=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' .env 2>/dev/null | tail -1)
+  p=${p:-$(basename "$PWD")}
+  printf '%s' "$p" | tr '[:upper:]' '[:lower:]'
+}
+# Namen von Taleward-Diensten, die im Netz der Zusatz-Apps niemand außer Caddy tragen darf
+TALEWARD_NAMEN='^(server|testserver|caddy|localhost|worker.*|ollama.*|taleward[-_.].*)$'
+fremd_belegt() {  # gibt belegte Namen aus (leer = alles in Ordnung)
+  local p name netze namen n
+  p=$(projekt)
+  zusatz_container | while read -r name netze namen; do
+    case "$name" in "$p"-caddy-*) continue ;; esac   # Caddy von Taleward selbst
+    for n in ${namen//,/ }; do
+      if [[ "$n" =~ $TALEWARD_NAMEN ]]; then echo "$n ($name)"; fi
+    done
+  done
+}
+# Testinstanz-Regel aus Fassungen vor 0.4.166 (Weiterleitung per Name) auf die feste Adresse umstellen
+test_regel_auffrischen() {
+  local regel=test-caddy/test.caddy
+  # shellcheck disable=SC2016  # {$…} ist ein Caddy-Platzhalter, keine Shell-Variable
+  if [ -f "$regel" ] && grep -q '^	reverse_proxy testserver:8000$' "$regel"; then
+    sed -i 's/^	reverse_proxy testserver:8000$/	reverse_proxy {$TALEWARD_TEST_ZIEL:testserver:8000}/' "$regel"
+    return 0
+  fi
+  return 1
+}
 caddy_ok() {
   docker compose run --rm --no-deps -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile \
     >/dev/null 2>&1
 }
 zusatz_absichern() {
-  local regel name geparkt=""
+  local regel name geparkt="" belegt
+  if test_regel_auffrischen; then docker compose restart caddy >/dev/null 2>&1 || true; fi
   compgen -G "extra-caddy/*.caddy" >/dev/null || return 0
+  belegt=$(fremd_belegt)
+  if [ -n "$belegt" ]; then  # S69: jemand trägt im Netz der Zusatz-Apps einen Taleward-Namen – alle Regeln aus
+    mkdir -p extra-caddy/aus
+    for regel in extra-caddy/*.caddy; do mv -f "$regel" extra-caddy/aus/; done
+    echo "[taleward] ACHTUNG: Im Netz taleward-zusatz trägt ein Container einen Taleward-Namen (${belegt//$'\n'/; })." \
+         "Alle Zusatz-Apps sind abgeschaltet (extra-caddy/aus/)."
+    docker compose up -d caddy >/dev/null 2>&1 || true
+    docker compose restart caddy >/dev/null 2>&1 || true
+    return 0
+  fi
   caddy_ok && return 0
   mkdir -p extra-caddy/aus
   for regel in extra-caddy/*.caddy; do

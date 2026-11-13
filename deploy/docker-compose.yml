@@ -67,6 +67,11 @@ services:
       - kopplung:/kopplung   # Schlüssel für den eingebauten Worker (nur Server und Worker)
     expose:
       - "8000"
+    networks:
+      default:
+      # Caddy erreicht den Server über diese feste Adresse (Netz „kern“ unten)
+      kern:
+        ipv4_address: ${TALEWARD_KERN_NETZ:-10.213.47}.2
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }
@@ -83,6 +88,9 @@ services:
     environment:
       TALEWARD_DOMAIN: ${TALEWARD_DOMAIN}
       ACME_EMAIL: ${ACME_EMAIL}
+      # Feste Adressen im Netz „kern“ (siehe dort) – Caddyfile und Testinstanz leiten nur hierhin weiter
+      TALEWARD_SERVER_ZIEL: ${TALEWARD_KERN_NETZ:-10.213.47}.2:8000
+      TALEWARD_TEST_ZIEL: ${TALEWARD_KERN_NETZ:-10.213.47}.3:8000
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # Optional: statische Website neben dem Server (WEBSITE_ORDNER in der .env, website-zugang.sh); sonst leer
@@ -96,6 +104,7 @@ services:
       - caddy-config:/config
     networks:
       default:
+      kern:
       # Nur Caddy hängt in diesem Netz – Zusatz-Apps erreichen darüber nie den Server, die Testinstanz oder Worker
       zusatz:
     logging:
@@ -120,6 +129,10 @@ services:
       - ./test-daten:/data
     expose:
       - "8000"
+    networks:
+      default:
+      kern:
+        ipv4_address: ${TALEWARD_KERN_NETZ:-10.213.47}.3
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }
@@ -185,6 +198,14 @@ volumes:
   caddy-config:
 
 networks:
+  # Nur Caddy, Server und Testinstanz, mit festen Adressen – Caddy leitet an diese Adressen weiter. Ohne Weg nach
+  # draußen (internal); das Teilnetz liegt außerhalb der Bereiche, die Docker selbst vergibt. Kollidiert es mit einem
+  # Netz des VPS: TALEWARD_KERN_NETZ=10.x.y in der .env (drei Zahlen).
+  kern:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${TALEWARD_KERN_NETZ:-10.213.47}.0/28
   # Für Zusatz-Apps neben Taleward (docs/BETRIEB.md): sie verbinden sich mit „external: true“. Fester Name, damit er
   # nicht vom Ordnernamen abhängt; angelegt wird es hier, also scheitert „docker compose up“ nie daran.
   zusatz:

@@ -573,6 +573,8 @@ class ProcessingStatusOut(ApiModel):
     updated_at: datetime
     estimated_seconds: int | None = None
     credit_wait: "CreditWaitOut | None" = None  # 0.4.25
+    wait_reason: Literal["no_worker", "cloud_not_allowed", "credit", "paused", "waiting"] | None = None  # 0.4.36
+    wait_actions: list[Literal["allow_cloud_summary", "allow_external_transcription"]] = []  # 0.4.36, nur SL
 
 
 class GmNoteOut(ApiModel):

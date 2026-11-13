@@ -6,7 +6,7 @@
 {% if not faktor %}<div class="hinweis">{{ _("Einschalten und Schlüssel brauchen den zweiten Faktor.") }} <a href="/verwaltung/anmeldung#zweiter-faktor">{{ _("Zweiten Faktor einrichten") }}</a></div>{% endif %}
 
 <div class="karte" id="schalter">
-  <h2>{{ _("Schalter") }}</h2>
+  <h2>{{ _("Bot ein- und ausschalten") }}</h2>
   <p>{% if an %}<span class="marke-status marke-status--gut">{{ _("eingeschaltet") }}</span>{% else %}<span class="marke-status">{{ _("aus") }}</span>{% endif %}</p>
   <form method="post" action="/verwaltung/discord/schalter">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="an" value="{{ '0' if an else '1' }}">
@@ -45,12 +45,14 @@
 
 <div class="karte" id="rechtstexte">
   <h2>{{ _("Datenschutz und Nutzungsbedingungen des Bots") }}</h2>
-  <p class="hilfe">{{ _("Erscheinen unter /discord-bot/datenschutz und /discord-bot/nutzungsbedingungen, sobald sie veröffentlicht sind.") }}</p>
+  <p class="hilfe">{{ _("Erscheinen unter diesen Adressen, sobald sie veröffentlicht sind:") }}
+    <a href="/discord-bot/datenschutz">/discord-bot/datenschutz</a>, <a href="/discord-bot/nutzungsbedingungen">/discord-bot/nutzungsbedingungen</a></p>
   <a class="tw-btn tw-btn--secondary" href="/verwaltung/discord/rechtstexte">{{ _("Bearbeiten") }}</a>
 </div>
 
-<div class="karte" id="spurschluessel">
-  <h2>{{ _("Schlüssel für die Spuren") }}</h2>
+{# Design-Prüfung 13.11.: selten gebraucht – zugeklappt, außer der Schlüssel lässt sich nicht lesen #}
+<details class="karte" id="spurschluessel"{% if spurschluessel and not spurschluessel.lesbar %} open{% endif %}>
+  <summary><h2 class="summary-titel">{{ _("Schlüssel für die Spuren") }}</h2> <span class="leise">{{ _("selten gebraucht") }}</span></summary>
   <p class="hilfe">{{ _("Der Bot verschlüsselt jede Spur mit diesem Schlüssel. Öffnen kann sie nur dieser Server.") }}</p>
   {% if spurschluessel and not spurschluessel.lesbar %}<div class="hinweis">{{ _("Der Schlüssel lässt sich gerade nicht lesen. Bitte den Server unter dem Nutzer starten, der ihn angelegt hat.") }}</div>
   {% elif spurschluessel %}<p>{{ _("Kennung") }} <code>{{ spurschluessel.kennung }}</code>{% if spurschluessel.alt %} · {{ _("{n} älterer bleibt bis zum Ende der offenen Bot-Runden", n=spurschluessel.alt) }}{% endif %}</p>
@@ -60,5 +62,5 @@
     <button class="tw-btn tw-btn--secondary" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Schlüssel erneuern") }}</button>
   </form>
   <p class="hilfe">{{ _("Nur nötig, wenn der Server in fremde Hände geraten sein könnte. Laufende Aufnahmen bleiben lesbar.") }}</p>
-</div>
+</details>
 {% endblock %}

@@ -347,7 +347,7 @@ def _widerruf_en(a: dict) -> str:
 
 # ---------------------------------------------------------------- Zusatz zum Datenschutzhinweis
 ANBIETER_ANSCHRIFT = {
-    "stripe": "Stripe Payments Europe, Limited, 1 Grand Canal Street Lower, Grand Canal Dock, Dublin, D02 H210, Irland "
+    "stripe": "Stripe Payments Europe, Limited, One Wilton Park, Wilton Place, Dublin 2, D02 FX04, Irland "
               "[Anschrift vor dem Veröffentlichen auf stripe.com prüfen]",
     "paypal": "PayPal (Europe) S.à r.l. et Cie, S.C.A., 22–24 Boulevard Royal, L-2449 Luxemburg "
               "[Anschrift vor dem Veröffentlichen auf paypal.com prüfen]",
@@ -388,7 +388,7 @@ def datenschutz_abschnitt(db: Session, sprache: str = "de") -> list[str]:
 
 
 ANBIETER_ANSCHRIFT_EN = {
-    "stripe": "Stripe Payments Europe, Limited, 1 Grand Canal Street Lower, Grand Canal Dock, Dublin, D02 H210, Ireland "
+    "stripe": "Stripe Payments Europe, Limited, One Wilton Park, Wilton Place, Dublin 2, D02 FX04, Ireland "
               "[check the address on stripe.com before publishing]",
     "paypal": "PayPal (Europe) S.à r.l. et Cie, S.C.A., 22–24 Boulevard Royal, L-2449 Luxembourg "
               "[check the address on paypal.com before publishing]",

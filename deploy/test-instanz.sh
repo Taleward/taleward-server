@@ -60,7 +60,7 @@ $adresse {
 	request_body {
 		max_size 64MB
 	}
-	reverse_proxy testserver:8000
+	reverse_proxy {\$TALEWARD_TEST_ZIEL:testserver:8000}
 }
 EOF
     docker compose up -d

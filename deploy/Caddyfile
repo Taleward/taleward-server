@@ -29,7 +29,9 @@
 	request_body {
 		max_size 64MB
 	}
-	reverse_proxy server:8000
+	# Feste Adresse statt Name (docker-compose.yml, Netz „kern“). Der Name hinter dem Doppelpunkt gilt nur, solange
+	# Caddy noch mit einer älteren docker-compose.yml läuft (dann fehlt die Angabe), damit Taleward dabei erreichbar bleibt
+	reverse_proxy {$TALEWARD_SERVER_ZIEL:server:8000}
 }
 
 # Optional: eine statische Website neben dem Server über denselben Caddy (siehe docs/BETRIEB.md, „Website mitliefern“).

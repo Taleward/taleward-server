@@ -1,9 +1,8 @@
-Fassung 0.4.165
+Fassung 0.4.166
 
 ## Was ist neu
 
-- Neben dem Server kann jetzt eine eigene Zusatz-App auf demselben Server laufen, mit eigener Adresse. Eingerichtet wird sie mit einem Befehl (`zusatz-app.sh`), Beschreibung in der Betriebsanleitung. Sie erreicht Taleward selbst nicht; passt ihre Regel nach einem Update nicht mehr, wird sie abgeschaltet und Taleward läuft weiter.
-- Den Datenschutzhinweis gibt es jetzt auch auf Englisch (eigenes Feld in der Verwaltung, mit Vorlage).
-- „English“ auf den Rechtsseiten des Discord-Bots führt zur englischen Fassung.
-- Nach dem Update einmal neu anmelden: in der Verwaltung und auf der Guthaben-Seite. Vertraute Geräte bleiben vertraut; die Hinweis-Mail „Neue Anmeldung“ kommt dabei einmal.
+- Wartet eine Runde länger als zehn Minuten, ohne dass es weitergehen kann, sagt die App der Spielleitung jetzt, warum: kein Worker erreichbar, Cloud für diese Kampagne nicht freigegeben, Guthaben oder vom Betreiber angehalten. Wo es hilft, führt ein Knopf direkt zur Freigabe unter „Kampagne verwalten“. Spielende sehen nur, dass die Runde wartet. Braucht die nächste App-Fassung.
+- Server und Caddy sprechen jetzt über ein eigenes internes Netz. Belegt dein Server dessen Teilnetz schon, steht in der Betriebsanleitung, was zu tun ist.
+- Die Vorlage für den Datenschutzhinweis nennt die aktuelle Anschrift eines Zahlungsanbieters.
 - Kleinere Verbesserungen.

@@ -37,7 +37,7 @@ def test_an_und_aus(tmp_path):
     env = (ziel / ".env").read_text()
     assert "TALEWARD_TEST_DOMAIN=test.example.org" in env and "COMPOSE_PROFILES=worker,test" in env
     regel = (ziel / "test-caddy" / "test.caddy").read_text()
-    assert regel.splitlines()[1] == "test.example.org {" and "reverse_proxy testserver:8000" in regel
+    assert regel.splitlines()[1] == "test.example.org {" and "reverse_proxy {$TALEWARD_TEST_ZIEL:testserver:8000}" in regel  # 0.4.166: feste Adresse
     assert (ziel / "test-daten").is_dir()
     assert _aufruf(ziel, stub, "an", "test.example.org").returncode == 0  # zweimal: Profil nur einmal
     assert (ziel / ".env").read_text().count("test") == 2

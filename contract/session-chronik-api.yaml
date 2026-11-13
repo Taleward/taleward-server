@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Taleward API
-  version: 0.4.35
+  version: 0.4.36
   description: |
     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
 
@@ -322,8 +322,13 @@ info:
     Änderungen in 0.4.35 (Stelle merken über den Bot): POST /bot/sessions/{sessionId}/bookmarks legt für ein Mitglied, das
     in der laufenden Bot-Runde mit Zustimmung aufgenommen wird, eine gemerkte Stelle an – wie „Merken“ in der App
     (`/taleward merken`). Die Stelle erscheint in der App über GET /sessions/{id}/bookmarks wie jede andere; offsetMs
-    rechnet der Server bei Bot-Runden aus dem Start und den Pausen. Bookmark.source (app | discord, fehlt = app); die App
+    ist bei Bot-Runden die Zeit seit dem Startton (die Spuren laufen in Pausen still weiter). Bookmark.source (app | discord, fehlt = app); die App
     zeigt bei solchen Stellen „Über Discord gemerkt“. Ältere Apps übergehen das Feld.
+    Änderungen in 0.4.36 (Wartegrund statt Sackgasse): ProcessingStatus.waitReason und waitActions. Wartet eine Runde länger
+    als 10 Minuten in queued, transcribing oder summarizing, ohne dass ein Weg frei ist, nennt der Server den Grund
+    (no_worker, cloud_not_allowed, credit, paused); Spielende bekommen nur waiting, ohne Grund. waitActions nur für die
+    SL (allow_cloud_summary, allow_external_transcription). Die App zeigt einen Satz und für die SL einen Knopf zu
+    „Kampagne verwalten“. Ältere Apps übergehen die Felder.
 
 servers:
   - url: https://taleward.example.org/api/v1
@@ -3774,8 +3779,9 @@ paths:
         Austritt; nicht im Umzug; höchstens 200 je Mitglied und Runde (409 `bookmark_limit`), 60 je Minute und Mitglied
         (429). `note` bereinigt der Server wie andere Texte vom Bot (Steuerzeichen, Länge). `at` liegt zwischen
         `recordingStartedAt` und jetzt + 5 Minuten (sonst 400). `offsetMs` rechnet der Server bei Bot-Runden aus
-        `recordingStartedAt` und den `pause`/`resume`-Ereignissen (in einer Pause: null). Der Bot zeigt die Antwort nur der
-        Person selbst (ephemeral) und speichert weder Notiz noch Stelle. Die Stelle trägt `source: discord`.
+        `recordingStartedAt`: Zeit seit dem Startton, weil die Spuren in Pausen still weiterlaufen; in einer Pause und nach
+        dem Ende null. Der Bot zeigt die Antwort nur der Person selbst (ephemeral) und speichert weder Notiz noch Stelle.
+        Die Stelle trägt `source: discord`.
       security: [{ botKey: [] }]
       requestBody:
         required: true
@@ -5516,7 +5522,7 @@ components:
         offsetMs:
           type: [integer, "null"]
           description: |
-            Zeit in der Aufnahme (aus Upload spans; ab 0.4.35 bei Bot-Runden aus Start und Pausen); null, solange
+            Zeit in der Aufnahme (aus Upload spans; ab 0.4.35 bei Bot-Runden die Zeit seit dem Startton, in Pausen null); null, solange
             unbekannt oder außerhalb der Aufnahme
         recapParagraph:
           type: [integer, "null"]
@@ -5637,6 +5643,31 @@ components:
           oneOf:
             - $ref: "#/components/schemas/CreditWait"
             - type: "null"
+        waitReason:
+          type: [string, "null"]
+          enum: [no_worker, cloud_not_allowed, credit, paused, waiting, null]
+          description: |
+            Ab 0.4.36. Warum die Runde nicht weiterkommt. Der Server setzt den Grund erst, wenn sie länger als 10 Minuten in
+            queued, transcribing oder summarizing wartet und kein Weg frei ist; vorher und sobald es weitergeht: null.
+            Nur die SL der Kampagne bekommt einen Grund:
+            - no_worker: Kein passender Worker erreichbar (für die Abschrift bzw. ein lokales Modell für das Kapitel), und
+              auch die Cloud ginge nicht (auf diesem Server nicht eingerichtet).
+            - cloud_not_allowed: Kein passender Worker erreichbar; die Cloud könnte es, die Kampagne hat sie für diesen
+              Schritt aber nicht freigegeben (siehe waitActions).
+            - credit: Wartet wegen der Abrechnung; Einzelheiten in creditWait.
+            - paused: Die Verarbeitung ist vom Betreiber angehalten.
+            Spielende bekommen bei jedem dieser Gründe nur waiting, nie den Grund, nie waitActions, nie creditWait.
+            Unbekannte Werte zeigt die App wie waiting.
+        waitActions:
+          type: array
+          items: { type: string, enum: [allow_cloud_summary, allow_external_transcription] }
+          description: |
+            Ab 0.4.36, nur für die SL (Spielende: leer). Was die SL selbst tun kann, damit es weitergeht – nur Schalter,
+            die der Server für diese Kampagne anbietet und die gerade nicht gesperrt sind (CampaignSettings.locks):
+            - allow_cloud_summary: Kapitel über die Cloud schreiben lassen (allowCloudSummary).
+            - allow_external_transcription: Abschrift über die Cloud (allowExternalTranscription).
+            Die App führt zu „Kampagne verwalten“; geschaltet wird wie immer über PATCH …/settings. Danach nimmt der
+            Server die Runde ohne weiteres Zutun wieder auf. Fehlt das Feld: leer.
 
     Speaker:
       type: object

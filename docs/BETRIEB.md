@@ -297,7 +297,16 @@ eigene Adresse). Die Anschlüsse 80 und 443 gehören dem Caddy von Taleward; er 
        external: true
    ```
 3. Auf dem Server: `sudo bash /opt/taleward/zusatz-app.sh an app.example.org meine-app:8080`
-   (`liste` zeigt alle, `aus app.example.org` schaltet ab). Höchstens fünf Zusatz-Apps.
+   (`liste` zeigt alle, `aus app.example.org` schaltet ab). Höchstens fünf Zusatz-Apps. Das Ziel ist der Name des
+   Dienstes bzw. Containers (beginnt mit einem Buchstaben, keine IP-Adresse); er muss im Netz `taleward-zusatz` hängen
+   und darf nicht zugleich im Netz von Taleward sein.
+
+Dienste und Aliase einer Zusatz-App dürfen nicht wie Taleward-Dienste heißen (`server`, `testserver`, `caddy`,
+`worker…`, `ollama…`, `taleward-…`). Findet `zusatz-app.sh` oder das Update so einen Namen im Netz `taleward-zusatz`,
+schalten sie alle Zusatz-Apps ab (`extra-caddy/aus/`); Taleward läuft weiter. Caddy erreicht Server und Testinstanz
+ohnehin nur über feste Adressen in einem eigenen, internen Netz (`kern`, Teilnetz `10.213.47.0/28`). Belegt der VPS
+dieses Teilnetz schon, in der `.env` z. B. `TALEWARD_KERN_NETZ=10.213.48` eintragen (drei Zahlen) und
+`docker compose up -d` aufrufen.
 
 In diesem Netz hängt von Taleward nur Caddy; Server, Testinstanz und Worker erreicht die Zusatz-App nicht. Die Regel
 entsteht immer aus derselben Vorlage (Weiterleitung, keine Angaben zur Software, HSTS, Größengrenze 16 MB, keine

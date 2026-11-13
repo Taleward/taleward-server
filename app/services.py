@@ -387,9 +387,15 @@ def processing_status(db: Session, s: GameSession, lang: str = "de", user: User 
             message = abrechnung.hinweis(db, job, lang) or message
             if user is not None and abrechnung.ist_aktive_sl(db, user.id, db.get(Campaign, s.campaign_id)):
                 warten = abrechnung.warten_fuer(db, job, user.id)
+    from app import wartegrund
+
+    grund, aktionen = wartegrund.fuer(db, s, user)  # 0.4.36: Grund und Schalter nur für die SL
+    if warten is not None and not wartegrund.ist_sl(db, s, user):
+        warten = None  # creditWait wie waitActions nur für die SL (Rolle hier noch einmal geprüft)
     return schemas.ProcessingStatusOut(
         state=s.state, progress=s.progress, queue_position=position,
         message=message, updated_at=s.state_updated_at, estimated_seconds=restdauer(db, s), credit_wait=warten,
+        wait_reason=grund, wait_actions=aktionen,
     )
 
 

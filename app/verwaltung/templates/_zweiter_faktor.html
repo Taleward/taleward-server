@@ -32,7 +32,7 @@
   <form class="formular formular--zeile" method="post" action="/verwaltung/passkeys/abschliessen">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="antwort" value="">
-    <label>{{ _("Name für den Passkey (optional)") }} <input type="text" name="name" maxlength="40" placeholder="{{ _('zum Beispiel Arbeitsrechner') }}"></label>
+    <label>{{ _("Name für den Passkey (optional)") }} <input type="text" name="name" maxlength="40" placeholder="{{ _('zum Beispiel Handy oder Laptop') }}"></label>
     {% if faktor.frisch %}
     <button class="tw-btn tw-btn--primary" type="button" hidden data-passkey-einrichten="/verwaltung/passkeys/beginnen" data-meldung="passkey-neu-meldung"
             data-warte="{{ _('Bestätige am Gerät – mit Windows Hello, Fingerabdruck, Gesicht oder PIN.') }}"
@@ -74,7 +74,7 @@
     </form>
   </details>
   {% else %}
-  <p>{{ _("Mit einem zweiten Faktor braucht die Anmeldung in der Verwaltung neben dem Passwort einen Code aus einer Authenticator-App auf dem Handy. Wer dein Passwort kennt, kommt dann trotzdem nicht hinein.") }}</p>
+  <p>{{ _("Mit einem zweiten Faktor braucht die Anmeldung in der Verwaltung neben dem Passwort einen Code aus einer Authenticator-App auf dem Handy. Wer dein Passwort kennt, kommt dann trotzdem nicht hinein.") }} {{ _("Danach kannst du statt des Codes auch einen Passkey nutzen, etwa Fingerabdruck oder Windows Hello.") }}</p>
   <form class="formular formular--zeile" method="post" action="/verwaltung/zweiter-faktor/beginnen">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label>{{ _("Passwort zur Bestätigung") }} <input type="password" name="password" autocomplete="current-password" required></label>

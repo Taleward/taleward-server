@@ -18,6 +18,70 @@ VERBOTEN="server testserver caddy worker worker-cpu ollama ollama-cpu localhost"
 cd "$ZIEL"
 
 wert() { sed -n "s/^$1=//p" "$ENV" | tail -1; }
+# S69: Wer hängt im Netz der Zusatz-Apps? Je Container eine Zeile „<name> ,<netze>, ,<namen im Zusatz-Netz>,“
+zusatz_container() {
+  local ids name rest feld netze namen
+  ids=$(docker network inspect taleward-zusatz -f '{{range $id, $c := .Containers}}{{$id}} {{end}}' 2>/dev/null) \
+    || return 0
+  [ -n "${ids// /}" ] || return 0
+  # shellcheck disable=SC2086,SC2016  # mehrere Kennungen; $n/$v sind Teil der Docker-Vorlage
+  docker inspect -f '{{slice .Name 1}}{{range $n, $v := .NetworkSettings.Networks}} {{$n}}={{range $v.Aliases}}{{.}},{{end}}{{end}}' \
+    $ids 2>/dev/null | while read -r name rest; do
+    netze=","; namen=",$name,"
+    for feld in $rest; do
+      netze="$netze${feld%%=*},"
+      [ "${feld%%=*}" = taleward-zusatz ] && namen="$namen${feld#*=}"
+    done
+    echo "$name $netze $namen"
+  done
+}
+projekt() {  # Name des Compose-Projekts von Taleward (Netze heißen <projekt>_default und <projekt>_kern)
+  local p
+  p=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' .env 2>/dev/null | tail -1)
+  p=${p:-$(basename "$PWD")}
+  printf '%s' "$p" | tr '[:upper:]' '[:lower:]'
+}
+# Namen von Taleward-Diensten, die im Netz der Zusatz-Apps niemand außer Caddy tragen darf
+TALEWARD_NAMEN='^(server|testserver|caddy|localhost|worker.*|ollama.*|taleward[-_.].*)$'
+fremd_belegt() {  # gibt belegte Namen aus (leer = alles in Ordnung)
+  local p name netze namen n
+  p=$(projekt)
+  zusatz_container | while read -r name netze namen; do
+    case "$name" in "$p"-caddy-*) continue ;; esac   # Caddy von Taleward selbst
+    for n in ${namen//,/ }; do
+      if [[ "$n" =~ $TALEWARD_NAMEN ]]; then echo "$n ($name)"; fi
+    done
+  done
+}
+# Testinstanz-Regel aus Fassungen vor 0.4.166 (Weiterleitung per Name) auf die feste Adresse umstellen
+test_regel_auffrischen() {
+  local regel=test-caddy/test.caddy
+  # shellcheck disable=SC2016  # {$…} ist ein Caddy-Platzhalter, keine Shell-Variable
+  if [ -f "$regel" ] && grep -q '^	reverse_proxy testserver:8000$' "$regel"; then
+    sed -i 's/^	reverse_proxy testserver:8000$/	reverse_proxy {$TALEWARD_TEST_ZIEL:testserver:8000}/' "$regel"
+    return 0
+  fi
+  return 1
+}
+alle_parken() {  # alle Zusatz-Regeln nach extra-caddy/aus/ – Taleward läuft weiter
+  local regel
+  mkdir -p "$REGELN/aus"
+  for regel in "$REGELN"/*.caddy; do
+    [ -f "$regel" ] && mv -f "$regel" "$REGELN/aus/"
+  done
+  neu_laden || true
+}
+netz_pruefen() {  # bricht ab, wenn im Netz der Zusatz-Apps jemand einen Taleward-Namen trägt (zweite Linie zu S69)
+  local belegt
+  belegt=$(fremd_belegt)
+  [ -z "$belegt" ] && return 0
+  alle_parken
+  echo "ACHTUNG: Im Netz „taleward-zusatz“ trägt ein Container den Namen eines Taleward-Dienstes:" >&2
+  printf '  %s\n' "$belegt" >&2
+  echo "Alle Zusatz-Apps sind deshalb abgeschaltet (extra-caddy/aus/). Taleward läuft weiter." >&2
+  echo "Den Dienst bzw. Alias der Zusatz-App umbenennen, dann die Zusatz-App neu einschalten." >&2
+  exit 1
+}
 caddy_ok() {  # Gesamte Caddy-Konfiguration samt aller Zusatz-Regeln prüfen, ohne den laufenden Caddy anzufassen
   docker compose run --rm --no-deps -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile \
     >/dev/null 2>&1
@@ -54,9 +118,11 @@ case "${1:-}" in
     ziel=${3:-}
     container=${ziel%:*}
     port=${ziel##*:}
-    if [ "$ziel" = "$container" ] || ! [[ "$container" =~ ^[a-z0-9][a-z0-9_.-]{0,62}$ ]] \
+    # Containername: mit Buchstaben beginnen, nicht mit . oder - enden – also nie eine IP-Adresse (S69)
+    if [ "$ziel" = "$container" ] || ! [[ "$container" =~ ^[a-z]([a-z0-9_.-]{0,61}[a-z0-9_])?$ ]] \
        || ! [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] || [ "$port" -gt 65535 ]; then
-      echo "Bitte das Ziel als <container>:<port> angeben, z. B. meine-app:8080 (Kleinbuchstaben, Ziffern, - _ .)." >&2
+      echo "Bitte das Ziel als <container>:<port> angeben, z. B. meine-app:8080 (am Anfang ein Buchstabe, dann" \
+           "Kleinbuchstaben, Ziffern, - _ .; keine IP-Adresse)." >&2
       exit 2
     fi
     for name in $VERBOTEN; do
@@ -69,6 +135,22 @@ case "${1:-}" in
       echo "Abgelehnt: Namen, die mit „taleward-“ beginnen, gehören zu Taleward." >&2
       exit 1
     fi
+    test_regel_auffrischen && docker compose restart caddy >/dev/null 2>&1 || true
+    netz_pruefen
+    # Das Ziel muss im Netz der Zusatz-Apps hängen und darf nicht zugleich im Netz von Taleward sein
+    p=$(projekt)
+    treffer=$(zusatz_container | while read -r name netze namen; do
+      case "$namen" in *",$container,"*) echo "$name $netze" ;; esac
+    done)
+    if [ -z "$treffer" ]; then
+      echo "Abgelehnt: Kein Container „$container“ im Docker-Netz „taleward-zusatz“. Erst die Zusatz-App mit" \
+           "„networks: [taleward-zusatz]“ starten (docs/BETRIEB.md)." >&2
+      exit 1
+    fi
+    case "$treffer" in *",${p}_default,"*|*",${p}_kern,"*)
+      echo "Abgelehnt: „$container“ hängt auch im Netz von Taleward. Zusatz-Apps nur ins Netz „taleward-zusatz“." >&2
+      exit 1 ;;
+    esac
     datei="$REGELN/$adresse.caddy"
     anzahl=$(find "$REGELN" -maxdepth 1 -name '*.caddy' ! -name "$adresse.caddy" | wc -l)
     if [ "$anzahl" -ge "$HOECHSTENS" ]; then
@@ -121,6 +203,8 @@ EOF
     echo "Zusatz-App $adresse ist aus. Der Container selbst läuft weiter, bis du ihn anhältst."
     ;;
   liste)
+    test_regel_auffrischen && docker compose restart caddy >/dev/null 2>&1 || true
+    netz_pruefen
     gefunden=0
     for datei in "$REGELN"/*.caddy; do
       [ -f "$datei" ] || continue
