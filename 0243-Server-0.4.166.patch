@@ -1,0 +1,1457 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Tinkerworks (Benjamin)"
+ <121437138+Tinkerworkss@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 23:46:43 +0100
+Subject: [PATCH] Server 0.4.166
+
+---
+ NEU.md                                        |   9 +-
+ app/rechtstexte.py                            |   4 +-
+ app/routers/auth.py                           |   2 +-
+ app/schemas.py                                |   2 +
+ app/services.py                               |   6 +
+ app/sprachmodell.py                           |   2 +-
+ app/verwaltung/i18n.py                        |   7 +-
+ app/verwaltung/router.py                      |   3 +-
+ app/verwaltung/static/verwaltung.css          |  11 +-
+ app/verwaltung/templates/_zweiter_faktor.html |   4 +-
+ app/verwaltung/templates/discord.html         |  12 +-
+ app/wartegrund.py                             | 119 +++++++
+ contract/session-chronik-api.yaml             |  41 ++-
+ deploy/Caddyfile                              |   4 +-
+ deploy/aktualisieren.sh                       |  58 ++-
+ deploy/docker-compose.yml                     |  21 ++
+ deploy/test-instanz.sh                        |   2 +-
+ deploy/zusatz-app.sh                          |  88 ++++-
+ docs/BETRIEB.md                               |  11 +-
+ pyproject.toml                                |   2 +-
+ tests/test_aktualisierung.py                  |   2 +-
+ tests/test_assistent.py                       |   2 +-
+ tests/test_modellablage.py                    |   2 +-
+ tests/test_schnittstelle_0410.py              |   2 +-
+ tests/test_schnittstelle_0422.py              |   2 +-
+ tests/test_server_04128.py                    |   2 +-
+ tests/test_server_04137.py                    |   2 +-
+ tests/test_server_04139.py                    |   2 +-
+ tests/test_server_04148.py                    |   2 +-
+ tests/test_server_04164.py                    |  25 +-
+ tests/test_server_04166.py                    | 337 ++++++++++++++++++
+ tests/test_server_0464.py                     |   4 +-
+ tests/test_server_0484.py                     |   2 +-
+ tests/test_server_0490.py                     |   2 +-
+ tests/test_step1b.py                          |   2 +-
+ tests/test_umzug_048.py                       |   2 +-
+ tests/test_verwaltung2.py                     |   2 +-
+ tests/test_webapp.py                          |   2 +-
+ tests/test_worker_app.py                      |   2 +-
+ uv.lock                                       |   2 +-
+ 40 files changed, 750 insertions(+), 58 deletions(-)
+ create mode 100644 app/wartegrund.py
+ create mode 100644 tests/test_server_04166.py
+
+diff --git a/NEU.md b/NEU.md
+index 095192c..5c798a8 100644
+--- a/NEU.md
++++ b/NEU.md
+@@ -1,9 +1,8 @@
+-Fassung 0.4.165
++Fassung 0.4.166
+ 
+ ## Was ist neu
+ 
+-- Neben dem Server kann jetzt eine eigene Zusatz-App auf demselben Server laufen, mit eigener Adresse. Eingerichtet wird sie mit einem Befehl (`zusatz-app.sh`), Beschreibung in der Betriebsanleitung. Sie erreicht Taleward selbst nicht; passt ihre Regel nach einem Update nicht mehr, wird sie abgeschaltet und Taleward läuft weiter.
+-- Den Datenschutzhinweis gibt es jetzt auch auf Englisch (eigenes Feld in der Verwaltung, mit Vorlage).
+-- „English“ auf den Rechtsseiten des Discord-Bots führt zur englischen Fassung.
+-- Nach dem Update einmal neu anmelden: in der Verwaltung und auf der Guthaben-Seite. Vertraute Geräte bleiben vertraut; die Hinweis-Mail „Neue Anmeldung“ kommt dabei einmal.
++- Wartet eine Runde länger als zehn Minuten, ohne dass es weitergehen kann, sagt die App der Spielleitung jetzt, warum: kein Worker erreichbar, Cloud für diese Kampagne nicht freigegeben, Guthaben oder vom Betreiber angehalten. Wo es hilft, führt ein Knopf direkt zur Freigabe unter „Kampagne verwalten“. Spielende sehen nur, dass die Runde wartet. Braucht die nächste App-Fassung.
++- Server und Caddy sprechen jetzt über ein eigenes internes Netz. Belegt dein Server dessen Teilnetz schon, steht in der Betriebsanleitung, was zu tun ist.
++- Die Vorlage für den Datenschutzhinweis nennt die aktuelle Anschrift eines Zahlungsanbieters.
+ - Kleinere Verbesserungen.
+diff --git a/app/rechtstexte.py b/app/rechtstexte.py
+index 9897b3c..a9432fb 100644
+--- a/app/rechtstexte.py
++++ b/app/rechtstexte.py
+@@ -347,7 +347,7 @@ def _widerruf_en(a: dict) -> str:
+ 
+ # ---------------------------------------------------------------- Zusatz zum Datenschutzhinweis
+ ANBIETER_ANSCHRIFT = {
+-    "stripe": "Stripe Payments Europe, Limited, 1 Grand Canal Street Lower, Grand Canal Dock, Dublin, D02 H210, Irland "
++    "stripe": "Stripe Payments Europe, Limited, One Wilton Park, Wilton Place, Dublin 2, D02 FX04, Irland "
+               "[Anschrift vor dem Veröffentlichen auf stripe.com prüfen]",
+     "paypal": "PayPal (Europe) S.à r.l. et Cie, S.C.A., 22–24 Boulevard Royal, L-2449 Luxemburg "
+               "[Anschrift vor dem Veröffentlichen auf paypal.com prüfen]",
+@@ -388,7 +388,7 @@ def datenschutz_abschnitt(db: Session, sprache: str = "de") -> list[str]:
+ 
+ 
+ ANBIETER_ANSCHRIFT_EN = {
+-    "stripe": "Stripe Payments Europe, Limited, 1 Grand Canal Street Lower, Grand Canal Dock, Dublin, D02 H210, Ireland "
++    "stripe": "Stripe Payments Europe, Limited, One Wilton Park, Wilton Place, Dublin 2, D02 FX04, Ireland "
+               "[check the address on stripe.com before publishing]",
+     "paypal": "PayPal (Europe) S.à r.l. et Cie, S.C.A., 22–24 Boulevard Royal, L-2449 Luxembourg "
+               "[check the address on paypal.com before publishing]",
+diff --git a/app/routers/auth.py b/app/routers/auth.py
+index 32173b6..4ed81a0 100644
+--- a/app/routers/auth.py
++++ b/app/routers/auth.py
+@@ -14,7 +14,7 @@ from app.models import AuthMethod, Organization, OrgMember, User
+ from app.security import create_token, verify_password
+ from app.services import user_out
+ 
+-API_VERSION = "0.4.35"
++API_VERSION = "0.4.36"
+ 
+ router = APIRouter(tags=["Auth"])
+ 
+diff --git a/app/schemas.py b/app/schemas.py
+index 2923de4..bc4a500 100644
+--- a/app/schemas.py
++++ b/app/schemas.py
+@@ -573,6 +573,8 @@ class ProcessingStatusOut(ApiModel):
+     updated_at: datetime
+     estimated_seconds: int | None = None
+     credit_wait: "CreditWaitOut | None" = None  # 0.4.25
++    wait_reason: Literal["no_worker", "cloud_not_allowed", "credit", "paused", "waiting"] | None = None  # 0.4.36
++    wait_actions: list[Literal["allow_cloud_summary", "allow_external_transcription"]] = []  # 0.4.36, nur SL
+ 
+ 
+ class GmNoteOut(ApiModel):
+diff --git a/app/services.py b/app/services.py
+index 046c561..298febd 100644
+--- a/app/services.py
++++ b/app/services.py
+@@ -387,9 +387,15 @@ def processing_status(db: Session, s: GameSession, lang: str = "de", user: User
+             message = abrechnung.hinweis(db, job, lang) or message
+             if user is not None and abrechnung.ist_aktive_sl(db, user.id, db.get(Campaign, s.campaign_id)):
+                 warten = abrechnung.warten_fuer(db, job, user.id)
++    from app import wartegrund
++
++    grund, aktionen = wartegrund.fuer(db, s, user)  # 0.4.36: Grund und Schalter nur für die SL
++    if warten is not None and not wartegrund.ist_sl(db, s, user):
++        warten = None  # creditWait wie waitActions nur für die SL (Rolle hier noch einmal geprüft)
+     return schemas.ProcessingStatusOut(
+         state=s.state, progress=s.progress, queue_position=position,
+         message=message, updated_at=s.state_updated_at, estimated_seconds=restdauer(db, s), credit_wait=warten,
++        wait_reason=grund, wait_actions=aktionen,
+     )
+ 
+ 
+diff --git a/app/sprachmodell.py b/app/sprachmodell.py
+index 2462c4e..06f6b32 100644
+--- a/app/sprachmodell.py
++++ b/app/sprachmodell.py
+@@ -396,7 +396,7 @@ class OllamaKlient:
+                 status, fehler, d = self._streamen(body)
+             except httpx.ReadTimeout as e:
+                 raise SprachmodellFehler(f"Ollama antwortet seit {int(self.STILLSTAND_S)} s nicht mehr – "
+-                                         "Modell hängt oder der Rechner ist überlastet.") from e
++                                         "Modell hängt oder der Worker ist überlastet.") from e
+             except httpx.HTTPError as e:
+                 raise SprachmodellFehler(f"Ollama ist nicht erreichbar ({type(e).__name__}).") from e
+             if (status >= 400 or fehler) and "repeat" in fehler and versuch + 1 < len(self.VERSUCHE):
+diff --git a/app/verwaltung/i18n.py b/app/verwaltung/i18n.py
+index 272ec5f..de9b73e 100644
+--- a/app/verwaltung/i18n.py
++++ b/app/verwaltung/i18n.py
+@@ -1180,7 +1180,7 @@ EN: dict[str, str] = {
+     "Auffällig – bitte prüfen": "Suspicious – please check",
+     "Entfernen": "Remove",
+     "Name für den Passkey (optional)": "Name for the passkey (optional)",
+-    "zum Beispiel Arbeitsrechner": "for example work PC",
++    "zum Beispiel Handy oder Laptop": "for example phone or laptop",
+     "Das hat nicht geklappt. Versuch es noch einmal.": "That did not work. Please try again.",
+     "Abgebrochen oder zu lange gewartet. Versuch es noch einmal.": "Cancelled or took too long. Please try again.",
+     "Dieses Gerät hat schon einen Passkey für dein Konto.": "This device already has a passkey for your account.",
+@@ -1550,6 +1550,10 @@ EN: dict[str, str] = {
+     'Für {refs} läuft schon eine Erstattung, die Meldung fehlt. Im Dashboard nachsehen, sonst „Erneut anstoßen“.': 'A refund for {refs} is already under way, the report is missing. Check the dashboard, otherwise “Start again”.',
+     # 0.4.159: Spuren-Schlüssel des Bots
+     "Schlüssel für die Spuren": "Key for the tracks",
++    "selten gebraucht": "rarely needed",
++    "Bot ein- und ausschalten": "Turn the bot on or off",
++    "Erscheinen unter diesen Adressen, sobald sie veröffentlicht sind:": "Shown at these addresses once published:",
++    "Danach kannst du statt des Codes auch einen Passkey nutzen, etwa Fingerabdruck oder Windows Hello.": "Afterwards you can also use a passkey instead of the code, such as a fingerprint or Windows Hello.",
+     "Der Bot verschlüsselt jede Spur mit diesem Schlüssel. Öffnen kann sie nur dieser Server.": "The bot encrypts every track with this key. Only this server can open them.",
+     "Der Schlüssel lässt sich gerade nicht lesen. Bitte den Server unter dem Nutzer starten, der ihn angelegt hat.": "The key cannot be read right now. Please start the server as the user who created it.",
+     "Kennung": "ID",
+@@ -1565,7 +1569,6 @@ EN: dict[str, str] = {
+     "Discord-Bot: Datenschutz": "Discord bot: privacy",
+     "Discord-Bot: Nutzungsbedingungen": "Discord bot: terms",
+     "Datenschutz und Nutzungsbedingungen des Bots": "Privacy policy and terms of the bot",
+-    "Erscheinen unter /discord-bot/datenschutz und /discord-bot/nutzungsbedingungen, sobald sie veröffentlicht sind.": "Shown at /discord-bot/datenschutz and /discord-bot/nutzungsbedingungen once published.",
+     "Rechtstexte des Discord-Bots": "Legal texts of the Discord bot",
+     "Zurück zum Discord-Bot": "Back to the Discord bot",
+     "Das sind Vorlagen, keine Rechtsberatung. Name, Anschrift und Kontakt kommen aus deinen Angaben zum Betreiber. Bitte lesen und die Stellen in [eckigen Klammern] ausfüllen: Aufsichtsbehörde, Hoster des Bots mit Anschrift, Ort des Rechenzentrums und wie viele Tage Sicherungen aufbewahrt werden. Deutsch und Englisch werden zusammen veröffentlicht.": "These are templates, not legal advice. Name, address and contact come from your operator details. Please read them and fill in the places in [square brackets]: supervisory authority, the bot's hosting provider with address, location of the data centre and how many days backups are kept. German and English are published together.",
+diff --git a/app/verwaltung/router.py b/app/verwaltung/router.py
+index 81f979b..f4efe54 100644
+--- a/app/verwaltung/router.py
++++ b/app/verwaltung/router.py
+@@ -2250,7 +2250,8 @@ def einbinden(app: FastAPI) -> None:
+         elif pfad == "/app" or pfad.startswith("/app/"):
+             for k, v in einbettbar(WEBAPP_KOPFZEILEN, get_settings().einzelplatz_huelle).items():
+                 antwort.headers.setdefault(k, v)
+-        elif antwort.headers.get("content-type", "").startswith("text/html") and not pfad.startswith(DOKU_PFAD):
++        elif (antwort.headers.get("content-type", "").startswith("text/html")
++              and pfad not in (DOKU_PFAD, DOKU_PFAD + "/")):
+             # 0.4.163 (S66): jede andere HTML-Seite (Rechtsseiten, /discord/<token>, /zustimmen/<token>, Fehlerseiten …)
+             # bekommt dieselben Kopfzeilen – statt einer Liste, die bei neuen Seiten vergessen werden kann
+             for k, v in SICHERHEITS_KOPFZEILEN.items():
+diff --git a/app/verwaltung/static/verwaltung.css b/app/verwaltung/static/verwaltung.css
+index c95cf7a..0bf2c33 100644
+--- a/app/verwaltung/static/verwaltung.css
++++ b/app/verwaltung/static/verwaltung.css
+@@ -74,7 +74,7 @@ code, .mono { font-family:ui-monospace, "Cascadia Mono", Consolas, monospace; fo
+ .leiste__marke small { font:500 13px/18px var(--font-sans); color:var(--ink-muted); overflow-wrap:anywhere; }
+ .leiste__nav, .menue__liste > nav { display:grid; gap:2px; }
+ .leiste__gruppe { margin:var(--space-4) 0 var(--space-1); padding:0 var(--space-3); font:700 12px/16px var(--font-sans);
+-  letter-spacing:.06em; text-transform:uppercase; color:var(--ink-muted); }
++  color:var(--ink-muted); }
+ .leiste__gruppe:first-child { margin-top:0; }
+ .leiste__nav a, .menue__liste > nav a { display:flex; align-items:center; min-height:48px; padding:0 var(--space-3);
+   border-radius:var(--radius-md); color:var(--ink); text-decoration:none; font:500 15px/22px var(--font-sans); }
+@@ -137,7 +137,7 @@ a:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
+ /* Tabellen */
+ .tabelle-huelle { overflow-x:auto; }
+ table { width:100%; border-collapse:collapse; font-size:15px; }
+-th { text-align:left; font:500 13px/18px var(--font-sans); color:var(--ink-muted); text-transform:uppercase; letter-spacing:.04em;
++th { text-align:left; font:500 13px/18px var(--font-sans); color:var(--ink-muted);
+   padding:var(--space-2) var(--space-3); border-bottom:1.5px solid var(--line-strong); }
+ td { padding:var(--space-3); border-bottom:1px solid var(--line); vertical-align:top; }
+ tr:last-child td { border-bottom:none; }
+@@ -155,7 +155,7 @@ form + .hilfe, .formular + .hilfe, .formular--zeile + .hilfe { margin-top:var(--
+   tr:last-child { border-bottom:none; }
+   td { border:none; padding:var(--space-1) 0; }
+   td[data-label]::before { content:attr(data-label); display:block; font:500 12px/16px var(--font-sans);
+-    color:var(--ink-muted); text-transform:uppercase; letter-spacing:.04em; }
++    color:var(--ink-muted); }
+   .karte { padding:var(--space-4); }
+ }
+ 
+@@ -231,7 +231,10 @@ textarea { resize:vertical; }
+ .checkliste li { display:flex; gap:var(--space-2); align-items:flex-start; }
+ .checkliste .icon, .liste .icon { flex:none; margin-top:2px; }
+ .checkliste .erledigt .icon { color:var(--salbei); }
+-.checkliste .offen .icon { color:var(--siegel); }
++.checkliste .offen .icon { color:var(--ink-muted); }  /* offen ist kein Achtung – „siegel“ nur dafür */
++details.karte > summary { cursor:pointer; list-style-position:outside; }
++details.karte > summary .summary-titel { display:inline; margin:0 var(--space-2) 0 0; }
++details.karte[open] > summary { margin-bottom:var(--space-3); }
+ .formular--breit { max-width:none; }
+ .formular--breit textarea { font:400 14px/21px ui-monospace, Consolas, monospace; }
+ article.text { max-width:760px; margin:var(--space-8) auto; line-height:1.6; }
+diff --git a/app/verwaltung/templates/_zweiter_faktor.html b/app/verwaltung/templates/_zweiter_faktor.html
+index 0ce25db..165eae4 100644
+--- a/app/verwaltung/templates/_zweiter_faktor.html
++++ b/app/verwaltung/templates/_zweiter_faktor.html
+@@ -32,7 +32,7 @@
+   <form class="formular formular--zeile" method="post" action="/verwaltung/passkeys/abschliessen">
+     <input type="hidden" name="csrf" value="{{ csrf }}">
+     <input type="hidden" name="antwort" value="">
+-    <label>{{ _("Name für den Passkey (optional)") }} <input type="text" name="name" maxlength="40" placeholder="{{ _('zum Beispiel Arbeitsrechner') }}"></label>
++    <label>{{ _("Name für den Passkey (optional)") }} <input type="text" name="name" maxlength="40" placeholder="{{ _('zum Beispiel Handy oder Laptop') }}"></label>
+     {% if faktor.frisch %}
+     <button class="tw-btn tw-btn--primary" type="button" hidden data-passkey-einrichten="/verwaltung/passkeys/beginnen" data-meldung="passkey-neu-meldung"
+             data-warte="{{ _('Bestätige am Gerät – mit Windows Hello, Fingerabdruck, Gesicht oder PIN.') }}"
+@@ -74,7 +74,7 @@
+     </form>
+   </details>
+   {% else %}
+-  <p>{{ _("Mit einem zweiten Faktor braucht die Anmeldung in der Verwaltung neben dem Passwort einen Code aus einer Authenticator-App auf dem Handy. Wer dein Passwort kennt, kommt dann trotzdem nicht hinein.") }}</p>
++  <p>{{ _("Mit einem zweiten Faktor braucht die Anmeldung in der Verwaltung neben dem Passwort einen Code aus einer Authenticator-App auf dem Handy. Wer dein Passwort kennt, kommt dann trotzdem nicht hinein.") }} {{ _("Danach kannst du statt des Codes auch einen Passkey nutzen, etwa Fingerabdruck oder Windows Hello.") }}</p>
+   <form class="formular formular--zeile" method="post" action="/verwaltung/zweiter-faktor/beginnen">
+     <input type="hidden" name="csrf" value="{{ csrf }}">
+     <label>{{ _("Passwort zur Bestätigung") }} <input type="password" name="password" autocomplete="current-password" required></label>
+diff --git a/app/verwaltung/templates/discord.html b/app/verwaltung/templates/discord.html
+index 0171945..91cc9da 100644
+--- a/app/verwaltung/templates/discord.html
++++ b/app/verwaltung/templates/discord.html
+@@ -6,7 +6,7 @@
+ {% if not faktor %}<div class="hinweis">{{ _("Einschalten und Schlüssel brauchen den zweiten Faktor.") }} <a href="/verwaltung/anmeldung#zweiter-faktor">{{ _("Zweiten Faktor einrichten") }}</a></div>{% endif %}
+ 
+ <div class="karte" id="schalter">
+-  <h2>{{ _("Schalter") }}</h2>
++  <h2>{{ _("Bot ein- und ausschalten") }}</h2>
+   <p>{% if an %}<span class="marke-status marke-status--gut">{{ _("eingeschaltet") }}</span>{% else %}<span class="marke-status">{{ _("aus") }}</span>{% endif %}</p>
+   <form method="post" action="/verwaltung/discord/schalter">
+     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="an" value="{{ '0' if an else '1' }}">
+@@ -45,12 +45,14 @@
+ 
+ <div class="karte" id="rechtstexte">
+   <h2>{{ _("Datenschutz und Nutzungsbedingungen des Bots") }}</h2>
+-  <p class="hilfe">{{ _("Erscheinen unter /discord-bot/datenschutz und /discord-bot/nutzungsbedingungen, sobald sie veröffentlicht sind.") }}</p>
++  <p class="hilfe">{{ _("Erscheinen unter diesen Adressen, sobald sie veröffentlicht sind:") }}
++    <a href="/discord-bot/datenschutz">/discord-bot/datenschutz</a>, <a href="/discord-bot/nutzungsbedingungen">/discord-bot/nutzungsbedingungen</a></p>
+   <a class="tw-btn tw-btn--secondary" href="/verwaltung/discord/rechtstexte">{{ _("Bearbeiten") }}</a>
+ </div>
+ 
+-<div class="karte" id="spurschluessel">
+-  <h2>{{ _("Schlüssel für die Spuren") }}</h2>
++{# Design-Prüfung 13.11.: selten gebraucht – zugeklappt, außer der Schlüssel lässt sich nicht lesen #}
++<details class="karte" id="spurschluessel"{% if spurschluessel and not spurschluessel.lesbar %} open{% endif %}>
++  <summary><h2 class="summary-titel">{{ _("Schlüssel für die Spuren") }}</h2> <span class="leise">{{ _("selten gebraucht") }}</span></summary>
+   <p class="hilfe">{{ _("Der Bot verschlüsselt jede Spur mit diesem Schlüssel. Öffnen kann sie nur dieser Server.") }}</p>
+   {% if spurschluessel and not spurschluessel.lesbar %}<div class="hinweis">{{ _("Der Schlüssel lässt sich gerade nicht lesen. Bitte den Server unter dem Nutzer starten, der ihn angelegt hat.") }}</div>
+   {% elif spurschluessel %}<p>{{ _("Kennung") }} <code>{{ spurschluessel.kennung }}</code>{% if spurschluessel.alt %} · {{ _("{n} älterer bleibt bis zum Ende der offenen Bot-Runden", n=spurschluessel.alt) }}{% endif %}</p>
+@@ -60,5 +62,5 @@
+     <button class="tw-btn tw-btn--secondary" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Schlüssel erneuern") }}</button>
+   </form>
+   <p class="hilfe">{{ _("Nur nötig, wenn der Server in fremde Hände geraten sein könnte. Laufende Aufnahmen bleiben lesbar.") }}</p>
+-</div>
++</details>
+ {% endblock %}
+diff --git a/app/wartegrund.py b/app/wartegrund.py
+new file mode 100644
+index 0000000..63722cb
+--- /dev/null
++++ b/app/wartegrund.py
+@@ -0,0 +1,119 @@
++"""0.4.36: Wartegrund statt Sackgasse (ProcessingStatus.waitReason und waitActions).
++
++Wartet eine Runde länger als 10 Minuten in queued, transcribing oder summarizing und ist gerade kein Weg frei, nennt
++der Server der SL den Grund. Ein Weg ist frei, wenn ein passender Worker erreichbar ist (auch wenn er gerade
++beschäftigt ist) oder die Cloud den Schritt für diese Kampagne übernehmen darf. Reihenfolge der Gründe:
++
++1. credit – der Auftrag wartet wegen der Abrechnung (Einzelheiten in creditWait),
++2. cloud_not_allowed – die Cloud könnte es, die Kampagne hat sie für diesen Schritt nicht freigegeben,
++3. paused – ein passender Worker ist pausiert, das Kostenlimit für Cloud-Dienste ist erreicht oder die
++   Zusammenfassung ist auf dem Server abgeschaltet (alles Entscheidungen des Betreibers),
++4. no_worker – sonst.
++
++Nur die SL der Kampagne (Rolle serverseitig geprüft) bekommt den Grund und waitActions; Spielende bekommen bei jedem
++Grund nur „waiting“. waitActions nennt nur Schalter, die der Server anbietet (nicht in den Sperren) und die gerade aus
++sind. Geschaltet wird wie immer über PATCH …/settings – hier gibt es keinen eigenen Weg.
++"""
++from __future__ import annotations
++
++from datetime import timedelta
++
++from sqlalchemy.orm import Session
++
++from app.db import utcnow
++from app.models import Campaign, GameSession, Job, Member
++
++WARTEZEIT = timedelta(minutes=10)
++ZUSTAENDE = ("queued", "transcribing", "summarizing")
++
++
++def _wartender_auftrag(db: Session, s: GameSession) -> Job | None:
++    from app import queue
++
++    job = queue.current_job(db, s.id, None)
++    if job is None or job.state != "queued":
++        return None  # nichts in der Schlange oder ein Worker arbeitet schon daran
++    return job
++
++
++def _abschrift(db: Session, c: Campaign, job: Job) -> tuple[str | None, list[str]]:
++    from app import kosten, queue
++    from app.kampagnen_einstellungen import sperren
++
++    if queue.worker_online(db, "asr"):
++        return None, []
++    cloud_moeglich = "allowExternalTranscription" not in sperren(db)
++    if cloud_moeglich and c.allow_external_transcription:
++        if kosten.erreicht(db):
++            return "paused", []
++        return None, []  # die Cloud übernimmt zur eingestellten Zeit (Hinweis steht in message)
++    if cloud_moeglich:
++        return "cloud_not_allowed", ["allow_external_transcription"]
++    if queue.pausierte_worker(db, "asr"):
++        return "paused", []
++    return "no_worker", []
++
++
++def _sprachmodell(db: Session, c: Campaign, job: Job) -> tuple[str | None, list[str]]:
++    from app import kosten, queue
++    from app.einstellungen import llm_konfig
++    from app.kampagnen_einstellungen import sperren
++
++    k = llm_konfig(db)
++    if k.art == "attrappe":
++        return None, []  # Testmodus: der Server schreibt selbst
++    if k.art == "aus":
++        return "paused", []  # Zusammenfassung vom Betreiber abgeschaltet
++    cloud_moeglich = k.art == "api" and "allowCloudSummary" not in sperren(db)
++    if cloud_moeglich and c.allow_cloud_summary:
++        # 0.4.120: Kampagnen mit Freigabe nimmt nur die Cloud, ein Worker greift hier nicht
++        return ("paused", []) if kosten.erreicht(db) else (None, [])
++    if queue.llm_worker_online(db):
++        return None, []
++    if cloud_moeglich:
++        return "cloud_not_allowed", ["allow_cloud_summary"]
++    if queue.pausierte_worker(db, "llm"):
++        return "paused", []
++    return "no_worker", []
++
++
++def grund(db: Session, s: GameSession) -> tuple[str | None, list[str]]:
++    """(waitReason, waitActions) aus Sicht der SL – ohne Rollenprüfung, die macht `fuer`."""
++    if s.state not in ZUSTAENDE:
++        return None, []
++    job = _wartender_auftrag(db, s)
++    if job is None or utcnow() - job.created_at <= WARTEZEIT:
++        return None, []
++    from app import abrechnung, queue
++
++    if abrechnung.an(db) and abrechnung.warte_grund(db, job) is not None:
++        return "credit", []
++    c = db.get(Campaign, s.campaign_id)
++    if c is None:
++        return None, []
++    if job.required_capability == "asr":
++        return _abschrift(db, c, job)
++    if job.required_capability in queue.LLM_FAEHIGKEITEN:
++        return _sprachmodell(db, c, job)
++    if queue.worker_online(db, job.required_capability):
++        return None, []
++    return ("paused" if queue.pausierte_worker(db, job.required_capability) else "no_worker"), []
++
++
++def ist_sl(db: Session, s: GameSession, user) -> bool:
++    from app.access import membership
++
++    if user is None:
++        return False
++    m: Member | None = membership(db, s.campaign_id, user)
++    return m is not None and m.role == "gm"
++
++
++def fuer(db: Session, s: GameSession, user) -> tuple[str | None, list[str]]:
++    """Für die anfragende Person: SL bekommt Grund und Schalter, alle anderen nur „waiting“ (oder null)."""
++    wert, aktionen = grund(db, s)
++    if wert is None:
++        return None, []
++    if not ist_sl(db, s, user):
++        return "waiting", []
++    return wert, aktionen
+diff --git a/contract/session-chronik-api.yaml b/contract/session-chronik-api.yaml
+index ae6bdc2..fb7e204 100644
+--- a/contract/session-chronik-api.yaml
++++ b/contract/session-chronik-api.yaml
+@@ -1,7 +1,7 @@
+ openapi: 3.1.0
+ info:
+   title: Taleward API
+-  version: 0.4.35
++  version: 0.4.36
+   description: |
+     Schnittstelle zwischen der Taleward-App (Android, Web) und dem Taleward-Server.
+ 
+@@ -322,8 +322,13 @@ info:
+     Änderungen in 0.4.35 (Stelle merken über den Bot): POST /bot/sessions/{sessionId}/bookmarks legt für ein Mitglied, das
+     in der laufenden Bot-Runde mit Zustimmung aufgenommen wird, eine gemerkte Stelle an – wie „Merken“ in der App
+     (`/taleward merken`). Die Stelle erscheint in der App über GET /sessions/{id}/bookmarks wie jede andere; offsetMs
+-    rechnet der Server bei Bot-Runden aus dem Start und den Pausen. Bookmark.source (app | discord, fehlt = app); die App
++    ist bei Bot-Runden die Zeit seit dem Startton (die Spuren laufen in Pausen still weiter). Bookmark.source (app | discord, fehlt = app); die App
+     zeigt bei solchen Stellen „Über Discord gemerkt“. Ältere Apps übergehen das Feld.
++    Änderungen in 0.4.36 (Wartegrund statt Sackgasse): ProcessingStatus.waitReason und waitActions. Wartet eine Runde länger
++    als 10 Minuten in queued, transcribing oder summarizing, ohne dass ein Weg frei ist, nennt der Server den Grund
++    (no_worker, cloud_not_allowed, credit, paused); Spielende bekommen nur waiting, ohne Grund. waitActions nur für die
++    SL (allow_cloud_summary, allow_external_transcription). Die App zeigt einen Satz und für die SL einen Knopf zu
++    „Kampagne verwalten“. Ältere Apps übergehen die Felder.
+ 
+ servers:
+   - url: https://taleward.example.org/api/v1
+@@ -3774,8 +3779,9 @@ paths:
+         Austritt; nicht im Umzug; höchstens 200 je Mitglied und Runde (409 `bookmark_limit`), 60 je Minute und Mitglied
+         (429). `note` bereinigt der Server wie andere Texte vom Bot (Steuerzeichen, Länge). `at` liegt zwischen
+         `recordingStartedAt` und jetzt + 5 Minuten (sonst 400). `offsetMs` rechnet der Server bei Bot-Runden aus
+-        `recordingStartedAt` und den `pause`/`resume`-Ereignissen (in einer Pause: null). Der Bot zeigt die Antwort nur der
+-        Person selbst (ephemeral) und speichert weder Notiz noch Stelle. Die Stelle trägt `source: discord`.
++        `recordingStartedAt`: Zeit seit dem Startton, weil die Spuren in Pausen still weiterlaufen; in einer Pause und nach
++        dem Ende null. Der Bot zeigt die Antwort nur der Person selbst (ephemeral) und speichert weder Notiz noch Stelle.
++        Die Stelle trägt `source: discord`.
+       security: [{ botKey: [] }]
+       requestBody:
+         required: true
+@@ -5516,7 +5522,7 @@ components:
+         offsetMs:
+           type: [integer, "null"]
+           description: |
+-            Zeit in der Aufnahme (aus Upload spans; ab 0.4.35 bei Bot-Runden aus Start und Pausen); null, solange
++            Zeit in der Aufnahme (aus Upload spans; ab 0.4.35 bei Bot-Runden die Zeit seit dem Startton, in Pausen null); null, solange
+             unbekannt oder außerhalb der Aufnahme
+         recapParagraph:
+           type: [integer, "null"]
+@@ -5637,6 +5643,31 @@ components:
+           oneOf:
+             - $ref: "#/components/schemas/CreditWait"
+             - type: "null"
++        waitReason:
++          type: [string, "null"]
++          enum: [no_worker, cloud_not_allowed, credit, paused, waiting, null]
++          description: |
++            Ab 0.4.36. Warum die Runde nicht weiterkommt. Der Server setzt den Grund erst, wenn sie länger als 10 Minuten in
++            queued, transcribing oder summarizing wartet und kein Weg frei ist; vorher und sobald es weitergeht: null.
++            Nur die SL der Kampagne bekommt einen Grund:
++            - no_worker: Kein passender Worker erreichbar (für die Abschrift bzw. ein lokales Modell für das Kapitel), und
++              auch die Cloud ginge nicht (auf diesem Server nicht eingerichtet).
++            - cloud_not_allowed: Kein passender Worker erreichbar; die Cloud könnte es, die Kampagne hat sie für diesen
++              Schritt aber nicht freigegeben (siehe waitActions).
++            - credit: Wartet wegen der Abrechnung; Einzelheiten in creditWait.
++            - paused: Die Verarbeitung ist vom Betreiber angehalten.
++            Spielende bekommen bei jedem dieser Gründe nur waiting, nie den Grund, nie waitActions, nie creditWait.
++            Unbekannte Werte zeigt die App wie waiting.
++        waitActions:
++          type: array
++          items: { type: string, enum: [allow_cloud_summary, allow_external_transcription] }
++          description: |
++            Ab 0.4.36, nur für die SL (Spielende: leer). Was die SL selbst tun kann, damit es weitergeht – nur Schalter,
++            die der Server für diese Kampagne anbietet und die gerade nicht gesperrt sind (CampaignSettings.locks):
++            - allow_cloud_summary: Kapitel über die Cloud schreiben lassen (allowCloudSummary).
++            - allow_external_transcription: Abschrift über die Cloud (allowExternalTranscription).
++            Die App führt zu „Kampagne verwalten“; geschaltet wird wie immer über PATCH …/settings. Danach nimmt der
++            Server die Runde ohne weiteres Zutun wieder auf. Fehlt das Feld: leer.
+ 
+     Speaker:
+       type: object
+diff --git a/deploy/Caddyfile b/deploy/Caddyfile
+index 8d3bb00..36fc185 100644
+--- a/deploy/Caddyfile
++++ b/deploy/Caddyfile
+@@ -29,7 +29,9 @@
+ 	request_body {
+ 		max_size 64MB
+ 	}
+-	reverse_proxy server:8000
++	# Feste Adresse statt Name (docker-compose.yml, Netz „kern“). Der Name hinter dem Doppelpunkt gilt nur, solange
++	# Caddy noch mit einer älteren docker-compose.yml läuft (dann fehlt die Angabe), damit Taleward dabei erreichbar bleibt
++	reverse_proxy {$TALEWARD_SERVER_ZIEL:server:8000}
+ }
+ 
+ # Optional: eine statische Website neben dem Server über denselben Caddy (siehe docs/BETRIEB.md, „Website mitliefern“).
+diff --git a/deploy/aktualisieren.sh b/deploy/aktualisieren.sh
+index b36b725..4ecab12 100755
+--- a/deploy/aktualisieren.sh
++++ b/deploy/aktualisieren.sh
+@@ -125,13 +125,69 @@ gesund() {
+ 
+ # Zusatz-Apps (zusatz-app.sh) dürfen Taleward nie offline nehmen: Passt eine ihrer Regeln nach einem Update nicht mehr
+ # zu Caddy, kommt sie nach extra-caddy/aus/ und Caddy startet ohne sie
++# S69: Wer hängt im Netz der Zusatz-Apps? Je Container eine Zeile „<name> ,<netze>, ,<namen im Zusatz-Netz>,“
++zusatz_container() {
++  local ids name rest feld netze namen
++  ids=$(docker network inspect taleward-zusatz -f '{{range $id, $c := .Containers}}{{$id}} {{end}}' 2>/dev/null) \
++    || return 0
++  [ -n "${ids// /}" ] || return 0
++  # shellcheck disable=SC2086,SC2016  # mehrere Kennungen; $n/$v sind Teil der Docker-Vorlage
++  docker inspect -f '{{slice .Name 1}}{{range $n, $v := .NetworkSettings.Networks}} {{$n}}={{range $v.Aliases}}{{.}},{{end}}{{end}}' \
++    $ids 2>/dev/null | while read -r name rest; do
++    netze=","; namen=",$name,"
++    for feld in $rest; do
++      netze="$netze${feld%%=*},"
++      [ "${feld%%=*}" = taleward-zusatz ] && namen="$namen${feld#*=}"
++    done
++    echo "$name $netze $namen"
++  done
++}
++projekt() {  # Name des Compose-Projekts von Taleward (Netze heißen <projekt>_default und <projekt>_kern)
++  local p
++  p=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' .env 2>/dev/null | tail -1)
++  p=${p:-$(basename "$PWD")}
++  printf '%s' "$p" | tr '[:upper:]' '[:lower:]'
++}
++# Namen von Taleward-Diensten, die im Netz der Zusatz-Apps niemand außer Caddy tragen darf
++TALEWARD_NAMEN='^(server|testserver|caddy|localhost|worker.*|ollama.*|taleward[-_.].*)$'
++fremd_belegt() {  # gibt belegte Namen aus (leer = alles in Ordnung)
++  local p name netze namen n
++  p=$(projekt)
++  zusatz_container | while read -r name netze namen; do
++    case "$name" in "$p"-caddy-*) continue ;; esac   # Caddy von Taleward selbst
++    for n in ${namen//,/ }; do
++      if [[ "$n" =~ $TALEWARD_NAMEN ]]; then echo "$n ($name)"; fi
++    done
++  done
++}
++# Testinstanz-Regel aus Fassungen vor 0.4.166 (Weiterleitung per Name) auf die feste Adresse umstellen
++test_regel_auffrischen() {
++  local regel=test-caddy/test.caddy
++  # shellcheck disable=SC2016  # {$…} ist ein Caddy-Platzhalter, keine Shell-Variable
++  if [ -f "$regel" ] && grep -q '^	reverse_proxy testserver:8000$' "$regel"; then
++    sed -i 's/^	reverse_proxy testserver:8000$/	reverse_proxy {$TALEWARD_TEST_ZIEL:testserver:8000}/' "$regel"
++    return 0
++  fi
++  return 1
++}
+ caddy_ok() {
+   docker compose run --rm --no-deps -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile \
+     >/dev/null 2>&1
+ }
+ zusatz_absichern() {
+-  local regel name geparkt=""
++  local regel name geparkt="" belegt
++  if test_regel_auffrischen; then docker compose restart caddy >/dev/null 2>&1 || true; fi
+   compgen -G "extra-caddy/*.caddy" >/dev/null || return 0
++  belegt=$(fremd_belegt)
++  if [ -n "$belegt" ]; then  # S69: jemand trägt im Netz der Zusatz-Apps einen Taleward-Namen – alle Regeln aus
++    mkdir -p extra-caddy/aus
++    for regel in extra-caddy/*.caddy; do mv -f "$regel" extra-caddy/aus/; done
++    echo "[taleward] ACHTUNG: Im Netz taleward-zusatz trägt ein Container einen Taleward-Namen (${belegt//$'\n'/; })." \
++         "Alle Zusatz-Apps sind abgeschaltet (extra-caddy/aus/)."
++    docker compose up -d caddy >/dev/null 2>&1 || true
++    docker compose restart caddy >/dev/null 2>&1 || true
++    return 0
++  fi
+   caddy_ok && return 0
+   mkdir -p extra-caddy/aus
+   for regel in extra-caddy/*.caddy; do
+diff --git a/deploy/docker-compose.yml b/deploy/docker-compose.yml
+index 37f591f..40ca3be 100644
+--- a/deploy/docker-compose.yml
++++ b/deploy/docker-compose.yml
+@@ -67,6 +67,11 @@ services:
+       - kopplung:/kopplung   # Schlüssel für den eingebauten Worker (nur Server und Worker)
+     expose:
+       - "8000"
++    networks:
++      default:
++      # Caddy erreicht den Server über diese feste Adresse (Netz „kern“ unten)
++      kern:
++        ipv4_address: ${TALEWARD_KERN_NETZ:-10.213.47}.2
+     logging:
+       driver: json-file
+       options: { max-size: "10m", max-file: "5" }
+@@ -83,6 +88,9 @@ services:
+     environment:
+       TALEWARD_DOMAIN: ${TALEWARD_DOMAIN}
+       ACME_EMAIL: ${ACME_EMAIL}
++      # Feste Adressen im Netz „kern“ (siehe dort) – Caddyfile und Testinstanz leiten nur hierhin weiter
++      TALEWARD_SERVER_ZIEL: ${TALEWARD_KERN_NETZ:-10.213.47}.2:8000
++      TALEWARD_TEST_ZIEL: ${TALEWARD_KERN_NETZ:-10.213.47}.3:8000
+     volumes:
+       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+       # Optional: statische Website neben dem Server (WEBSITE_ORDNER in der .env, website-zugang.sh); sonst leer
+@@ -96,6 +104,7 @@ services:
+       - caddy-config:/config
+     networks:
+       default:
++      kern:
+       # Nur Caddy hängt in diesem Netz – Zusatz-Apps erreichen darüber nie den Server, die Testinstanz oder Worker
+       zusatz:
+     logging:
+@@ -120,6 +129,10 @@ services:
+       - ./test-daten:/data
+     expose:
+       - "8000"
++    networks:
++      default:
++      kern:
++        ipv4_address: ${TALEWARD_KERN_NETZ:-10.213.47}.3
+     logging:
+       driver: json-file
+       options: { max-size: "10m", max-file: "5" }
+@@ -185,6 +198,14 @@ volumes:
+   caddy-config:
+ 
+ networks:
++  # Nur Caddy, Server und Testinstanz, mit festen Adressen – Caddy leitet an diese Adressen weiter. Ohne Weg nach
++  # draußen (internal); das Teilnetz liegt außerhalb der Bereiche, die Docker selbst vergibt. Kollidiert es mit einem
++  # Netz des VPS: TALEWARD_KERN_NETZ=10.x.y in der .env (drei Zahlen).
++  kern:
++    internal: true
++    ipam:
++      config:
++        - subnet: ${TALEWARD_KERN_NETZ:-10.213.47}.0/28
+   # Für Zusatz-Apps neben Taleward (docs/BETRIEB.md): sie verbinden sich mit „external: true“. Fester Name, damit er
+   # nicht vom Ordnernamen abhängt; angelegt wird es hier, also scheitert „docker compose up“ nie daran.
+   zusatz:
+diff --git a/deploy/test-instanz.sh b/deploy/test-instanz.sh
+index aafd2b1..ee5d2ac 100644
+--- a/deploy/test-instanz.sh
++++ b/deploy/test-instanz.sh
+@@ -60,7 +60,7 @@ $adresse {
+ 	request_body {
+ 		max_size 64MB
+ 	}
+-	reverse_proxy testserver:8000
++	reverse_proxy {\$TALEWARD_TEST_ZIEL:testserver:8000}
+ }
+ EOF
+     docker compose up -d
+diff --git a/deploy/zusatz-app.sh b/deploy/zusatz-app.sh
+index f53a052..63f9d5b 100644
+--- a/deploy/zusatz-app.sh
++++ b/deploy/zusatz-app.sh
+@@ -18,6 +18,70 @@ VERBOTEN="server testserver caddy worker worker-cpu ollama ollama-cpu localhost"
+ cd "$ZIEL"
+ 
+ wert() { sed -n "s/^$1=//p" "$ENV" | tail -1; }
++# S69: Wer hängt im Netz der Zusatz-Apps? Je Container eine Zeile „<name> ,<netze>, ,<namen im Zusatz-Netz>,“
++zusatz_container() {
++  local ids name rest feld netze namen
++  ids=$(docker network inspect taleward-zusatz -f '{{range $id, $c := .Containers}}{{$id}} {{end}}' 2>/dev/null) \
++    || return 0
++  [ -n "${ids// /}" ] || return 0
++  # shellcheck disable=SC2086,SC2016  # mehrere Kennungen; $n/$v sind Teil der Docker-Vorlage
++  docker inspect -f '{{slice .Name 1}}{{range $n, $v := .NetworkSettings.Networks}} {{$n}}={{range $v.Aliases}}{{.}},{{end}}{{end}}' \
++    $ids 2>/dev/null | while read -r name rest; do
++    netze=","; namen=",$name,"
++    for feld in $rest; do
++      netze="$netze${feld%%=*},"
++      [ "${feld%%=*}" = taleward-zusatz ] && namen="$namen${feld#*=}"
++    done
++    echo "$name $netze $namen"
++  done
++}
++projekt() {  # Name des Compose-Projekts von Taleward (Netze heißen <projekt>_default und <projekt>_kern)
++  local p
++  p=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' .env 2>/dev/null | tail -1)
++  p=${p:-$(basename "$PWD")}
++  printf '%s' "$p" | tr '[:upper:]' '[:lower:]'
++}
++# Namen von Taleward-Diensten, die im Netz der Zusatz-Apps niemand außer Caddy tragen darf
++TALEWARD_NAMEN='^(server|testserver|caddy|localhost|worker.*|ollama.*|taleward[-_.].*)$'
++fremd_belegt() {  # gibt belegte Namen aus (leer = alles in Ordnung)
++  local p name netze namen n
++  p=$(projekt)
++  zusatz_container | while read -r name netze namen; do
++    case "$name" in "$p"-caddy-*) continue ;; esac   # Caddy von Taleward selbst
++    for n in ${namen//,/ }; do
++      if [[ "$n" =~ $TALEWARD_NAMEN ]]; then echo "$n ($name)"; fi
++    done
++  done
++}
++# Testinstanz-Regel aus Fassungen vor 0.4.166 (Weiterleitung per Name) auf die feste Adresse umstellen
++test_regel_auffrischen() {
++  local regel=test-caddy/test.caddy
++  # shellcheck disable=SC2016  # {$…} ist ein Caddy-Platzhalter, keine Shell-Variable
++  if [ -f "$regel" ] && grep -q '^	reverse_proxy testserver:8000$' "$regel"; then
++    sed -i 's/^	reverse_proxy testserver:8000$/	reverse_proxy {$TALEWARD_TEST_ZIEL:testserver:8000}/' "$regel"
++    return 0
++  fi
++  return 1
++}
++alle_parken() {  # alle Zusatz-Regeln nach extra-caddy/aus/ – Taleward läuft weiter
++  local regel
++  mkdir -p "$REGELN/aus"
++  for regel in "$REGELN"/*.caddy; do
++    [ -f "$regel" ] && mv -f "$regel" "$REGELN/aus/"
++  done
++  neu_laden || true
++}
++netz_pruefen() {  # bricht ab, wenn im Netz der Zusatz-Apps jemand einen Taleward-Namen trägt (zweite Linie zu S69)
++  local belegt
++  belegt=$(fremd_belegt)
++  [ -z "$belegt" ] && return 0
++  alle_parken
++  echo "ACHTUNG: Im Netz „taleward-zusatz“ trägt ein Container den Namen eines Taleward-Dienstes:" >&2
++  printf '  %s\n' "$belegt" >&2
++  echo "Alle Zusatz-Apps sind deshalb abgeschaltet (extra-caddy/aus/). Taleward läuft weiter." >&2
++  echo "Den Dienst bzw. Alias der Zusatz-App umbenennen, dann die Zusatz-App neu einschalten." >&2
++  exit 1
++}
+ caddy_ok() {  # Gesamte Caddy-Konfiguration samt aller Zusatz-Regeln prüfen, ohne den laufenden Caddy anzufassen
+   docker compose run --rm --no-deps -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile \
+     >/dev/null 2>&1
+@@ -54,9 +118,11 @@ case "${1:-}" in
+     ziel=${3:-}
+     container=${ziel%:*}
+     port=${ziel##*:}
+-    if [ "$ziel" = "$container" ] || ! [[ "$container" =~ ^[a-z0-9][a-z0-9_.-]{0,62}$ ]] \
++    # Containername: mit Buchstaben beginnen, nicht mit . oder - enden – also nie eine IP-Adresse (S69)
++    if [ "$ziel" = "$container" ] || ! [[ "$container" =~ ^[a-z]([a-z0-9_.-]{0,61}[a-z0-9_])?$ ]] \
+        || ! [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] || [ "$port" -gt 65535 ]; then
+-      echo "Bitte das Ziel als <container>:<port> angeben, z. B. meine-app:8080 (Kleinbuchstaben, Ziffern, - _ .)." >&2
++      echo "Bitte das Ziel als <container>:<port> angeben, z. B. meine-app:8080 (am Anfang ein Buchstabe, dann" \
++           "Kleinbuchstaben, Ziffern, - _ .; keine IP-Adresse)." >&2
+       exit 2
+     fi
+     for name in $VERBOTEN; do
+@@ -69,6 +135,22 @@ case "${1:-}" in
+       echo "Abgelehnt: Namen, die mit „taleward-“ beginnen, gehören zu Taleward." >&2
+       exit 1
+     fi
++    test_regel_auffrischen && docker compose restart caddy >/dev/null 2>&1 || true
++    netz_pruefen
++    # Das Ziel muss im Netz der Zusatz-Apps hängen und darf nicht zugleich im Netz von Taleward sein
++    p=$(projekt)
++    treffer=$(zusatz_container | while read -r name netze namen; do
++      case "$namen" in *",$container,"*) echo "$name $netze" ;; esac
++    done)
++    if [ -z "$treffer" ]; then
++      echo "Abgelehnt: Kein Container „$container“ im Docker-Netz „taleward-zusatz“. Erst die Zusatz-App mit" \
++           "„networks: [taleward-zusatz]“ starten (docs/BETRIEB.md)." >&2
++      exit 1
++    fi
++    case "$treffer" in *",${p}_default,"*|*",${p}_kern,"*)
++      echo "Abgelehnt: „$container“ hängt auch im Netz von Taleward. Zusatz-Apps nur ins Netz „taleward-zusatz“." >&2
++      exit 1 ;;
++    esac
+     datei="$REGELN/$adresse.caddy"
+     anzahl=$(find "$REGELN" -maxdepth 1 -name '*.caddy' ! -name "$adresse.caddy" | wc -l)
+     if [ "$anzahl" -ge "$HOECHSTENS" ]; then
+@@ -121,6 +203,8 @@ EOF
+     echo "Zusatz-App $adresse ist aus. Der Container selbst läuft weiter, bis du ihn anhältst."
+     ;;
+   liste)
++    test_regel_auffrischen && docker compose restart caddy >/dev/null 2>&1 || true
++    netz_pruefen
+     gefunden=0
+     for datei in "$REGELN"/*.caddy; do
+       [ -f "$datei" ] || continue
+diff --git a/docs/BETRIEB.md b/docs/BETRIEB.md
+index 46b4d81..a30eb0b 100644
+--- a/docs/BETRIEB.md
++++ b/docs/BETRIEB.md
+@@ -297,7 +297,16 @@ eigene Adresse). Die Anschlüsse 80 und 443 gehören dem Caddy von Taleward; er
+        external: true
+    ```
+ 3. Auf dem Server: `sudo bash /opt/taleward/zusatz-app.sh an app.example.org meine-app:8080`
+-   (`liste` zeigt alle, `aus app.example.org` schaltet ab). Höchstens fünf Zusatz-Apps.
++   (`liste` zeigt alle, `aus app.example.org` schaltet ab). Höchstens fünf Zusatz-Apps. Das Ziel ist der Name des
++   Dienstes bzw. Containers (beginnt mit einem Buchstaben, keine IP-Adresse); er muss im Netz `taleward-zusatz` hängen
++   und darf nicht zugleich im Netz von Taleward sein.
++
++Dienste und Aliase einer Zusatz-App dürfen nicht wie Taleward-Dienste heißen (`server`, `testserver`, `caddy`,
++`worker…`, `ollama…`, `taleward-…`). Findet `zusatz-app.sh` oder das Update so einen Namen im Netz `taleward-zusatz`,
++schalten sie alle Zusatz-Apps ab (`extra-caddy/aus/`); Taleward läuft weiter. Caddy erreicht Server und Testinstanz
++ohnehin nur über feste Adressen in einem eigenen, internen Netz (`kern`, Teilnetz `10.213.47.0/28`). Belegt der VPS
++dieses Teilnetz schon, in der `.env` z. B. `TALEWARD_KERN_NETZ=10.213.48` eintragen (drei Zahlen) und
++`docker compose up -d` aufrufen.
+ 
+ In diesem Netz hängt von Taleward nur Caddy; Server, Testinstanz und Worker erreicht die Zusatz-App nicht. Die Regel
+ entsteht immer aus derselben Vorlage (Weiterleitung, keine Angaben zur Software, HSTS, Größengrenze 16 MB, keine
+diff --git a/pyproject.toml b/pyproject.toml
+index 5d171a6..50d7cc1 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,6 +1,6 @@
+ [project]
+ name = "taleward-server"
+-version = "0.4.165"
++version = "0.4.166"
+ description = "Taleward – Server für Recaps und Kampagnenbibel von Rollenspielrunden"
+ license = "AGPL-3.0-only"
+ license-files = ["LICENSE"]
+diff --git a/tests/test_aktualisierung.py b/tests/test_aktualisierung.py
+index f12e3c2..bbcdef2 100644
+--- a/tests/test_aktualisierung.py
++++ b/tests/test_aktualisierung.py
+@@ -153,7 +153,7 @@ def test_neue_serverfassung_wird_gemeldet(client, dbs, admin, gh, monkeypatch):
+     monkeypatch.setattr(benachrichtigung, "melden", lambda db, art, **w: gemeldet.append((art, w)))
+     aktualisierung.pruefen(dbs, gh)
+     aktualisierung.pruefen(dbs, gh)
+-    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.165"})]  # nur einmal
++    assert gemeldet == [("server_update", {"wichtig": False, "version": "0.5.0", "jetzt": "0.4.166"})]  # nur einmal
+     seite = client.get("/verwaltung/updates").text
+     assert "Update verfügbar" in seite and "git pull" in seite
+     monkeypatch.setenv("TALEWARD_DOCKER", "1")
+diff --git a/tests/test_assistent.py b/tests/test_assistent.py
+index 438ab98..2015fac 100644
+--- a/tests/test_assistent.py
++++ b/tests/test_assistent.py
+@@ -134,7 +134,7 @@ def test_assistent_lokaler_server(client, dbs, admin, schluessel_ok):  # noqa: F
+     assert r.status_code == 201 and r.json()["name"] == "gaming-pc"
+     h = {"Authorization": f"Bearer {r.json()['token']}"}
+     assert wc.post("/worker/v1/pair", json={"code": code, "name": "zweiter"}).status_code == 404  # nur einmal
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.165"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": "hf_abcdefghijklmnop", "models": {}, "serverVersion": "0.4.166"}
+     assert wc.post("/worker/v1/jobs/claim", json={"waitSeconds": 0}, headers=h).status_code == 204
+     seite = client.get("/verwaltung/assistent/betrieb").text
+     assert "gaming-pc" in seite and "bereit" in seite
+diff --git a/tests/test_modellablage.py b/tests/test_modellablage.py
+index 62062f7..80696e9 100644
+--- a/tests/test_modellablage.py
++++ b/tests/test_modellablage.py
+@@ -83,7 +83,7 @@ def test_worker_laden_vom_server_ohne_hf(client, dbs, hf_zugang, tmp_path, monke
+     assert wc.get("/worker/v1/models", params={"repo": REPO}, headers=h).status_code == 404
+     assert wc.get("/worker/v1/config", headers=h).json()["hfToken"] == "hf_gut"  # Übergang: noch nicht auf dem Server
+     modellablage.holen(dbs, klient=hf_transport())
+-    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.165"}
++    assert wc.get("/worker/v1/config", headers=h).json() == {"hfToken": None, "models": {REPO: SHA}, "serverVersion": "0.4.166"}
+     assert wc.get("/worker/v1/models", params={"repo": REPO}).status_code == 401  # nur mit Worker-Token
+     r = wc.get("/worker/v1/models/file", params={"repo": REPO, "fassung": SHA, "pfad": "../../geheimnis.txt"},
+                headers=h)
+diff --git a/tests/test_schnittstelle_0410.py b/tests/test_schnittstelle_0410.py
+index 580f40a..c31af1e 100644
+--- a/tests/test_schnittstelle_0410.py
++++ b/tests/test_schnittstelle_0410.py
+@@ -190,4 +190,4 @@ def test_stimmen_vor_bestaetigung_ohne_zuordnung(client, world, dbs, tmp_path):
+ 
+ 
+ def test_info_meldet_schnittstelle_0411(client):
+-    assert client.get(f"{API}/info").json()["apiVersion"] == "0.4.35"
++    assert client.get(f"{API}/info").json()["apiVersion"] == "0.4.36"
+diff --git a/tests/test_schnittstelle_0422.py b/tests/test_schnittstelle_0422.py
+index 4681e42..0f3ef7d 100644
+--- a/tests/test_schnittstelle_0422.py
++++ b/tests/test_schnittstelle_0422.py
+@@ -10,7 +10,7 @@ API = "/api/v1"
+ def test_info_und_oeffentliche_seite(client, world, dbs, admin):  # noqa: F811
+     info = client.get(f"{API}/info").json()
+     assert info["termsUrl"] == "http://testserver/nutzungsbedingungen" and info["termsVersion"] == 1
+-    assert info["legalNoticeUrl"] is None and info["apiVersion"] == "0.4.35"
++    assert info["legalNoticeUrl"] is None and info["apiVersion"] == "0.4.36"
+     seite = client.get("/nutzungsbedingungen")
+     assert seite.status_code == 200 and "<h1>Nutzungsbedingungen</h1>" in seite.text and "Fassung 1" in seite.text
+     assert "jede für sich selbst" in seite.text and "nicht Vertragspartner" in seite.text
+diff --git a/tests/test_server_04128.py b/tests/test_server_04128.py
+index 5820038..f0a3714 100644
+--- a/tests/test_server_04128.py
++++ b/tests/test_server_04128.py
+@@ -53,7 +53,7 @@ def mit_adresse(dbs, name: str, adresse: str):
+ # ---------------------------------------------------------------- Regel gmApproval
+ def test_gm_approval_nach_registrierung_einstellung_und_abrechnung(client, dbs):
+     info = client.get(f"{API}/info").json()
+-    assert info["apiVersion"] == "0.4.35" and info["registration"] == "invite_only" and info["gmApproval"] == "none"
++    assert info["apiVersion"] == "0.4.36" and info["registration"] == "invite_only" and info["gmApproval"] == "none"
+     for registrierung, freigabe, modus, erwartet in [
+         ("open", "offen", "aus", "required"), ("code", "offen", "aus", "none"), ("invite_only", "immer", "aus", "required"),
+         ("closed", "immer", "topf", "required"), ("open", "immer", "guthaben", "none"), ("open", "offen", "topf", "required"),
+diff --git a/tests/test_server_04137.py b/tests/test_server_04137.py
+index 32f79de..46b468e 100644
+--- a/tests/test_server_04137.py
++++ b/tests/test_server_04137.py
+@@ -37,7 +37,7 @@ def test_an_und_aus(tmp_path):
+     env = (ziel / ".env").read_text()
+     assert "TALEWARD_TEST_DOMAIN=test.example.org" in env and "COMPOSE_PROFILES=worker,test" in env
+     regel = (ziel / "test-caddy" / "test.caddy").read_text()
+-    assert regel.splitlines()[1] == "test.example.org {" and "reverse_proxy testserver:8000" in regel
++    assert regel.splitlines()[1] == "test.example.org {" and "reverse_proxy {$TALEWARD_TEST_ZIEL:testserver:8000}" in regel  # 0.4.166: feste Adresse
+     assert (ziel / "test-daten").is_dir()
+     assert _aufruf(ziel, stub, "an", "test.example.org").returncode == 0  # zweimal: Profil nur einmal
+     assert (ziel / ".env").read_text().count("test") == 2
+diff --git a/tests/test_server_04139.py b/tests/test_server_04139.py
+index a9e5054..773cbb9 100644
+--- a/tests/test_server_04139.py
++++ b/tests/test_server_04139.py
+@@ -197,4 +197,4 @@ def test_umzugsdatei_kennt_mehrere_empfaenger():
+ def test_api_version():
+     from app.routers.auth import API_VERSION
+ 
+-    assert API_VERSION == "0.4.35"
++    assert API_VERSION == "0.4.36"
+diff --git a/tests/test_server_04148.py b/tests/test_server_04148.py
+index f4a7a46..fff9b4b 100644
+--- a/tests/test_server_04148.py
++++ b/tests/test_server_04148.py
+@@ -91,7 +91,7 @@ def test_server_schluessel_in_info_und_geschuetzt(client, dbs):
+     from app import dpapi, teilen
+ 
+     a = client.get(f"{API}/info").json()
+-    assert a["apiVersion"] == "0.4.35" and len(a["shareKeys"]) == 1
++    assert a["apiVersion"] == "0.4.36" and len(a["shareKeys"]) == 1
+     assert client.get(f"{API}/info").json()["shareKeys"] == a["shareKeys"]  # bleibt gleich
+     assert dpapi.geheim(teilen.META_SCHLUESSEL)
+     assert teilen.signierer(dbs).id == a["shareKeys"][0]["id"]
+diff --git a/tests/test_server_04164.py b/tests/test_server_04164.py
+index 8154481..34c200f 100644
+--- a/tests/test_server_04164.py
++++ b/tests/test_server_04164.py
+@@ -31,14 +31,29 @@ case "$*" in
+     if grep -l kaputt extra-caddy/*.caddy >/dev/null 2>&1; then exit 1; fi
+     exit 0 ;;
+   *"ps "*) echo caddy ;;
++  *"network inspect"*) cat "{tmp_path}/netz-ids" 2>/dev/null ;;
++  *"inspect "*) cat "{tmp_path}/container.txt" 2>/dev/null ;;
+ esac
+ exit 0
+ """)
+     (stub / "docker").chmod(0o755)
+     (tmp_path / "pruefung.txt").write_text("ja" if pruefung_ok else "nein")
++    netz(tmp_path)
+     return ziel, stub
+ 
+ 
++ZUSATZ_NAMEN = ["meine-app", "andere-app", "neu"] + [f"app{i}" for i in range(6)]
++
++
++def netz(tmp_path, zeilen=None):
++    """Nachgebildetes Netz taleward-zusatz: Caddy von Taleward und je Name ein Container der Zusatz-App (S69)."""
++    zeilen = zeilen if zeilen is not None else [
++        "taleward-caddy-1 taleward_default=caddy, taleward_kern=caddy, taleward-zusatz=caddy,"] + [
++        f"zusatz-{n}-1 taleward-zusatz={n},zusatz-{n}-1, zusatz_default={n}," for n in ZUSATZ_NAMEN]
++    (tmp_path / "netz-ids").write_text(" ".join(f"id{i}" for i in range(len(zeilen))) + "\n")
++    (tmp_path / "container.txt").write_text("".join(z + "\n" for z in zeilen))
++
++
+ def _aufruf(ziel, stub, *args):
+     env = {**os.environ, "TALEWARD_ZIEL": str(ziel), "PATH": f"{stub}:{os.environ['PATH']}"}
+     return subprocess.run(["bash", str(DEPLOY / "zusatz-app.sh"), *args], capture_output=True, text=True, env=env)
+@@ -113,7 +128,7 @@ def test_netz_nur_mit_caddy():
+     for name, dienst in compose["services"].items():
+         netze = dienst.get("networks") or {}
+         if name == "caddy":
+-            assert set(netze) == {"default", "zusatz"}
++            assert set(netze) == {"default", "kern", "zusatz"}  # kern seit 0.4.166 (S69)
+             assert "./extra-caddy:/etc/caddy/extra:ro" in dienst["volumes"]
+         else:
+             assert "zusatz" not in netze, name
+@@ -129,11 +144,13 @@ def test_update_und_installation_lassen_die_regeln_stehen():
+     assert "zusatz-app.sh; do" in inst and '"$ZIEL/extra-caddy"' in inst
+ 
+ 
+-def _absichern(tmp_path, regeln):
+-    """Die Funktionen caddy_ok/zusatz_absichern aus aktualisieren.sh allein ausführen."""
++def _absichern(tmp_path, regeln, netz_zeilen=None):
++    """Die Funktionen caddy_ok/zusatz_absichern (samt S69-Prüfung) aus aktualisieren.sh allein ausführen."""
+     ziel, stub = _ordner(tmp_path)
++    if netz_zeilen is not None:
++        netz(tmp_path, netz_zeilen)
+     akt = (DEPLOY / "aktualisieren.sh").read_text()
+-    funktionen = akt[akt.index("caddy_ok() {"):akt.index("wert_setzen() {")]
++    funktionen = akt[akt.index("# S69: Wer hängt"):akt.index("wert_setzen() {")]
+     (ziel / "extra-caddy").mkdir()
+     for name, inhalt in regeln.items():
+         (ziel / "extra-caddy" / name).write_text(inhalt)
+diff --git a/tests/test_server_04166.py b/tests/test_server_04166.py
+new file mode 100644
+index 0000000..7f29141
+--- /dev/null
++++ b/tests/test_server_04166.py
+@@ -0,0 +1,337 @@
++"""Server 0.4.166: Wartegrund statt Sackgasse (Schnittstelle 0.4.36), Stripe-Anschrift, S69 (Zusatz-Netz)."""
++from datetime import timedelta
++
++import pytest
++from sqlalchemy import select
++
++from tests.test_server_04132 import cloud_einrichten
++from tests.test_step2a import neue_session
++
++API = "/api/v1"
++
++
++def _wartend(dbs, w, client, art="transcribe", minuten=11):
++    """Runde, deren Auftrag seit `minuten` in der Schlange steht."""
++    from app import queue
++    from app.db import utcnow
++    from app.models import GameSession, Job
++
++    sid = neue_session(client, w)["id"]
++    s = dbs.get(GameSession, sid)
++    job = Job(type=art, session_id=sid, required_capability="asr" if art == "transcribe" else "llm",
++              engine="local")
++    dbs.add(job)
++    queue.set_state(s, "queued" if art == "transcribe" else "summarizing", progress=0.0)
++    dbs.flush()
++    job.created_at = utcnow() - timedelta(minutes=minuten)
++    dbs.commit()
++    return sid
++
++
++def _status(client, w, sid, wer="gm"):
++    r = client.get(f"{API}/sessions/{sid}/status", headers=w[wer])
++    assert r.status_code == 200, r.text
++    return r.json()
++
++
++def _worker(dbs, faehigkeiten="asr,llm", pausiert=False, llm=True):
++    import json
++
++    from app.db import utcnow
++    from app.models import Worker
++
++    dbs.add(Worker(name="PC", token_hash="x" * 64, capabilities=faehigkeiten, last_seen_at=utcnow(), paused=pausiert,
++                   info=json.dumps({"llm": "gemma"} if llm else {})))
++    dbs.commit()
++
++
++def _llm(dbs, art):
++    from app.einstellungen import meta_schreiben
++
++    meta_schreiben(dbs, "llm.art", art)
++    dbs.commit()
++
++
++def _spieler_sicht(dbs, sid, name="ben"):
++    from app.models import GameSession, User
++    from app.services import processing_status
++
++    s = dbs.get(GameSession, sid)
++    return processing_status(dbs, s, "de", dbs.scalar(select(User).where(User.username == name)))
++
++
++# ---------------------------------------------------------------- Zeitpunkt und Grund
++def test_erst_nach_zehn_minuten(client, world, dbs):
++    sid = _wartend(dbs, world, client, minuten=5)
++    st = _status(client, world, sid)
++    assert st["waitReason"] is None and st["waitActions"] == []
++
++
++def test_kein_worker(client, world, dbs):
++    sid = _wartend(dbs, world, client)
++    st = _status(client, world, sid)
++    assert st["waitReason"] == "no_worker" and st["waitActions"] == []
++
++
++def test_worker_da_heisst_weg_frei(client, world, dbs):
++    _worker(dbs)
++    sid = _wartend(dbs, world, client)
++    assert _status(client, world, sid)["waitReason"] is None
++
++
++def test_worker_pausiert(client, world, dbs):
++    _worker(dbs, pausiert=True)
++    sid = _wartend(dbs, world, client)
++    assert _status(client, world, sid)["waitReason"] == "paused"
++
++
++def test_abschrift_cloud_nicht_freigegeben(client, world, dbs):
++    cloud_einrichten(dbs)
++    sid = _wartend(dbs, world, client)
++    st = _status(client, world, sid)
++    assert st["waitReason"] == "cloud_not_allowed" and st["waitActions"] == ["allow_external_transcription"]
++    # einschalten geht nur über …/settings; danach ist der Weg frei (die Cloud übernimmt zur eingestellten Zeit)
++    from app.models import Campaign
++
++    dbs.get(Campaign, world["cid"]).allow_external_transcription = True
++    dbs.commit()
++    st = _status(client, world, sid)
++    assert st["waitReason"] is None and st["waitActions"] == []
++
++
++def test_kapitel_cloud_nicht_freigegeben(client, world, dbs):
++    cloud_einrichten(dbs)
++    sid = _wartend(dbs, world, client, art="summarize")
++    st = _status(client, world, sid)
++    assert st["waitReason"] == "cloud_not_allowed" and st["waitActions"] == ["allow_cloud_summary"]
++    from app.models import Campaign
++
++    dbs.get(Campaign, world["cid"]).allow_cloud_summary = True
++    dbs.commit()
++    assert _status(client, world, sid)["waitReason"] is None
++
++
++def test_kapitel_lokal_ohne_worker_und_abgeschaltet(client, world, dbs):
++    _llm(dbs, "lokal")
++    sid = _wartend(dbs, world, client, art="summarize")
++    st = _status(client, world, sid)
++    assert st["waitReason"] == "no_worker" and st["waitActions"] == []  # Cloud gesperrt: kein Schalter
++    _worker(dbs)
++    assert _status(client, world, sid)["waitReason"] is None
++    _llm(dbs, "aus")
++    assert _status(client, world, sid)["waitReason"] == "paused"
++
++
++def test_kostenlimit_haelt_an(client, world, dbs, monkeypatch):
++    from app import kosten
++    from app.models import Campaign
++
++    cloud_einrichten(dbs)
++    dbs.get(Campaign, world["cid"]).allow_cloud_summary = True
++    dbs.commit()
++    monkeypatch.setattr(kosten, "erreicht", lambda db: True)
++    sid = _wartend(dbs, world, client, art="summarize")
++    assert _status(client, world, sid)["waitReason"] == "paused"
++
++
++def test_schalter_nur_wenn_angeboten(client, world, dbs):
++    """Ohne eingerichtete Cloud sind die Schalter gesperrt – dann kein Schalter in waitActions."""
++    sid = _wartend(dbs, world, client)
++    assert _status(client, world, sid)["waitActions"] == []
++
++
++def test_guthaben(client, world, dbs, monkeypatch):
++    from app import abrechnung
++
++    monkeypatch.setattr(abrechnung, "an", lambda db: True)
++    monkeypatch.setattr(abrechnung, "warte_grund", lambda db, job: "leer")
++    monkeypatch.setattr(abrechnung, "hinweis", lambda db, job, lang: None)
++    monkeypatch.setattr(abrechnung, "ist_aktive_sl", lambda db, uid, c: True)
++    monkeypatch.setattr(abrechnung, "warten_fuer", lambda db, job, uid: {"reason": "empty", "estimate_cents": None,
++                                                                         "credit_id": None, "job_id": None})
++    sid = _wartend(dbs, world, client)
++    st = _status(client, world, sid)
++    assert st["waitReason"] == "credit" and st["creditWait"]["reason"] == "empty"
++    sp = _spieler_sicht(dbs, sid)
++    assert sp.wait_reason == "waiting" and sp.wait_actions == [] and sp.credit_wait is None
++
++
++# ---------------------------------------------------------------- Wer sieht was
++def test_spielende_nur_waiting(client, world, dbs):
++    cloud_einrichten(dbs)
++    sid = _wartend(dbs, world, client, art="summarize")
++    sp = _spieler_sicht(dbs, sid)
++    assert sp.wait_reason == "waiting" and sp.wait_actions == [] and sp.credit_wait is None
++    roh = sp.model_dump(mode="json", by_alias=True)
++    assert roh["waitReason"] == "waiting" and roh["waitActions"] == []
++    # vor Ablauf der Wartezeit auch für Spielende null
++    sid2 = _wartend(dbs, world, client, minuten=1)
++    assert _spieler_sicht(dbs, sid2).wait_reason is None
++
++
++def test_fremde_und_spielende_404_ueber_die_schnittstelle(client, world, dbs):
++    sid = _wartend(dbs, world, client)
++    for wer in ("pl", "out"):
++        assert client.get(f"{API}/sessions/{sid}/status", headers=world[wer]).status_code == 404
++
++
++def test_ausgetretene_sl_bekommt_keinen_grund(client, world, dbs):
++    from app.models import Member
++
++    sid = _wartend(dbs, world, client)
++    m = dbs.get(Member, world["gm_member"])
++    m.role = "player"  # nur zur Prüfung der Rollenprüfung: als Spielerin nur waiting
++    dbs.commit()
++    assert _spieler_sicht(dbs, sid, "anna").wait_reason == "waiting"
++
++
++def test_arbeitet_schon_jemand_daran(client, world, dbs):
++    from app.models import Job
++
++    sid = _wartend(dbs, world, client)
++    job = dbs.scalar(select(Job).where(Job.session_id == sid))
++    job.state = "leased"
++    dbs.commit()
++    assert _status(client, world, sid)["waitReason"] is None
++
++
++# ---------------------------------------------------------------- Stripe-Anschrift
++def test_stripe_anschrift():
++    from app import rechtstexte
++
++    texte = repr(rechtstexte.ANBIETER_ANSCHRIFT) + repr(rechtstexte.ANBIETER_ANSCHRIFT_EN)
++    assert "Grand Canal" not in texte
++    assert "One Wilton Park, Wilton Place, Dublin 2, D02 FX04" in texte
++    assert "Irland" in repr(rechtstexte.ANBIETER_ANSCHRIFT) and "Ireland" in repr(rechtstexte.ANBIETER_ANSCHRIFT_EN)
++
++
++
++# ---------------------------------------------------------------- S69: Zusatz-Netz
++def test_caddy_leitet_nur_an_feste_adressen():
++    import re
++
++    import yaml
++
++    from tests.test_server_04164 import DEPLOY
++
++    compose = yaml.safe_load((DEPLOY / "docker-compose.yml").read_text())
++    kern = compose["networks"]["kern"]
++    assert kern["internal"] is True
++    assert kern["ipam"]["config"] == [{"subnet": "${TALEWARD_KERN_NETZ:-10.213.47}.0/28"}]
++    dienste = compose["services"]
++    assert dienste["server"]["networks"]["kern"] == {"ipv4_address": "${TALEWARD_KERN_NETZ:-10.213.47}.2"}
++    assert dienste["testserver"]["networks"]["kern"] == {"ipv4_address": "${TALEWARD_KERN_NETZ:-10.213.47}.3"}
++    umgebung = dienste["caddy"]["environment"]
++    assert umgebung["TALEWARD_SERVER_ZIEL"] == "${TALEWARD_KERN_NETZ:-10.213.47}.2:8000"
++    assert umgebung["TALEWARD_TEST_ZIEL"] == "${TALEWARD_KERN_NETZ:-10.213.47}.3:8000"
++    for name, dienst in dienste.items():  # im Kern-Netz nur Caddy, Server und Testinstanz
++        if name not in ("caddy", "server", "testserver"):
++            assert "kern" not in (dienst.get("networks") or {}), name
++    caddyfile = (DEPLOY / "Caddyfile").read_text()
++    ziele = re.findall(r"reverse_proxy (\S+)", caddyfile)
++    assert ziele == ["{$TALEWARD_SERVER_ZIEL:server:8000}"]
++    test = (DEPLOY / "test-instanz.sh").read_text()
++    assert re.findall(r"reverse_proxy (\S+)", test) == ["{\\$TALEWARD_TEST_ZIEL:testserver:8000}"]
++    for skript in ("website-neu-laden.sh", "website_regeln.py"):  # die Website leitet nirgends hin weiter
++        assert "reverse_proxy" not in (DEPLOY / skript).read_text()
++
++
++@pytest.mark.parametrize("ziel_", ["127.0.0.1:2019", "172.18.0.2:8000", "server.:8000", "1server:80", "app-:80",
++                                   "app.:80", "10.213.47.2:8000", "[::1]:80", "_app:80"])
++def test_s69_ziele_abgelehnt(tmp_path, ziel_):
++    from tests.test_server_04164 import _aufruf, _ordner
++
++    ziel, stub = _ordner(tmp_path)
++    assert _aufruf(ziel, stub, "an", "app.example.org", ziel_).returncode != 0
++    assert not list((ziel / "extra-caddy").glob("*.caddy"))
++
++
++def test_s69_ziel_muss_im_zusatz_netz_haengen(tmp_path):
++    from tests.test_server_04164 import _aufruf, _ordner, netz
++
++    ziel, stub = _ordner(tmp_path)
++    r = _aufruf(ziel, stub, "an", "app.example.org", "unbekannt:8080")
++    assert r.returncode != 0 and "taleward-zusatz" in r.stderr
++    # auch im Netz von Taleward → abgelehnt
++    netz(tmp_path, ["taleward-caddy-1 taleward_default=caddy, taleward_kern=caddy, taleward-zusatz=caddy,",
++                    "zwitter-1 taleward-zusatz=zwitter, taleward_default=zwitter,"])
++    r = _aufruf(ziel, stub, "an", "app.example.org", "zwitter:8080")
++    assert r.returncode != 0 and "Netz von Taleward" in r.stderr
++    assert not list((ziel / "extra-caddy").glob("*.caddy"))
++    # nur im Zusatz-Netz → angenommen
++    netz(tmp_path)
++    assert _aufruf(ziel, stub, "an", "app.example.org", "meine-app:8080").returncode == 0
++
++
++@pytest.mark.parametrize("belegt", ["server", "testserver", "caddy", "worker-cpu", "ollama", "taleward-server-1"])
++def test_s69_fremder_taleward_name_schaltet_alles_ab(tmp_path, belegt):
++    from tests.test_server_04164 import _aufruf, _ordner, netz
++
++    ziel, stub = _ordner(tmp_path)
++    assert _aufruf(ziel, stub, "an", "app.example.org", "meine-app:8080").returncode == 0
++    netz(tmp_path, ["taleward-caddy-1 taleward_default=caddy, taleward_kern=caddy, taleward-zusatz=caddy,",
++                    "zusatz-meine-app-1 taleward-zusatz=meine-app,zusatz-meine-app-1,",
++                    f"boese-1 taleward-zusatz=boese,{belegt},"])
++    r = _aufruf(ziel, stub, "an", "neu.example.org", "meine-app:8080")
++    assert r.returncode != 0 and belegt in r.stderr
++    assert not list((ziel / "extra-caddy").glob("*.caddy"))
++    assert (ziel / "extra-caddy" / "aus" / "app.example.org.caddy").exists()
++    assert _aufruf(ziel, stub, "liste").returncode != 0
++
++
++def test_s69_update_parkt_bei_fremdem_namen(tmp_path):
++    from tests.test_server_04164 import _absichern
++
++    ziel, r = _absichern(tmp_path, {"gut.example.org.caddy": "gut"}, [
++        "taleward-caddy-1 taleward_default=caddy, taleward_kern=caddy, taleward-zusatz=caddy,",
++        "fremd-1 taleward-zusatz=fremd,server,"])
++    assert r.returncode == 0 and "ACHTUNG" in r.stdout
++    assert (ziel / "extra-caddy" / "aus" / "gut.example.org.caddy").exists()
++    assert not (ziel / "extra-caddy" / "gut.example.org.caddy").exists()
++
++
++def test_s69_alte_testregel_wird_umgestellt(tmp_path):
++    from tests.test_server_04164 import _aufruf, _ordner
++
++    ziel, stub = _ordner(tmp_path)
++    (ziel / "test-caddy").mkdir()
++    regel = ziel / "test-caddy" / "test.caddy"
++    regel.write_text("test.example.org {\n\treverse_proxy testserver:8000\n}\n")
++    assert _aufruf(ziel, stub, "liste").returncode == 0
++    assert regel.read_text() == "test.example.org {\n\treverse_proxy {$TALEWARD_TEST_ZIEL:testserver:8000}\n}\n"
++    assert "restart caddy" in (tmp_path / "aufrufe").read_text()
++
++
++def test_s69_betriebsanleitung():
++    from tests.test_server_04164 import WURZEL
++
++    text = (WURZEL / "docs" / "BETRIEB.md").read_text()
++    assert "nicht wie Taleward-Dienste heißen" in text
++
++
++def test_doku_ausnahme_nur_genau_der_pfad():
++    """Hinweis 13.11.: nur /api/v1/docs (und mit Schrägstrich) ohne HTML-Kopfzeilen, nichts, was nur so anfängt."""
++    from app.verwaltung import router
++
++    quelle = __import__("inspect").getsource(router)
++    assert 'pfad not in (DOKU_PFAD, DOKU_PFAD + "/")' in quelle
++
++
++# ---------------------------------------------------------------- Design-Prüfung 13.11. (Verwaltung)
++def test_design_pruefung_verwaltung():
++    from tests.test_server_04164 import WURZEL
++
++    app = WURZEL / "app"
++    vorlagen = app / "verwaltung" / "templates"
++    for datei in list(vorlagen.glob("*.html")) + [app / "sprachmodell.py"]:
++        text = datei.read_text(encoding="utf-8")
++        assert "Arbeitsrechner" not in text and "der Rechner ist" not in text, datei.name
++    css = (app / "verwaltung" / "static" / "verwaltung.css").read_text(encoding="utf-8")
++    assert "uppercase" not in css  # Satzschreibung statt Versalien
++    assert ".checkliste .offen .icon { color:var(--ink-muted); }" in css  # siegel nur für Achtung
++    faktor = (vorlagen / "_zweiter_faktor.html").read_text(encoding="utf-8")
++    assert "statt des Codes auch einen Passkey" in faktor
++    discord = (vorlagen / "discord.html").read_text(encoding="utf-8")
++    assert '_("Schalter")' not in discord and "Bot ein- und ausschalten" in discord
++    assert '<a href="/discord-bot/datenschutz">' in discord and '<a href="/discord-bot/nutzungsbedingungen">' in discord
++    assert '<details class="karte" id="spurschluessel"' in discord and discord.count('id="spurschluessel"') == 1
+diff --git a/tests/test_server_0464.py b/tests/test_server_0464.py
+index 13445f2..6165acd 100644
+--- a/tests/test_server_0464.py
++++ b/tests/test_server_0464.py
+@@ -55,9 +55,9 @@ def test_schnittstelle_0414(client):
+     from app.routers.auth import API_VERSION
+     from app.verwaltung.router import MELDUNGEN
+ 
+-    assert API_VERSION == "0.4.35"
++    assert API_VERSION == "0.4.36"
+     vertrag = Path(__file__).resolve().parents[1] / "contract" / "session-chronik-api.yaml"
+-    assert "version: 0.4.35" in vertrag.read_text(encoding="utf-8")
++    assert "version: 0.4.36" in vertrag.read_text(encoding="utf-8")
+     assert "„Kampagne verwalten“ → „Cloud-Dienste“" in MELDUNGEN["probe_cloud"]
+ 
+ 
+diff --git a/tests/test_server_0484.py b/tests/test_server_0484.py
+index 1e29380..f36d7e0 100644
+--- a/tests/test_server_0484.py
++++ b/tests/test_server_0484.py
+@@ -77,7 +77,7 @@ def test_info_mit_public_url_und_server_id(client, dbs):
+     from app.routers.auth import oeffentliche_herkunft
+ 
+     i = client.get(f"{API}/info").json()
+-    assert i["apiVersion"] == "0.4.35" and i["serverId"] == server_id() and i["publicUrl"] is None
++    assert i["apiVersion"] == "0.4.36" and i["serverId"] == server_id() and i["publicUrl"] is None
+     meta_schreiben(dbs, "angabe.public_url", "https://taleward.example.org/pfad/")
+     dbs.commit()
+     assert client.get(f"{API}/info").json()["publicUrl"] == "https://taleward.example.org"
+diff --git a/tests/test_server_0490.py b/tests/test_server_0490.py
+index 40cfb4b..e57eafe 100644
+--- a/tests/test_server_0490.py
++++ b/tests/test_server_0490.py
+@@ -23,7 +23,7 @@ def _ohne_ausnahmen(text: str) -> str:
+ 
+ def test_yaml_nennt_409_bei_unterlagen():
+     spec = yaml.safe_load((WURZEL / "contract" / "session-chronik-api.yaml").read_text(encoding="utf-8"))
+-    assert spec["info"]["version"] == "0.4.35"
++    assert spec["info"]["version"] == "0.4.36"
+     assert "409" in spec["paths"]["/campaigns/{campaignId}/documents"]["post"]["responses"]
+     from tests.contract import BEKANNTE_LUECKEN
+     # 0.4.144: nur die beiden gemeldeten 429 (Merken, Vorschläge von Spielenden) – an den App-Chat gemeldet
+diff --git a/tests/test_step1b.py b/tests/test_step1b.py
+index 8c6e985..a94f91f 100644
+--- a/tests/test_step1b.py
++++ b/tests/test_step1b.py
+@@ -23,7 +23,7 @@ def test_info_ist_oeffentlich(client):
+     r = client.get(f"{API}/info")
+     assert r.status_code == 200
+     i = r.json()
+-    assert i["apiVersion"] == "0.4.35" and i["externalTranscription"] is None and i["authMethods"] == ["password"] and i["registration"] == "invite_only"
++    assert i["apiVersion"] == "0.4.36" and i["externalTranscription"] is None and i["authMethods"] == ["password"] and i["registration"] == "invite_only"
+ 
+ 
+ def test_registrierung_geschlossen(client, dbs):
+diff --git a/tests/test_umzug_048.py b/tests/test_umzug_048.py
+index 7cab60c..0f95644 100644
+--- a/tests/test_umzug_048.py
++++ b/tests/test_umzug_048.py
+@@ -150,7 +150,7 @@ def test_export_inhalt_und_zugang(client, world, dbs, make_user, login):
+     namen = set(z.namelist())
+     alles = b"".join(z.read(n) for n in namen)
+     k = json.loads(z.read("kampagne.json"))
+-    assert k["format"] == "taleward-kampagne/1" and k["apiVersion"] == "0.4.35"
++    assert k["format"] == "taleward-kampagne/1" and k["apiVersion"] == "0.4.36"
+     # nie in der Datei
+     for verboten in (GEHEIM, PRUEF, "Anna", "Ben", "Dora", "anna", "HINTERGRUND-DORIN", "DORA-BOGEN",
+                      "DORA-OEFFENTLICH", "BEN-AN-ANNA", "Dorin, Kurzbeschreibung."):
+diff --git a/tests/test_verwaltung2.py b/tests/test_verwaltung2.py
+index ac5b8ae..447a23c 100644
+--- a/tests/test_verwaltung2.py
++++ b/tests/test_verwaltung2.py
+@@ -177,7 +177,7 @@ def test_mindestversion(client, world, admin):  # noqa: F811
+     assert "Gespeichert" in r.text
+     info = client.get(f"{API}/info").json()  # /info bleibt immer erreichbar
+     assert info["minAppVersion"] == "0.9.0" and info["latestAppVersion"] == "0.9.1"
+-    assert info["releaseNotes"] == "Neue Einladungen." and info["apiVersion"] == "0.4.35"
++    assert info["releaseNotes"] == "Neue Einladungen." and info["apiVersion"] == "0.4.36"
+     url = f"{API}/campaigns"
+     r = client.get(url, headers=world["gm"])
+     assert r.status_code == 426 and "0.9.0" in r.json()["message"]
+diff --git a/tests/test_webapp.py b/tests/test_webapp.py
+index be96961..ab0e8ac 100644
+--- a/tests/test_webapp.py
++++ b/tests/test_webapp.py
+@@ -106,7 +106,7 @@ def test_info_mit_pruefsumme(client, dbs):
+     aktualisierung.pruefen(dbs, gh)
+     info = client.get(f"{API}/info").json()
+     assert info["appDownloadSha256"] == hashlib.sha256(APK).hexdigest() and info["appDownloadSizeBytes"] == len(APK)
+-    assert info["apiVersion"] == "0.4.35"
++    assert info["apiVersion"] == "0.4.36"
+ 
+ 
+ def _web_zip(dateien: dict) -> bytes:
+diff --git a/tests/test_worker_app.py b/tests/test_worker_app.py
+index 1a90e29..6ba33c5 100644
+--- a/tests/test_worker_app.py
++++ b/tests/test_worker_app.py
+@@ -112,7 +112,7 @@ def test_serverfassung_beim_koppeln(client, dbs):
+     code, _ = code_erzeugen(dbs)
+     dbs.commit()
+     r = client.post("/worker/v1/pair", json={"code": code, "name": "spiele-pc"})
+-    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.165"
++    assert r.status_code == 201 and r.json()["serverVersion"] == "0.4.166"
+ 
+ 
+ def test_engine_requirements_passen_zu_uv_lock(tmp_path):
+diff --git a/uv.lock b/uv.lock
+index c8cf552..794a79f 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -2138,7 +2138,7 @@ wheels = [
+ 
+ [[package]]
+ name = "taleward-server"
+-version = "0.4.165"
++version = "0.4.166"
+ source = { editable = "." }
+ dependencies = [
+     { name = "alembic" },
