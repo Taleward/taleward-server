@@ -41,6 +41,25 @@
   </form>
 </div>
 
+{% if modus == "guthaben" %}
+<div class="karte" id="guthaben-info">
+  <h2>{{ _("Spielleitungen über das Guthaben informieren") }}</h2>
+  <p class="hilfe">{{ _("Einmal je Spielleitung eine Mail: wie Abschriften und Kapitel bezahlt werden und wo man auflädt. Nur an Spielleitungen mit bestätigter Adresse, die solche Hinweise nicht abbestellt und noch keine bekommen haben. Neue Spielleitungen bekommen sie von selbst, sobald sie ihre erste Kampagne anlegen.") }}</p>
+  {% if not info_bereit %}
+  <p class="meldung">{{ _("Dafür braucht es den Mailversand (Einstellungen → Benachrichtigungen) und die öffentliche Adresse des Servers (Einstellungen).") }}</p>
+  {% elif info_anzahl == 0 %}
+  <p>{{ _("Alle Spielleitungen mit bestätigter Adresse sind schon informiert.") }}</p>
+  {% else %}
+  <form class="formular" method="post" action="/verwaltung/abrechnung/guthaben-info">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="anzahl" value="{{ info_anzahl }}">
+    <label class="haken"><input type="checkbox" name="bestaetigt" value="1" required> {{ _("Ja, {n} Spielleitungen jetzt anschreiben", n=info_anzahl) }}</label>
+    <div><button class="tw-btn tw-btn--secondary" type="submit" {% if not faktor %}disabled{% endif %}>{{ _("Mails senden") }}</button></div>
+  </form>
+  {% endif %}
+  {% if werte.startguthaben %}<p class="hilfe">{{ _("Startguthaben in diesem Monat bisher: {summe} von höchstens {grenze}.", summe=euro(startguthaben_monat), grenze=euro(werte.startguthaben_monat)) }}</p>{% endif %}
+</div>
+{% endif %}
+
 {% if modus == "aus" %}<details class="klappteil" id="preise"{% if cloud_ohne_schaetzung %} open{% endif %}><summary>{{ _("Preise und Grenzen") }}</summary>{% endif %}
 <div class="karte">
   <h2>{{ _("Preise und Grenzen") }}</h2>

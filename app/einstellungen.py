@@ -92,6 +92,14 @@ def speichern(db: Session, **werte) -> None:
             row.value = text
 
 
+def kontakt_erlaubt(wert: str | None) -> bool:
+    """0.4.167: Die Kontaktangabe zeigt die Store-App an – sie darf nie zur Guthaben- bzw. Aufladeseite führen."""
+    from urllib.parse import unquote
+
+    text = unquote(unquote(wert or "")).lower().replace("\\", "/")
+    return "/guthaben" not in text
+
+
 def meta_lesen(db: Session, key: str, standard: str | None = None) -> str | None:
     row = db.get(ServerMeta, key)
     if row is None:

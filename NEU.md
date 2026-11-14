@@ -1,8 +1,9 @@
-Fassung 0.4.166
+Fassung 0.4.167
 
 ## Was ist neu
 
-- Wartet eine Runde länger als zehn Minuten, ohne dass es weitergehen kann, sagt die App der Spielleitung jetzt, warum: kein Worker erreichbar, Cloud für diese Kampagne nicht freigegeben, Guthaben oder vom Betreiber angehalten. Wo es hilft, führt ein Knopf direkt zur Freigabe unter „Kampagne verwalten“. Spielende sehen nur, dass die Runde wartet. Braucht die nächste App-Fassung.
-- Server und Caddy sprechen jetzt über ein eigenes internes Netz. Belegt dein Server dessen Teilnetz schon, steht in der Betriebsanleitung, was zu tun ist.
-- Die Vorlage für den Datenschutzhinweis nennt die aktuelle Anschrift eines Zahlungsanbieters.
+- Neue Spielleitungen bekommen im Guthaben-Betrieb eine Begrüßungs-Mail: wie Abschriften und Kapitel bezahlt werden und wo man auflädt.
+- Spielleitungen, die das Guthaben noch nicht kennen, kannst du unter Abrechnung einmal per Mail informieren.
+- Auf Wunsch gibt es ein Startguthaben für neue Spielleitungen, mit einer Obergrenze je Monat für den ganzen Server (Abrechnung → Preise und Grenzen, standardmäßig aus).
+- Enthält alles aus 0.4.166: Die App kann der Spielleitung sagen, warum eine Runde wartet, dazu ein eigenes internes Netz für Server und Caddy.
 - Kleinere Verbesserungen.

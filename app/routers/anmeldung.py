@@ -174,6 +174,10 @@ def email_bestaetigen(token: str, request: Request, db: Session = Depends(get_db
     u.email, u.email_verified_at = adresse, utcnow()
     if u.email_pending == adresse:
         u.email_pending = None
+    db.flush()
+    from app import startguthaben
+
+    startguthaben.begruessen(db, u)  # 0.4.167: wer schon SL ist, bekommt es jetzt
     db.commit()
     return _seite(request, db, gueltig=True, fertig=True, token="", adresse=adresse, konto=u.username, fehler="")
 

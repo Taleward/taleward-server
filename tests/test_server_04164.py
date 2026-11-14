@@ -30,6 +30,7 @@ case "$*" in
     [ "$(cat "{tmp_path}/pruefung.txt")" = ja ] || exit 1
     if grep -l kaputt extra-caddy/*.caddy >/dev/null 2>&1; then exit 1; fi
     exit 0 ;;
+  *"ps -q caddy"*) cat "{tmp_path}/caddy-id" 2>/dev/null ;;
   *"ps "*) echo caddy ;;
   *"network inspect"*) cat "{tmp_path}/netz-ids" 2>/dev/null ;;
   *"inspect "*) cat "{tmp_path}/container.txt" 2>/dev/null ;;
@@ -43,15 +44,19 @@ exit 0
 
 
 ZUSATZ_NAMEN = ["meine-app", "andere-app", "neu"] + [f"app{i}" for i in range(6)]
+CADDY_ID = "c" * 64
+CADDY_ZEILE = "taleward-caddy-1 taleward_default=caddy, taleward_kern=caddy, taleward-zusatz=caddy,"
 
 
 def netz(tmp_path, zeilen=None):
     """Nachgebildetes Netz taleward-zusatz: Caddy von Taleward und je Name ein Container der Zusatz-App (S69)."""
     zeilen = zeilen if zeilen is not None else [
-        "taleward-caddy-1 taleward_default=caddy, taleward_kern=caddy, taleward-zusatz=caddy,"] + [
-        f"zusatz-{n}-1 taleward-zusatz={n},zusatz-{n}-1, zusatz_default={n}," for n in ZUSATZ_NAMEN]
-    (tmp_path / "netz-ids").write_text(" ".join(f"id{i}" for i in range(len(zeilen))) + "\n")
-    (tmp_path / "container.txt").write_text("".join(z + "\n" for z in zeilen))
+        CADDY_ZEILE] + [f"zusatz-{n}-1 taleward-zusatz={n},zusatz-{n}-1, zusatz_default={n}," for n in ZUSATZ_NAMEN]
+    # Kennung vorn wie bei „docker inspect -f '{{.Id}} …'“; der echte Caddy hat die Kennung aus „compose ps -q caddy“
+    kennungen = [CADDY_ID if z == CADDY_ZEILE else f"{i:064x}" for i, z in enumerate(zeilen)]
+    (tmp_path / "caddy-id").write_text(CADDY_ID + "\n")
+    (tmp_path / "netz-ids").write_text(" ".join(kennungen) + "\n")
+    (tmp_path / "container.txt").write_text("".join(f"{k} {z}\n" for k, z in zip(kennungen, zeilen)))
 
 
 def _aufruf(ziel, stub, *args):

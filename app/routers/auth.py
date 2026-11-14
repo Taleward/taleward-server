@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app import begrenzung, errors, mail, schemas, slfreigabe
 from app.links import betreiber_link
 from app.access import current_user
-from app.einstellungen import angaben, mail_adresse
+from app.einstellungen import angaben, kontakt_erlaubt, mail_adresse
 from app.extern import anbieter
 from app.konto import registrierung
 from app.db import get_db, server_id, utcnow
@@ -39,7 +39,8 @@ def info(request: Request, db: Session = Depends(get_db)):
     neu = None if a.app_latest_version else aktualisierung.angebot(db, "app", oeffentliche_adresse(db, request))
     cloud = cloud_anbieter(k) if k.art == "api" and k.api_key else None
     return schemas.ServerInfoOut(
-        name=a.server_name, operator=a.server_operator, contact=a.server_contact, api_version=API_VERSION,
+        name=a.server_name, operator=a.server_operator, api_version=API_VERSION,
+        contact=a.server_contact if kontakt_erlaubt(a.server_contact) else None,  # 0.4.167: nie zur Guthaben-Seite
         registration=registrierung(db), gm_approval=slfreigabe.gm_approval(db), auth_methods=["password"] + (["oidc"] if dienste else []),
         privacy_policy_url=a.privacy_policy_url if betreiber_link(a.privacy_policy_url, nur_https=False) else None,
         min_age=a.min_age, external_transcription=extern, min_app_version=a.app_min_version,

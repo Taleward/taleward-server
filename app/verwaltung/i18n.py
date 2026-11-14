@@ -1579,6 +1579,21 @@ EN: dict[str, str] = {
     "Wer die Seite auf Englisch öffnet, sieht diesen Text. Leer lassen: Dann steht dort die deutsche Fassung.": "Anyone opening the page in English sees this text. Leave it empty to show the German version there.",
     "Die englische Fassung ist zu kurz. Ausfüllen oder das Feld leeren.": "The English version is too short. Fill it in or empty the field.",
     "In der englischen Fassung sind noch {n} Stellen in eckigen Klammern offen. Bitte ausfüllen, entfernen oder das Feld leeren.": "There are still {n} parts in square brackets in the English version. Please fill them in, remove them or empty the field.",
+    'Alle Spielleitungen mit bestätigter Adresse sind schon informiert.': 'All game masters with a confirmed address have already been informed.',
+    'Bitte die Zahl der Empfänger bestätigen ({n}).': 'Please confirm the number of recipients ({n}).',
+    'Dafür braucht es den Mailversand (Einstellungen → Benachrichtigungen) und die öffentliche Adresse des Servers (Einstellungen).': 'This needs e-mail sending (Settings → Notifications) and the public address of the server (Settings).',
+    'Das geht nur mit „Guthaben je Spielleitung“, eingerichtetem Mailversand und eingetragener öffentlicher Adresse.': 'This only works with “Credit per game master”, e-mail sending set up and a public address entered.',
+    'Die Kontaktangabe darf nicht auf die Guthaben-Seite zeigen.': 'The contact must not point to the credit page.',
+    'Einmal je Spielleitung eine Mail: wie Abschriften und Kapitel bezahlt werden und wo man auflädt. Nur an Spielleitungen mit bestätigter Adresse, die solche Hinweise nicht abbestellt und noch keine bekommen haben. Neue Spielleitungen bekommen sie von selbst, sobald sie ihre erste Kampagne anlegen.': 'One e-mail per game master: how transcripts and chapters are paid and where to top up. Only to game masters with a confirmed address who have not turned such notices off and have not received one yet. New game masters get it on their own as soon as they create their first campaign.',
+    'Ja, {n} Spielleitungen jetzt anschreiben': 'Yes, write to {n} game masters now',
+    'Mails senden': 'Send e-mails',
+    'Spielleitungen über das Guthaben informieren': 'Tell game masters about credit',
+    'Startguthaben in diesem Monat bisher: {summe} von höchstens {grenze}.': 'Starting credit this month so far: {summe} of at most {grenze}.',
+    '{gut} Mails verschickt, {schlecht} ließen sich nicht zustellen. Ein zweiter Klick schreibt nur diese an.': '{gut} e-mails sent, {schlecht} could not be delivered. A second click writes only to those.',
+    'Gespeichert. Unten kannst du die Spielleitungen jetzt einmal über das Guthaben informieren.': 'Saved. Below you can now tell the game masters about credit once.',
+    'Mails verschickt. Wer sie bekommen hat, bekommt sie nicht noch einmal.': "E-mails sent. Whoever got one won't get it again.",
+    'Startguthaben für neue Spielleitungen (Euro, 0 = aus)': 'Starting credit for new game masters (euros, 0 = off)',
+    'Startguthaben: höchstens im Monat für den ganzen Server (Euro)': 'Starting credit: at most per month for the whole server (euros)',
 }
 
 WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}

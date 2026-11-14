@@ -125,21 +125,22 @@ gesund() {
 
 # Zusatz-Apps (zusatz-app.sh) dürfen Taleward nie offline nehmen: Passt eine ihrer Regeln nach einem Update nicht mehr
 # zu Caddy, kommt sie nach extra-caddy/aus/ und Caddy startet ohne sie
-# S69: Wer hängt im Netz der Zusatz-Apps? Je Container eine Zeile „<name> ,<netze>, ,<namen im Zusatz-Netz>,“
+# S69: Wer hängt im Netz der Zusatz-Apps? Je Container eine Zeile
+# „<kennung> <name> ,<netze>, ,<namen im Zusatz-Netz>,“
 zusatz_container() {
-  local ids name rest feld netze namen
+  local ids kennung name rest feld netze namen
   ids=$(docker network inspect taleward-zusatz -f '{{range $id, $c := .Containers}}{{$id}} {{end}}' 2>/dev/null) \
     || return 0
   [ -n "${ids// /}" ] || return 0
   # shellcheck disable=SC2086,SC2016  # mehrere Kennungen; $n/$v sind Teil der Docker-Vorlage
-  docker inspect -f '{{slice .Name 1}}{{range $n, $v := .NetworkSettings.Networks}} {{$n}}={{range $v.Aliases}}{{.}},{{end}}{{end}}' \
-    $ids 2>/dev/null | while read -r name rest; do
+  docker inspect -f '{{.Id}} {{slice .Name 1}}{{range $n, $v := .NetworkSettings.Networks}} {{$n}}={{range $v.Aliases}}{{.}},{{end}}{{end}}' \
+    $ids 2>/dev/null | while read -r kennung name rest; do
     netze=","; namen=",$name,"
     for feld in $rest; do
       netze="$netze${feld%%=*},"
       [ "${feld%%=*}" = taleward-zusatz ] && namen="$namen${feld#*=}"
     done
-    echo "$name $netze $namen"
+    echo "$kennung $name $netze $namen"
   done
 }
 projekt() {  # Name des Compose-Projekts von Taleward (Netze heißen <projekt>_default und <projekt>_kern)
@@ -151,10 +152,13 @@ projekt() {  # Name des Compose-Projekts von Taleward (Netze heißen <projekt>_d
 # Namen von Taleward-Diensten, die im Netz der Zusatz-Apps niemand außer Caddy tragen darf
 TALEWARD_NAMEN='^(server|testserver|caddy|localhost|worker.*|ollama.*|taleward[-_.].*)$'
 fremd_belegt() {  # gibt belegte Namen aus (leer = alles in Ordnung)
-  local p name netze namen n
+  local p caddy kennung name netze namen n
   p=$(projekt)
-  zusatz_container | while read -r name netze namen; do
-    case "$name" in "$p"-caddy-*) continue ;; esac   # Caddy von Taleward selbst
+  # S69.1: Caddy von Taleward nur an seiner Kennung erkennen, nie am Namen; läuft er nicht, wird niemand ausgenommen
+  caddy=$(docker compose ps -q caddy 2>/dev/null | head -n 1)
+  zusatz_container | while read -r kennung name netze namen; do
+    if [ -n "$caddy" ] && [ "${kennung#"$caddy"}" != "$kennung" ]; then continue; fi
+    case "$name" in "$p"-*|"$p"_*) echo "$name"; continue ;; esac  # Projektnamen gehören nur Taleward
     for n in ${namen//,/ }; do
       if [[ "$n" =~ $TALEWARD_NAMEN ]]; then echo "$n ($name)"; fi
     done

@@ -165,6 +165,8 @@ def entscheiden(db: Session, user: User, aktion: str, von: User) -> bool:
                                     benutzer=user.username, **werte)
     try:
         mail.senden(db, user.email, betreff, text, html)
+        if art == "sl_freigegeben_guthaben":
+            user.guthaben_info_at = utcnow()  # 0.4.167: kennt das Guthaben – die Info-Mail kommt nicht noch einmal
         return True
     except mail.MailFehler:
         return False

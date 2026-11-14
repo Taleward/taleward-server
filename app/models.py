@@ -57,6 +57,9 @@ class User(Base):
     gm_mail_fehler: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     # 0.4.135: Hinweis-Mails zum Guthaben abbestellt (Guthaben-Seite)
     guthaben_mails_aus: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # 0.4.167: schon über das Guthaben informiert (Info-, Begrüßungs- oder Freigabe-Mail) bzw. Startguthaben geprüft
+    guthaben_info_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    startguthaben_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     # 0.4.135: Sprache der App bei der letzten Anmeldung (de|en) – danach richten sich Mails an das Konto
     sprache: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
@@ -941,6 +944,16 @@ class Buchung(Base):
     grund: Mapped[str | None] = mapped_column(Text, nullable=True)
     von: Mapped[str] = mapped_column(String(36), default="system")  # Konto des Verwalters oder „system“
     angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class StartguthabenAdresse(Base):
+    """0.4.167: Prüfsumme (HMAC) der normalisierten E-Mail-Adresse, die schon ein Startguthaben bekommen hat – ohne Bezug
+    zum Konto, bleibt also auch nach dem Löschen (app/startguthaben.py, Wartung löscht nach drei Jahren)."""
+
+    __tablename__ = "startguthaben_adressen"
+    adresse_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    betrag_cent: Mapped[int] = mapped_column(Integer)
+    angelegt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
 
 
 class KostenAuftrag(Base):

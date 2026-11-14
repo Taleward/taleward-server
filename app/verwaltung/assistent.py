@@ -181,6 +181,11 @@ def verein_speichern(request: Request, verein_name: str = Form(""), server_name:
     if not kontakt:
         return _fehler(request, user, db, "verein", _("Bitte eine Kontaktadresse für Datenschutzfragen angeben."),
                        betreiber=betreiber.lesen(db))
+    from app.einstellungen import kontakt_erlaubt
+
+    if not kontakt_erlaubt(kontakt):  # 0.4.167
+        return _fehler(request, user, db, "verein", _("Die Kontaktangabe darf nicht auf die Guthaben-Seite zeigen."),
+                       betreiber=betreiber.lesen(db))
     try:
         alter = int(min_age)
         if not 0 <= alter <= 99:

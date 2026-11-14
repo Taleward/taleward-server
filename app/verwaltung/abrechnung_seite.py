@@ -34,6 +34,8 @@ PREISFELDER = [
     ("warnung_ab", "„Guthaben knapp“ unter (Euro)", True),
     ("freigabe_standard", "Neue Guthaben: Aufträge darüber warten auf „Verarbeiten“ (Euro)", True),
     ("gutschrift_max", "Höchstens je Gutschrift von Hand bzw. je Gutschein (Euro)", True),
+    ("startguthaben", "Startguthaben für neue Spielleitungen (Euro, 0 = aus)", True),
+    ("startguthaben_monat", "Startguthaben: höchstens im Monat für den ganzen Server (Euro)", True),
 ]
 
 
@@ -137,7 +139,13 @@ def _seite_abrechnung(request: Request, user: User, db: Session, status: int = 2
     # 0.4.93: was „0 = automatisch“ gerade bedeutet (Mittelwert der Läufe, sonst aus den Preisen des Anbieters)
     automatisch = {a: abrechnung.euro_genau(abrechnung._mittelwert_cloud(db, a) or abrechnung.preis_aus_anbieter(db, a))
                    for a in abrechnung.KOSTENPFLICHTIG}
-    daten = {"bestaetigen": None, "codes": None, "offene_erstattungen": offen_e, "erstattung_fall": None,
+    from app import startguthaben
+
+    info_bereit = abrechnung.modus(db) == "guthaben" and startguthaben._bereit(db) is not None
+    daten = {"info_bereit": info_bereit,
+             "info_anzahl": len(startguthaben.info_empfaenger(db)) if abrechnung.modus(db) == "guthaben" else 0,
+             "startguthaben_monat": startguthaben.im_monat(db),
+             "bestaetigen": None, "codes": None, "offene_erstattungen": offen_e, "erstattung_fall": None,
              "frist_tage": erstattung.ANBIETER_FRIST_TAGE, "aufbewahrung_tage": erstattung.AUFBEWAHRUNG_TAGE,
              "ereignisse": EREIGNISSE, "cloud_ohne_schaetzung": ", ".join(ohne), "automatisch": automatisch,
              **ctx}
@@ -237,9 +245,39 @@ def modus(request: Request, modus: str = Form(""), user: User = Depends(verwalte
 
     _frisch_verlangen(request, db, user, modus != "aus")  # 0.4.143 (S44): Einschalten mit frischem Faktor
     if modus != abrechnung.modus(db):
+        vorher = abrechnung.modus(db)
         abrechnung.modus_schreiben(db, modus, user.id)
         db.commit()
+        if vorher == "aus" and modus == "guthaben":  # 0.4.167: gleich anbieten, die heutigen SL zu informieren
+            return _zurueck("/abrechnung#guthaben-info", "guthaben_eingeschaltet")
     return _zurueck("/abrechnung", "gespeichert")
+
+
+@router.post("/abrechnung/guthaben-info", dependencies=[Depends(csrf_pruefen)])
+def guthaben_info(request: Request, anzahl: str = Form(""), bestaetigt: str = Form(""),
+                  user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):
+    """0.4.167: einmal je SL eine Mail, wie das Guthaben geht (app/startguthaben.py). Rückfrage mit der Zahl."""
+    from app import startguthaben
+
+    if not _faktor(db, user):
+        return _ohne_faktor(request, user, db)
+    _ = tr(request)
+    if abrechnung.modus(db) != "guthaben" or startguthaben._bereit(db) is None:
+        return _seite_abrechnung(request, user, db, status=409, fehler=_(
+            "Das geht nur mit „Guthaben je Spielleitung“, eingerichtetem Mailversand und eingetragener öffentlicher Adresse."))
+    n = len(startguthaben.info_empfaenger(db))
+    if not bestaetigt or anzahl.strip() != str(n):
+        return _seite_abrechnung(request, user, db, status=400, fehler=_(
+            "Bitte die Zahl der Empfänger bestätigen ({n}).", n=n))
+    if n == 0:
+        return _zurueck("/abrechnung#guthaben-info", "gespeichert")
+    gut, schlecht = startguthaben.info_senden(db, user.id)
+    db.commit()
+    if schlecht:
+        return _seite_abrechnung(request, user, db, status=502, fehler=_(
+            "{gut} Mails verschickt, {schlecht} ließen sich nicht zustellen. Ein zweiter Klick schreibt nur diese an.",
+            gut=gut, schlecht=schlecht))
+    return _zurueck("/abrechnung#guthaben-info", "guthaben_info")
 
 
 @router.post("/abrechnung/preise", dependencies=[Depends(csrf_pruefen)])

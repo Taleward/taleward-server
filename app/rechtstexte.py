@@ -362,8 +362,12 @@ def datenschutz_abschnitt(db: Session, sprache: str = "de") -> list[str]:
     if not abrechnung.an(db):
         return []
     wege = zahlung.bereit(db) or list(zahlung.ANBIETER)
+    from app import startguthaben
+
+    start = abrechnung.modus(db) == "guthaben" and startguthaben.betrag(db) > 0  # 0.4.167
     if sprache == "en":
-        return _datenschutz_abschnitt_en(wege)
+        return _datenschutz_abschnitt_en(wege) + ([STARTGUTHABEN_EN.format(jahre=startguthaben.AUFBEWAHRUNG_JAHRE)]
+                                                   if start else [])
     teile = ["## Guthaben und Zahlungen",
              "Wenn du als Spielleitung Guthaben nutzt, speichert der Server dazu: Buchungen (Betrag, Zeitpunkt, Art, "
              "zugehörige Verarbeitung), Bezahlvorgänge (Betrag, Gebühr, Zahlungsanbieter, dessen Kennung des Vorgangs, "
@@ -384,7 +388,22 @@ def datenschutz_abschnitt(db: Session, sprache: str = "de") -> list[str]:
              "zu deiner Person. Ist noch Guthaben zu erstatten, behalten wir dafür deine E-Mail-Adresse, bis erstattet "
              "ist, höchstens [90] Tage. Eine Bankverbindung, nach der wir für eine Erstattung per Mail fragen, bleibt "
              "nur im Postfach und wird nach der Überweisung gelöscht."]
+    if start:
+        teile.append(STARTGUTHABEN.format(jahre=startguthaben.AUFBEWAHRUNG_JAHRE))
     return teile
+
+
+# 0.4.167: nur, wenn ein Startguthaben eingestellt ist (app/startguthaben.py)
+STARTGUTHABEN = (
+    "Für das Startguthaben neuer Spielleitungen speichert der Server eine Prüfsumme deiner E-Mail-Adresse, gebildet mit "
+    "einem geheimen Schlüssel des Servers – nicht die Adresse selbst. So gibt es das Startguthaben je Adresse nur einmal, "
+    "auch über gelöschte Konten hinweg. Rechtsgrundlage ist unser berechtigtes Interesse, Missbrauch zu verhindern "
+    "(Art. 6 Abs. 1 lit. f DSGVO). Die Prüfsumme wird nach [{jahre}] Jahren gelöscht.")
+STARTGUTHABEN_EN = (
+    "For the starting credit of new game masters, the server stores a checksum of your email address, formed with a "
+    "secret key of the server – not the address itself. This way the starting credit is given only once per address, "
+    "also across deleted accounts. The legal basis is our legitimate interest in preventing abuse (Art. 6(1)(f) "
+    "GDPR). The checksum is deleted after [{jahre}] years.")
 
 
 ANBIETER_ANSCHRIFT_EN = {

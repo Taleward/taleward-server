@@ -59,6 +59,9 @@ def _wartung_starten() -> threading.Event | None:
                     from app import namen_berichtigen
 
                     namen_berichtigen.wartung(db)  # 0.4.154: Rückgängig-Texte nach 24 Stunden weg
+                    from app import startguthaben
+
+                    startguthaben.aufraeumen(db)  # 0.4.167: Prüfsummen der Adressen nach drei Jahren
                     from app import discord_bot
 
                     discord_bot.wartung(db)  # 0.4.155: Bot-Runden ohne Ton nach 30 Stunden, alte Links weg

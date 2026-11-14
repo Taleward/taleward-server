@@ -69,6 +69,8 @@ class Preise:
     warnung_ab: int = 150  # „Guthaben knapp“ darunter
     freigabe_standard: int = 200  # Aufträge darüber warten auf „Verarbeiten“ (je Guthaben einstellbar)
     gutschrift_max: int = 5000  # Obergrenze je Gutschrift von Hand bzw. je Gutschein
+    startguthaben: int = 0  # 0.4.167: für neue Spielleitungen, 0 = aus (app/startguthaben.py)
+    startguthaben_monat: int = 2000  # 0.4.167: höchstens so viel Startguthaben je Kalendermonat für den ganzen Server
 
 
 def modus(db: Session) -> str:

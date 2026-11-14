@@ -147,6 +147,8 @@ MELDUNGEN = {
     "sl_unveraendert": "Nichts geändert – der Stand hatte sich schon geändert.",
     "konto_geloescht": "Konto gelöscht. Kommentare der Person bleiben als „gelöschtes Konto“ stehen.",
     "gespeichert": "Gespeichert.",
+    "guthaben_eingeschaltet": "Gespeichert. Unten kannst du die Spielleitungen jetzt einmal über das Guthaben informieren.",
+    "guthaben_info": "Mails verschickt. Wer sie bekommen hat, bekommt sie nicht noch einmal.",
     "erstattung_angestossen": "Erstattung angestoßen. Das Guthaben ändert sich, sobald der Anbieter sie meldet.",
     "betrieb_schluessel": "Betriebsart gespeichert. Jetzt hier den API-Schlüssel von Mistral eintragen.",
     "betrieb_worker": "Betriebsart gespeichert. Jetzt hier einen Worker anbinden.",
@@ -1774,6 +1776,10 @@ def einstellungen_speichern(request: Request, server_name: str = Form(""), serve
         return fehler(_("Unbekannte Auswahl."))
     if teil("betreiber") and (not server_name.strip() or not server_operator.strip()):
         return fehler(_("Name des Servers und Betreiber dürfen nicht leer sein."))
+    from app.einstellungen import kontakt_erlaubt
+
+    if teil("betreiber") and not kontakt_erlaubt(server_contact):
+        return fehler(_("Die Kontaktangabe darf nicht auf die Guthaben-Seite zeigen."))
     url = privacy_policy_url.strip()
     download = app_download_url.strip()
     oeffentlich = public_url.strip().rstrip("/")

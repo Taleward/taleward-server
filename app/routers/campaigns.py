@@ -59,6 +59,10 @@ def create_campaign(body: schemas.CampaignCreate, user: User = Depends(current_u
 
         db.flush()
         kampagnen_einstellungen.aendern(db, c, me, user, _einstellungen(body.settings), neu_angelegt=True)
+    db.flush()
+    from app import startguthaben
+
+    startguthaben.begruessen(db, user)  # 0.4.167: Startguthaben und Begrüßungs-Mail im Guthaben-Betrieb
     db.commit()
     db.refresh(c)
     return campaign_out(db, c, me)

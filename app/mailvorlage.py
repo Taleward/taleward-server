@@ -29,6 +29,13 @@ HINWEIS_ABBESTELLEN = {
     "de": "Diese Hinweise kannst du auf der Guthaben-Seite unter „Hinweise per E-Mail“ abbestellen.",
     "en": "You can turn these notices off on the credit page under “Notices by e-mail”.",
 }
+# 0.4.167: Die Guthaben-Seite braucht Benutzername und Passwort – wer sich nur über einen Dienst anmeldet, hat keins
+PASSWORT_SATZ = {
+    "de": "Meldest du dich in der App nur über Google, Discord, Apple oder Microsoft an, setze dort zuerst unter Konto "
+          "ein Passwort. Sonst kannst du dich auf der Guthaben-Seite nicht anmelden.",
+    "en": "If you only sign in to the app with Google, Discord, Apple or Microsoft, first set a password there under "
+          "Account. Otherwise you cannot sign in on the credit page.",
+}
 
 # Inhalte je Mail-Art und Sprache. Platzhalter: {name}, {benutzer}, {server}, {betreiber}, {link}, {datum};
 # Hinweis-Mails zum Guthaben zusätzlich {guthaben}, {guthaben_gross} und {wo}.
@@ -123,15 +130,67 @@ INHALTE = {
                    absaetze=["Die Verwaltung von {server} hat deine SL-Freigabe erteilt. In der App kannst du jetzt "
                              "eigene Kampagnen anlegen.",
                              "Abschriften und Kapitel zahlst du hier aus deinem Guthaben. Aufladen kannst du auf der "
-                             "Guthaben-Seite, angemeldet mit Benutzername und Passwort."],
+                             "Guthaben-Seite, angemeldet mit Benutzername und Passwort.",
+                             PASSWORT_SATZ["de"]],
                    knopf="Zur Guthaben-Seite", hinweis=None),
         "en": dict(betreff="You can now run your own campaigns ({server})",
                    ueberschrift="You can now run your own campaigns.", anrede="name",
                    absaetze=["The administrators of {server} have approved you as a game master. You can now create "
                              "your own campaigns in the app.",
                              "Here, transcripts and chapters are paid from your credit. You can top up on the credit "
-                             "page, signed in with your username and password."],
+                             "page, signed in with your username and password.",
+                             PASSWORT_SATZ["en"]],
                    knopf="Go to the credit page", hinweis=None),
+    },
+    # 0.4.167 (app/startguthaben.py): einmal an Spielleitungen, die das Guthaben noch nicht kennen – ohne Beträge
+    "guthaben_info": {
+        "de": dict(betreff="So zahlst du Abschriften und Kapitel ({server})",
+                   ueberschrift="So zahlst du Abschriften und Kapitel.", anrede="name",
+                   absaetze=["Auf {server} zahlt die Spielleitung Abschriften und Kapitel aus ihrem Guthaben. Aufladen "
+                             "kannst du auf der Guthaben-Seite, angemeldet mit Benutzername und Passwort.",
+                             PASSWORT_SATZ["de"],
+                             "Wartet eine Runde auf Guthaben, geht es nach dem Aufladen von selbst weiter."],
+                   knopf="Zur Guthaben-Seite", hinweis=HINWEIS_ABBESTELLEN["de"]),
+        "en": dict(betreff="How transcripts and chapters are paid ({server})",
+                   ueberschrift="How transcripts and chapters are paid.", anrede="name",
+                   absaetze=["On {server}, the game master pays for transcripts and chapters from their credit. You can "
+                             "top up on the credit page, signed in with your username and password.",
+                             PASSWORT_SATZ["en"],
+                             "If a session is waiting for credit, it continues on its own once you have topped up."],
+                   knopf="Go to the credit page", hinweis=HINWEIS_ABBESTELLEN["en"]),
+    },
+    # 0.4.167: Begrüßung beim ersten Leiten im Guthaben-Betrieb (ohne SL-Freigabe gibt es sonst keine Mail)
+    "guthaben_willkommen": {
+        "de": dict(betreff="Willkommen als Spielleitung ({server})",
+                   ueberschrift="Willkommen als Spielleitung.", anrede="name",
+                   absaetze=["Du leitest jetzt eine Kampagne auf {server}. Abschriften und Kapitel zahlst du hier aus "
+                             "deinem Guthaben. Aufladen kannst du auf der Guthaben-Seite, angemeldet mit Benutzername "
+                             "und Passwort.",
+                             PASSWORT_SATZ["de"]],
+                   knopf="Zur Guthaben-Seite", hinweis=HINWEIS_ABBESTELLEN["de"]),
+        "en": dict(betreff="Welcome as a game master ({server})",
+                   ueberschrift="Welcome as a game master.", anrede="name",
+                   absaetze=["You are now running a campaign on {server}. Here, transcripts and chapters are paid from "
+                             "your credit. You can top up on the credit page, signed in with your username and "
+                             "password.",
+                             PASSWORT_SATZ["en"]],
+                   knopf="Go to the credit page", hinweis=HINWEIS_ABBESTELLEN["en"]),
+    },
+    "guthaben_willkommen_start": {
+        "de": dict(betreff="Willkommen als Spielleitung ({server})",
+                   ueberschrift="Willkommen als Spielleitung.", anrede="name",
+                   absaetze=["Du leitest jetzt eine Kampagne auf {server}. Abschriften und Kapitel zahlst du hier aus "
+                             "deinem Guthaben. Zum Ausprobieren liegen schon {betrag} darauf.",
+                             "Aufladen kannst du auf der Guthaben-Seite, angemeldet mit Benutzername und Passwort.",
+                             PASSWORT_SATZ["de"]],
+                   knopf="Zur Guthaben-Seite", hinweis=HINWEIS_ABBESTELLEN["de"]),
+        "en": dict(betreff="Welcome as a game master ({server})",
+                   ueberschrift="Welcome as a game master.", anrede="name",
+                   absaetze=["You are now running a campaign on {server}. Here, transcripts and chapters are paid from "
+                             "your credit. There is already {betrag} on it to try things out.",
+                             "You can top up on the credit page, signed in with your username and password.",
+                             PASSWORT_SATZ["en"]],
+                   knopf="Go to the credit page", hinweis=HINWEIS_ABBESTELLEN["en"]),
     },
     # 0.4.135: Hinweis-Mails zum Guthaben (app/guthaben_mail.py). Ohne Beträge. {guthaben}: „dein Guthaben“ bzw. „das
     # Guthaben der Organisation …“; {wo}: „ in der Kampagne …“ nur für die heutige SL der Kampagne, sonst leer.
