@@ -258,6 +258,15 @@ def fail_job(db: Session, job: Job, code: str, message: str, retryable: bool) ->
         set_state(sess, "failed", message=status_message(key, detail=message))
 
 
+def abbrechen(db: Session, job: Job) -> bool:
+    """0.4.169: Der Betreiber bricht einen wartenden Auftrag ab (Verwaltung → Warteschlange). Nur solange ihn noch
+    niemand bearbeitet; danach steht er wie ein Fehlschlag da und lässt sich erneut versuchen."""
+    if job.state != "queued":
+        return False
+    fail_job(db, job, "cancelled_by_operator", "Vom Betreiber abgebrochen.", retryable=False)
+    return True
+
+
 def _dokument_zustand(db: Session, job: Job, zustand: str, meldung: str | None) -> None:
     from app.models import CampaignDocument
 

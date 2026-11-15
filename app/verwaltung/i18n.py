@@ -1647,6 +1647,14 @@ EN: dict[str, str] = {
     "Connector für einen KI-Assistenten": "Connector for an AI assistant",
     "Der Connector lässt sich hier gerade nicht einschalten.": "The connector can't be turned on here right now.",
     "Eines der Netze stimmt nicht. Beispiel: 160.79.104.0/21": "One of the networks isn't valid. Example: 160.79.104.0/21",
+    # 0.4.169: Warteschlange aufräumen
+    "Nur ausgeblendete Aufträge": "Only hidden jobs",
+    "Ausgeblendete anzeigen ({n})": "Show hidden ({n})",
+    "Wieder einblenden": "Show again",
+    "Ausblenden": "Hide",
+    "Auftrag abgebrochen.": "Job cancelled.",
+    "Dieser Auftrag wartet nicht mehr. Er lässt sich nicht mehr abbrechen.": "This job is no longer waiting. It can't be cancelled any more.",
+    "Vom Betreiber abgebrochen.": "Cancelled by the operator.",
 }
 
 WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}
@@ -1655,6 +1663,9 @@ WOERTERBUECHER: dict[str, dict[str, str]] = {"en": EN}
 def sprache_von(request: Request) -> str:
     from app import kekse
 
+    # 0.4.169: öffentliche Seiten (Rechtstexte, Einladung …) haben mit „?lang=en“ eine eigene Adresse je Sprache
+    if not request.url.path.startswith("/verwaltung") and request.query_params.get("lang") in SPRACHEN:
+        return request.query_params["lang"]
     wahl = kekse.lesen(request, COOKIE)
     if wahl in SPRACHEN:
         return wahl

@@ -161,6 +161,7 @@ MELDUNGEN = {
     "gestartet": "Lokaler Worker gestartet.",
     "beendet": "Lokaler Worker beendet.",
     "neustart": "Verarbeitung neu eingereiht.",
+    "abgebrochen": "Auftrag abgebrochen.",
     "abgemeldet": "Abgemeldet.",
     "eingerichtet": "Eingerichtet. Das Konto „admin“ wurde gelöscht – ab jetzt meldest du dich mit deinem eigenen Konto an.",
     "extern": "Einstellungen zur externen Transkription gespeichert.",
@@ -807,7 +808,7 @@ def uebersicht(request: Request, user: User = Depends(verwalter), db: Session = 
         "wartend": zustaende.get("queued", 0),
         "in_arbeit": zustaende.get("transcribing", 0) + zustaende.get("summarizing", 0),
         "bei_sl": zustaende.get("awaiting_speakers", 0) + zustaende.get("awaiting_review", 0),
-        "fehlgeschlagen": zustaende.get("failed", 0),
+        "fehlgeschlagen": _fehlgeschlagen_sichtbar(db),
         "knechte_online": sum(1 for w in workers if w.last_seen_at and w.last_seen_at > grenze and not w.paused
                               and w.app_paused_since is None),
         "knechte": len(workers),
@@ -1649,6 +1650,26 @@ def zusammenfassung_speichern(request: Request, art: str = Form("aus"), anbieter
 # 0.4.141: Filter der Warteschlange hinter den Zähler-Kacheln der Übersicht (Zustand der Runde)
 WARTESCHLANGE_FILTER = {"wartet": ("queued",), "arbeit": ("transcribing", "summarizing"), "fehler": ("failed",),
                         "sl": ("awaiting_speakers", "awaiting_review")}
+AUSGEBLENDET = "warteschlange.ausgeblendet"  # 0.4.169: Kennungen fehlgeschlagener Aufträge, die der Betreiber ausblendet
+
+
+def _ausgeblendet(db: Session) -> list[str]:
+    import json
+
+    try:
+        wert = json.loads(meta_lesen(db, AUSGEBLENDET) or "[]")
+    except ValueError:
+        return []
+    return [k for k in wert if isinstance(k, str)] if isinstance(wert, list) else []
+
+
+def _fehlgeschlagen_sichtbar(db: Session) -> int:
+    """Fehlgeschlagene Runden, deren letzter Auftrag nicht ausgeblendet ist."""
+    weg = set(_ausgeblendet(db))
+    runden = db.scalars(select(GameSession.id).where(GameSession.state == "failed")).all()
+    if not weg:
+        return len(runden)
+    return sum(1 for r in runden if getattr(queue.current_job(db, r, None), "id", None) not in weg)
 
 
 @router.get("/warteschlange", response_class=HTMLResponse)
@@ -1657,7 +1678,8 @@ def warteschlange(request: Request, user: User = Depends(verwalter), db: Session
     from app.extern import HALTER
 
     _ = tr(request)
-    zeigen = zeigen if zeigen in WARTESCHLANGE_FILTER else ""
+    zeigen = zeigen if zeigen in WARTESCHLANGE_FILTER or zeigen == "ausgeblendet" else ""
+    weg = set(_ausgeblendet(db))
     namen = {w.id: (_("Lokaler Worker") if w.local else w.name) for w in db.scalars(select(Worker))}
     namen |= {"zentrale": _("Server"), HALTER: _("Externer Anbieter")}
     zeilen = []
@@ -1669,15 +1691,51 @@ def warteschlange(request: Request, user: User = Depends(verwalter), db: Session
         knecht = namen.get(j.lease_worker_id or "") or (_("entfernter Worker") if j.lease_worker_id else None)
         from app import messwerte
 
-        if zeigen and not (aktuell and s.state in WARTESCHLANGE_FILTER[zeigen]):
+        if (j.id in weg) != (zeigen == "ausgeblendet"):
+            continue  # Ausgeblendetes steht nur in der eigenen Ansicht
+        if zeigen in WARTESCHLANGE_FILTER and not (aktuell and s.state in WARTESCHLANGE_FILTER[zeigen]):
             continue  # nur der laufende Auftrag jeder Runde im gewählten Zustand
-        zeilen.append({"j": j, "s": s, "c": c, "dok": dok, "knecht": knecht,
+        zeilen.append({"j": j, "s": s, "c": c, "dok": dok, "knecht": knecht, "ausgeblendet": j.id in weg,
                        "messwerte": messwerte.zeilen(messwerte.lesen(j), _) if j.state == "done" else [],
                        "neustart": aktuell and s.state == "failed",
                        "haengt": j.state == "leased" and j.lease_expires_at is not None
                                  and j.lease_expires_at < utcnow()})
     offen = sum(1 for z in zeilen if z["j"].state in ("queued", "leased"))
-    return _seite(request, "warteschlange.html", user, db, zeilen=zeilen, offen=offen, fehler=fehler, zeigen=zeigen)
+    return _seite(request, "warteschlange.html", user, db, zeilen=zeilen, offen=offen, fehler=fehler, zeigen=zeigen,
+                  ausgeblendet=len(weg))
+
+
+@router.post("/auftraege/{job_id}/abbrechen", dependencies=[Depends(csrf_pruefen)])
+def auftrag_abbrechen(request: Request, job_id: str, user: User = Depends(verwalter), db: Session = Depends(get_db)):
+    """0.4.169: wartenden Auftrag abbrechen. Hat ihn inzwischen ein Worker, bleibt er, mit Hinweis."""
+    j = db.get(Job, job_id)
+    if j is None:
+        raise errors.not_found()
+    if not queue.abbrechen(db, j):
+        antwort = warteschlange(request, user, db, fehler=tr(request)(
+            "Dieser Auftrag wartet nicht mehr. Er lässt sich nicht mehr abbrechen."))
+        antwort.status_code = 409
+        return antwort
+    db.commit()
+    return _zurueck("/warteschlange", "abgebrochen")
+
+
+@router.post("/auftraege/{job_id}/ausblenden", dependencies=[Depends(csrf_pruefen)])
+def auftrag_ausblenden(job_id: str, an: str = Form("1"), user: User = Depends(verwalter),
+                       db: Session = Depends(get_db)):
+    """0.4.169: fehlgeschlagenen Auftrag aus Warteschlange und Übersicht nehmen (oder zurückholen). Ändert nichts an
+    der Runde; ein neuer Versuch ist ein neuer Auftrag und steht wieder da."""
+    import json
+
+    j = db.get(Job, job_id)
+    if j is None or j.state != "failed":
+        raise errors.not_found()
+    liste = [k for k in _ausgeblendet(db) if k != j.id]
+    if an == "1":
+        liste.append(j.id)
+    meta_schreiben(db, AUSGEBLENDET, json.dumps(liste[-500:]))
+    db.commit()
+    return _zurueck("/warteschlange" + ("" if an == "1" else "?zeigen=ausgeblendet"), "gespeichert")
 
 
 @router.post("/sessions/{session_id}/neustart", dependencies=[Depends(csrf_pruefen)])

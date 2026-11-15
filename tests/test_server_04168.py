@@ -1,4 +1,4 @@
-"""Server 0.4.168: Connector – ein KI-Assistent liest und bedient die Verwaltung (MCP), mit Zustimmung des Verwalters,
+"""Server 0.4.169: Connector – ein KI-Assistent liest und bedient die Verwaltung (MCP), mit Zustimmung des Verwalters,
 Freigabe für Geld, Konten und Schlüssel, gesperrten Bereichen und Protokoll."""
 import base64
 import hashlib
@@ -154,7 +154,7 @@ def test_entdeckung_und_anmeldung_bis_zum_ersten_aufruf(client, dbs, an):
     assert namen == ["uebersicht", "seite_lesen", "formular_senden"]
     assert _rpc(client, schluessel["access_token"], "gibt/es/nicht").json()["error"]["code"] == -32601
     text, fehler = _werkzeug(client, schluessel["access_token"], "uebersicht")
-    assert not fehler and "Fassung: 0.4.168" in text and "/warteschlange" in text and "Freigabe" in text
+    assert not fehler and "Fassung: 0.4.169" in text and "/warteschlange" in text and "Freigabe" in text
     # die Seite der Verwaltung nennt den verbundenen Assistenten und die Schritte, nie die Schlüssel
     seite = client.get("/verwaltung/connector").text
     assert "Claude" in seite and schluessel["access_token"] not in seite and ADRESSE + "/mcp" in seite

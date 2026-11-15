@@ -83,7 +83,7 @@ Die Verbindung im WLAN ist nicht verschlüsselt. Einzelplatz ist für das eigene
 | **Übersicht** | Warteschlange, Fehlschläge, Speicherplatz, Sicherung, offene Punkte der Einrichtung |
 | **Transkription** | Worker koppeln, pausieren oder sperren; eingebauter bzw. lokaler Worker; Sprechermodell; externe Transkription |
 | **Zusammenfassung** | Cloud-API, lokales Modell oder Testmodus; Preise und Kostenlimit |
-| **Warteschlange** | Alle Aufträge mit Zustand und Fehlermeldung, „Erneut versuchen“ |
+| **Warteschlange** | Alle Aufträge mit Zustand und Fehlermeldung, „Erneut versuchen“, wartende abbrechen, fehlgeschlagene ausblenden |
 | **Konten** | Anlegen, Passwort-Link, Verwalter-Recht, Anmeldearten |
 | **Anmeldung** | Google, Discord, Microsoft, Apple einrichten |
 | **Updates** | Fassungen von Server, App und Worker; automatisch oder nach Freigabe |
