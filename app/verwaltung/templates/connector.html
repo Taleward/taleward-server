@@ -1,0 +1,78 @@
+{% extends "basis.html" %}
+{% block titel %}{{ _("Connector") }}{% endblock %}
+{% block inhalt %}
+<p class="leise"><a href="/verwaltung/einstellungen/einrichtung">{{ _("Zurück zu den Einstellungen") }}</a></p>
+<h1>{{ _("Connector") }}</h1>
+<p class="hilfe">{{ _("Über den Connector kann ein KI-Assistent die Verwaltung lesen und bedienen, mit deinen Rechten. Er sieht alles, was du hier siehst. Schalte ihn nur ein, wenn du ihn brauchst.") }}</p>
+{% if hindernis == "einzelplatz" %}<div class="hinweis">{{ _("Auf einem Server am eigenen PC gibt es den Connector nicht.") }}</div>
+{% elif hindernis == "netz" %}<div class="hinweis">{{ _("Die Verwaltung ist auf bestimmte Netze beschränkt. Dann gibt es den Connector nicht.") }}</div>
+{% elif hindernis == "adresse" %}<div class="hinweis">{{ _("Der Connector braucht eine öffentliche Adresse mit https.") }} <a href="/verwaltung/einstellungen">{{ _("Adresse eintragen") }}</a></div>
+{% elif not faktor %}<div class="hinweis">{{ _("Der Connector braucht deinen zweiten Faktor.") }} <a href="/verwaltung/anmeldung#zweiter-faktor">{{ _("Zweiten Faktor einrichten") }}</a></div>{% endif %}
+
+<div class="karte" id="schalter">
+  <h2>{{ _("Connector ein- und ausschalten") }}</h2>
+  <p>{% if an %}<span class="marke-status marke-status--gut">{{ _("eingeschaltet") }}</span>{% else %}<span class="marke-status">{{ _("aus") }}</span>{% endif %}</p>
+  <form method="post" action="/verwaltung/connector/schalter">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="an" value="{{ '0' if an else '1' }}">
+    {% if an %}<button class="tw-btn tw-btn--secondary" type="submit">{{ _("Ausschalten") }}</button>
+    {% else %}<button class="tw-btn tw-btn--primary" type="submit" {% if hindernis or not faktor %}disabled{% endif %}>{{ _("Einschalten") }}</button>{% endif %}
+  </form>
+  <p class="hilfe">{{ _("Ausschalten trennt sofort alle verbundenen Assistenten.") }}</p>
+</div>
+
+{% if an %}
+<div class="karte" id="verbinden">
+  <h2>{{ _("Assistenten verbinden") }}</h2>
+  <p>{{ _("Trage diese Adresse beim Assistenten als eigenen Connector ein:") }}</p>
+  <p class="kopierzeile"><code class="ganz">{{ adresse }}</code></p>
+  <p class="hilfe">{{ _("Beim Verbinden fragt dieser Server dich hier nach deiner Zustimmung. Melde dich vorher in der Verwaltung an.") }}</p>
+</div>
+
+<div class="karte karte--achtung" id="freigabe">
+  <h2>{{ _("Geld, Konten und Schlüssel") }}</h2>
+  <p>{{ _("Schritte, für die die Verwaltung deinen zweiten Faktor frisch verlangt, gehen über den Connector nur, solange du sie hier freigibst.") }}</p>
+  {% if freigabe_bis %}<p><span class="marke-status marke-status--gut">{{ _("freigegeben bis {zeit}", zeit=zeit(freigabe_bis, False)) }}</span></p>{% endif %}
+  <form method="post" action="/verwaltung/connector/freigabe">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="an" value="{{ '0' if freigabe_bis else '1' }}">
+    {% if freigabe_bis %}<button class="tw-btn tw-btn--secondary" type="submit">{{ _("Freigabe beenden") }}</button>
+    {% else %}<button class="tw-btn tw-btn--secondary" type="submit">{{ _("Für {n} Minuten freigeben", n=minuten) }}</button>{% endif %}
+  </form>
+</div>
+
+<div class="karte" id="zugaenge">
+  <h2>{{ _("Verbundene Assistenten") }}</h2>
+  {% if zugaenge %}
+  <ul class="liste-av">
+  {% for z in zugaenge %}
+    <li><span><strong>{{ z.name }}</strong> · {{ _("verbunden {zeit}", zeit=zeit(z.seit)) }}{% if z.zuletzt %} · {{ _("zuletzt benutzt {zeit}", zeit=zeit(z.zuletzt)) }}{% endif %}</span>
+      <form method="post" action="/verwaltung/connector/trennen">
+        <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="zugang" value="{{ z.id }}">
+        <button class="tw-btn tw-btn--secondary tw-btn--klein" type="submit">{{ _("Trennen") }}</button></form></li>
+  {% endfor %}
+  </ul>
+  {% else %}<p class="leise">{{ _("Noch kein Assistent verbunden.") }}</p>{% endif %}
+</div>
+
+<details class="karte" id="netze">
+  <summary><h2 class="summary-titel">{{ _("Erlaubte Netze") }}</h2> <span class="leise">{{ _("selten gebraucht") }}</span></summary>
+  <form class="formular" method="post" action="/verwaltung/connector/netze">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>{{ _("Nur aus diesen Netzen") }} <input type="text" name="netze" maxlength="400" value="{{ netze }}">
+      <span class="hilfe">{{ _("Mit Komma getrennt. Voreingestellt ist das Netz, aus dem Claude anfragt. Leer heißt: von überall.") }}</span></label>
+    <div class="knopfzeile"><button class="tw-btn tw-btn--secondary" type="submit">{{ _("Speichern") }}</button></div>
+  </form>
+</details>
+{% endif %}
+
+<details class="karte" id="protokoll">
+  <summary><h2 class="summary-titel">{{ _("Letzte Schritte des Connectors") }}</h2></summary>
+  {% if protokoll %}
+  <div class="tabelle-huelle"><table><thead><tr><th>{{ _("Zeit") }}</th><th>{{ _("Schritt") }}</th><th>{{ _("Seite") }}</th><th>{{ _("Ergebnis") }}</th></tr></thead><tbody>
+  {% for p in protokoll %}<tr><td>{{ zeit(p.zeit) }}</td>
+    <td>{% if p.art == "senden" %}{{ _("geändert") }}{% elif p.art == "lesen" %}{{ _("gelesen") }}{% elif p.art == "freigabe" %}{{ _("freigegeben") }}{% elif p.art == "verbunden" %}{{ _("verbunden") }}{% else %}{{ _("Übersicht") }}{% endif %}</td>
+    <td>{{ p.pfad }}</td><td>{{ p.status }}</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% else %}<p class="leise">{{ _("Noch nichts.") }}</p>{% endif %}
+  <p class="hilfe">{{ _("Eingaben stehen nicht im Protokoll.") }}</p>
+</details>
+{% endblock %}

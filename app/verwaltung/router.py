@@ -307,6 +307,12 @@ def csrf_pruefen(request: Request, csrf: str = Form("")) -> None:
 HANDY = ("android", "iphone", "ipad", "ipod")
 
 
+def _connector_sichtbar(db: Session) -> bool:
+    from app import connector
+
+    return connector.sichtbar(db)
+
+
 def _bot_seiten(db: Session) -> bool:
     """0.4.162: Links auf die Rechtstexte des Discord-Bots im Fuß, wenn der Bot an und beides veröffentlicht ist."""
     try:
@@ -338,7 +344,7 @@ def _seite(request: Request, name: str, user: User | None, db: Session, status_c
         "aktiv": name.removesuffix(".html"), "_": _, "sprache": sprache, "sprachen": SPRACHEN,
         "zeit": _zeitformat(sprache), "groesse": _groesse, "leitsatz": None,
         "einzelplatz": get_settings().taleward_einzelplatz, "handy": ist_handy(request),
-        "bot_seiten": _bot_seiten(db),
+        "bot_seiten": _bot_seiten(db), "connector_sichtbar": _connector_sichtbar(db),
         # 0.4.130: Betriebsart für alle Seiten – bei „Nur Cloud“ klappen Worker-Teile zu
         "betrieb": betriebsart(db) if user is not None else None, **ctx,
     }, status_code=status_code)
@@ -2212,6 +2218,11 @@ def einbinden(app: FastAPI) -> None:
 
     app.include_router(discord_seite.router)  # 0.4.155: Verwaltung → Discord-Bot
     app.include_router(discord_seite.seiten)
+    from app.routers import connector as connector_router
+    from app.verwaltung import connector_seite
+
+    app.include_router(connector_seite.router)  # 0.4.168: Verwaltung → Einstellungen → Connector
+    app.include_router(connector_router.router)
     guthaben.einbinden(app)  # 0.4.85: Seite „Guthaben“ für Spielleitungen
     app.include_router(assistent.router)
     app.include_router(assistent.oeffentlich)

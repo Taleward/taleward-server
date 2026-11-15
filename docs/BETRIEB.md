@@ -87,7 +87,7 @@ Die Verbindung im WLAN ist nicht verschlüsselt. Einzelplatz ist für das eigene
 | **Konten** | Anlegen, Passwort-Link, Verwalter-Recht, Anmeldearten |
 | **Anmeldung** | Google, Discord, Microsoft, Apple einrichten |
 | **Updates** | Fassungen von Server, App und Worker; automatisch oder nach Freigabe |
-| **Einstellungen** | Angaben für die App, neue Konten, Aufnahmen, Kosten, App-Versionen, Benachrichtigungen, Verträge und Übergabe |
+| **Einstellungen** | Angaben für die App, neue Konten, Aufnahmen, Kosten, App-Versionen, Benachrichtigungen, Verträge und Übergabe, Connector |
 
 Oben rechts lässt sich die Sprache umschalten (Deutsch/English).
 
@@ -315,6 +315,40 @@ Bevor eine Regel gilt, prüft Caddy die ganze Konfiguration; klappt das nicht, b
 Regel nach einem Update von Taleward nicht mehr, schaltet das Update sie ab (`/opt/taleward/extra-caddy/aus/`) und
 Taleward läuft weiter. **Zusatz-Apps gehören nicht zur Sicherung von Taleward und gehen beim Umzug nicht mit** – um
 ihre Daten kümmert sich, wer sie betreibt.
+
+## Connector für einen KI-Assistenten (optional)
+
+Über den Connector kann ein KI-Assistent die Verwaltung lesen und bedienen – über dieselben Seiten und Formulare wie
+du, mit deinen Rechten. Er spricht das Model Context Protocol (MCP). Standardmäßig gibt es ihn nicht, auch nicht als
+Seite der Verwaltung. Freischalten auf dem Server:
+
+```
+docker compose exec server chronik connector --an
+```
+
+`chronik connector --aus` entfernt ihn wieder (aus, alle Zugänge weg, Seite verborgen); ohne Schalter zeigt der Befehl
+den Stand.
+
+**Voraussetzungen:** öffentliche Adresse mit https (Einstellungen), dein zweiter Faktor ist eingeschaltet, die
+Verwaltung ist nicht auf bestimmte Netze beschränkt (`VERWALTUNG_NUR_AUS` leer). Nicht auf einem Server am eigenen PC.
+
+1. Verwaltung → Einstellungen → Einrichtung → **Connector für einen KI-Assistenten** → „Einschalten“.
+2. Die Adresse unter „Assistenten verbinden“ (`https://<dein Server>/mcp`) beim Assistenten als eigenen Connector
+   eintragen und dort verbinden. Dein Browser landet auf diesem Server; melde dich vorher in der Verwaltung an.
+3. Auf der Seite „Assistenten verbinden“ mit „Verbinden“ zustimmen (verlangt den zweiten Faktor frisch).
+
+Was gilt:
+
+- Der Assistent sieht alles, was du in der Verwaltung siehst – auch Inhalte von Runden, soweit die Verwaltung sie zeigt.
+  Verbinde nur einen Assistenten, dem du das anvertraust, und prüfe, ob eure Datenschutzhinweise das abdecken.
+- Schritte, für die die Verwaltung den zweiten Faktor frisch verlangt (Geld, Konten, Schlüssel), gehen nur, solange du
+  sie auf der Connector-Seite freigibst – jeweils 30 Minuten, vorher beendbar.
+- Nie über den Connector: der Connector selbst, zweiter Faktor, Passkeys, vertraute Geräte, An- und Abmelden und die
+  Dateien der Sicherung.
+- „Erlaubte Netze“: Anfragen werden nur aus diesen Netzen angenommen. Leer heißt von überall.
+- „Letzte Schritte des Connectors“ zeigt, was gelesen und geändert wurde (ohne Eingaben). „Trennen“ beendet einen
+  Assistenten, „Ausschalten“ alle. Der Zugang endet auch, wenn du den zweiten Faktor ausschaltest oder kein Verwalter
+  mehr bist.
 
 ## Updates für App und Worker
 

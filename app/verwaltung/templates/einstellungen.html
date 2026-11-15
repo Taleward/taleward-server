@@ -212,6 +212,7 @@
 </details>
 
 <p class="hilfe"><a href="/verwaltung/uebergabe">{{ _("Auftragsverarbeitung und Übergabe der Verwaltung") }} →</a></p>
+{% if connector_sichtbar %}<p class="hilfe"><a href="/verwaltung/connector">{{ _("Connector für einen KI-Assistenten") }} →</a></p>{% endif %}
 <hr class="trenner">
 <details class="klappteil" id="nutzungsbedingungen"{% if nb_meldung %} open{% endif %}><summary>{{ _("Nutzungsbedingungen: neue Fassung") }}</summary>
 <div class="karte karte--achtung">

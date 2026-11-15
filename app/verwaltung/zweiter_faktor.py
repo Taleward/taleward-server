@@ -246,7 +246,12 @@ def frisch_merken(db: Session, user_id: str, bereich: str = "verwaltung", *, sit
 
 def frisch(db: Session, user_id: str, bereich: str = "verwaltung", *, sitzung: str | None) -> bool:
     """Gilt der zweite Faktor in dieser Sitzung als frisch? Ohne eingerichteten zweiten Faktor immer (es gibt nichts
-    zu zeigen). Werte aus älteren Fassungen (nur die Zeit, ohne Sitzung) gelten nicht."""
+    zu zeigen). Werte aus älteren Fassungen (nur die Zeit, ohne Sitzung) gelten nicht. Für die Sitzung des Connectors
+    (0.4.168) zählt allein die Freigabe des Verwalters – auch ohne eingerichteten zweiten Faktor nie von selbst."""
+    from app import connector
+
+    if connector.ist_connector_sitzung(sitzung):
+        return bereich == "verwaltung" and connector.freigabe_aktiv(db, user_id)
     if not aktiv(db, user_id):
         return True
     wert = meta_lesen(db, f"verwaltung.faktor_frisch.{bereich}.{user_id}") or ""

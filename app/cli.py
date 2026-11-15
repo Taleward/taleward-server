@@ -739,6 +739,30 @@ def zahlung_live(
     typer.echo("Echtes Geld ist an. Zurück in den Testmodus: chronik zahlung-live --aus")
 
 
+@app.command("connector")
+def connector_befehl(
+    an: bool = typer.Option(False, "--an", help="Connector in der Verwaltung freischalten"),
+    aus: bool = typer.Option(False, "--aus", help="Connector entfernen: aus, alle Zugänge weg, Seite verborgen"),
+):
+    """Connector für einen KI-Assistenten freischalten oder entfernen. Ohne Schalter: Stand zeigen."""
+    from app import connector
+
+    db = _db()
+    if an and aus:
+        typer.echo("Bitte nur --an oder --aus.", err=True)
+        raise typer.Exit(2)
+    if an or aus:
+        connector.freischalten(db, an)
+        db.commit()
+    if not connector.sichtbar(db):
+        typer.echo("Der Connector ist nicht freigeschaltet. Freischalten mit: chronik connector --an")
+    elif connector.an(db):
+        typer.echo("Der Connector ist freigeschaltet und eingeschaltet. Entfernen mit: chronik connector --aus")
+    else:
+        typer.echo("Der Connector ist freigeschaltet, aber aus. Einschalten: Verwaltung → Einstellungen → Einrichtung → "
+                   "Connector für einen KI-Assistenten.")
+
+
 @app.command("zweiter-faktor-aus")
 def zweiter_faktor_aus(username: str = typer.Option(..., "--username", "-u")):
     """Zweiten Faktor eines Verwalters abschalten (Handy verloren, keine Wiederherstellungscodes mehr)."""

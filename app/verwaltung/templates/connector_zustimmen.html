@@ -1,0 +1,32 @@
+{% extends "basis.html" %}
+{% block titel %}{{ _("Connector") }}{% endblock %}
+{% block inhalt %}
+<h1>{{ _("Assistenten verbinden") }}</h1>
+{% if grund == "anmelden" %}
+<div class="karte">
+  <p>{{ _("Melde dich zuerst in der Verwaltung an und lade diese Seite danach neu.") }}</p>
+  <div class="knopfzeile"><a class="tw-btn tw-btn--primary" href="/verwaltung/anmelden" target="_blank" rel="noopener">{{ _("Zur Anmeldung") }}</a>
+    <a class="tw-btn tw-btn--secondary" href="">{{ _("Seite neu laden") }}</a></div>
+</div>
+{% elif grund %}
+<div class="karte">
+  <p>{% if grund == "abgelaufen" %}{{ _("Hier ist gerade nichts zu bestätigen. Starte das Verbinden beim Assistenten noch einmal.") }}
+  {% else %}{{ _("Die Anfrage des Assistenten passt nicht zu diesem Server. Entferne den Connector beim Assistenten und füge ihn neu hinzu.") }}{% endif %}</p>
+  <div class="knopfzeile"><a class="tw-btn tw-btn--secondary" href="/verwaltung/connector">{{ _("Zum Connector") }}</a></div>
+</div>
+{% else %}
+<div class="karte karte--achtung">
+  <p><strong>{{ _("„{name}“ möchte die Verwaltung von {server} lesen und bedienen.", name=anfrage.name, server=angaben.server_name) }}</strong></p>
+  <p>{{ _("Der Assistent arbeitet mit deinen Rechten und sieht alles, was du in der Verwaltung siehst, auch Inhalte von Runden. Danach geht es weiter zu {ziel}.", ziel=ziel) }}</p>
+  <p class="hilfe">{{ _("Schritte zu Geld, Konten und Schlüsseln gehen nur, solange du sie unter Einstellungen → Connector freigibst. Trennen kannst du dort jederzeit.") }}</p>
+  {% if not faktor %}<div class="hinweis">{{ _("Der Connector braucht deinen zweiten Faktor.") }} <a href="/verwaltung/anmeldung#zweiter-faktor">{{ _("Zweiten Faktor einrichten") }}</a></div>
+  {% elif not frisch %}<div class="hinweis">{{ _("Zeig zuerst deinen zweiten Faktor, dann kannst du verbinden.") }}</div>
+  <div class="knopfzeile"><a class="tw-btn tw-btn--primary" href="/verwaltung/bestaetigen?weiter=/connector/zustimmen">{{ _("Zweiten Faktor zeigen") }}</a></div>{% endif %}
+  <form method="post" action="/verwaltung/connector/zustimmen">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="knopfzeile">{% if faktor and frisch %}<button class="tw-btn tw-btn--primary" type="submit" name="antwort" value="ja">{{ _("Verbinden") }}</button>{% endif %}
+      <button class="tw-btn tw-btn--secondary" type="submit" name="antwort" value="nein">{{ _("Ablehnen") }}</button></div>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

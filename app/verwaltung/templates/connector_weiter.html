@@ -1,0 +1,10 @@
+{% extends "basis.html" %}
+{% block titel %}{{ _("Connector") }}{% endblock %}
+{% block kopfzeilen %}<meta http-equiv="refresh" content="0;url={{ weiter }}">{% endblock %}
+{% block inhalt %}
+<h1>{{ _("Assistenten verbinden") }}</h1>
+<div class="karte">
+  <p>{% if zugestimmt %}{{ _("Verbunden. Es geht gleich zurück zum Assistenten.") }}{% else %}{{ _("Abgelehnt. Es geht gleich zurück zum Assistenten.") }}{% endif %}</p>
+  <div class="knopfzeile"><a class="tw-btn tw-btn--primary" href="{{ weiter }}">{{ _("Zurück zum Assistenten") }}</a></div>
+</div>
+{% endblock %}
