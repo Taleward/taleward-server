@@ -91,7 +91,7 @@ def reset_password(username: str = typer.Option(..., "--username", "-u")):
         raise typer.Exit(1)
     from app import passwortlink
 
-    # 0.4.152 (S55): derselbe Weg wie überall – offene Passwort-Links und Ausnahmen verfallen, bekannte Geräte werden
+    # 0.4.152: derselbe Weg wie überall – offene Passwort-Links und Ausnahmen verfallen, bekannte Geräte werden
     # vergessen, die Hinweis-Mail an das Konto geht raus
     passwortlink.passwort_setzen(db, user, _ask_password(), ort="server")
     db.commit()
@@ -677,7 +677,7 @@ def admin(
         raise typer.Exit(1)
     org = default_organization(db)
     ensure_org_member(db, org.id, user)
-    if entziehen:  # 0.4.149 (S58): wie in der Verwaltung – in allen Organisationen, vertraute Geräte weg
+    if entziehen:  # 0.4.149: wie in der Verwaltung – in allen Organisationen, vertraute Geräte weg
         from app import vertraut
 
         for om in db.scalars(select(OrgMember).where(OrgMember.user_id == user.id)):

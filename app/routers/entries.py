@@ -76,6 +76,7 @@ def patch_entry(
     if (acc.entry.visibility, sorted(acc.entry.hidden_member_ids)) != vorher:
         # die SL hat selbst festgelegt, wer es weiß – nur bei echter Änderung (die App schickt das ganze Formular)
         acc.entry.origin_analysis_id = None
+        acc.entry.origin_secret = False
     db.commit()
     db.refresh(acc.entry)
     return entry_out(acc.entry, True)

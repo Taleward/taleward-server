@@ -1,4 +1,4 @@
-"""Server 0.4.166: Wartegrund statt Sackgasse (Schnittstelle 0.4.36), Stripe-Anschrift, S69 (Zusatz-Netz)."""
+"""Server 0.4.166: Wartegrund statt Sackgasse (Schnittstelle 0.4.36), Stripe-Anschrift (Zusatz-Netz)."""
 from datetime import timedelta
 
 import pytest
@@ -206,7 +206,7 @@ def test_stripe_anschrift():
 
 
 
-# ---------------------------------------------------------------- S69: Zusatz-Netz
+# ---------------------------------------------------------------- Zusatz-Netz
 def test_caddy_leitet_nur_an_feste_adressen():
     import re
 

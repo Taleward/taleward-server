@@ -5,7 +5,7 @@
   (ohne Anzahl).
 - Topf der Organisation: Ändern, „Verarbeiten“ und Gutscheine nur auf der Seite des Servers mit zweitem Faktor →
   403 second_factor_required.
-- G14: Titel und Kennungen von Runden, Unterlagen und Auswertungen nur für die heutige SL der Kampagne.
+- Titel und Kennungen von Runden, Unterlagen und Auswertungen nur für die heutige SL der Kampagne.
 - Bezahlen gibt es hier nicht: Der Server nennt nur seine Aufladeseite (ServerInfo.billing.topUpUrl).
 """
 from __future__ import annotations
@@ -79,7 +79,7 @@ def _verwendung(db: Session, b: Buchung, user: User) -> schemas.CreditUsageOut |
     if c is None and job is not None:
         c = abrechnung.kampagne_von_auftrag(db, job)
     nummer = titel = None
-    if c is not None and abrechnung.ist_aktive_sl(db, user.id, c):  # G14
+    if c is not None and abrechnung.ist_aktive_sl(db, user.id, c):
         session_id = (k.session_id if k else None) or (job.session_id if job else None)
         document_id = (k.document_id if k else None) or (job.document_id if job else None)
         analysis_id = (k.analysis_id if k else None) or (job.analysis_id if job else None)
@@ -120,7 +120,7 @@ def waiting(creditId: str, user: User = Depends(current_user), db: Session = Dep
     aus = []
     for w in _wartend(db, g)[:WARTEND_HOECHSTENS]:
         job, c = w["job"], w["kampagne"]
-        sl = abrechnung.ist_aktive_sl(db, user.id, c)  # G14
+        sl = abrechnung.ist_aktive_sl(db, user.id, c)
         runde, doc, a = (w["runde"], w["unterlage"], w["auswertung"]) if sl else (None, None, None)
         grund = w["grund"]
         aus.append(schemas.CreditWaitingJobOut(
@@ -172,7 +172,7 @@ def voucher(creditId: str, body: schemas.VoucherIn, request: Request, user: User
 
     g = _guthaben(db, user, creditId)
     _verwalten(g)
-    # dieselben Zähler wie auf der Seite /guthaben (G10)
+    # dieselben Zähler wie auf der Seite /guthaben
     versuch = ZAEHLER.reservieren([(f"gutschein-adr:{begrenzung.adresse(request)}", GUTSCHEIN_JE_ADRESSE,
                                     GUTSCHEIN_FENSTER),
                                    (f"gutschein-konto:{user.id}", GUTSCHEIN_JE_KONTO, GUTSCHEIN_FENSTER)])
@@ -250,7 +250,7 @@ def payer_accept(campaignId: str, user: User = Depends(current_user), db: Sessio
 # ---------------------------------------------------------------- ServerInfo.billing
 def server_billing(db: Session) -> dict | None:
     """{mode, currency, topUpUrl} – topUpUrl nur aus der eingetragenen öffentlichen Adresse, nie aus der Anfrage, und
-    nur https (http im Heimnetz); sonst fehlt sie (G15)."""
+    nur https (http im Heimnetz); sonst fehlt sie."""
     if not abrechnung.an(db):
         return None
     from app.einstellungen import mail_adresse

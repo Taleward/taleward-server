@@ -26,9 +26,10 @@ def test_yaml_nennt_409_bei_unterlagen():
     assert spec["info"]["version"] == "0.4.36"
     assert "409" in spec["paths"]["/campaigns/{campaignId}/documents"]["post"]["responses"]
     from tests.contract import BEKANNTE_LUECKEN
-    # 0.4.144: nur die beiden gemeldeten 429 (Merken, Vorschläge von Spielenden) – an den App-Chat gemeldet
+    # nur die gemeldeten 429 (Merken, Vorschläge von Spielenden; 0.4.170: Passwort ändern, Konto löschen)
     assert BEKANNTE_LUECKEN <= {("POST", "/sessions/{sessionId}/bookmarks", 429),
-                                ("POST", "/campaigns/{campaignId}/player-proposals", 429)}
+                                ("POST", "/campaigns/{campaignId}/player-proposals", 429),
+                                ("PUT", "/me/password", 429), ("DELETE", "/me", 429)}
 
 
 def test_auswertung_meldet_nur_feste_saetze(client, world, dbs):

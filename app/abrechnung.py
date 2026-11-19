@@ -314,7 +314,23 @@ def menge_nachtragen(db: Session, job: Job, sekunden: float | None) -> None:
     k = db.get(KostenAuftrag, job.id)
     if k is None or k.zustand != "laeuft" or k.art != "transcribe" or not sekunden or sekunden <= 0:
         return
-    k.menge = max(k.menge or 0, int(math.ceil(float(sekunden))))  # 0.4.94: ohne Kappung – zählt, was verarbeitet ist
+    gemeldet = int(math.ceil(float(sekunden)))
+    # 0.4.170: Der Worker bestimmt die Menge nicht allein. Mehr als gemessen zählt nur bis zu dem, was in der Aufnahme
+    # ihrer Größe nach stecken kann – so bleibt der Schutz vor präparierten Datei-Köpfen (0.4.89), ohne Blankoscheck.
+    k.menge = max(k.menge or 0, min(gemeldet, menge_hoechstens(db, job, k.menge or 0)))
+
+
+BYTES_JE_SEKUNDE_MINDESTENS = 750  # ≈ 6 kbit/s – darunter ist Sprache nicht mehr kodiert
+MENGE_TOLERANZ = 1.1
+
+
+def menge_hoechstens(db: Session, job: Job, gemessen: int) -> int:
+    """Obergrenze für die vom Worker gemeldete Audiolänge: gemessene Dauer plus Toleranz, höchstens aber, was die
+    Dateigröße hergibt – das Größere von beidem, wenn die Messung zu klein ausfiel (präparierter Datei-Kopf)."""
+    nach_messung = int(gemessen * MENGE_TOLERANZ) + 60
+    up = db.get(Upload, job.upload_id) if job.upload_id else None
+    groesse = sum(f.size_bytes or 0 for f in up.files) if up is not None else 0
+    return max(nach_messung, groesse // BYTES_JE_SEKUNDE_MINDESTENS)
 
 
 def menge(db: Session, job: Job) -> int:
@@ -582,7 +598,7 @@ def gutschreiben(db: Session, g: Guthaben, betrag_cent: int, grund: str, von: st
         raise ValueError("betrag")
     from app.aliasse import zeichen_bereinigen
 
-    grund = zeichen_bereinigen(grund)[:500].strip()  # G17: die SL sieht den Grund in der App
+    grund = zeichen_bereinigen(grund)[:500].strip()  # die SL sieht den Grund in der App
     if not grund:
         raise ValueError("grund")
     b = buchen(db, g, "gutschrift", betrag_cent, von=von, grund=grund)
@@ -689,7 +705,7 @@ def buchungen(db: Session, g: Guthaben, anzahl: int = 100, vor: Buchung | None =
 
 
 def ist_aktive_sl(db: Session, user_id: str, c: Campaign | None) -> bool:
-    """G14: Titel von Runden, Unterlagen und Auswertungen in Guthaben-Ansichten nur für die heutige SL der Kampagne."""
+    """Titel von Runden, Unterlagen und Auswertungen in Guthaben-Ansichten nur für die heutige SL der Kampagne."""
     return c is not None and user_id in {m.user_id for m in aktive_sl(db, c)}
 
 

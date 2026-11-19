@@ -27,7 +27,6 @@ import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from xml.etree import ElementTree
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -42,7 +41,7 @@ log = logging.getLogger(__name__)
 MAX_BYTES = 50 * 1024 * 1024
 MAX_ZEICHEN = 1_500_000  # darüber wird abgeschnitten (≈ 450 000 Tokens)
 MAX_SEITEN = 2000
-MAX_DOCX_XML = 100 * 1024 * 1024
+MAX_DOCX_XML = 20 * 1024 * 1024  # entpacktes word/document.xml; gelesen wird es nur im eigenen Prozess
 ENDUNGEN = {".pdf": "pdf", ".docx": "docx", ".txt": "text", ".md": "text", ".markdown": "text"}
 # Markierung am Anfang eines Absatzes, auch als Aufzählung oder fett: „[SL]“, „Geheim:“, „SL Info:“, „**SL-Notiz:**“ …
 _MARKE = (r"(?:[-*•>]\s*)?(?:\*\*|__)?(?:\[(?:SL|GM)\]|(?:Geheim|Secret|SL[- ]?Info|GM[- ]?Info|SL[- ]?Notiz|"
@@ -101,7 +100,8 @@ def _pdf_prozess(modus: str, daten: bytes, zeit: int) -> dict:
     if not PDF_GLEICHZEITIG.acquire(timeout=PDF_WARTEN):
         raise errors.ApiError(429, "too_many_requests")
     try:
-        r = subprocess.run([sys.executable, "-I", str(PDF_LESER), modus, str(MAX_SEITEN)],
+        r = subprocess.run([sys.executable, "-I", str(PDF_LESER), modus,
+                            str(MAX_DOCX_XML if modus == "docx" else MAX_SEITEN)],
                            input=daten, capture_output=True, timeout=zeit, **extra)
     except subprocess.TimeoutExpired:
         log.warning("PDF nach %s s nicht ausgelesen – abgebrochen", zeit)
@@ -129,44 +129,26 @@ def _pdf(daten: bytes) -> Extrakt:
         raise errors.bad_request("unsupported_document") from None
 
 
-W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
 
 def _docx(daten: bytes) -> Extrakt:
+    """0.4.170: wie PDF im eigenen, begrenzten Prozess (app/pdf_lesen.py, Modus „docx“). Hier nur die Größe laut
+    Verzeichnis des Archivs – entpackt und als XML gelesen wird im Serverprozess nichts."""
     try:
         with zipfile.ZipFile(io.BytesIO(daten)) as z:
-            info = z.getinfo("word/document.xml")
-            if info.file_size > MAX_DOCX_XML:
+            if z.getinfo("word/document.xml").file_size > MAX_DOCX_XML:
                 raise errors.bad_request("unsupported_document")
-            wurzel = ElementTree.fromstring(z.read(info))
     except errors.ApiError:
         raise
     except Exception:
         raise errors.bad_request("unsupported_document") from None
-    seite, abschnitte, aktuell = 1, [], []
-    umbrueche = False
-    for p in wurzel.iter(f"{W}p"):
-        teile = []
-        for el in p.iter():
-            if el.tag == f"{W}t" and el.text:
-                teile.append(el.text)
-            elif el.tag == f"{W}tab":
-                teile.append("\t")
-            elif (el.tag == f"{W}br" and el.get(f"{W}type") == "page") or el.tag == f"{W}lastRenderedPageBreak":
-                if aktuell:
-                    abschnitte.append({"seite": seite, "text": "\n".join(aktuell)})
-                    aktuell = []
-                seite += 1
-                umbrueche = True
-        zeile = "".join(teile).strip()
-        if zeile:
-            aktuell.append(zeile)
-    if aktuell:
-        abschnitte.append({"seite": seite, "text": "\n".join(aktuell)})
-    if not umbrueche:  # keine Seiteninformation im Dokument
-        for a in abschnitte:
-            a["seite"] = None
-    return Extrakt(abschnitte, seite if umbrueche else None)
+    x = _pdf_prozess("docx", daten, PDF_ZEIT)
+    try:
+        seiten = x["seiten"]
+        return Extrakt([{"seite": None if a["seite"] is None else int(a["seite"]), "text": str(a["text"])}
+                        for a in x["abschnitte"]], None if seiten is None else int(seiten))
+    except (KeyError, TypeError, ValueError):
+        raise errors.bad_request("unsupported_document") from None
 
 
 def _text(daten: bytes) -> Extrakt:

@@ -1,4 +1,4 @@
-"""Server 0.4.160: Landeseiten am PC – „Im Browser öffnen“ vorn, Satz unter „In Taleward öffnen“ (Bot-Chat 08.11.)."""
+"""Server 0.4.160: Landeseiten am PC – „Im Browser öffnen“ vorn, Satz unter „In Taleward öffnen“."""
 from tests.test_step2a import API
 from tests.test_verwaltung import admin  # noqa: F401 (Fixture)
 

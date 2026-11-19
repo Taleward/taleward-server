@@ -1,4 +1,4 @@
-"""Server 0.4.148: Schnittstelle 0.4.30 – Kapitel teilen als verschlüsselte Datei (S45).
+"""Server 0.4.148: Schnittstelle 0.4.30 – Kapitel teilen als verschlüsselte Datei.
 
 Prüft den gemeinsamen Testvektor (tests/vektoren/kapitel-teilen-1.json, die App prüft denselben), dass die Datei nichts
 enthält, was ein gerade beigetretenes Mitglied nicht sieht, und dass nur aktive Mitglieder sie öffnen können."""

@@ -4,12 +4,12 @@ Startguthaben für die erste Runde.
 Info-Mail an heutige Spielleitungen (Verwaltung → Abrechnung, „Spielleitungen über das Guthaben informieren“; nach dem
 Einschalten des Guthabens bietet die Seite es von selbst an): einmal je Konto (Merker `users.guthaben_info_at`, den auch
 die Begrüßungs-Mail und `sl_freigegeben_guthaben` setzen), nur mit bestätigter Adresse, ohne Abbestellung, Link nur aus
-der eingetragenen öffentlichen Adresse (G15). Vorher Rückfrage mit der Zahl der Empfänger; dazu frischer zweiter Faktor
+der eingetragenen öffentlichen Adresse. Vorher Rückfrage mit der Zahl der Empfänger; dazu frischer zweiter Faktor
 und ein Eintrag im Abrechnungsprotokoll.
 
 Startguthaben (Verwaltung → Abrechnung → Preise, Standard 0 = aus): nur im Modus „Guthaben je Spielleitung“, einmal je
 Konto und je E-Mail-Adresse über alle Konten – auch gelöschte. Gespeichert wird dafür nur eine Prüfsumme der
-normalisierten Adresse (klein, „+…“ im lokalen Teil weg; HMAC mit einem eigenen Schlüssel des Servers), die nach
+normalisierten Adresse (klein, „+…“ im lokalen Teil weg, bei Gmail ohne Punkte; HMAC mit einem eigenen Schlüssel des Servers), die nach
 `AUFBEWAHRUNG` gelöscht wird. Gutgeschrieben wird als Gutschrift (nie erstattbar) auf das eigene Guthaben der Person, nie
 auf einen Topf. Auslöser: das Anlegen einer Kampagne als SL und das Bestätigen einer E-Mail-Adresse (wer schon SL ist).
 Ist die Grenze je Kalendermonat für den ganzen Server erreicht, gibt es keins – ohne Fehler, mit Protokolleintrag.
@@ -32,6 +32,7 @@ from app.models import Member, StartguthabenAdresse, User
 log = logging.getLogger("startguthaben")
 SALZ = "startguthaben.salz"  # geheim (app/dpapi.py)
 AUFBEWAHRUNG_JAHRE = 3
+GLEICHE_POSTFAECHER = {"gmail.com": "gmail.com", "googlemail.com": "gmail.com"}
 AUFBEWAHRUNG = timedelta(days=365 * AUFBEWAHRUNG_JAHRE)
 
 
@@ -39,6 +40,8 @@ AUFBEWAHRUNG = timedelta(days=365 * AUFBEWAHRUNG_JAHRE)
 def normalisiert(adresse: str) -> str:
     lokal, _, domain = (adresse or "").strip().lower().rpartition("@")
     lokal = lokal.split("+", 1)[0]
+    if domain in GLEICHE_POSTFAECHER:  # dort landen alle Schreibweisen mit Punkten im selben Postfach
+        lokal, domain = lokal.replace(".", ""), GLEICHE_POSTFAECHER[domain]
     return f"{lokal}@{domain}" if lokal and domain else ""
 
 

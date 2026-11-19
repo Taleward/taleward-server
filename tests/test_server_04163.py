@@ -33,7 +33,7 @@ def test_schnittstelle_und_beschreibung_unveraendert(client):
     assert DOKU_PFAD == f"{API_PREFIX}/docs"  # Swagger lädt fremde Skripte, bekommt die HTML-Kopfzeilen nicht
 
 
-# ---------------------------------------------------------------- F5
+# ----------------------------------------------------------------
 def test_sprachwechsel_bleibt_auf_der_seite(client):
     for pfad in ("/discord-bot/datenschutz", "/discord-bot/nutzungsbedingungen", "/discord/abc", "/zustimmen/abc"):
         r = client.get(f"/verwaltung/sprache/en?weiter={pfad}", follow_redirects=False)
@@ -44,7 +44,7 @@ def test_sprachwechsel_bleibt_auf_der_seite(client):
         assert r.headers["location"] == "/verwaltung/"
 
 
-# ---------------------------------------------------------------- Komma (Hinweis Sicherheits-Chat 10.11.)
+# ---------------------------------------------------------------- Komma
 def test_name_und_anschrift_getrennt(dbs):
     from app import betreiber, rechtstexte
     from app.einstellungen import speichern

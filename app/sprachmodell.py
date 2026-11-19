@@ -842,7 +842,7 @@ Regeln, Würfe, Punkte und Gespräche außerhalb des Spiels kommen nicht vor.
 - Reiner Text ohne Markdown: keine Sternchen, keine Rauten, keine Zwischenüberschriften, keine Listen.
 Antworte nur mit JSON: {"title": "…", "text": "…", "openThreads": ["…"]}. Sprache: {sprache}."""
 
-# 0.4.129, Stil „biograf“ (zum Vergleich im Probelauf, Benjamin 21.10.): Bericht eines Biografen statt Nacherzählung
+# 0.4.129, Stil „biograf“ (zum Vergleich im Probelauf): Bericht eines Biografen statt Nacherzählung
 # Szene für Szene. Gewichten ja, Bedeutung erfinden nein. Eingesetzt wird er erst, wenn er an den Goldrunden mindestens
 # so gut abschneidet wie der bisherige Stil.
 STILE = ("bisher", "biograf")
@@ -1103,7 +1103,7 @@ def teil_hoechstens(teil: dict, dauer_s: float) -> int:
     return max(TEIL_MIN_PFLICHT, round(auswahl_hoechstens_fuer(dauer_s / 60) * anteil))
 
 
-# 0.4.142: Kapitel je Szene (Testoption „kapitelweg“, Benjamin 29.10. nach dem Vergleich mit Besprechungsnotizen):
+# 0.4.142: Kapitel je Szene (Testoption „kapitelweg“ nach dem Vergleich mit Besprechungsnotizen):
 # „standard“ wie bisher; „szenen“ = je Szene ein Absatz nur aus ihren Notizen und Pflichtereignissen, deterministisch
 # zusammengesetzt (keine zweite Modellstufe); „vorbereitet“ = diese Szenenabsätze als Entwurf zusätzlich an den Standardweg.
 KAPITELWEGE = ("standard", "szenen", "vorbereitet")

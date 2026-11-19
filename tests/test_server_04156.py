@@ -79,7 +79,7 @@ def test_kommandozeile(client, dbs, admin, monkeypatch):  # noqa: F811
 
 
 def test_bot_spuren_hoechstens_so_lang_wie_die_aufnahme(client, bot, dbs, monkeypatch):  # noqa: F811
-    """B9: Länge wird bei Bot-Runden immer gemessen – auch ohne Abrechnung –, höchstens 6 Stunden und nicht deutlich
+    """Länge wird bei Bot-Runden immer gemessen – auch ohne Abrechnung –, höchstens 6 Stunden und nicht deutlich
     länger als Startton bis Ende."""
     from datetime import timedelta
 

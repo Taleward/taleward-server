@@ -243,7 +243,7 @@ def modus(request: Request, modus: str = Form(""), user: User = Depends(verwalte
         return _ohne_faktor(request, user, db)
     from app.verwaltung.router import _frisch_verlangen
 
-    _frisch_verlangen(request, db, user, modus != "aus")  # 0.4.143 (S44): Einschalten mit frischem Faktor
+    _frisch_verlangen(request, db, user, modus != "aus")  # 0.4.143: Einschalten mit frischem Faktor
     if modus != abrechnung.modus(db):
         vorher = abrechnung.modus(db)
         abrechnung.modus_schreiben(db, modus, user.id)

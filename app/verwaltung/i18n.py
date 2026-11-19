@@ -1165,7 +1165,7 @@ EN: dict[str, str] = {
     "Gilt für Kapitel und Notizen; die Vorschläge bleiben beim eingestellten Modell.": "Applies to chapter and notes; suggestions stay with the configured model.",
     "Grundlage vorn": "Source first",
     "Grundlage vorn (zum Vergleich)": "Source first (for comparison)",
-    # 0.4.143: Passkeys, vertraute Geräte, frischer zweiter Faktor (S44)
+    # 0.4.143: Passkeys, vertraute Geräte, frischer zweiter Faktor
     "Mit Passkey bestätigen": "Confirm with passkey",
     "Bestätige am Gerät – mit Windows Hello, Fingerabdruck, Gesicht oder PIN.": "Confirm on your device – with Windows Hello, fingerprint, face or PIN.",
     "Der Passkey wurde nicht bestätigt. Versuch es noch einmal oder nimm den Code.": "The passkey was not confirmed. Try again or use the code.",

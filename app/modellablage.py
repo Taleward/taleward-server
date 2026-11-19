@@ -38,6 +38,7 @@ from pathlib import Path, PurePosixPath
 import httpx
 from sqlalchemy.orm import Session
 
+from app import modelle
 from app.einstellungen import meta_lesen, meta_schreiben
 from app.modelle import FASSUNGEN, SPRACHBAUSTEIN, SPRECHERMODELL
 
@@ -171,8 +172,9 @@ def spiegel_nutzbar(repo: str = SPRECHERMODELL) -> bool:
 def holen(db: Session, repo: str = SPRECHERMODELL, klient: httpx.Client | None = None) -> Stand:
     """Modell in fester Fassung auf den Server holen (Spiegel, sonst Hugging Face). Vorhandenes bleibt."""
     stand = vorhanden(db, repo)
-    if stand is not None:
-        return stand
+    fest = modelle.feste_fassung(repo)
+    if stand is not None and (fest is None or stand.fassung == fest):
+        return stand  # eine andere als die geprüfte Fassung nehmen Worker nicht mehr an: dann neu holen
     eigener = klient is None
     klient = klient or httpx.Client(timeout=httpx.Timeout(30, read=300), follow_redirects=True,
                                     headers={"User-Agent": kennung()})
@@ -184,7 +186,7 @@ def holen(db: Session, repo: str = SPRECHERMODELL, klient: httpx.Client | None =
             return stand
         token = hf_token(db)
         stand = None
-        if spiegel_nutzbar(repo) and (FASSUNGEN.get(repo) in (None, SPIEGEL[repo][0])):
+        if spiegel_nutzbar(repo) and (fest in (None, SPIEGEL[repo][0])):
             try:
                 stand = _vom_spiegel(klient, repo)
             except AblageFehler as e:
@@ -196,7 +198,7 @@ def holen(db: Session, repo: str = SPRECHERMODELL, klient: httpx.Client | None =
             if not token:
                 raise AblageFehler("Für das Sprechermodell fehlt der Hugging-Face-Zugang (Verwaltung → Transkription), "
                                    "und der Taleward-Spiegel ist hier abgeschaltet.")
-            stand = _von_hf(klient, repo, FASSUNGEN.get(repo) or meta_lesen(db, f"modell.{repo}"), token)
+            stand = _von_hf(klient, repo, fest or meta_lesen(db, f"modell.{repo}"), token)
     finally:
         if eigener:
             klient.close()
@@ -237,6 +239,10 @@ def _ablegen(repo: str, fassung: str, quelle: str, arbeiten) -> Stand:
     tmp.mkdir(parents=True)
     try:
         dateien = arbeiten(tmp)
+        if repo in modelle.FEST:  # der Server gibt nur weiter, was der festen Liste entspricht
+            soll_fassung, liste = modelle.FEST[repo]
+            if fassung != soll_fassung or {d["pfad"]: (d["groesse"], d["sha256"]) for d in dateien} != liste:
+                raise AblageFehler("Das geladene Sprechermodell ist nicht die geprüfte Fassung. Es wird nicht abgelegt.")
         if repo in NOTICE:
             (tmp / "NOTICE.txt").write_text(NOTICE[repo].format(fassung=fassung), encoding="utf-8", newline="\n")
         stand = Stand(repo, fassung, sorted(dateien, key=lambda d: d["pfad"]), quelle)

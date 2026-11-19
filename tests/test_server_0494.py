@@ -1,4 +1,4 @@
-"""Server 0.4.94: S32 (Platz freigeben gibt nichts Privates der vorigen Person weiter) und der Rest von M2 (alle Tonspuren
+"""Server 0.4.94: (Platz freigeben gibt nichts Privates der vorigen Person weiter) und der Rest von (alle Tonspuren
 messen, Länge vor jedem Cloud-Aufruf prüfen, Nachberechnung ohne Kappung)."""
 import uuid
 
@@ -21,7 +21,7 @@ def _welt_geheim(client, w):
     assert client.patch(f"{API}/proposals/{v['id']}", headers=w["gm"], json={"decision": "accepted"}).status_code == 200
 
 
-# ---------------------------------------------------------------- S32
+# ----------------------------------------------------------------
 def test_s32_platz_freigeben_gibt_nichts_privates_weiter(client, world, dbs, make_user, login):
     from app.models import CampaignDocument, Comment, Entry, GameSession, Member
 
@@ -77,7 +77,7 @@ def test_s32_platz_freigeben_gibt_nichts_privates_weiter(client, world, dbs, mak
     assert dbs.get(GameSession, s["id"]) is not None
 
 
-# ---------------------------------------------------------------- M2-Rest
+# ----------------------------------------------------------------
 def test_m2_laengste_tonspur_zaehlt(tmp_path, monkeypatch):
     import subprocess
 
@@ -125,11 +125,12 @@ def test_m2_cloud_prueft_laenge_vor_dem_anbieter(dbs):
     assert e.value.code == "recording_too_long" and not e.value.retryable
 
 
-def test_m2_nachberechnung_ohne_kappung(client, world, dbs):
+def test_nachberechnung_bis_zur_obergrenze(client, world, dbs):
     from app import abrechnung
     from tests.test_server_0489 import _kostenauftrag
 
     _modus(dbs)
     _, job, k = _kostenauftrag(dbs, weg="worker")
+    gemessen = k.menge
     abrechnung.menge_nachtragen(dbs, job, 30 * 3600.0)
-    assert k.menge == 30 * 3600
+    assert k.menge == int(gemessen * 1.1) + 60  # 0.4.170: gemessen plus Toleranz, nicht was der Worker meldet

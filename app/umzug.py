@@ -313,7 +313,7 @@ def packliste(db: Session, c: Campaign, zugestimmt: set[str]) -> tuple[dict, lis
             "summary": summary,
             "gmNotes": e.gm_notes,
             # Geheimes aus Bogen/Hintergrund geht als SL-Wissen mit (die Herkunftsmarke reist nicht mit)
-            "status": e.status, "holderSeat": halter, "visibility": "gm_only" if e.origin_analysis_id else e.visibility,
+            "status": e.status, "holderSeat": halter, "visibility": "gm_only" if e.geheime_herkunft else e.visibility,
             "hiddenFromSeats": sorted(platz[m] for m in e.hidden_member_ids if m in platz),
             "pcCharacterId": e.pc_character_id, "origin": herkunft, "links": links.lesen(e.links),
             "createdAt": _z(e.created_at), "updatedAt": _z(e.updated_at), "publicChangedAt": _z(e.public_changed_at),
@@ -782,12 +782,28 @@ def import_ausfuehren(db: Session, import_id: str) -> None:
         shutil.rmtree(import_ordner(import_id), ignore_errors=True)
 
 
-def _lesen(z: zipfile.ZipFile, name: str | None) -> bytes | None:
+MAX_DATEI_IM_ARCHIV = 200 * 1024 * 1024  # einzelne Datei (Bild, Unterlage), entpackt
+
+
+def _lesen(z: zipfile.ZipFile, name: str | None, hoechstens: int = MAX_DATEI_IM_ARCHIV,
+           einmal: set[str] | None = None) -> bytes | None:
+    """Datei aus dem Archiv. Die Größe wird vor dem Lesen geprüft (zu groß → None). Mit `einmal` darf jede Datei nur
+    einmal verwendet werden (0.4.170) – ein zweiter Verweis auf dieselbe Datei bricht den Import ab."""
     if not name or not _sicherer_name(name):
         return None
     try:
-        return z.read(name)
-    except (KeyError, zipfile.BadZipFile, OSError):
+        info = z.getinfo(name)
+    except KeyError:
+        return None
+    if einmal is not None:
+        if name in einmal:
+            raise ImportFehler("import_unsafe")
+        einmal.add(name)
+    if info.file_size > hoechstens:
+        return None
+    try:
+        return z.read(info)
+    except (zipfile.BadZipFile, OSError):
         return None
 
 
@@ -939,10 +955,15 @@ def _anlegen(db: Session, user: User, z: zipfile.ZipFile, d: _Datei, angelegt: l
     from app import unterlagen
 
     unterlage_neu: dict[str, str] = {}
+    verwendet: set[str] = set()
+    geschrieben, grenze = 0, get_settings().import_max_bytes * 3  # wie die Grenze für das entpackte Archiv
     for u in d.documents:
-        daten = _lesen(z, u.file)
+        daten = _lesen(z, u.file, unterlagen.MAX_BYTES, verwendet)
         if daten is None or len(daten) > unterlagen.MAX_BYTES:
             continue
+        geschrieben += len(daten)
+        if geschrieben > grenze:
+            raise ImportFehler("import_unsafe")
         name = Path(u.file_name).name[:300] or Path(u.file).name
         try:
             art = unterlagen.art_der_datei(name, daten)
@@ -1034,7 +1055,7 @@ def platz_einnehmen(db: Session, platz: Member, user: User, rolle: str, frueher:
 
     teilen.vergessen(db, platz.id)  # 0.4.30
     platz.user_id, platz.open_seat, platz.role = user.id, False, rolle
-    platz.left_at, platz.deleted_at, platz.joined_at = None, None, utcnow()
+    platz.left_at, platz.removed_at, platz.deleted_at, platz.joined_at = None, None, None, utcnow()
     platz.chronicle_seen_at = platz.bible_seen_at = None
     db.flush()
     if rolle != "gm":  # 0.4.91: Geheimes aus Bögen/Hintergründen, das nach dem Umzug entstanden ist
@@ -1112,13 +1133,13 @@ def _privates_abloesen(db: Session, platz: Member) -> Member:
     betroffen = []
     for e in db.scalars(select(Entry).where(Entry.campaign_id == platz.campaign_id,
                                             Entry.origin_member_id == platz.id, Entry.visibility == "public")):
-        if (e.hidden_member_ids or e.origin_analysis_id) and platz.id not in e.hidden_member_ids:
+        if (e.hidden_member_ids or e.geheime_herkunft) and platz.id not in e.hidden_member_ids:
             e.hidden_from.append(EntryHidden(entry_id=e.id, member_id=platz.id))
             betroffen.append(e.id)
     for p in db.scalars(select(Proposal).where(Proposal.campaign_id == platz.campaign_id, Proposal.decision == "open",
                                                Proposal.submitted_by_member_id == platz.id)):
         ids = json.loads(p.hidden_member_ids_json or "[]")
-        if (ids or p.analysis_id) and platz.id not in ids:
+        if (ids or p.analysis_id or p.origin_secret) and platz.id not in ids:
             p.hidden_member_ids_json = json.dumps(sorted(set(ids) | {platz.id}))
     from app import spielende
 

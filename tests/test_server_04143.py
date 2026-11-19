@@ -1,5 +1,5 @@
-"""Server 0.4.143: Passkeys (WebAuthn) als zweiter Faktor und vertraute Geräte (S44) – Prüfkriterien aus
-`claude/server-vorschlag-passkey.md` und `claude/server-vorschlag-vertraute-geraete.md`.
+"""Server 0.4.143: Passkeys (WebAuthn) als zweiter Faktor und vertraute Geräte – Prüfkriterien aus
+den Entwürfen dazu.
 
 Ein nachgebauter Authenticator (ES256, `cryptography`) erzeugt Registrierungs- und Anmeldeantworten wie ein Browser;
 so lassen sich Herkunft, RP-ID, Challenge, Zähler und Flags gezielt verfälschen."""
@@ -377,7 +377,7 @@ def test_passkey_entfernen_faktor_aus_konto_loeschen_export(client, dbs, admin):
     assert dbs.scalar(select(User).where(User.username == "chef")) is None
 
 
-# ---------------------------------------------------------------- Frischer Faktor (S44)
+# ---------------------------------------------------------------- Frischer Faktor
 def test_heikle_schritte_verlangen_frischen_faktor(client, dbs, admin, monkeypatch):  # noqa: F811
     from app.verwaltung import zweiter_faktor as zf
 
@@ -422,7 +422,7 @@ def test_heikle_schritte_verlangen_frischen_faktor(client, dbs, admin, monkeypat
     assert r.headers["location"].startswith("/verwaltung/bestaetigen")
 
 
-# ---------------------------------------------------------------- Vertraute Geräte (S44)
+# ---------------------------------------------------------------- Vertraute Geräte
 def _anmelden_mit_code(client, codes: list[str], vertrauen=False, basis=HTTPS):
     """Passwort, dann ein Wiederherstellungscode (jeder gilt einmal – so stören sich die Anmeldungen nicht)."""
     client.cookies.clear()
@@ -466,7 +466,7 @@ def test_vertrautes_geraet_ueberspringt_den_code(client, dbs, admin, konto_post)
     meta_schreiben(dbs, f"verwaltung.faktor_frisch.verwaltung.{chef.id}", "1")
     dbs.commit()
     r = client.post(f"{HTTPS}/verwaltung/anmelden", data={"username": "chef", "password": "geheim123"}, follow_redirects=False)
-    # 0.4.149 (S58): ohne Meldeweg steht der Hinweis „Neues vertrautes Gerät“ beim nächsten Anmelden an einem
+    # 0.4.149: ohne Meldeweg steht der Hinweis „Neues vertrautes Gerät“ beim nächsten Anmelden an einem
     # ANDEREN Gerät – das neue Gerät selbst sieht ihn nicht und kann ihn so auch nicht wegklicken
     assert r.status_code == 303 and r.headers["location"] == "/verwaltung/"
     assert sitzung != client.cookies.get("__Host-tw_verwaltung")

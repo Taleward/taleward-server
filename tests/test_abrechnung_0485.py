@@ -1,4 +1,4 @@
-"""Server 0.4.85: Abrechnung mit Guthaben (S28 G1–G3, G5, Gutschrift von Hand, Gutscheine; ohne Zahlungsanbieter)."""
+"""Server 0.4.85: Abrechnung mit Guthaben (Gutschrift von Hand, Gutscheine; ohne Zahlungsanbieter)."""
 import io
 import re
 import threading
@@ -60,7 +60,7 @@ def _knecht(dbs):
     return k
 
 
-# ---------------------------------------------------------------- G1 Buchungsbuch
+# ---------------------------------------------------------------- Buchungsbuch
 def test_buchungen_lassen_sich_nicht_aendern_oder_loeschen(client, world, dbs):
     _modus(dbs)
     g = _gutschreiben(dbs, _anna(dbs), 500)
@@ -92,7 +92,7 @@ def test_hoechstens_ein_laufender_auftrag_je_guthaben_in_der_datenbank(client, w
     dbs.commit()
 
 
-# ---------------------------------------------------------------- G5 Schalter aus
+# ---------------------------------------------------------------- Schalter aus
 def test_schalter_aus_alles_wie_bisher(client, world, dbs, tmp_path):
     from app import queue
     from app.models import KostenAuftrag
@@ -105,7 +105,7 @@ def test_schalter_aus_alles_wie_bisher(client, world, dbs, tmp_path):
     assert dbs.scalar(select(KostenAuftrag)) is None
 
 
-# ---------------------------------------------------------------- G2 Startprüfung
+# ---------------------------------------------------------------- Startprüfung
 def test_leeres_guthaben_wartet_und_startet_nach_gutschrift(client, world, dbs, tmp_path):
     from app import abrechnung, queue
     from app.models import Job, KostenAuftrag
@@ -173,7 +173,7 @@ def test_zwei_auftraege_desselben_guthabens_nacheinander(client, world, dbs, tmp
 
 
 def test_gleichzeitige_starts_bei_einem_cent(client, world, dbs, tmp_path):
-    """G13: zwei gleichzeitige Starts bei 1 Cent → nur einer läuft."""
+    """zwei gleichzeitige Starts bei 1 Cent → nur einer läuft."""
     from app import queue
     from app.db import session_factory
 
@@ -252,7 +252,7 @@ def test_ende_zu_ende_mit_worker(client, world, dbs, tmp_path):
     assert client.get(f"{API}/sessions/{s['id']}/status", headers=world["gm"]).json()["state"] != "queued"
 
 
-# ---------------------------------------------------------------- G3 Wer zahlt
+# ---------------------------------------------------------------- Wer zahlt
 def test_zahlende_sl_abgeben_und_uebernehmen(client, world, dbs, make_user, login):
     from app import abrechnung
     from app.models import Campaign, Member, User
@@ -412,7 +412,7 @@ def test_gutscheine_ende_zu_ende(client, world, dbs, admin):  # noqa: F811
     zf.bestaetigen(dbs, chef.id, _code(dbs, chef.id))
     from tests.faktor_hilfe import frisch_merken
 
-    frisch_merken(client, dbs, chef.id)  # 0.4.143 (S44): Geld-Schritte verlangen den Faktor frisch
+    frisch_merken(client, dbs, chef.id)  # 0.4.143: Geld-Schritte verlangen den Faktor frisch
     dbs.commit()
     r = client.post("/verwaltung/abrechnung/gutscheine", data=daten)
     assert r.status_code == 200
@@ -466,7 +466,7 @@ def test_gutschrift_von_hand_mit_rueckfrage_und_storno(client, world, dbs, admin
     zf.bestaetigen(dbs, chef.id, _code(dbs, chef.id))
     from tests.faktor_hilfe import frisch_merken
 
-    frisch_merken(client, dbs, chef.id)  # 0.4.143 (S44): Geld-Schritte verlangen den Faktor frisch
+    frisch_merken(client, dbs, chef.id)  # 0.4.143: Geld-Schritte verlangen den Faktor frisch
     dbs.commit()
     seite = client.get("/verwaltung/abrechnung")
     assert seite.status_code == 200 and "Gutschrift von Hand" in seite.text
@@ -501,12 +501,12 @@ def test_verwaltung_schalter_und_preise(client, dbs, admin):  # noqa: F811
     from app.verwaltung import zweiter_faktor as zf
     from tests.test_server_0484 import _code
 
-    chef = dbs.scalar(select(User).where(User.username == "chef"))  # seit 0.4.87 nur mit zweitem Faktor (N3)
+    chef = dbs.scalar(select(User).where(User.username == "chef"))  # seit 0.4.87 nur mit zweitem Faktor
     zf.beginnen(dbs, chef.id)
     zf.bestaetigen(dbs, chef.id, _code(dbs, chef.id))
     from tests.faktor_hilfe import frisch_merken
 
-    frisch_merken(client, dbs, chef.id)  # 0.4.143 (S44): Geld-Schritte verlangen den Faktor frisch
+    frisch_merken(client, dbs, chef.id)  # 0.4.143: Geld-Schritte verlangen den Faktor frisch
     dbs.commit()
     r = client.post("/verwaltung/abrechnung/modus", data={"csrf": admin, "modus": "guthaben"}, follow_redirects=False)
     assert r.status_code == 303 and abrechnung.modus(dbs) == "guthaben"

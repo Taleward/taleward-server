@@ -1,9 +1,9 @@
 """Spielende tragen bei (Schnittstelle 0.4.28): Vorschläge für die Bibel, „Merken“, Zähler am Charakter.
 
-Grundsätze (Freigabe des Sicherheits-Chats vom 30.10.2026, Bedingungen 1–23):
+Grundsätze:
 - Nichts davon geht an ein Sprachmodell, ins Kapitel, in einen Umzug oder in Messwerte.
 - Vorschläge: Spielende sehen nur die eigenen, keine Anzahl. Für die Urheberin sind „abgelehnt“ und „übernommen, aber für
-  sie nicht sichtbar“ nicht unterscheidbar (S56: state closed). Erst die Entscheidung der SL macht einen Eintrag –
+  sie nicht sichtbar“ nicht unterscheidbar (state closed). Erst die Entscheidung der SL macht einen Eintrag –
   angehängt wie bei Session-Vorschlägen, nie überschrieben; Geheimes landet nur in den SL-Notizen.
 - Merkstellen: nur die Person selbst, auch nicht die SL, auch nicht als Anzahl. offsetMs und recapParagraph sind nur
   Zahlen; Abschrift, Audio und Belege bleiben, wo sie sind.
@@ -129,7 +129,7 @@ def staende_setzen(db: Session, c: Campaign, me: Member, werte: list[schemas.Cou
 
 # ================================================================ Vorschläge von Spielenden
 def urheberin_sicht(db: Session, p: PlayerProposal) -> tuple[str, str | None]:
-    """Zustand und Eintrag, wie die Urheberin sie sehen darf (S56)."""
+    """Zustand und Eintrag, wie die Urheberin sie sehen darf."""
     if p.state in ("open", "withdrawn"):
         return p.state, None
     if p.state == "accepted" and p.text_sichtbar and p.result_entry_id:
@@ -145,7 +145,7 @@ def _vergleichbar(text: str | None) -> str:
 
 
 def _steht_noch_da(p: PlayerProposal, e: Entry) -> bool:
-    """0.4.149 (S56-Rest): Steht der übernommene Text noch im öffentlichen Teil? Schiebt die SL ihn später in die
+    """0.4.149: Steht der übernommene Text noch im öffentlichen Teil? Schiebt die SL ihn später in die
     SL-Notizen, schreibt sie den Eintrag um oder fiel er beim Anhängen über die Längengrenze, gilt für die Urheberin
     `closed` – wie bei einem Vorschlag, der von Anfang an nur in die SL-Notizen ging. Ohne Text (neuer Eintrag nur mit
     Titel) ist der Eintrag selbst das Ergebnis. Ältere Vorschläge bekommen ihren Vorschlagstext (Migration

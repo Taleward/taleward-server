@@ -1,6 +1,6 @@
-"""Namen einmal berichtigen (Schnittstelle 0.4.31, S62): eine Schreibweise kampagnenweit ersetzen.
+"""Namen einmal berichtigen (Schnittstelle 0.4.31): eine Schreibweise kampagnenweit ersetzen.
 
-Verbindlich (Vorgabe `claude/app-vorgabe-0.4.31.md`, Bedingungen 1–14 des Sicherheits-Chats):
+Verbindlich:
 - Nur SL der Kampagne (sonst 404). Kein Sprachmodell. Wörtliche Suche (escapte Muster), ganze Wörter, Groß-/Klein-
   schreibung wie eingegeben; beide Seiten bereinigt, 3–64 Zeichen, from ≠ to.
 - Geändert werden nur: Kapitel (Titel, Text, offene Fäden), Bibel (Name, „Auch genannt“, Beschreibung, SL-Notiz – über
@@ -240,7 +240,7 @@ def _geheim(db: Session, c: Campaign, nach: str) -> bool:
     for e in db.scalars(select(Entry).where(Entry.campaign_id == c.id)):
         if ziel not in {e.name.casefold(), *(a.casefold() for a in e.aliases)}:
             continue
-        if e.visibility == "public" and not e.hidden_member_ids and not e.origin_analysis_id:
+        if e.visibility == "public" and not e.hidden_member_ids and not e.geheime_herkunft:
             sichtbar = True
         else:
             geheim = True

@@ -36,7 +36,7 @@ def code_erzeugen(db: Session, sitzung: str = "") -> tuple[str, datetime]:
 
 
 def code_fuer(db: Session, sitzung: str) -> tuple[str, datetime] | None:
-    """0.4.152 (S57.4): Den offenen Code zeigt die Verwaltung nur der Sitzung, die ihn erzeugt hat. Andere Sitzungen
+    """0.4.152: Den offenen Code zeigt die Verwaltung nur der Sitzung, die ihn erzeugt hat. Andere Sitzungen
     desselben Kontos (etwa über ein vertrautes Gerät) sehen „Kopplungscode erzeugen“ – das verlangt den frischen
     Faktor und ersetzt den alten Code."""
     aktuell = aktueller_code(db)

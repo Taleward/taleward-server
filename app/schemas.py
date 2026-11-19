@@ -74,7 +74,7 @@ class ServerInfoOut(ApiModel):
     terms_url: str | None = None  # 0.4.22: Nutzungsbedingungen, ab 0.4.22 immer gesetzt
     terms_version: int | None = None  # 0.4.22
     # 0.4.25: {mode, currency, topUpUrl} bei eingeschaltetem Guthaben, sonst null. topUpUrl fehlt ohne eingetragene
-    # öffentliche Adresse (G15) – darum hier ein dict statt eines Modells.
+    # öffentliche Adresse – darum hier ein dict statt eines Modells.
     billing: dict | None = None
     share_keys: list["ShareServerKeyOut"] | None = None  # 0.4.30: Signierschlüssel für geteilte Kapitel
     discord_bot: bool = False  # 0.4.32: Betreiber hat den Discord-Bot eingeschaltet
@@ -128,8 +128,8 @@ class AuthProviderOut(ApiModel):
 
 
 class LoginRequest(ApiModel):
-    username: str
-    password: str
+    username: str = Field(max_length=200)
+    password: str = Field(max_length=1024)
     device_id: Any = None  # 0.4.27: freiwillig; ungültige Werte (auch kein Text) ignoriert der Server (app/geraete.py)
 
 

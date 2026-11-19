@@ -115,7 +115,7 @@ def _dekodieren_in(quelle: Path, w, rest_s: float) -> int:
         p = subprocess.Popen(befehl, stdout=subprocess.PIPE, stderr=fehler, stdin=subprocess.DEVNULL, **extra)
         abgelaufen = threading.Event()
 
-        def _abbrechen():  # Wächter: auch wenn ffmpeg hängt, ohne etwas zu schreiben (read() käme sonst nie zurück)
+        def _abbrechen():  # Wächter: auch wenn ffmpeg hängt, ohne etwas zu schreiben (read käme sonst nie zurück)
             abgelaufen.set()
             if p.poll() is None:
                 p.kill()

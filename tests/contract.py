@@ -42,13 +42,15 @@ OPTIONAL_FIELDS = {"characterBackstory", "gmNotes", "hiddenFromMemberIds", "memb
                    "sessionId", "sessionNumber", "entryId", "proposalId", "readByPlayers", "excerpts", "undoUntil",
                    "undoneAt", "existingRule", "suggestedCorrect", "suggestionSource", "ruleId",
                    "user",
-                   "topUpUrl"}  # 0.4.25: fehlt ohne eingetragene öffentliche Adresse (G15)
+                   "topUpUrl"}  # 0.4.25: fehlt ohne eingetragene öffentliche Adresse
 
 # Statuscodes, die in der YAML fehlen, aber fachlich nötig sind – für den nächsten Änderungswunsch notiert.
 # 0.4.28: Merken (60 je Minute) und Vorschläge von Spielenden (30 je Stunde) antworten mit 429 – die YAML nennt die
-# Grenze im Text, aber nicht als Antwort (an den App-Chat gemeldet).
+# Grenze im Text, aber nicht als Antwort.
+# 0.4.170: Passwort ändern und Konto löschen zählen falsche Passwörter wie die Anmeldung und antworten dann mit 429.
 BEKANNTE_LUECKEN: set[tuple[str, str, int]] = {("POST", "/sessions/{sessionId}/bookmarks", 429),
-                                               ("POST", "/campaigns/{campaignId}/player-proposals", 429)}
+                                               ("POST", "/campaigns/{campaignId}/player-proposals", 429),
+                                               ("PUT", "/me/password", 429), ("DELETE", "/me", 429)}
 
 
 def _require_all(node):
@@ -72,8 +74,8 @@ class Contract:
         raw = yaml.safe_load(SPEC_PATH.read_text(encoding="utf-8"))
         # YAML 1.1 liest [yes, maybe, no] als Wahrheitswerte – gemeint sind die Texte (die YAML quotet sie inzwischen, ältere Fassungen nicht)
         raw["components"]["schemas"]["VoteAnswer"]["enum"] = ["yes", "maybe", "no"]
-        # G15 (Sicherheit): ServerInfo.billing.topUpUrl fehlt ohne eingetragene öffentliche Adresse – die YAML nennt sie
-        # noch als Pflicht (Wunsch an den App-Chat: optional machen)
+        # (Sicherheit): ServerInfo.billing.topUpUrl fehlt ohne eingetragene öffentliche Adresse – die YAML nennt sie
+        # noch als Pflicht
         for teil in raw["components"]["schemas"]["ServerInfo"]["properties"]["billing"]["oneOf"]:
             if teil.get("type") == "object":
                 teil["required"] = [f for f in teil["required"] if f != "topUpUrl"]

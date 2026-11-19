@@ -1,4 +1,4 @@
-"""Server 0.4.86: zweiter Faktor unter Verwaltung → Anmeldung, S30 (Heimnetz-Paket, TOTP-Code nur einmal auch bei
+"""Server 0.4.86: zweiter Faktor unter Verwaltung → Anmeldung (Heimnetz-Paket, TOTP-Code nur einmal auch bei
 gleichzeitigen Anfragen)."""
 import time
 from pathlib import Path

@@ -154,7 +154,7 @@ def entscheiden(db: Session, user: User, aktion: str, von: User) -> bool:
         return False
     werte = {}
     if art == "sl_freigegeben":
-        # 0.4.135: mit eigenem Guthaben steht der Weg zum Aufladen dabei – nur mit der eingetragenen Adresse (G15)
+        # 0.4.135: mit eigenem Guthaben steht der Weg zum Aufladen dabei – nur mit der eingetragenen Adresse
         from app import abrechnung
         from app.einstellungen import mail_adresse
 

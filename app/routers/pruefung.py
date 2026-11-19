@@ -575,9 +575,13 @@ def _uebernehmen(db: Session, campaign_id: str, s: GameSession | None, p: Propos
                 daten["hidden_from_member_ids"] = sorted(set(e.hidden_member_ids) | set(verborgen))
             notiz = p.detail if e.visibility == "public" else ""
     halter = p.action in ("create", "reveal") or not (e.visibility == "public" and not public)
+    geaendert = e.updated_at
     apply_entry_input(db, e, schemas.EntryInput(**daten))
     if halter:  # nicht bei Geheimem zu einem öffentlichen Eintrag – sonst sähen Spieler über den Halter, was verborgen ist
         _halter_uebernehmen(db, e, p)
+    else:  # 0.4.170: dann auch keine Erwähnung und kein neues Änderungsdatum – beides verriete, dass etwas dazukam
+        e.updated_at = geaendert
+        return
     if s is not None:
         erwaehnt(db, e, s, notiz)
 

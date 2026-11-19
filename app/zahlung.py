@@ -1,4 +1,4 @@
-"""Aufladen des Guthabens über Stripe und PayPal (0.4.133, S28 G4, G6, G9, G11).
+"""Aufladen des Guthabens über Stripe und PayPal (0.4.133).
 
 Ablauf:
 1. Die SL wählt auf /guthaben einen der festen Beträge und den Zahlweg. Der Server legt einen Bezahlvorgang an
@@ -38,9 +38,9 @@ from app.einstellungen import meta_lesen, meta_schreiben
 from app.models import Bezahlvorgang, Buchung, Guthaben
 
 ANBIETER = ("stripe", "paypal")
-MINDEST_CENT, HOECHST_CENT = 1000, 50_000  # je Aufladung (Entscheidung Benjamin 27.10.: mindestens 10 €)
+MINDEST_CENT, HOECHST_CENT = 1000, 50_000  # je Aufladung
 STANDARD_BETRAEGE = (1000, 2000, 5000)
-JE_TAG_VORGAENGE, JE_TAG_CENT = 5, 30_000  # G11: je Konto und Tag (begonnen, nicht nur bezahlt)
+JE_TAG_VORGAENGE, JE_TAG_CENT = 5, 30_000  # je Konto und Tag (begonnen, nicht nur bezahlt)
 STRIPE_API = "https://api.stripe.com"
 PAYPAL_API = {"sandbox": "https://api-m.sandbox.paypal.com", "live": "https://api-m.paypal.com"}
 STRIPE_TOLERANZ = 300  # Sekunden: so alt darf eine signierte Meldung sein
@@ -82,7 +82,7 @@ def gebuehren(db: Session) -> Gebuehren:
 
 
 def betraege(db: Session) -> list[int]:
-    """Feste Beträge zum Aufladen in Cent (Entscheidung Benjamin: Knöpfe, kein freies Feld)."""
+    """Feste Beträge zum Aufladen in Cent."""
     try:
         werte = [int(x) for x in (meta_lesen(db, "zahlung.betraege") or "").split(",") if x.strip()]
     except ValueError:
@@ -220,7 +220,7 @@ def _paypal_basis(db: Session) -> str:
     return PAYPAL_API["live" if live(db) else "sandbox"]
 
 
-# 0.4.136 (S54): Zugangstoken von PayPal bis kurz vor Ablauf im Speicher (je Adresse und Zugang)
+# 0.4.136: Zugangstoken von PayPal bis kurz vor Ablauf im Speicher (je Adresse und Zugang)
 _TOKEN: dict[str, tuple[str, float]] = {}
 TOKEN_PUFFER = 120  # Sekunden vor Ablauf neu holen
 
@@ -313,7 +313,7 @@ def _gegenbuchen(db: Session, v: Bezahlvorgang, art: str, brutto_cent: int, erei
     except IntegrityError:
         return False
     abrechnung.protokoll(db, "system", art, g.id, vorgang=v.id, brutto_cent=brutto_cent)
-    if art == "erstattung":  # 0.4.158 (S64): Meldung ist da – die Sperre für „Erstatten“ fällt
+    if art == "erstattung":  # 0.4.158: Meldung ist da – die Sperre für „Erstatten“ fällt
         v.erstattung_offen_cent = None
         v.erstattung_offen_at = None
     if v.anbieter == "paypal":  # 0.4.153: PayPal meldet je Erstattung den Betrag (Stripe die Summe, siehe dort)
@@ -451,7 +451,7 @@ def paypal_meldung(db: Session, ereignis: dict) -> None:
         v = _vorgang(db, res.get("custom_id"), "paypal")
         if v is None:
             return
-        # 0.4.136 (S54): die Zahlung muss zum eigenen Auftrag bei PayPal gehören
+        # 0.4.136: die Zahlung muss zum eigenen Auftrag bei PayPal gehören
         auftrag = ((res.get("supplementary_data") or {}).get("related_ids") or {}).get("order_id")
         if not v.anbieter_ref or auftrag != v.anbieter_ref:
             _hinweis(db, "zahlung_abweichung", v, grund="fremder Auftrag")

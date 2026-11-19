@@ -1,5 +1,5 @@
-"""Server 0.4.89: S31 (Geheimes aus Bogen/Hintergrund bleibt geheim) mit den kleineren Punkten zur Auswertung, S29
-(Einladungscodes mit 12 Ziffern), Abrechnung M1/M2/L1/L2/N3-Rest, Sitzungen auf „Guthaben“, S21.4- und S21.5-Rest."""
+"""Server 0.4.89: (Geheimes aus Bogen/Hintergrund bleibt geheim) mit den kleineren Punkten zur Auswertung,
+(Einladungscodes mit 12 Ziffern), Abrechnung, Sitzungen auf „Guthaben“."""
 import re
 from pathlib import Path
 
@@ -40,7 +40,7 @@ def _namen(client, w, h):
     return {x["name"] for x in client.get(f"{API}/campaigns/{w['cid']}/entries", headers=h).json()}
 
 
-# ---------------------------------------------------------------- S31
+# ----------------------------------------------------------------
 def test_s31_nur_sl_und_urheberin_auch_spaeter(client, world, dbs, api, make_user, login):  # noqa: F811
     from app.zusammenfassung import eingabe_bauen, vorschlag_eingabe
 
@@ -148,7 +148,7 @@ def test_s31_fehlermeldung_und_links(client, world, dbs):
     assert not re.search(r"foo\.xyz|@|ftp|www", rein) and "Grauwacht.Dort" in rein
 
 
-# ---------------------------------------------------------------- S29
+# ----------------------------------------------------------------
 def test_s29_zwoelf_ziffern_alte_codes_gelten_weiter(client, world, dbs, make_user, login):
     from datetime import timedelta
 
@@ -246,10 +246,10 @@ def test_m2_laenge_nach_dekodieren_und_nachtragen(client, world, dbs, tmp_path, 
     assert audio.dauer_datei(datei) == 100.0  # 20 kB/s: glaubwürdig
     _modus(dbs)
     _, job, k = _kostenauftrag(dbs, weg="worker")
-    abrechnung.menge_nachtragen(dbs, job, 3600.4)
-    assert k.menge == 3601
+    abrechnung.menge_nachtragen(dbs, job, 650.4)
+    assert k.menge == 651
     abrechnung.menge_nachtragen(dbs, job, 10)
-    assert k.menge == 3601  # nie weniger
+    assert k.menge == 651  # nie weniger
 
 
 def test_n3_token_preise_nur_mit_zweitem_faktor(client, dbs, admin):  # noqa: F811
@@ -279,7 +279,7 @@ def test_zweiter_faktor_beendet_sitzungen_auf_guthaben(client, world, dbs):
     assert "Benutzername" in client.get("/guthaben").text
 
 
-# ---------------------------------------------------------------- S21.4- und S21.5-Rest
+# ---------------------------------------------------------------- Update-Skript
 @pytest.mark.usefixtures("_kleine_teile")
 def test_s21_4_wortkorrektur_zaehlt_als_bearbeitung(client, world, dbs, tmp_path):
     from app import unsicher

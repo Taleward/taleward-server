@@ -1,4 +1,4 @@
-"""Verschlüsselte Spuren des Discord-Bots (Schnittstelle 0.4.34, S65 mit K1–K7 und S65.1–S65.4).
+"""Verschlüsselte Spuren des Discord-Bots (Schnittstelle 0.4.34).
 
 Der Bot legt Tonspuren bis zum Hochladen nur verschlüsselt ab, mit einem öffentlichen Schlüssel dieses Servers. Nur der
 Server kann sie öffnen. Format „TWSE1“ wie in der YAML (Upload) bzw. im Bot-Repo `docs/spuren-verschluesselt.md`.
@@ -11,8 +11,8 @@ Verbindlich:
   sie mehr braucht (höchstens 30 Stunden nach ihrem Start); danach löscht die Wartung sie.
 - HPKE nur über die Bibliothek `cryptography` (feste Fassung im uv.lock); selbst zusammengesetzt wird nur das Format.
 - Öffnen beim Abschluss des Uploads in ein Zwischenverzeichnis im Datenordner; bei jedem Fehler sofort löschen, erst
-  nach dem letzten geprüften Abschnitt an den üblichen Ort (S65.1). Kopfwerte werden streng geprüft, bevor sie benutzt
-  werden (S65.4); die keyId dient nur zum Nachschlagen, nie als Pfad (S65.3).
+  nach dem letzten geprüften Abschnitt an den üblichen Ort. Kopfwerte werden streng geprüft, bevor sie benutzt
+  werden; die keyId dient nur zum Nachschlagen, nie als Pfad.
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ INFO = b"taleward-spur-1"
 HALTEN_STUNDEN = 30  # wie OHNE_TON_STUNDEN im Bot-Teil: danach wird eine offene Bot-Runde ohnehin beendet
 ABSCHNITT_MIN, ABSCHNITT_MAX = 1024, 1048576
 TAG = 16
-KOPF_WERT = re.compile(r"^[A-Za-z0-9_-]{1,64}$")  # S65.4: wie die IDs des Servers (UUID), nur ASCII
+KOPF_WERT = re.compile(r"^[A-Za-z0-9_-]{1,64}$")  # wie die IDs des Servers (UUID), nur ASCII
 _SUITE = hpke.Suite(hpke.KEM.X25519, hpke.KDF.HKDF_SHA256, hpke.AEAD.AES_256_GCM)
 
 
@@ -73,7 +73,7 @@ def hpke_versiegeln(oeffentlich, klartext: bytes, aad: bytes, info: bytes = INFO
     return roh[:32], roh[32:]
 
 
-# ---------------------------------------------------------------- Schlüssel des Servers (K1, S65.3)
+# ---------------------------------------------------------------- Schlüssel des Servers
 def _roh_oeffentlich(privat: X25519PrivateKey) -> bytes:
     return privat.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
 
@@ -130,7 +130,7 @@ def _speichern(db: Session, b: Bund) -> None:
 
 
 def _bund(db: Session) -> Bund:
-    """Den Schlüssel holen, beim ersten Mal anlegen. Wie beim Teilen (S61): ein gespeicherter, der sich nicht öffnen
+    """Den Schlüssel holen, beim ersten Mal anlegen. Wie beim Teilen: ein gespeicherter, der sich nicht öffnen
     lässt, bleibt stehen; legen zwei Anfragen zugleich an, gewinnt eine und die andere liest deren Schlüssel."""
     from sqlalchemy.exc import IntegrityError
 
@@ -199,7 +199,7 @@ def stand(db: Session) -> dict | None:
 
 
 def wartung(db: Session) -> int:
-    """Abgelaufene ältere private Teile löschen (S65.3). Gibt die Anzahl zurück."""
+    """Abgelaufene ältere private Teile löschen. Gibt die Anzahl zurück."""
     try:
         b = _laden(db)
     except NichtLesbar:
@@ -215,7 +215,7 @@ def wartung(db: Session) -> int:
 
 
 def _schluessel_zu(db: Session, kennung: bytes) -> X25519PrivateKey | None:
-    """keyId aus dem Kopf nur als Nachschlagewert (S65.3)."""
+    """keyId aus dem Kopf nur als Nachschlagewert."""
     try:
         b = _laden(db)
     except NichtLesbar:
@@ -229,7 +229,7 @@ def _schluessel_zu(db: Session, kennung: bytes) -> X25519PrivateKey | None:
     return None
 
 
-# ---------------------------------------------------------------- Öffnen (K4, S65.1, S65.4)
+# ---------------------------------------------------------------- Öffnen
 class _Leser:
     """Liest die Teile einer Datei der Reihe nach wie eine Datei. Hält höchstens einen Abschnitt im Speicher."""
 

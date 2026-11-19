@@ -25,6 +25,16 @@ import time
 from collections import OrderedDict, deque
 
 MAX_SCHLUESSEL = 20_000
+MAX_LAENGE = 160  # längere Schlüssel (z. B. mit einem eingegebenen Namen) zählen unter ihrer Prüfsumme
+
+
+def kurz(schluessel: str) -> str:
+    """Schlüssel in fester Höchstlänge: Was ein Aufrufer mitschickt, bestimmt nie die Größe des Zählers."""
+    if len(schluessel) <= MAX_LAENGE:
+        return schluessel
+    import hashlib
+
+    return f"{schluessel[:48]}#{hashlib.sha256(schluessel.encode('utf-8', 'replace')).hexdigest()}"
 
 
 def adresse(request) -> str:
@@ -118,11 +128,13 @@ class Zaehler:
 
     # ------------------------------------------------------------ öffentlich
     def voll(self, schluessel: str, anzahl: int, fenster: float) -> bool:
+        schluessel = kurz(schluessel)
         """Sind im Fenster schon anzahl Versuche gezählt? (zählt selbst nicht, legt nichts an)"""
         with self._sperre:
             return self._anzahl(schluessel, fenster, time.monotonic()) >= anzahl
 
     def zaehlen(self, schluessel: str, fenster: float) -> None:
+        schluessel = kurz(schluessel)
         with self._sperre:
             jetzt = time.monotonic()
             self._holen(schluessel, fenster, jetzt).append(jetzt)
@@ -132,6 +144,7 @@ class Zaehler:
         return self.reservieren([(schluessel, anzahl, fenster)]) is not None
 
     def reservieren(self, posten: list[tuple[str, int, float]]) -> list[tuple[str, float]] | None:
+        posten = [(kurz(s), a, f) for s, a, f in posten]
         """Mehrere Schlüssel in dieser Reihenfolge zählen – alle oder keiner. None: einer war voll."""
         with self._sperre:
             jetzt = time.monotonic()
@@ -170,6 +183,7 @@ class Zaehler:
             return weg
 
     def loeschen(self, schluessel: str) -> None:
+        schluessel = kurz(schluessel)
         with self._sperre:
             self._weg(schluessel)
 

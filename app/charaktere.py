@@ -139,14 +139,14 @@ def neuzugang(db: Session, me: Member, nur_auswertungen: bool = False) -> None:
     for e in db.scalars(select(Entry).where(Entry.campaign_id == me.campaign_id)):
         ids = e.hidden_member_ids
         # 0.4.89: Geheimes aus Bogen/Hintergrund – Nachzügler immer verbergen, auch bei leerer Liste
-        aus_auswertung = bool(e.origin_analysis_id) and e.visibility == "public" and e.origin_member_id != me.id
+        aus_auswertung = e.geheime_herkunft and e.visibility == "public" and e.origin_member_id != me.id
         if ((ids and not nur_auswertungen) or aus_auswertung) and me.id not in ids:
             e.hidden_from.append(EntryHidden(entry_id=e.id, member_id=me.id))
             betroffen.append(e.id)
     for p in db.scalars(select(Proposal).where(Proposal.campaign_id == me.campaign_id, Proposal.decision == "open")):
         ids = json.loads(p.hidden_member_ids_json or "[]")
         # 0.4.18: Vorschläge aus Bogen/Hintergrund wissen nur SL und Urheberin – auch wenn die Liste noch leer war
-        aus_auswertung = bool(p.analysis_id) and p.submitted_by_member_id != me.id
+        aus_auswertung = (bool(p.analysis_id) or bool(p.origin_secret)) and p.submitted_by_member_id != me.id
         if ((ids and not nur_auswertungen) or aus_auswertung) and me.id not in ids:
             p.hidden_member_ids_json = json.dumps(sorted(set(ids) | {me.id}))
     if betroffen:
@@ -222,6 +222,7 @@ def einreichen(db: Session, me: Member, eintraege: list[schemas.WorldEntryIn]) -
             entry_type=w.type, action="update" if e is not None else "create",
             target_entry_id=e.id if e is not None else None, title=w.name.strip()[:300], detail=w.summary.strip(),
             suggested_visibility="public", hidden_member_ids_json=json.dumps(andere if w.secret else []),
+            origin_secret=bool(w.secret),  # 0.4.170: „geheim“ gilt auch, wenn (noch) niemand sonst da ist
             confidence=1.0, flags="[]", evidence="[]", decision="open",
             relation=(w.relation or "").strip()[:120] or None,  # 0.4.19: unverändert, nur Anzeige
         )
@@ -285,6 +286,8 @@ def entscheiden(db: Session, p: Proposal, mitglieder: set[str]) -> None:
     e.origin_version, e.origin_member_id = p.origin_version, p.submitted_by_member_id
     if p.analysis_id and p.action != "update":
         e.origin_analysis_id = p.analysis_id  # bleibt geheim für alle außer SL und Urheberin
+    if not p.analysis_id:
+        e.origin_secret = bool(p.origin_secret)  # 0.4.170: als geheim mitgebracht – wie eine Auswertung behandeln
     p.target_entry_id = e.id
 
 

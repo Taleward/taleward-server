@@ -1,4 +1,4 @@
-"""Server 0.4.161: Schnittstelle 0.4.35 – Stelle merken über den Bot (M1, M2)."""
+"""Server 0.4.161: Schnittstelle 0.4.35 – Stelle merken über den Bot."""
 from datetime import timedelta
 
 from app.db import utcnow

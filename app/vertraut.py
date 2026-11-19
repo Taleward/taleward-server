@@ -1,5 +1,4 @@
-"""Vertraute Geräte beim zweiten Faktor (S44, 0.4.143; Entwurf `claude/server-vorschlag-vertraute-geraete.md`, vom
-Sicherheits-Chat am 20.10. beantwortet).
+"""Vertraute Geräte beim zweiten Faktor (0.4.143).
 
 Nach dem Code oder dem Passkey kann die Person „Diesem Gerät 30 Tage vertrauen“ ankreuzen. Dann entfällt auf diesem
 Browser beim nächsten Anmelden nur der zweite Schritt – das Passwort bleibt immer Pflicht, und Schritte, die den Faktor
@@ -54,7 +53,7 @@ def _cookie_name(request: Request) -> str:
 
 
 def _wert(request: Request) -> str:
-    """0.4.149 (S58): nur das Cookie, das zu dieser Verbindung gehört – unter https nur ``__Host-tw_vertraut``
+    """0.4.149: nur das Cookie, das zu dieser Verbindung gehört – unter https nur ``__Host-tw_vertraut``
     (das kann keine Subdomain und kein http-Aufruf setzen), sonst nur ``tw_vertraut``."""
     wert = request.cookies.get(_cookie_name(request)) or ""
     return wert if 16 <= len(wert) <= 200 else ""
@@ -96,7 +95,7 @@ def merken(antwort: Response, request: Request, db: Session, user: User, bereich
 
     if not angeboten(request) or bereich not in BEREICHE:
         return None
-    # 0.4.149 (S58): immer ein neues Merkzeichen – ein vorhandenes Cookie könnte jemand untergeschoben haben. Der Eintrag
+    # 0.4.149: immer ein neues Merkzeichen – ein vorhandenes Cookie könnte jemand untergeschoben haben. Der Eintrag
     # desselben Kontos im anderen Bereich zieht auf den neuen Wert um (ein Browser, ein Cookie, je Bereich ein Eintrag).
     alt_wert = _wert(request)
     wert = secrets.token_urlsafe(32)
@@ -159,7 +158,7 @@ def _melden(db: Session, user: User, g: VertrautesGeraet) -> None:
 def hinweis_abholen(db: Session, user_id: str, ueber: str | None = None) -> str | None:
     """Beim nächsten Anmelden einmal zeigen: „Neues vertrautes Gerät seit …“ (nur ohne Meldeweg gesetzt).
 
-    0.4.149 (S58): ueber = Kennung des vertrauten Geräts, mit dem gerade angemeldet wird. Meldet sich genau das neue
+    0.4.149: ueber = Kennung des vertrauten Geräts, mit dem gerade angemeldet wird. Meldet sich genau das neue
     Gerät an, bleibt der Hinweis liegen – er ist für die Person an einem anderen Gerät gedacht, nicht für den Browser,
     um den es geht (sonst könnte, wer das Gerät eingetragen hat, den Hinweis mit der nächsten Anmeldung wegklicken)."""
     schluessel = f"vertraut.hinweis.{user_id}"

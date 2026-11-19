@@ -116,7 +116,7 @@ class Widerspruch:
 
 
 def widersprueche(db: Session) -> list[Widerspruch]:
-    """0.4.145: Passen die Einzel-Einstellungen nicht zur gewählten Betriebsart? (Test-Chat 29.10.: Übersicht zeigte
+    """0.4.145: Passen die Einzel-Einstellungen nicht zur gewählten Betriebsart? (die Übersicht zeigte
     „Lokaler Server“, die Kapitel liefen über die Cloud-API.) Nur Hinweise – geändert wird nichts."""
     from app.einstellungen import extern_konfig, llm_konfig
 

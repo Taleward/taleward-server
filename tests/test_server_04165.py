@@ -1,4 +1,4 @@
-"""Server 0.4.165 (S68): Taleward-Cookies unter https mit Vorsatz „__Host-“, doppelte Namen gelten nicht."""
+"""Server 0.4.165: Taleward-Cookies unter https mit Vorsatz „__Host-“, doppelte Namen gelten nicht."""
 import pytest
 
 from tests.test_verwaltung import csrf_von

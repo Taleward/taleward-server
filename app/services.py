@@ -145,7 +145,7 @@ def set_recording_consent(db: Session, me: Member, granted: bool) -> None:
         action = "revoked"
         from app import discord_bot
 
-        discord_bot.widerruf_in_der_app(db, me)  # 0.4.32 (B8): Spur in laufenden Bot-Runden sofort verwerfen
+        discord_bot.widerruf_in_der_app(db, me)  # 0.4.32: Spur in laufenden Bot-Runden sofort verwerfen
     db.add(ConsentLog(campaign_id=me.campaign_id, member_id=me.id, user_id=me.user_id, action=action,
                       recorded_by_user_id=me.user_id, at=now))
 

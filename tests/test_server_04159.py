@@ -1,4 +1,4 @@
-"""Server 0.4.159: Schnittstelle 0.4.34 – Spuren des Bots verschlüsselt (S65, S65.1–S65.4) und S64.1."""
+"""Server 0.4.159: Schnittstelle 0.4.34 – Spuren des Bots verschlüsselt."""
 import base64
 import hashlib
 import json
@@ -91,7 +91,7 @@ def _oeffnen_mit(tmp_path, monkeypatch, datei: bytes, privat_roh: bytes, sid: st
     return groesse, b"".join(t.read_bytes() for t in teile)
 
 
-# ---------------------------------------------------------------- S65.2: HPKE aus der Bibliothek, RFC 9180
+# ---------------------------------------------------------------- HPKE aus der Bibliothek, RFC 9180
 # RFC 9180 / CFRG test-vectors.json: mode 0, kem_id 0x20 (X25519), kdf_id 1 (HKDF-SHA256), aead_id 2 (AES-256-GCM)
 RFC = {
     "info": "4f6465206f6e2061204772656369616e2055726e",
@@ -176,12 +176,12 @@ def test_veraenderte_spuren_gehen_nicht_auf(tmp_path, monkeypatch, art):
         datei = kopf + b"".join(ab[:-1])
     with pytest.raises(spuren.Ungueltig):
         _oeffnen_mit(tmp_path, monkeypatch, datei, privat, sid, aid)
-    assert not (tmp_path / "offen").exists()  # S65.1: Zwischenverzeichnis sofort weg
+    assert not (tmp_path / "offen").exists()  # Zwischenverzeichnis sofort weg
 
 
 @pytest.mark.parametrize("wert", ["../../etc", "a b", "ä", "", "x" * 65])
 def test_kopfwerte_streng(tmp_path, monkeypatch, wert):
-    """S65.4: sessionId/attendeeId im Kopf nur ASCII-Kennungen, 1–64 Zeichen – auch wenn sie zur Erwartung passen."""
+    """sessionId/attendeeId im Kopf nur ASCII-Kennungen, 1–64 Zeichen – auch wenn sie zur Erwartung passen."""
     from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
     from app import spuren
@@ -371,7 +371,7 @@ def test_sl_kann_verschluesselten_upload_nicht_ungeoeffnet_abschliessen(client, 
     assert {f.mime_type for f in dbs.query(UploadFile).all()} == {"audio/ogg"}
 
 
-# ---------------------------------------------------------------- S65.3: Erneuern, alte Teile, Wartung
+# ---------------------------------------------------------------- Erneuern, alte Teile, Wartung
 def test_erneuern_nur_mit_frischem_faktor_und_alte_spuren_bleiben_lesbar(client, bot, dbs, admin, tmp_path,
                                                                          monkeypatch):  # noqa: F811
     from app import spuren
@@ -417,7 +417,7 @@ def test_erneuern_ohne_offene_runde_behaelt_nichts(dbs):
     assert spuren._schluessel_zu(dbs, bytes.fromhex(erst["keyId"])) is None
 
 
-# ---------------------------------------------------------------- S64.1
+# ----------------------------------------------------------------
 def test_erstattung_bei_5xx_bleibt_gesperrt(dbs, anbieter):  # noqa: F811
     from app import erstattung
     from app.models import Bezahlvorgang

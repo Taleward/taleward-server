@@ -43,7 +43,7 @@ def test_empfang_mit_munge():
 
 
 def test_hoechstens_zwei_pdf_prozesse_zugleich(monkeypatch):
-    """S50: Ist kein Platz frei, kommt nach kurzer Wartezeit „gleich noch einmal“ (429); Normalfall unverändert."""
+    """Ist kein Platz frei, kommt nach kurzer Wartezeit „gleich noch einmal“ (429); Normalfall unverändert."""
     import threading
 
     from app import errors, unterlagen

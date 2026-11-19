@@ -1,4 +1,4 @@
-"""Server 0.4.133: Aufladen über Stripe und PayPal (S28 G4, G6, G9, G11) und die neue Seite „Guthaben“.
+"""Server 0.4.133: Aufladen über Stripe und PayPal und die neue Seite „Guthaben“.
 Die Anbieter sind durch einen nachgestellten Gegenüber ersetzt – es geht nichts ins Netz."""
 import hashlib
 import hmac
@@ -196,7 +196,7 @@ def test_sperre_haelt_verarbeitung_an_und_verwaltung_hebt_sie_auf(client, world,
     from app.verwaltung import zweiter_faktor
 
     with mock.patch.object(zweiter_faktor, "aktiv", return_value=True), \
-            mock.patch.object(zweiter_faktor, "frisch", return_value=True):  # 0.4.143 (S44)
+            mock.patch.object(zweiter_faktor, "frisch", return_value=True):  # 0.4.143
         r = client.post(f"/verwaltung/abrechnung/entsperren/{g.id}", data={"csrf": admin}, follow_redirects=False)
     assert r.status_code == 303
     dbs.expire_all()
@@ -303,7 +303,7 @@ def test_verwaltung_nur_test_schluessel_und_geheimes_bleibt_verborgen(client, db
     r = client.post("/verwaltung/abrechnung/zahlung", data=daten | {"stripe_schluessel": "sk_test_x"})
     assert r.status_code == 403  # ohne zweiten Faktor
     with mock.patch.object(zweiter_faktor, "aktiv", return_value=True), \
-            mock.patch.object(zweiter_faktor, "frisch", return_value=True):  # 0.4.143 (S44)
+            mock.patch.object(zweiter_faktor, "frisch", return_value=True):  # 0.4.143
         r = client.post("/verwaltung/abrechnung/zahlung", data=daten | {"stripe_schluessel": "sk_live_x"})
         assert r.status_code == 400 and "Echtes Geld ist noch nicht freigegeben" in r.text
         r = client.post("/verwaltung/abrechnung/zahlung", data=daten | {"betraege": "5, 20"})
@@ -318,7 +318,7 @@ def test_verwaltung_nur_test_schluessel_und_geheimes_bleibt_verborgen(client, db
     assert meta_lesen(dbs, "zahlung.stripe_schluessel") == "sk_test_geheim1234"
     # leer lassen behält den Schlüssel
     with mock.patch.object(zweiter_faktor, "aktiv", return_value=True), \
-            mock.patch.object(zweiter_faktor, "frisch", return_value=True):  # 0.4.143 (S44)
+            mock.patch.object(zweiter_faktor, "frisch", return_value=True):  # 0.4.143
         client.post("/verwaltung/abrechnung/zahlung", data=daten)
     dbs.expire_all()
     assert meta_lesen(dbs, "zahlung.stripe_schluessel") == "sk_test_geheim1234"

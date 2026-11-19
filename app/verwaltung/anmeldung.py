@@ -16,7 +16,7 @@ from app.verwaltung.router import _seite, _sitzungs_bindung, _zurueck, csrf_prue
 
 router = APIRouter(prefix="/verwaltung", include_in_schema=False)
 
-# 0.4.146: Schritte nach Benjamins Durchgang (28.10.) – je Schritt genau das Feld bzw. die Spalte, die gemeint ist, und
+# 0.4.146: je Schritt genau das Feld bzw. die Spalte, die gemeint ist, und
 # was freiwillig ist. Stand der Beschriftungen: November 2026.
 ANLEITUNG = {
     "google": ("https://console.cloud.google.com/auth/clients", [
@@ -86,7 +86,7 @@ def seite(request: Request, user: User, db: Session, fehler: str = "", faktor_ne
 
     faktor = {"aktiv": zweiter_faktor.aktiv(db, user.id), "codes_uebrig": zweiter_faktor.restliche_codes(db, user.id),
               "neu": faktor_neu, "codes": faktor_codes,
-              # 0.4.143: Passkeys und vertraute Geräte (S44)
+              # 0.4.143: Passkeys und vertraute Geräte
               "passkeys": passkeys.anzeige(db, user.id), "passkeys_moeglich": passkeys.verfuegbar(db),
               "frisch": zweiter_faktor.frisch(db, user.id, sitzung=_sitzungs_bindung(request)),
               "vertraute": vertraut.liste(db, user.id)}
@@ -95,7 +95,7 @@ def seite(request: Request, user: User, db: Session, fehler: str = "", faktor_ne
 
 
 @router.post("/anmeldung/{dienst}", dependencies=[Depends(csrf_pruefen)])
-async def anmeldung_speichern(dienst: str, request: Request, user: User = Depends(faktor_frisch),  # 0.4.143 (S44)
+async def anmeldung_speichern(dienst: str, request: Request, user: User = Depends(faktor_frisch),  # 0.4.143
                               db: Session = Depends(get_db)):
     _ = tr(request)
     if dienst not in anmeldedienste.DIENSTE:

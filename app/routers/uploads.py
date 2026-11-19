@@ -93,7 +93,7 @@ def _pruefe_dateien(s: GameSession, body: UploadStart, bot: bool = False) -> Non
     maxb = get_settings().max_file_bytes
     for f in body.files:
         mime = f.mime_type.lower()
-        if bot:  # 0.4.34 (S65): mit dem Bot-Schlüssel nur verschlüsselte Spuren
+        if bot:  # 0.4.34: mit dem Bot-Schlüssel nur verschlüsselte Spuren
             if mime != spuren.MIME or not f.file_name.lower().endswith(spuren.ENDUNG):
                 raise errors.bad_request("track_unencrypted")
             f.mime_type = spuren.MIME
@@ -125,7 +125,7 @@ def _spur_mitglied(s: GameSession, f: FileIn) -> str | None:
 @router.post("/sessions/{sessionId}/uploads", status_code=201, response_model=UploadStartOut)
 def start_upload(sessionId: str, body: UploadStart, wer=Depends(nutzer_oder_bot), db: Session = Depends(get_db)):
     user, bot = wer
-    if bot is not None:  # 0.4.32 (B9, Y3): nur eigene Runden, nur Spuren mit Zustimmung
+    if bot is not None:  # 0.4.32: nur eigene Runden, nur Spuren mit Zustimmung
         from app import discord_bot
 
         s = db.get(GameSession, sessionId)
@@ -225,7 +225,7 @@ async def put_chunk(
         raise errors.not_found()
     if up.state != "open":
         raise errors.conflict("upload_closed")
-    if bot is not None and f.track_attendee_id:  # 0.4.32 (Y3, B8): beim Bot Zustimmung bei jedem Teil
+    if bot is not None and f.track_attendee_id:  # 0.4.32: beim Bot Zustimmung bei jedem Teil
         from app import discord_bot
 
         discord_bot.teil_pruefen(db, up, f)
@@ -300,7 +300,7 @@ def _messen(db: Session, up: Upload, s: GameSession | None = None, oeffnen: bool
             db.commit()
             raise errors.ApiError(429, "too_many_requests")
         try:
-            if oeffnen:  # 0.4.34 (S65): verschlüsselte Spuren des Bots erst jetzt öffnen
+            if oeffnen:  # 0.4.34: verschlüsselte Spuren des Bots erst jetzt öffnen
                 from app import spuren
 
                 spuren.alle_oeffnen(db, up, s)
@@ -375,7 +375,7 @@ def complete(uploadId: str, request: Request, wer=Depends(nutzer_oder_bot), db: 
     if s.bot_key_id:
         from app import discord_bot
 
-        discord_bot.gaeste_vergessen(db, s)  # B7: Discord-Prüfsummen der Gäste nur bis zum Upload
+        discord_bot.gaeste_vergessen(db, s)  # Discord-Prüfsummen der Gäste nur bis zum Upload
     create_transcribe_job(db, s, up)
     db.commit()
     return processing_status(db, s, sprache(request), user)

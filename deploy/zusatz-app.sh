@@ -18,7 +18,7 @@ VERBOTEN="server testserver caddy worker worker-cpu ollama ollama-cpu localhost"
 cd "$ZIEL"
 
 wert() { sed -n "s/^$1=//p" "$ENV" | tail -1; }
-# S69: Wer hängt im Netz der Zusatz-Apps? Je Container eine Zeile
+# Wer hängt im Netz der Zusatz-Apps? Je Container eine Zeile
 # „<kennung> <name> ,<netze>, ,<namen im Zusatz-Netz>,“
 zusatz_container() {
   local ids kennung name rest feld netze namen
@@ -47,7 +47,7 @@ TALEWARD_NAMEN='^(server|testserver|caddy|localhost|worker.*|ollama.*|taleward[-
 fremd_belegt() {  # gibt belegte Namen aus (leer = alles in Ordnung)
   local p caddy kennung name netze namen n
   p=$(projekt)
-  # S69.1: Caddy von Taleward nur an seiner Kennung erkennen, nie am Namen; läuft er nicht, wird niemand ausgenommen
+  # Caddy von Taleward nur an seiner Kennung erkennen, nie am Namen; läuft er nicht, wird niemand ausgenommen
   caddy=$(docker compose ps -q caddy 2>/dev/null | head -n 1)
   zusatz_container | while read -r kennung name netze namen; do
     if [ -n "$caddy" ] && [ "${kennung#"$caddy"}" != "$kennung" ]; then continue; fi
@@ -75,7 +75,7 @@ alle_parken() {  # alle Zusatz-Regeln nach extra-caddy/aus/ – Taleward läuft 
   done
   neu_laden || true
 }
-netz_pruefen() {  # bricht ab, wenn im Netz der Zusatz-Apps jemand einen Taleward-Namen trägt (zweite Linie zu S69)
+netz_pruefen() {  # bricht ab, wenn im Netz der Zusatz-Apps jemand einen Taleward-Namen trägt (zweite Linie)
   local belegt
   belegt=$(fremd_belegt)
   [ -z "$belegt" ] && return 0
@@ -122,7 +122,7 @@ case "${1:-}" in
     ziel=${3:-}
     container=${ziel%:*}
     port=${ziel##*:}
-    # Containername: mit Buchstaben beginnen, nicht mit . oder - enden – also nie eine IP-Adresse (S69)
+    # Containername: mit Buchstaben beginnen, nicht mit . oder - enden – also nie eine IP-Adresse
     if [ "$ziel" = "$container" ] || ! [[ "$container" =~ ^[a-z]([a-z0-9_.-]{0,61}[a-z0-9_])?$ ]] \
        || ! [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] || [ "$port" -gt 65535 ]; then
       echo "Bitte das Ziel als <container>:<port> angeben, z. B. meine-app:8080 (am Anfang ein Buchstabe, dann" \

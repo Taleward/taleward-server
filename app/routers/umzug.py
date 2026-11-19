@@ -1,4 +1,5 @@
 """Kampagnen-Umzug (Schnittstelle 0.4.8): Zustimmung, Export, Import, offene Plätze. Logik in app/umzug.py."""
+from fastapi.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials
@@ -107,7 +108,8 @@ async def put_import_chunk(importId: str, index: int, request: Request,
     from app.koerper import lesen
 
     imp = umzug.laden(db, importId, user)
-    umzug.teil_speichern(imp, index, await lesen(request, imp.chunk_size), x_chunk_sha256)
+    daten = await lesen(request, imp.chunk_size)
+    await run_in_threadpool(umzug.teil_speichern, imp, index, daten, x_chunk_sha256)  # Schreiben: eigener Faden
     return Response(status_code=204)
 
 

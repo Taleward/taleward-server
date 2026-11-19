@@ -69,7 +69,7 @@ def einstellungen(db) -> dict:
 
 
 def zusatz_erlaubt(pfad: Path) -> bool:
-    """0.4.152 (S60): Zusätzlicher Sicherungsordner nie im Datenordner (dort liegt u. a. die ausgelieferte Web-App)
+    """0.4.152: Zusätzlicher Sicherungsordner nie im Datenordner (dort liegt u. a. die ausgelieferte Web-App)
     und nie im Programmordner (statische Dateien) – nach dem Auflösen von Verknüpfungen. Eine Sicherung enthält die
     ganze Datenbank mit allen Zugängen; sie darf nirgends landen, wo der Server Dateien ohne Anmeldung ausliefert."""
     import app as paket

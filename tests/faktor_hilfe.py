@@ -1,4 +1,4 @@
-"""0.4.149 (S57): Der frische zweite Faktor gilt nur in der Sitzung, in der er gezeigt wurde – Tests binden ihn an die
+"""0.4.149: Der frische zweite Faktor gilt nur in der Sitzung, in der er gezeigt wurde – Tests binden ihn an die
 Sitzung ihres Test-Clients."""
 import jwt
 
@@ -21,7 +21,7 @@ def frisch_merken(client, dbs, user_id: str, bereich: str = "verwaltung") -> Non
 
 
 def https_sitzung(client) -> None:
-    """0.4.165 (S68): Tests melden sich teils über http an und rufen danach https-Adressen auf. Im Betrieb gibt es diese
+    """0.4.165: Tests melden sich teils über http an und rufen danach https-Adressen auf. Im Betrieb gibt es diese
     Mischung nicht; hier wird die Sitzung dafür unter dem https-Namen „__Host-…“ mitgegeben."""
     for c in list(client.cookies.jar):
         if c.name in ("tw_verwaltung", "tw_guthaben"):

@@ -1,7 +1,7 @@
 """Hinweis-Mails zum Guthaben (0.4.135): außerhalb der App sagen, wo aufgeladen wird.
 
 Die Wartung ruft `pruefen(db)` regelmäßig auf. Nur bei eingeschalteter Abrechnung, eingerichtetem Mailserver und
-eingetragener öffentlicher Adresse (der Link kommt nur aus ihr, nie aus einer Anfrage – G15).
+eingetragener öffentlicher Adresse (der Link kommt nur aus ihr, nie aus einer Anfrage).
 
 Anlässe, in dieser Reihenfolge (höchstens eine Mail je Guthaben und 24 Stunden; die wichtigste zuerst):
 
@@ -16,7 +16,7 @@ Aufladen nicht.
 
 Empfänger: beim eigenen Guthaben die SL, beim Topf die Verwalter der Organisation – jeweils nur mit bestätigter Adresse
 und ohne Abbestellung. Keine Beträge in der Mail. Der Kampagnentitel steht nur bei Personen, die dort heute SL sind
-(G14); sonst heißt es nur „etwas“.
+; sonst heißt es nur „etwas“.
 """
 from __future__ import annotations
 

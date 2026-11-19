@@ -1,5 +1,5 @@
-"""Server 0.4.84: Repo-Umzug (B5), Schnittstelle 0.4.16/0.4.17 (publicUrl, serverId, Teile im Kapitel), kleinere
-Sicherheitspunkte (S26), zweiter Faktor für die Verwaltung (S4), Stoppdatei für den lokalen Worker."""
+"""Server 0.4.84: Repo-Umzug, Schnittstelle 0.4.16/0.4.17 (publicUrl, serverId, Teile im Kapitel), kleinere
+Sicherheitspunkte, zweiter Faktor für die Verwaltung, Stoppdatei für den lokalen Worker."""
 import os
 import shutil
 import subprocess
@@ -19,7 +19,7 @@ from tests.test_verwaltung import admin, csrf_von  # noqa: F401 (Fixture)
 pytestmark = pytest.mark.usefixtures("_kleine_teile")
 
 
-# ---------------------------------------------------------------- B5: Repo-Umzug
+# ---------------------------------------------------------------- Repo-Umzug
 def test_freigabe_unter_altem_und_neuem_namen():
     from app import freigabe as fg
 
@@ -155,7 +155,7 @@ def test_teile_aus_dem_ergebnis(client, dbs, world, tmp_path):
     assert dbs.get(Recap, sid).parts is None
 
 
-# ---------------------------------------------------------------- S26
+# ----------------------------------------------------------------
 def test_s26_1_bestaetigungsseite_mit_kopfzeilen(client, world, dbs, dienst):  # noqa: F811
     from tests.test_anmeldung import VERIFIER, challenge_von
 
@@ -268,7 +268,7 @@ def test_s26_4_laufende_sperre_bleibt_bei_vielen_netzen(monkeypatch):
     assert z.voll("login-name:opfer", 10, 900) and len(z._daten) <= 200
 
 
-# ---------------------------------------------------------------- S4: zweiter Faktor
+# ---------------------------------------------------------------- zweiter Faktor
 def test_totp_nach_rfc_6238():
     from app.verwaltung import zweiter_faktor as zf
 

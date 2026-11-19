@@ -97,7 +97,7 @@ def test_pytorch_liste_unlesbar():
         ki_pakete.pytorch_liste_lesen("cu128 torch==2.10.0+cu128 --hash=md5:abc\n")
 
 
-# ================================================================ S41: Hörproben, „Dort ergänzen“, Links, Kleinkram
+# ================================================================ Hörproben, „Dort ergänzen“, Links, Kleinkram
 from tests.test_step4 import _kleine_teile  # noqa: E402,F401  (Fixture)
 from tests.test_step5 import api  # noqa: E402,F401  (Fixture)
 from tests.test_verwaltung import admin  # noqa: E402,F401  (Fixture)
@@ -207,7 +207,7 @@ def test_datenschutz_nennt_frist_der_hoerproben(dbs):
     assert "Stimmen zugeordnet hat, höchstens" in vorlage(dbs)
 
 
-# ---------------------------------------------------------------- „Dort ergänzen“ (S41.5, S41.11b)
+# ---------------------------------------------------------------- „Dort ergänzen“
 def _vorschlaege(client, w, dbs, tmp_path, api, liste):  # noqa: F811
     from tests.test_step2b import zusammenfassen
     from tests.test_step5 import einstellen, mit_geheimnissen
@@ -276,7 +276,7 @@ def test_charakter_vorschlag_ohne_dort_ergaenzen(client, world, dbs):
     assert r.status_code == 400 and r.json()["code"] == "invalid_input"
 
 
-# ---------------------------------------------------------------- Aliasse und Namen (S41.11a)
+# ---------------------------------------------------------------- Aliasse und Namen
 @pytest.mark.parametrize("aliase", [[""], ["x" * 41]])
 def test_alias_ausserhalb_der_grenzen_abgelehnt(client, world, aliase):
     r = client.post(f"{API}/campaigns/{world['cid']}/entries", headers=world["gm"],
@@ -296,7 +296,7 @@ def test_steuer_und_richtungszeichen_entfernt(client, world):
     assert zeichen_bereinigen("Mehr" + zwnj + "dad") == "Mehr" + zwnj + "dad"  # ZWNJ gehört zu manchen Schriften
 
 
-# ---------------------------------------------------------------- Links des Betreibers (S41.6)
+# ---------------------------------------------------------------- Links des Betreibers
 @pytest.mark.parametrize("url,ok", [
     ("https://verein.example/impressum", True),
     ("https://vertraut.example@fremd.example/", False), ("https://a.example/ x", False),
@@ -321,7 +321,7 @@ def test_falscher_link_nie_in_info(client, dbs):
     assert "b.example" not in (info["termsUrl"] or "")
 
 
-# ---------------------------------------------------------------- Kleinkram (S41.7, S41.10, S41.11c)
+# ---------------------------------------------------------------- Kleinkram
 def test_zugestimmt_nur_mit_rueckfrage(dbs, world, monkeypatch):
     from typer.testing import CliRunner
 

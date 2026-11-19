@@ -1,4 +1,4 @@
-"""Server 0.4.91: S31 beim Einnehmen eines offenen Platzes, Marke nur bei echter Änderung, M2 (immer dekodieren, wenn
+"""Server 0.4.91: Geheimes beim Einnehmen eines offenen Platzes, Marke nur bei echter Änderung (immer dekodieren, wenn
 die Länge Geld kostet; Upload während der Messung gesperrt) und Schnittstelle 0.4.19 (Beziehung bei der mitgebrachten
 Welt, Grenzen für Charakterbögen)."""
 import uuid
@@ -29,7 +29,7 @@ def _platz_einnehmen(client, w, platz, h):
     return r.json()
 
 
-# ---------------------------------------------------------------- S31: offener Platz
+# ---------------------------------------------------------------- offener Platz
 def test_s31_offener_platz_sieht_geheimes_aus_auswertung_nicht(client, world, dbs, api, make_user, login):  # noqa: F811
     from app.zusammenfassung import eingabe_bauen  # noqa: F401 (Recap-Eingang prüft test_server_0489)
 
@@ -110,7 +110,7 @@ def test_marke_bleibt_beim_speichern_ohne_aenderung(client, world, dbs, api, mak
     assert "Orden der Asche" not in _namen(client, w, dora)
 
 
-# ---------------------------------------------------------------- M2
+# ----------------------------------------------------------------
 def test_m2_mit_abrechnung_immer_dekodiert(tmp_path, monkeypatch):
     from app import audio
 
@@ -231,7 +231,7 @@ def test_grenzen_fuer_charakterboegen(client, world, dbs):
     dbs.commit()
     c = client.get(f"{API}/campaigns/{w['cid']}", headers=w["pl"]).json()
     assert c["characterSheetLimits"] == {"maxSheets": 1, "maxPages": 5}
-    # 0.4.92 (Benjamin 14.10.): die SL darf bis zu 50 Bögen erlauben
+    # 0.4.92: die SL darf bis zu 50 Bögen erlauben
     abrechnung.einstellungen_aendern(dbs, g, "test", g.freigabe_ab_cent, 30, 10)
     dbs.commit()
     c = client.get(f"{API}/campaigns/{w['cid']}", headers=w["pl"]).json()

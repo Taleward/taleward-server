@@ -1,6 +1,6 @@
 """Erstattung von Restguthaben (0.4.153, Weg zum ersten echten Geld, Punkte 3 und 4).
 
-Regeln (Entscheidungen Benjamin 28.10.2026, `claude/plan-abrechnung-guthaben.md`):
+Regeln:
 - Verbrauch zieht zuerst geschenktes Guthaben (Gutschrift, Gutschein, positive Korrektur), dann bezahltes. Erstattbar
   ist nur der Rest aus Zahlungen, voll und ohne Abzug; Gutschriften und Gutscheine werden nie ausgezahlt.
 - Erstattet wird auf die ursprünglichen Zahlungen, die neueste zuerst. Die Verwaltung zeigt je Fall, welcher Betrag auf
@@ -55,7 +55,7 @@ class Teil:
     credit_cent: int  # so viel Guthaben geht damit zurück
     beim_anbieter_cent: int  # so viel im Dashboard des Anbieters erstatten (mit anteiliger Gebühr)
     frist_vorbei: bool
-    offen_seit: object = None  # 0.4.158 (S64): mit „Erstatten“ angestoßen, Meldung des Anbieters steht aus
+    offen_seit: object = None  # 0.4.158: mit „Erstatten“ angestoßen, Meldung des Anbieters steht aus
 
 
 @dataclass
@@ -186,7 +186,7 @@ def _beim_anbieter(db: Session, v: Bezahlvorgang, cent: int) -> None:
 
 
 def _sicher_abgelehnt(fehler: Exception) -> bool:
-    """S64.1: Nur wenn sicher nichts beim Anbieter angekommen ist bzw. er klar abgelehnt hat (4xx), darf die Sperre weg.
+    """Nur wenn sicher nichts beim Anbieter angekommen ist bzw. er klar abgelehnt hat (4xx), darf die Sperre weg.
     ValueError kommt vor dem Absenden (Bezug oder Anbieter passt nicht)."""
     import httpx
 
@@ -200,11 +200,11 @@ class Ergebnis:
     angestossen_cent: int = 0  # so viel Guthaben geht mit den Meldungen zurück
     fehlgeschlagen: list[str] = field(default_factory=list)  # Zahlungsbezüge, die nicht gingen
     von_hand_cent: int = 0  # Frist vorbei oder keine passende Zahlung – per Überweisung
-    wartet: list[str] = field(default_factory=list)  # S64: schon angestoßen, Meldung fehlt – nicht noch einmal
+    wartet: list[str] = field(default_factory=list)  # schon angestoßen, Meldung fehlt – nicht noch einmal
 
 
 def _vormerken(db: Session, v: Bezahlvorgang, cent: int, erneut: bool) -> bool:
-    """S64: Erstattung je Zahlung vormerken, bevor sie beim Anbieter angestoßen wird. Steht schon eine aus (Meldung des
+    """Erstattung je Zahlung vormerken, bevor sie beim Anbieter angestoßen wird. Steht schon eine aus (Meldung des
     Anbieters fehlt), nur mit ausdrücklichem „Erneut anstoßen“. Atomar, damit zwei gleichzeitige Klicks nicht beide
     durchkommen."""
     from sqlalchemy import update
@@ -244,7 +244,7 @@ def erstatten(db: Session, g: Guthaben, von: str, erneut: bool = False) -> Ergeb
             if _sicher_abgelehnt(fehler):  # nichts angestoßen – Sperre wieder weg
                 v.erstattung_offen_cent = None
                 v.erstattung_offen_at = None
-            # S64.1: Zeitüberschreitung, Verbindungsfehler oder 5xx – vielleicht kam die Erstattung doch an. Sperre bleibt,
+            # Zeitüberschreitung, Verbindungsfehler oder 5xx – vielleicht kam die Erstattung doch an. Sperre bleibt,
             # bis die Meldung kommt oder die Verwaltung nach einem Blick ins Dashboard „Erneut anstoßen“ wählt.
             e.fehlgeschlagen.append(t.zahlung_ref)
             abrechnung.protokoll(db, von, "erstattung_fehlgeschlagen", g.id, vorgang=v.id,

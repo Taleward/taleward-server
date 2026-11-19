@@ -1,6 +1,5 @@
 """Passkeys (WebAuthn: Windows Hello, Fingerabdruck oder Gesicht am Handy, Sicherheitsschlüssel) als zweiter Faktor für
-die Verwaltung und die Guthaben-Seite (0.4.143, Entwurf `claude/server-vorschlag-passkey.md`, vom Sicherheits-Chat am
-28.10. freigegeben).
+die Verwaltung und die Guthaben-Seite (0.4.143).
 
 - Ein Passkey ersetzt nur den Code-Schritt. Das Passwort bleibt, TOTP bleibt Pflicht als Rückweg: Einen Passkey kann nur
   hinzufügen, wer den zweiten Faktor (Code) eingerichtet hat.
@@ -126,7 +125,7 @@ def _challenge_verbrauchen(db: Session, user: User, art: str, bindung: str) -> b
     row = db.get(ServerMeta, schluessel)
     if row is not None:
         db.delete(row)
-        # 0.4.149 (S58): sofort festschreiben – bricht die Prüfung danach mit einem Fehler ab (500, Rollback), bliebe die
+        # 0.4.149: sofort festschreiben – bricht die Prüfung danach mit einem Fehler ab (500, Rollback), bliebe die
         # Challenge sonst liegen und ließe sich noch einmal benutzen. Vorher ändert keiner der Wege etwas in der Sitzung.
         db.commit()
     try:
@@ -226,7 +225,7 @@ def registrierung_abschliessen(db: Session, user: User, bindung: str, antwort: s
 
 
 def _client_data_pruefen(daten: dict, art: str, origin: str) -> None:
-    """Pflicht laut Sicherheits-Chat, zusätzlich zur Bibliothek: type, origin, crossOrigin."""
+    """Pflicht, zusätzlich zur Bibliothek: type, origin, crossOrigin."""
     roh = (daten.get("response") or {}).get("clientDataJSON")
     client = json.loads(_unb64(roh).decode("utf-8"))
     if client.get("type") != art or client.get("origin") != origin or client.get("crossOrigin") is True:
@@ -331,7 +330,7 @@ def entfernen(db: Session, user: User, passkey_id: str) -> bool:
     from app import konto_mail
     from app.verwaltung import zweiter_faktor
 
-    zweiter_faktor.faktor_fassung_erhoehen(db, user.id)  # S44: vertraute Geräte werden ungültig
+    zweiter_faktor.faktor_fassung_erhoehen(db, user.id)  # vertraute Geräte werden ungültig
     konto_mail.vormerken(db, user, "passkey_aus")
     return True
 

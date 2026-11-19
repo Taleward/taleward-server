@@ -1,4 +1,4 @@
-"""Server 0.4.158: Verlauf der Discord-Anbindung (Schnittstelle 0.4.33) und S64 (Erstatten nicht doppelt)."""
+"""Server 0.4.158: Verlauf der Discord-Anbindung (Schnittstelle 0.4.33) und (Erstatten nicht doppelt)."""
 import json
 from datetime import timedelta
 
@@ -66,7 +66,7 @@ def test_verlauf_hoechstens_200_und_wartung_nach_12_monaten(client, bot, dbs):  
     assert dbs.get(DiscordProtokoll, alt_id) is None
 
 
-# ---------------------------------------------------------------- S64: Erstatten nicht doppelt
+# ---------------------------------------------------------------- Erstatten nicht doppelt
 def test_zweiter_klick_ohne_meldung_erstattet_nicht_noch_einmal(client, dbs, admin, anbieter, monkeypatch):  # noqa: F811
     from app import erstattung, zahlung
     from app.models import Bezahlvorgang

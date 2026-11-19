@@ -1,5 +1,5 @@
 """Server 0.4.132 / Schnittstelle 0.4.25: Guthaben in der App (/credits, CreditWait, zahlende SL) und
-Kampagnen-Einstellungen an einem Ort – mit den Bedingungen G14–G17 des Sicherheits-Chats."""
+Kampagnen-Einstellungen an einem Ort."""
 import re
 
 from sqlalchemy import select
@@ -60,7 +60,7 @@ def _auswertung(client, w, h, a_id):
 
 
 def _topf_verwalterin(dbs, w, name="cleo"):
-    """cleo verwaltet die Organisation der Kampagne, ist dort aber keine SL (G14)."""
+    """cleo verwaltet die Organisation der Kampagne, ist dort aber keine SL."""
     from app.models import Campaign, OrgMember
 
     c = dbs.get(Campaign, w["cid"])
@@ -84,7 +84,7 @@ def test_billing_in_info_und_aus_heisst_404(client, world, dbs):
 
     _modus(dbs)
     b = client.get(f"{API}/info").json()["billing"]
-    assert b == {"mode": "credit", "currency": "EUR"}  # G15: ohne eingetragene Adresse keine topUpUrl
+    assert b == {"mode": "credit", "currency": "EUR"}  # ohne eingetragene Adresse keine topUpUrl
     _adresse(dbs, "http://chronik.example.org")
     assert "topUpUrl" not in client.get(f"{API}/info").json()["billing"]  # nur https (außer Heimnetz)
     _adresse(dbs, "http://192.168.1.20:8000")
@@ -116,7 +116,7 @@ def test_eigenes_guthaben_buchungen_und_fremde_404(client, world, dbs):
     assert len(b) == 2 and all(x["kind"] == "voucher" and x["reason"] is None for x in b)
     rest = client.get(f"{API}/credits/{gid}/bookings?before={b[-1]['id']}", headers=world["gm"]).json()
     assert [x["kind"] for x in rest] == ["voucher", "credit"]
-    assert rest[-1]["reason"] == "Start hilfe x" and rest[-1]["amountCents"] == 300  # G17: bereinigt
+    assert rest[-1]["reason"] == "Start hilfe x" and rest[-1]["amountCents"] == 300  # bereinigt
     assert {x["id"] for x in b}.isdisjoint({x["id"] for x in rest})
     # Fremde und Spieler: 404 ohne Anzahl
     for h in (world["pl"], world["out"]):
@@ -196,7 +196,7 @@ def test_gutschein_in_der_app(client, world, dbs, admin):  # noqa: F811
     assert r.status_code == 429
 
 
-# ---------------------------------------------------------------- Topf (Bedingung 4) und G14
+# ---------------------------------------------------------------- Topf (Bedingung 4) und
 def test_topf_nur_lesen_und_titel_nur_fuer_die_sl(client, world, dbs):
     from app import abrechnung
     from app.models import Campaign
@@ -284,7 +284,7 @@ def test_zahlung_abgeben_und_uebernehmen_ueber_die_app(client, world, dbs, make_
     assert client.post(url + "/accept", headers=world["pl"]).status_code == 404
 
 
-# ---------------------------------------------------------------- Kampagnen-Einstellungen (G16)
+# ---------------------------------------------------------------- Kampagnen-Einstellungen
 def test_einstellungen_lesen_aendern_konflikt_protokoll(client, world, dbs):
     url = f"{API}/campaigns/{world['cid']}/settings"
     s = client.get(url, headers=world["pl"]).json()

@@ -1,4 +1,4 @@
-"""Server 0.4.88: Kleinigkeiten neben der Schnittstelle 0.4.18 (S21.4)."""
+"""Server 0.4.88: Kleinigkeiten neben der Schnittstelle 0.4.18."""
 import pytest
 
 from tests.test_pruefung_046 import _zur_pruefung

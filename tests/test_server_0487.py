@@ -1,5 +1,5 @@
-"""Server 0.4.87: Abrechnung nach der Prüfung von 0.4.85 (N1–N6), Einrichtung im Heimnetz (S6/S21.3), Passwort bei der
-Einrichtung (S21.2), Statusdatei im Update-Skript (S21.5)."""
+"""Server 0.4.87: Abrechnung nach der Prüfung von 0.4.85, Einrichtung im Heimnetz, Passwort bei der
+Einrichtung, Statusdatei im Update-Skript."""
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,7 +16,7 @@ from tests.test_verwaltung import admin  # noqa: F401 (Fixture)
 pytestmark = pytest.mark.usefixtures("_kleine_teile")
 
 
-# ---------------------------------------------------------------- N1: abrechnen beim Abschluss und vor dem Löschen
+# ---------------------------------------------------------------- abrechnen beim Abschluss und vor dem Löschen
 def test_n1_abgerechnet_im_selben_schritt_wie_der_abschluss(client, world, dbs, tmp_path):
     from app.models import Buchung, KostenAuftrag
 
@@ -102,7 +102,7 @@ def test_n1_gescheitert_kostet_beim_worker_nichts_und_wird_sofort_gebucht(client
     assert dbs.get(KostenAuftrag, job.id).zustand == "abgerechnet" and abrechnung.saldo(dbs, g.id) == 1000
 
 
-# ---------------------------------------------------------------- N2: /guthaben mit zweitem Faktor
+# ---------------------------------------------------------------- /guthaben mit zweitem Faktor
 def test_n2_guthaben_verlangt_den_code(client, world, dbs, admin):  # noqa: F811
     from app.models import User
     from app.verwaltung import zweiter_faktor as zf
@@ -131,7 +131,7 @@ def test_n2_guthaben_verlangt_den_code(client, world, dbs, admin):  # noqa: F811
     assert r.status_code == 303 and "tw_guthaben=" in r.headers["set-cookie"]
 
 
-# ---------------------------------------------------------------- N3: Schalter und Preise nur mit zweitem Faktor
+# ---------------------------------------------------------------- Schalter und Preise nur mit zweitem Faktor
 def test_n3_schalter_und_preise_nur_mit_zweitem_faktor(client, dbs, admin):  # noqa: F811
     from app import abrechnung
     from app.models import User
@@ -150,7 +150,7 @@ def test_n3_schalter_und_preise_nur_mit_zweitem_faktor(client, dbs, admin):  # n
     zf.bestaetigen(dbs, chef.id, _code(dbs, chef.id))
     from tests.faktor_hilfe import frisch_merken
 
-    frisch_merken(client, dbs, chef.id)  # 0.4.143 (S44)
+    frisch_merken(client, dbs, chef.id)  # 0.4.143
     dbs.commit()
     r = client.post("/verwaltung/abrechnung/modus", data={"csrf": admin, "modus": "guthaben"}, follow_redirects=False)
     assert r.status_code == 303 and abrechnung.modus(dbs) == "guthaben"
@@ -161,7 +161,7 @@ def test_n3_schalter_und_preise_nur_mit_zweitem_faktor(client, dbs, admin):  # n
     assert r.status_code == 303 and abrechnung.modus(dbs) == "aus"
 
 
-# ---------------------------------------------------------------- N4: Länge der Aufnahme
+# ---------------------------------------------------------------- Länge der Aufnahme
 def test_n4_nicht_messbar_zaehlt_das_groessere(client, world, dbs, tmp_path, monkeypatch):
     from app import abrechnung, storage
     from app.models import GameSession, Upload
@@ -178,7 +178,7 @@ def test_n4_nicht_messbar_zaehlt_das_groessere(client, world, dbs, tmp_path, mon
     dbs.get(GameSession, s["id"]).duration_seconds = groesse + 500
     dbs.commit()
     assert abrechnung.aufnahme_sekunden(dbs, s["id"]) == groesse + 500
-    # 0.4.99 (M3): Mit Abrechnung wird eine nicht messbare Aufnahme gar nicht erst angenommen
+    # 0.4.99: Mit Abrechnung wird eine nicht messbare Aufnahme gar nicht erst angenommen
     _gutschreiben(dbs, _anna(dbs), 300)  # 0.4.129: ohne Guthaben wartet sonst schon die erste Aufnahme
     s2 = neue_session(client, world)
     up = hochladen(client, world["gm"], s2["id"], audio_abschnitte(tmp_path, (5,)), abschliessen=False)
@@ -189,7 +189,7 @@ def test_n4_nicht_messbar_zaehlt_das_groessere(client, world, dbs, tmp_path, mon
     assert not storage.upload_dir(up["uploadId"]).exists()
 
 
-# ---------------------------------------------------------------- N5: ein Gutschein je Aktion in der Datenbank
+# ---------------------------------------------------------------- ein Gutschein je Aktion in der Datenbank
 def test_n5_ein_gutschein_je_aktion_im_index(client, world, dbs):
     from app import abrechnung
 
@@ -226,7 +226,7 @@ def test_n5_gleichzeitige_einloesung_endet_als_aktion(client, world, dbs, monkey
     assert abrechnung.saldo(dbs, g.id) == 100
 
 
-# ---------------------------------------------------------------- N6: Hinweis ohne Cloud-Schätzwerte
+# ---------------------------------------------------------------- Hinweis ohne Cloud-Schätzwerte
 def test_n6_hinweis_ohne_cloud_schaetzwerte(client, dbs, admin, monkeypatch):  # noqa: F811
     from app import abrechnung
 
@@ -241,7 +241,7 @@ def test_n6_hinweis_ohne_cloud_schaetzwerte(client, dbs, admin, monkeypatch):  #
     assert "Für die Cloud fehlen noch Schätzwerte" not in client.get("/verwaltung/abrechnung").text
 
 
-# ---------------------------------------------------------------- S6 / S21.3, S21.2, S21.5
+# ----------------------------------------------------------------
 def _anfrage(host):
     return SimpleNamespace(client=SimpleNamespace(host=host))
 

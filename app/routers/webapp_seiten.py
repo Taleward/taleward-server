@@ -41,7 +41,7 @@ def datei(pfad: str, db: Session = Depends(get_db)):
     ziel = (basis / pfad).resolve() if pfad else basis / "index.html"
     if ziel.is_dir():
         ziel = ziel / "index.html"
-    # 0.4.152 (S60): Archive und Datenbanken liefert die Web-App nie aus, auch wenn dort jemand welche ablegt
+    # 0.4.152: Archive und Datenbanken liefert die Web-App nie aus, auch wenn dort jemand welche ablegt
     if ziel.suffix.lower() in GESPERRT or (basis not in ziel.parents and ziel != basis / "index.html") or not ziel.is_file():
         return HTMLResponse(FEHLT.replace("(noch) nicht vor", "nicht"), status_code=404)
     cache = "public, max-age=31536000, immutable" if pfad.startswith("assets/") else "no-cache"

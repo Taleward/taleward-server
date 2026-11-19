@@ -44,7 +44,7 @@ MELDUNGEN = {
     "uebernommen": "Du zahlst jetzt für diese Kampagne.",
     "mails_an": "Du bekommst wieder Hinweise per E-Mail.",
     "mails_aus": "Hinweise per E-Mail sind abbestellt.",
-    # 0.4.143 (S44): Geld-Schritte verlangen den zweiten Faktor frisch
+    # 0.4.143: Geld-Schritte verlangen den zweiten Faktor frisch
     "faktor_frisch": "Dieser Schritt braucht den zweiten Faktor frisch. Bitte bestätigen und den Schritt dann noch einmal ausführen.",
     "bestaetigt": "Bestätigt. Du kannst den Schritt jetzt ausführen.",
 }
@@ -57,7 +57,7 @@ class _Abgemeldet(Exception):
 
 
 class _FaktorNoetig(Exception):
-    """0.4.143 (S44): Geld-Schritt ohne frischen zweiten Faktor → Bestätigungsseite."""
+    """0.4.143: Geld-Schritt ohne frischen zweiten Faktor → Bestätigungsseite."""
 
 
 
@@ -109,7 +109,7 @@ def _angemeldet(request: Request, db: Session = Depends(get_db)) -> User:
 
 
 def _frisch(request: Request, user: User = Depends(_angemeldet), db: Session = Depends(get_db)) -> User:
-    """0.4.143 (S44): Geld-Schritte nur mit frischem zweitem Faktor (höchstens 5 Minuten alt, 0.4.149: in dieser
+    """0.4.143: Geld-Schritte nur mit frischem zweitem Faktor (höchstens 5 Minuten alt, 0.4.149: in dieser
     Sitzung)."""
     from app.verwaltung import zweiter_faktor
 
@@ -212,7 +212,7 @@ def _jti(token: str) -> str:
 
 def _code_seite(request: Request, db: Session, fehler: str | None = None, status: int = 200,
                 user: User | None = None, bindung: str = "-") -> HTMLResponse:
-    """0.4.143: mit Passkey (wenn es einen gibt) und dem Haken „30 Tage vertrauen“ (S44)."""
+    """0.4.143: mit Passkey (wenn es einen gibt) und dem Haken „30 Tage vertrauen“."""
     from app import passkeys, vertraut
 
     optionen = passkeys.anmeldung_beginnen(db, user, bindung) if user is not None else None
@@ -253,7 +253,7 @@ def anmelden_code(request: Request, code: str = Form(""), passkey: str = Form(""
             else "Der Passkey wurde nicht angenommen. Versuch es noch einmal oder nimm den Code."), 400, user, bindung)
     ZAEHLER.freigeben(versuch)
     token = _token(user, _aud(), timedelta(hours=STUNDEN))
-    zweiter_faktor.frisch_merken(db, user.id, "guthaben", sitzung=_jti(token))  # 0.4.149 (S57): nur diese Sitzung
+    zweiter_faktor.frisch_merken(db, user.id, "guthaben", sitzung=_jti(token))  # 0.4.149: nur diese Sitzung
     antwort = _sitzung(request, user, token)
     if vertrauen == "ja":
         vertraut.merken(antwort, request, db, user, "guthaben")
@@ -262,7 +262,7 @@ def anmelden_code(request: Request, code: str = Form(""), passkey: str = Form(""
     return antwort
 
 
-# ---------------------------------------------------------------- Frischer zweiter Faktor (0.4.143, S44)
+# ---------------------------------------------------------------- Frischer zweiter Faktor (0.4.143)
 @router.get("/bestaetigen", dependencies=[Depends(_an)])
 def bestaetigen_seite(request: Request, user: User = Depends(_angemeldet), db: Session = Depends(get_db)):
     return _bestaetigen_zeigen(request, db, user)
@@ -344,7 +344,7 @@ def seite(request: Request, db: Session = Depends(get_db)):
 
 
 def _ohne_fremde_titel(db: Session, user: User, g: Guthaben) -> list[dict]:
-    """G14: Runde, Unterlage und Auswertung (Titel) nur für die heutige SL der Kampagne – Verwalter eines Topfs, die dort
+    """Runde, Unterlage und Auswertung (Titel) nur für die heutige SL der Kampagne – Verwalter eines Topfs, die dort
     nicht SL sind, sehen nur Kampagne, Art und Betrag."""
     aus = []
     for w in abrechnung.wartende_auftraege(db, g):

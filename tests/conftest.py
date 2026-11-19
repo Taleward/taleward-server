@@ -130,3 +130,16 @@ def _keine_modellliste_aus_dem_netz(monkeypatch):
     from app import modellwahl
 
     monkeypatch.setattr(modellwahl, "HOLEN", False)
+
+
+# Diese Module prüfen den Weg der Modelldateien mit erfundenen Inhalten unter dem echten Namen des Sprechermodells.
+# Die feste Liste (app/modelle.py FEST) lässt solche Inhalte nicht zu; sie hat eigene Tests in test_server_04170.py.
+MODELLTESTS_MIT_PROBEDATEN = {"test_modellablage", "test_modelle", "test_server_04117"}
+
+
+@pytest.fixture(autouse=True)
+def _probedaten_statt_fester_modellliste(request, monkeypatch):
+    if request.module.__name__.rsplit(".", 1)[-1] in MODELLTESTS_MIT_PROBEDATEN:
+        from app import modelle
+
+        monkeypatch.setattr(modelle, "FEST", {})

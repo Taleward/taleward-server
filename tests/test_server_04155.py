@@ -1,4 +1,4 @@
-"""Server 0.4.155: Schnittstelle 0.4.32 – Discord-Bot (S63, Prüfkriterien B13 des Sicherheits-Chats)."""
+"""Server 0.4.155: Schnittstelle 0.4.32 – Discord-Bot."""
 from datetime import timedelta
 
 import pytest

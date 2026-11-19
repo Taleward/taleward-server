@@ -49,7 +49,7 @@ CADDY_ZEILE = "taleward-caddy-1 taleward_default=caddy, taleward_kern=caddy, tal
 
 
 def netz(tmp_path, zeilen=None):
-    """Nachgebildetes Netz taleward-zusatz: Caddy von Taleward und je Name ein Container der Zusatz-App (S69)."""
+    """Nachgebildetes Netz taleward-zusatz: Caddy von Taleward und je Name ein Container der Zusatz-App."""
     zeilen = zeilen if zeilen is not None else [
         CADDY_ZEILE] + [f"zusatz-{n}-1 taleward-zusatz={n},zusatz-{n}-1, zusatz_default={n}," for n in ZUSATZ_NAMEN]
     # Kennung vorn wie bei „docker inspect -f '{{.Id}} …'“; der echte Caddy hat die Kennung aus „compose ps -q caddy“
@@ -133,7 +133,7 @@ def test_netz_nur_mit_caddy():
     for name, dienst in compose["services"].items():
         netze = dienst.get("networks") or {}
         if name == "caddy":
-            assert set(netze) == {"default", "kern", "zusatz"}  # kern seit 0.4.166 (S69)
+            assert set(netze) == {"default", "kern", "zusatz"}  # kern seit 0.4.166
             assert "./extra-caddy:/etc/caddy/extra:ro" in dienst["volumes"]
         else:
             assert "zusatz" not in netze, name
@@ -150,12 +150,12 @@ def test_update_und_installation_lassen_die_regeln_stehen():
 
 
 def _absichern(tmp_path, regeln, netz_zeilen=None):
-    """Die Funktionen caddy_ok/zusatz_absichern (samt S69-Prüfung) aus aktualisieren.sh allein ausführen."""
+    """Die Funktionen caddy_ok/zusatz_absichern (samt Prüfung) aus aktualisieren.sh allein ausführen."""
     ziel, stub = _ordner(tmp_path)
     if netz_zeilen is not None:
         netz(tmp_path, netz_zeilen)
     akt = (DEPLOY / "aktualisieren.sh").read_text()
-    funktionen = akt[akt.index("# S69: Wer hängt"):akt.index("wert_setzen() {")]
+    funktionen = akt[akt.index("# Wer hängt"):akt.index("wert_setzen() {")]
     (ziel / "extra-caddy").mkdir()
     for name, inhalt in regeln.items():
         (ziel / "extra-caddy" / name).write_text(inhalt)

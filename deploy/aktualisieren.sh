@@ -125,7 +125,7 @@ gesund() {
 
 # Zusatz-Apps (zusatz-app.sh) dürfen Taleward nie offline nehmen: Passt eine ihrer Regeln nach einem Update nicht mehr
 # zu Caddy, kommt sie nach extra-caddy/aus/ und Caddy startet ohne sie
-# S69: Wer hängt im Netz der Zusatz-Apps? Je Container eine Zeile
+# Wer hängt im Netz der Zusatz-Apps? Je Container eine Zeile
 # „<kennung> <name> ,<netze>, ,<namen im Zusatz-Netz>,“
 zusatz_container() {
   local ids kennung name rest feld netze namen
@@ -154,7 +154,7 @@ TALEWARD_NAMEN='^(server|testserver|caddy|localhost|worker.*|ollama.*|taleward[-
 fremd_belegt() {  # gibt belegte Namen aus (leer = alles in Ordnung)
   local p caddy kennung name netze namen n
   p=$(projekt)
-  # S69.1: Caddy von Taleward nur an seiner Kennung erkennen, nie am Namen; läuft er nicht, wird niemand ausgenommen
+  # Caddy von Taleward nur an seiner Kennung erkennen, nie am Namen; läuft er nicht, wird niemand ausgenommen
   caddy=$(docker compose ps -q caddy 2>/dev/null | head -n 1)
   zusatz_container | while read -r kennung name netze namen; do
     if [ -n "$caddy" ] && [ "${kennung#"$caddy"}" != "$kennung" ]; then continue; fi
@@ -183,7 +183,7 @@ zusatz_absichern() {
   if test_regel_auffrischen; then docker compose restart caddy >/dev/null 2>&1 || true; fi
   compgen -G "extra-caddy/*.caddy" >/dev/null || return 0
   belegt=$(fremd_belegt)
-  if [ -n "$belegt" ]; then  # S69: jemand trägt im Netz der Zusatz-Apps einen Taleward-Namen – alle Regeln aus
+  if [ -n "$belegt" ]; then  # jemand trägt im Netz der Zusatz-Apps einen Taleward-Namen – alle Regeln aus
     mkdir -p extra-caddy/aus
     for regel in extra-caddy/*.caddy; do mv -f "$regel" extra-caddy/aus/; done
     echo "[taleward] ACHTUNG: Im Netz taleward-zusatz trägt ein Container einen Taleward-Namen (${belegt//$'\n'/; })." \

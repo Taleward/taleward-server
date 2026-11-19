@@ -144,7 +144,7 @@ def ignoriert(campaign: Campaign) -> set[str]:
 
 def anwesende(db: Session, sitzung) -> list[str]:
     """0.4.146: Namen der Anwesenden dieser Runde – Figur, Spitzname, Gast. Nur ganze Namen, keine Anzeigenamen der
-    Konten (die werden am Tisch selten gesagt). Test-Chat 29.10.: „Alekin Desch“ statt des hinterlegten Gasts."""
+    Konten (die werden am Tisch selten gesagt). Beispiel: „Alekin Desch“ statt des hinterlegten Gasts."""
     namen: list[str] = []
     for a in getattr(sitzung, "attendees", None) or []:
         if a.member_id:

@@ -345,7 +345,8 @@ Was gilt:
   sie auf der Connector-Seite freigibst – jeweils 30 Minuten, vorher beendbar.
 - Nie über den Connector: der Connector selbst, zweiter Faktor, Passkeys, vertraute Geräte, An- und Abmelden und die
   Dateien der Sicherung.
-- „Erlaubte Netze“: Anfragen werden nur aus diesen Netzen angenommen. Leer heißt von überall.
+- „Erlaubte Netze“: Anfragen werden nur aus diesen Netzen angenommen. Leer heißt von überall. Das voreingestellte
+  Netz teilen sich alle Kunden des Assistenten-Dienstes – es ist eine zusätzliche Schicht, kein Schutz für sich.
 - „Letzte Schritte des Connectors“ zeigt, was gelesen und geändert wurde (ohne Eingaben). „Trennen“ beendet einen
   Assistenten, „Ausschalten“ alle. Der Zugang endet auch, wenn du den zweiten Faktor ausschaltest oder kein Verwalter
   mehr bist.

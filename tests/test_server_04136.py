@@ -1,4 +1,4 @@
-"""Server 0.4.136: PayPal-Meldungen begrenzt und an den eigenen Auftrag gebunden (S54), Zugangstoken zwischengespeichert."""
+"""Server 0.4.136: PayPal-Meldungen begrenzt und an den eigenen Auftrag gebunden, Zugangstoken zwischengespeichert."""
 import pytest
 
 from tests.test_server_04133 import _aufladen, _einrichten, _saldo, _vorgang, anbieter  # noqa: F401

@@ -1,4 +1,4 @@
-"""Server 0.4.154: Schnittstelle 0.4.31 – Namen einmal berichtigen (S62, Prüfkriterien des Sicherheits-Chats)."""
+"""Server 0.4.154: Schnittstelle 0.4.31 – Namen einmal berichtigen."""
 import json
 from datetime import timedelta
 

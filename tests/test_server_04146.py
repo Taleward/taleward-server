@@ -1,4 +1,4 @@
-"""Server 0.4.146: Anleitungen für die Anmeldedienste (Microsoft nach Benjamins Durchgang, Google und Discord mit
+"""Server 0.4.146: Anleitungen für die Anmeldedienste (Microsoft, Google und Discord mit
 denselben Stolperstellen) und Namen der Anwesenden als Schreibhilfe für die Abschrift."""
 from tests.test_step2a import API
 from tests.test_verwaltung import admin  # noqa: F401

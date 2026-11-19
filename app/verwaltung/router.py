@@ -231,7 +231,7 @@ class EinrichtungNoetig(Exception):
 
 
 class FaktorNoetig(Exception):
-    """0.4.143 (S44): Dieser Schritt verlangt den zweiten Faktor frisch (höchstens 5 Minuten alt)."""
+    """0.4.143: Dieser Schritt verlangt den zweiten Faktor frisch (höchstens 5 Minuten alt)."""
 
     def __init__(self, weiter: str = "/"):
         super().__init__(weiter)
@@ -282,7 +282,7 @@ def _frisch_verlangen(request: Request, db: Session, user: User, noetig: bool = 
 
 
 def _umleitung_pruefen(request: Request, db: Session, user: User, zugang_gespeichert: bool, alt, neu) -> None:
-    """0.4.152 (S57.3): Ändert sich das Ziel (Adresse, Host, Port, TLS-Art), an das ein schon gespeicherter Zugang
+    """0.4.152: Ändert sich das Ziel (Adresse, Host, Port, TLS-Art), an das ein schon gespeicherter Zugang
     geht, verlangt das den frischen zweiten Faktor – sonst könnte eine Sitzung über ein vertrautes Gerät oder ein
     gestohlenes Cookie den Zugang an eine eigene Adresse schicken lassen."""
     if zugang_gespeichert and alt != neu:
@@ -290,7 +290,7 @@ def _umleitung_pruefen(request: Request, db: Session, user: User, zugang_gespeic
 
 
 def faktor_frisch(request: Request, user: User = Depends(verwalter), db: Session = Depends(get_db)) -> User:
-    """Abhängigkeit für Schritte aus der S44-Liste (Geld, Schlüssel, Verwalter, der Faktor selbst): Ohne frischen
+    """Abhängigkeit für Schritte (Geld, Schlüssel, Verwalter, der Faktor selbst): Ohne frischen
     zweiten Faktor geht es zur Bestätigungsseite; ohne eingerichteten zweiten Faktor gibt es nichts zu zeigen."""
     from app.verwaltung import zweiter_faktor
 
@@ -388,7 +388,8 @@ def anmelden_seite(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/anmelden")
-def anmelden(request: Request, username: str = Form(""), password: str = Form(""), db: Session = Depends(get_db)):
+def anmelden(request: Request, username: str = Form("", max_length=200), password: str = Form("", max_length=1024),
+             db: Session = Depends(get_db)):
     name = username.strip().lower()
     adresse = begrenzung.adresse(request)
     fehler = None
@@ -401,7 +402,7 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
         user = db.scalar(select(User).where(User.username == name))
         methode = user and db.scalar(select(AuthMethod).where(AuthMethod.user_id == user.id,
                                                              AuthMethod.kind == "password"))
-        if not (methode and verify_password(password, methode.secret)):
+        if not verify_password(password, methode.secret if methode else None):
             fehler = tr(request)("Benutzername oder Passwort stimmt nicht.")
         elif not _ist_verwalter(db, user):
             ZAEHLER.freigeben(versuch)
@@ -414,7 +415,7 @@ def anmelden(request: Request, username: str = Form(""), password: str = Form(""
             from app import vertraut
 
             if not user.setup_account and zweiter_faktor.aktiv(db, user.id) \
-                    and not vertraut.pruefen(request, db, user, "verwaltung"):  # erst noch der Code (0.4.143: S44)
+                    and not vertraut.pruefen(request, db, user, "verwaltung"):  # erst noch der Code (0.4.143)
                 antwort = RedirectResponse("/verwaltung/anmelden/code", status_code=303)
                 kekse.setzen(antwort, request, COOKIE_CODE, _code_cookie(db, user), pfad="/verwaltung",
                              max_age=CODE_MINUTEN * 60, httponly=True, samesite="strict")
@@ -495,7 +496,7 @@ def _sitzungs_bindung(request: Request) -> str:
 
 def _code_seite_zeigen(request: Request, db: Session, user: User, fehler: str | None = None,
                        status: int = 200) -> HTMLResponse:
-    """Code-Schritt: zusätzlich Passkey (Hauptknopf, wenn es einen gibt) und der Haken „30 Tage vertrauen“ (S44)."""
+    """Code-Schritt: zusätzlich Passkey (Hauptknopf, wenn es einen gibt) und der Haken „30 Tage vertrauen“."""
     from app import passkeys, vertraut
 
     optionen = passkeys.anmeldung_beginnen(db, user, _code_bindung(request))
@@ -531,7 +532,7 @@ def code_pruefen(request: Request, code: str = Form(""), passkey: str = Form("")
           else zweiter_faktor.pruefen(db, user.id, code)):
         ZAEHLER.freigeben(versuch)
         wert = _cookie_wert(db, user)
-        # 0.4.143: Schritte mit frischem Faktor gehen jetzt 5 Minuten – 0.4.149 (S57): nur in dieser neuen Sitzung
+        # 0.4.143: Schritte mit frischem Faktor gehen jetzt 5 Minuten – 0.4.149: nur in dieser neuen Sitzung
         zweiter_faktor.frisch_merken(db, user.id, sitzung=_jti(wert))
         hinweis = vertraut.hinweis_abholen(db, user.id)
         antwort = _zurueck("/", "vertraut_neu" if hinweis else None)
@@ -549,7 +550,7 @@ def code_pruefen(request: Request, code: str = Form(""), passkey: str = Form("")
     return _code_seite_zeigen(request, db, user, fehler, 400)
 
 
-# ---------------------------------------------------------------- Frischer zweiter Faktor (0.4.143, S44)
+# ---------------------------------------------------------------- Frischer zweiter Faktor (0.4.143)
 @router.get("/bestaetigen", response_class=HTMLResponse)
 def bestaetigen_seite(request: Request, weiter: str = "/", user: User = Depends(verwalter),
                       db: Session = Depends(get_db)):
@@ -661,7 +662,7 @@ def passkey_entfernen(passkey_id: str, user: User = Depends(faktor_frisch), db: 
 
 @router.post("/vertraute-geraete/entfernen", dependencies=[Depends(csrf_pruefen)])
 def vertraut_entfernen(geraet: str = Form(""), user: User = Depends(verwalter), db: Session = Depends(get_db)):
-    """Ein Gerät (Kennung) oder ohne Kennung alle – das Ansehen und Entfernen ist frei (S44)."""
+    """Ein Gerät (Kennung) oder ohne Kennung alle – das Ansehen und Entfernen ist frei."""
     from app import vertraut
 
     vertraut.entfernen(db, user.id, geraet.strip() or None)
@@ -672,10 +673,16 @@ def vertraut_entfernen(geraet: str = Form(""), user: User = Depends(verwalter), 
 @router.post("/zweiter-faktor/beginnen", dependencies=[Depends(csrf_pruefen)])
 def faktor_beginnen(request: Request, password: str = Form(""), user: User = Depends(verwalter),
                     db: Session = Depends(get_db)):
+    from app.begrenzung import ZAEHLER
     from app.verwaltung import zweiter_faktor
 
+    versuch = _versuch(begrenzung.adresse(request), f"code:{user.id}")  # 0.4.170: wie /bestaetigen
+    if versuch is None:
+        return _faktor_seite(request, user, db, fehler=tr(request)(
+            "Zu viele Fehlversuche. Bitte in ein paar Minuten erneut versuchen."))
     if not _passwort_stimmt(db, user, password):
         return _faktor_seite(request, user, db, fehler=tr(request)("Das Passwort stimmt nicht."))
+    ZAEHLER.freigeben(versuch)
     if zweiter_faktor.aktiv(db, user.id):
         return _zurueck("/anmeldung#zweiter-faktor")
     geheim = zweiter_faktor.beginnen(db, user.id)
@@ -735,11 +742,17 @@ def faktor_bestaetigen(request: Request, code: str = Form(""), user: User = Depe
 @router.post("/zweiter-faktor/aus", dependencies=[Depends(csrf_pruefen)])
 def faktor_aus(request: Request, password: str = Form(""), code: str = Form(""), user: User = Depends(verwalter),
                db: Session = Depends(get_db)):
+    from app.begrenzung import ZAEHLER
     from app.verwaltung import zweiter_faktor
 
+    versuch = _versuch(begrenzung.adresse(request), f"code:{user.id}")  # 0.4.170: wie /bestaetigen, vor dem Vergleich
+    if versuch is None:
+        return _faktor_seite(request, user, db, fehler=tr(request)(
+            "Zu viele Fehlversuche. Bitte in ein paar Minuten erneut versuchen."))
     if not _passwort_stimmt(db, user, password) or not zweiter_faktor.pruefen(db, user.id, code):
         db.commit()  # ein richtiger, verbrauchter Code bleibt verbraucht
         return _faktor_seite(request, user, db, fehler=tr(request)("Passwort oder Code stimmt nicht."))
+    ZAEHLER.freigeben(versuch)
     zweiter_faktor.ausschalten(db, user.id)
     db.commit()
     return _zurueck("/anmeldung", "faktor_aus")
@@ -976,7 +989,7 @@ def verwalter_umschalten(request: Request, user_id: str, user: User = Depends(fa
             om.role = "member"
         from app import vertraut
 
-        vertraut.entfernen(db, ziel.id)  # 0.4.143 (S44): kein Verwalter mehr → keine vertrauten Geräte
+        vertraut.entfernen(db, ziel.id)  # 0.4.143: kein Verwalter mehr → keine vertrauten Geräte
     else:
         org = default_organization(db)
         ensure_org_member(db, org.id, ziel)
@@ -1080,7 +1093,7 @@ def transkription(request: Request, user: User = Depends(verwalter), db: Session
     from app.koppeln import code_fuer
 
     return _seite(request, "transkription.html", user, db, knechte=_knechte(db), neuer_token=neuer_token,
-                  koppel=code_fuer(db, _sitzungs_bindung(request)),  # 0.4.152 (S57.4): nur die erzeugende Sitzung
+                  koppel=code_fuer(db, _sitzungs_bindung(request)),  # 0.4.152: nur die erzeugende Sitzung
                   server_url=str(request.base_url).rstrip("/"),
                   hf_ende=(_meta(db, "hf.token") or "")[-4:] or None, modell=_modell_anzeige(db),
                   neuer_name=neuer_name, fehler=fehler, lokal=KNECHT.zustand(), log=KNECHT.log_ende(),
@@ -1133,7 +1146,7 @@ def hf_speichern(request: Request, hf_token: str = Form(""), user: User = Depend
                  db: Session = Depends(get_db)):
     from app import schluessel
 
-    _frisch_verlangen(request, db, user, bool(hf_token.strip()))  # 0.4.143 (S44): Schlüssel nur mit frischem Faktor
+    _frisch_verlangen(request, db, user, bool(hf_token.strip()))  # 0.4.143: Schlüssel nur mit frischem Faktor
 
     _ = tr(request)
     token = hf_token.strip()
@@ -1162,7 +1175,7 @@ def _transkription_fehler(request: Request, user: User, db: Session, text: str) 
 
 
 @router.post("/worker", dependencies=[Depends(csrf_pruefen)])
-def knecht_anlegen(request: Request, name: str = Form(""), user: User = Depends(faktor_frisch),  # 0.4.149 (S57)
+def knecht_anlegen(request: Request, name: str = Form(""), user: User = Depends(faktor_frisch),  # 0.4.149
                    db: Session = Depends(get_db)):
     from app.routers.worker import token_hash
 
@@ -1287,7 +1300,7 @@ def extern_speichern(request: Request, anbieter: str = Form(""), api_key: str = 
     """Externe Transkription in der Oberfläche einstellen (überschreibt die .env). Der Schlüssel wird nie angezeigt."""
     from app.einstellungen import extern_konfig
 
-    _frisch_verlangen(request, db, user, bool(api_key.strip()))  # 0.4.143 (S44)
+    _frisch_verlangen(request, db, user, bool(api_key.strip()))  # 0.4.143
 
     _ = tr(request)
     if anbieter not in ("", "mistral"):
@@ -1538,7 +1551,7 @@ def zusammenfassung_speichern(request: Request, art: str = Form("aus"), anbieter
                               ausserhalb_eu: str = Form(""), weg: str = Form(""), weg_lokal: str = Form(""),
                               erweitert_fest: str = Form(""),
                               user: User = Depends(verwalter), db: Session = Depends(get_db)):
-    _frisch_verlangen(request, db, user, bool(api_key.strip()))  # 0.4.143 (S44): Cloud-Schlüssel nur mit frischem Faktor
+    _frisch_verlangen(request, db, user, bool(api_key.strip()))  # 0.4.143: Cloud-Schlüssel nur mit frischem Faktor
     """Wer Recap und Vorschläge schreibt. Überschreibt die .env; der Schlüssel wird nie angezeigt."""
     from app import cloudanbieter
     from app.einstellungen import KAPITEL_WEGE, LLM_ARTEN, llm_konfig
@@ -1556,7 +1569,7 @@ def zusammenfassung_speichern(request: Request, art: str = Form("aus"), anbieter
     url = bekannt.url if bekannt else api_url.strip().rstrip("/")
     if not _api_adresse_ok(url):
         return fehler(_("Die Adresse muss mit https:// beginnen."))
-    # 0.4.152 (S57.3): Ein gespeicherter Schlüssel geht nur mit frischem Faktor an eine andere Adresse
+    # 0.4.152: Ein gespeicherter Schlüssel geht nur mit frischem Faktor an eine andere Adresse
     gespeichert = llm_konfig(db)
     _umleitung_pruefen(request, db, user, bool(gespeichert.api_key) and not key_loeschen and not api_key.strip(),
                        gespeichert.api_url, url)
@@ -1976,7 +1989,7 @@ def benachrichtigungen_speichern(request: Request, ntfy_url: str = Form(""), ntf
                                  zeitzone: str = Form(""), user: User = Depends(verwalter),
                                  db: Session = Depends(get_db)):
     """ntfy und/oder E-Mail für Meldungen an den Betreiber. Token und Passwort sind nur schreibbar."""
-    _frisch_verlangen(request, db, user, bool(ntfy_token.strip() or smtp_pass))  # 0.4.149 (S57): neue Zugänge
+    _frisch_verlangen(request, db, user, bool(ntfy_token.strip() or smtp_pass))  # 0.4.149: neue Zugänge
     _ = tr(request)
 
     def fehler(text: str):
@@ -1998,7 +2011,7 @@ def benachrichtigungen_speichern(request: Request, ntfy_url: str = Form(""), ntf
         return fehler(_("Port bitte als Zahl, Wartezeit in Stunden zwischen 1 und 168."))
     if smtp_tls not in ("starttls", "ssl", "aus") or sprache not in ("de", "en"):
         return fehler(_("Unbekannte Auswahl."))
-    # 0.4.152 (S57.3): gespeicherter Token bzw. gespeichertes Passwort nur mit frischem Faktor an ein neues Ziel
+    # 0.4.152: gespeicherter Token bzw. gespeichertes Passwort nur mit frischem Faktor an ein neues Ziel
     from app.benachrichtigung import konfig as melde_konfig
 
     bisher = melde_konfig(db)
@@ -2059,7 +2072,7 @@ def sicherung_jetzt(user: User = Depends(faktor_frisch), db: Session = Depends(g
 
 
 @router.get("/sicherungen/{name}")
-def sicherung_herunterladen(name: str, user: User = Depends(faktor_frisch)):  # 0.4.143 (S44)
+def sicherung_herunterladen(name: str, user: User = Depends(faktor_frisch)):  # 0.4.143
     from app import sicherung
 
     p = sicherung.pfad(name)
@@ -2073,7 +2086,7 @@ def sicherung_einstellen(request: Request, auto: str = Form(""), tage: str = For
                          weiter: str = Form(""), user: User = Depends(verwalter), db: Session = Depends(get_db)):
     from app import sicherung
 
-    # 0.4.152 (S60): wohin Sicherungen zusätzlich kopiert werden, nur mit frischem Faktor ändern
+    # 0.4.152: wohin Sicherungen zusätzlich kopiert werden, nur mit frischem Faktor ändern
     _frisch_verlangen(request, db, user, ordner.strip() != (meta_lesen(db, "sicherung.ordner") or ""))
     _ = tr(request)
     try:
@@ -2311,7 +2324,7 @@ def einbinden(app: FastAPI) -> None:
                 antwort.headers.setdefault(k, v)
             return antwort
         antwort: Response = await call_next(request)
-        kekse.alte_aufraeumen(request, antwort)  # 0.4.165 (S68): Cookies von vor dem Umstieg auf „__Host-“
+        kekse.alte_aufraeumen(request, antwort)  # 0.4.165: Cookies von vor dem Umstieg auf „__Host-“
         if pfad.startswith("/verwaltung/static/"):
             antwort.headers.setdefault("Cache-Control", "public, max-age=86400")  # Stil und Logo dürfen zwischengespeichert werden
             antwort.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -2327,7 +2340,7 @@ def einbinden(app: FastAPI) -> None:
                 antwort.headers.setdefault(k, v)
         elif (antwort.headers.get("content-type", "").startswith("text/html")
               and pfad not in (DOKU_PFAD, DOKU_PFAD + "/")):
-            # 0.4.163 (S66): jede andere HTML-Seite (Rechtsseiten, /discord/<token>, /zustimmen/<token>, Fehlerseiten …)
+            # 0.4.163: jede andere HTML-Seite (Rechtsseiten, /discord/<token>, /zustimmen/<token>, Fehlerseiten …)
             # bekommt dieselben Kopfzeilen – statt einer Liste, die bei neuen Seiten vergessen werden kann
             for k, v in SICHERHEITS_KOPFZEILEN.items():
                 antwort.headers.setdefault(k, v)

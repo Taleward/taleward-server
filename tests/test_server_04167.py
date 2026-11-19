@@ -267,7 +267,7 @@ def test_kontakt_nie_zur_guthaben_seite(client, dbs, admin, wert):  # noqa: F811
         assert client.get(f"{API}/info").json().get("contact") is None
 
 
-# ---------------------------------------------------------------- S69.1: Caddy nur an der Kennung erkannt
+# ---------------------------------------------------------------- Caddy nur an der Kennung erkannt
 def test_s69_1_fremder_caddy_name_wird_erkannt(tmp_path):
     from tests.test_server_04164 import CADDY_ZEILE, _aufruf, _ordner, netz
 
@@ -313,6 +313,6 @@ def test_s69_1_hilfsfunktionen_in_beiden_skripten_gleich():
 
     def block(datei):
         text = (DEPLOY / datei).read_text(encoding="utf-8")
-        return text[text.index("# S69: Wer hängt"):text.index("  return 1\n}\n", text.index("test_regel_auffrischen() {"))]
+        return text[text.index("# Wer hängt"):text.index("  return 1\n}\n", text.index("test_regel_auffrischen() {"))]
 
     assert block("zusatz-app.sh") == block("aktualisieren.sh")

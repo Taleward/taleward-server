@@ -225,7 +225,7 @@ def test_topf_an_die_verwalter_ohne_kampagnentitel(client, world, dbs, tmp_path,
     m = post[-1]
     assert m["an"] == "vera@example.net" and m["betreff"].startswith("Something is waiting for credit")
     assert f"The credit of the organisation “{org.name}”" in m["text"]
-    assert "Rabenfels" not in m["text"] + m["html"]  # Vera ist dort nicht SL (G14)
+    assert "Rabenfels" not in m["text"] + m["html"]  # Vera ist dort nicht SL
 
 
 def test_gesperrtes_guthaben_loest_nichts_aus(client, world, dbs, tmp_path, post):

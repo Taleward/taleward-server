@@ -240,6 +240,7 @@ def exportieren(db: Session, u: User, basis_url: str) -> dict:
                                          .join(DatePoll, DatePoll.id == DateOption.poll_id)
                                          .where(DateVote.member_id.in_(member_ids))
                                          .order_by(DateOption.starts_at))] if member_ids else []
+    als_sl = {m.campaign_id for m in mitglieder if m.role == "gm" and m.left_at is None}
     return {
         "format": "taleward-export/1",
         "exportedAt": _z(utcnow()),
@@ -275,7 +276,9 @@ def exportieren(db: Session, u: User, basis_url: str) -> dict:
         } for m in mitglieder],
         **spielende.export(db, member_ids),  # 0.4.28: eigene Vorschläge (wie die Person sie sieht) und Merkstellen
         "characters": _charaktere(mitglieder, kampagnen),  # 0.4.7
-        "sessionsAttended": [{"campaignId": s.campaign_id, "sessionId": s.id, "number": s.number, "title": s.title,
+        "sessionsAttended": [{"campaignId": s.campaign_id, "sessionId": s.id, "number": s.number,
+                              # 0.4.170: Spielende sehen den Titel erst mit dem veröffentlichten Kapitel
+                              "title": s.title if s.state == "published" or s.campaign_id in als_sl else None,
                               "playedAt": _z(s.played_at), "consent": a_.consent, "consentSource": a_.consent_source,
                               "consentAt": _z(a_.consent_at)} for a_, s in anwesend],
         "consentLog": [{"campaignId": z.campaign_id, "sessionId": z.session_id, "action": z.action, "at": _z(z.at)}

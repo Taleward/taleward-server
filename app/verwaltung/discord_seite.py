@@ -80,7 +80,7 @@ def schluessel_weg(key_id: str, request: Request, user: User = Depends(faktor_fr
 
 @router.post("/discord/spurschluessel", dependencies=[Depends(csrf_pruefen)])
 def spurschluessel_neu(request: Request, user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):
-    """0.4.159 (S65.3): Schlüssel für die Spuren des Bots erneuern – nur mit frischem zweitem Faktor."""
+    """0.4.159: Schlüssel für die Spuren des Bots erneuern – nur mit frischem zweitem Faktor."""
     from app import spuren
 
     if not _faktor(db, user):
@@ -163,7 +163,7 @@ def _landeseite(request: Request, db: Session, art: str, token: str) -> HTMLResp
     pfad = "discord" if art == "verbinden" else "zustimmen"
     link = f"{basis}/{pfad}/{token}"
     browser = None
-    if gueltig:  # Web-App: #/link?url=<Link> (App-Chat 07.11.), die App nimmt das Token sofort aus der Adresse
+    if gueltig:  # Web-App: #/link?url=<Link>, die App nimmt das Token sofort aus der Adresse
         roh = webapp.browser_link(db, basis, link)
         browser = roh.replace("#/verbinden?invite=", "#/link?url=") if roh else None
     antwort = _seite(request, "discord_link.html", None, db, art=art, gueltig=gueltig,

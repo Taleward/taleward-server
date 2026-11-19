@@ -95,6 +95,18 @@ LOGIN_FENSTER = 15 * 60
 LOGIN_JE_ADRESSE, LOGIN_JE_NAME = 30, 10  # Fehlversuche im Fenster
 
 
+def passwort_versuch(request: Request, user_id: str):
+    """0.4.170: Passwortabfrage an einem angemeldeten Weg (Passwort ändern, Konto löschen) – begrenzt je Adresse und
+    Konto wie die Anmeldung, gezählt vor dem Vergleich. 429, wenn voll; bei Erfolg `ZAEHLER.freigeben`."""
+    from app.begrenzung import ZAEHLER
+
+    versuch = ZAEHLER.reservieren([(f"pw-adr:{begrenzung.adresse(request)}", LOGIN_JE_ADRESSE, LOGIN_FENSTER),
+                                   (f"pw-konto:{user_id}", LOGIN_JE_NAME, LOGIN_FENSTER)])
+    if versuch is None:
+        raise errors.ApiError(429, "too_many_requests")
+    return versuch
+
+
 @router.post("/auth/login", response_model=schemas.LoginResponse)
 def login(body: schemas.LoginRequest, request: Request, db: Session = Depends(get_db)):
     from app.begrenzung import ZAEHLER
@@ -196,10 +208,14 @@ def export(request: Request, user: User = Depends(current_user), db: Session = D
 
 
 @router.delete("/me", status_code=204)
-def delete_me(body: schemas.DeleteMeRequest, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def delete_me(body: schemas.DeleteMeRequest, request: Request, user: User = Depends(current_user),
+              db: Session = Depends(get_db)):
+    from app.begrenzung import ZAEHLER
     from app.konto import loeschen
 
+    versuch = passwort_versuch(request, user.id)  # 0.4.170: vor dem Passwortvergleich
     loeschen(db, user, body.password, body.confirm_username)
+    ZAEHLER.freigeben(versuch)
     db.commit()
     return Response(status_code=204)
 

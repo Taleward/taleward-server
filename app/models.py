@@ -156,6 +156,8 @@ class Member(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     # Verlassen oder entfernt (0.4.5): bleibt stehen wie ein gelöschtes Konto, user_id bleibt für die Rückkehr
     left_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # 0.4.170: von der SL entfernt (nicht selbst gegangen) – zurück nur mit einer danach erstellten Einladung
+    removed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     role: Mapped[str] = mapped_column(String(16))  # gm | player
     character_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     character_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -292,7 +294,7 @@ class Attendee(Base):
     consent_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
     session: Mapped[GameSession] = relationship(back_populates="attendees")
-    # 0.4.32 (Discord-Bot): Gast per Zustimmungslink – Prüfsumme der Discord-ID nur bis zum Upload (B7), Figur freiwillig
+    # 0.4.32 (Discord-Bot): Gast per Zustimmungslink – Prüfsumme der Discord-ID nur bis zum Upload, Figur freiwillig
     discord_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     character_name: Mapped[str | None] = mapped_column(String(60), nullable=True)
     mit_spur: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")  # vom Bot als Spur angemeldet
@@ -350,6 +352,8 @@ class Entry(Base):
     # 0.4.89: aus einer Auswertung von Charakterbogen bzw. Hintergrund übernommen – bis die SL Sichtbarkeit oder
     # „Wer weiß was“ selbst festlegt, wissen es nur SL und Urheberin (auch Nachzügler nicht; die KI nicht als bekannt)
     origin_analysis_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # 0.4.170: als geheim mitgebracht – gilt wie origin_analysis_id, auch wenn beim Einreichen niemand sonst da war
+    origin_secret: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     # 0.4.21: „Auch genannt“ – weitere Namen als JSON-Liste; sichtbar wie der Name
     aliases_json: Mapped[str | None] = mapped_column("aliases", Text, nullable=True)
     # 0.4.28: Pronomen (sinnvoll bei NSC), sichtbar wie der Name
@@ -365,7 +369,12 @@ class Entry(Base):
     @property
     def allgemein_bekannt(self) -> bool:
         """Öffentlich und von niemandem verborgen – nur solche Einträge gelten für die KI als Spielerwissen."""
-        return self.visibility == "public" and not self.hidden_from and not self.origin_analysis_id
+        return self.visibility == "public" and not self.hidden_from and not self.geheime_herkunft
+
+    @property
+    def geheime_herkunft(self) -> bool:
+        """Aus Bogen oder Hintergrund ausgewertet oder als geheim mitgebracht: wissen nur SL und Urheberin."""
+        return bool(self.origin_analysis_id) or bool(self.origin_secret)
 
     @property
     def aliases(self) -> list[str]:
@@ -615,6 +624,7 @@ class Proposal(Base):
     decided_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     # 0.4.18: bei source character aus einer Auswertung (Charakterbogen oder Hintergrund); None = mitgebrachte Welt
     analysis_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    origin_secret: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")  # 0.4.170, wie Entry
     relation: Mapped[str | None] = mapped_column(String(120), nullable=True)  # 0.4.19, mitgebrachte Welt (nur Anzeige)
     # 0.4.21: Dublettenprüfung ohne Sprachmodell (JSON {entryId, name, matchedName, entryType, kind}) und die
     # Entscheidung der SL, bei diesem Eintrag zu ergänzen statt neu anzulegen (nur action create)
@@ -818,7 +828,7 @@ class BekanntesGeraet(Base):
 class PlayerProposal(Base):
     """Vorschlag einer Spielerin für die Bibel. Geht nie an ein Sprachmodell und nie ins Kapitel; erst die Entscheidung
     der SL macht einen Eintrag. Nie im Umzug. text_sichtbar: beim Übernehmen stand der Text im öffentlichen Teil (nicht nur
-    in SL-Notizen) – Grundlage dafür, was die Urheberin sieht (S56, app/spielende.py)."""
+    in SL-Notizen) – Grundlage dafür, was die Urheberin sieht (app/spielende.py)."""
 
     __tablename__ = "player_proposals"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -831,7 +841,7 @@ class PlayerProposal(Base):
     state: Mapped[str] = mapped_column(String(16), default="open", index=True)  # open | accepted | rejected | withdrawn
     result_entry_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     text_sichtbar: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
-    # 0.4.149 (S56-Rest): der Text, der beim Übernehmen in den öffentlichen Teil kam – die Sicht der Urheberin prüft
+    # 0.4.149: der Text, der beim Übernehmen in den öffentlichen Teil kam – die Sicht der Urheberin prüft
     # bei jedem Abruf, ob er dort noch steht (spätere Änderungen, Kürzen auf MAX_TEXT)
     oeffentlicher_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
@@ -872,7 +882,7 @@ class Passkey(Base):
 
 
 class VertrautesGeraet(Base):
-    """Browser, dem ein Konto nach dem zweiten Faktor 30 Tage vertraut (S44, app/vertraut.py): dort entfällt beim
+    """Browser, dem ein Konto nach dem zweiten Faktor 30 Tage vertraut (app/vertraut.py): dort entfällt beim
     Anmelden nur der Code, das Passwort bleibt. Nur die SHA-256 des Merkzeichens; gebunden an Konto, token_version
     und Faktor-Fassung (Passkey entfernt, Faktor aus oder neu, neue Wiederherstellungscodes)."""
 
@@ -1040,7 +1050,7 @@ class Bezahlvorgang(Base):
     anbieter_ref: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)  # Sitzung bzw. Auftrag
     zahlung_ref: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)  # Zahlung bzw. Abbuchung
     erstattet_cent: Mapped[int] = mapped_column(Integer, default=0)
-    # 0.4.158 (S64): mit „Erstatten“ angestoßen, Meldung des Anbieters steht noch aus – sperrt einen zweiten Knopfdruck
+    # 0.4.158: mit „Erstatten“ angestoßen, Meldung des Anbieters steht noch aus – sperrt einen zweiten Knopfdruck
     erstattung_offen_cent: Mapped[int | None] = mapped_column(Integer, nullable=True)
     erstattung_offen_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     buchung_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -1121,7 +1131,7 @@ class NameFixUndo(Base):
 
 # ---------------------------------------------------------------- Discord-Bot (0.4.32, app/discord_bot.py)
 class BotKey(Base):
-    """Schlüssel des Discord-Bots: nur die SHA-256, einmal angezeigt, widerrufbar (B1)."""
+    """Schlüssel des Discord-Bots: nur die SHA-256, einmal angezeigt, widerrufbar."""
 
     __tablename__ = "bot_keys"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -1149,8 +1159,8 @@ class DiscordLink(Base):
 
 
 class DiscordConnection(Base):
-    """Kampagne ↔ Discord-Server. Gehört dem Bot-Schlüssel, der den Link ausgestellt hat (Y4), und der SL, die verbunden
-    hat (B5)."""
+    """Kampagne ↔ Discord-Server. Gehört dem Bot-Schlüssel, der den Link ausgestellt hat, und der SL, die verbunden
+    hat."""
 
     __tablename__ = "discord_connections"
     campaign_id: Mapped[str] = mapped_column(ForeignKey("campaigns.id", ondelete="CASCADE"), primary_key=True)
@@ -1177,7 +1187,7 @@ class ConsentLink(Base):
 
 
 class DiscordProtokoll(Base):
-    """B12: Verbinden, Lösen, Start, Stopp, Verwerfen, Zustimmungen je Kampagne – ohne Audio, ohne Namen von Gästen."""
+    """Verbinden, Lösen, Start, Stopp, Verwerfen, Zustimmungen je Kampagne – ohne Audio, ohne Namen von Gästen."""
 
     __tablename__ = "discord_protokoll"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

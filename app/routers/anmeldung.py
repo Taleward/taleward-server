@@ -90,6 +90,8 @@ def email_eintragen(body: schemas.EmailRequest, request: Request, user: User = D
     adresse = mail.normal(body.email)
     if not mail.gueltig(adresse):
         raise errors.bad_request("invalid_email")
+    if user.email != adresse and _zu_viele(f"email:{user.id}", 5, 3600):  # 0.4.170: zuerst zählen, dann Auskunft
+        raise errors.ApiError(429, "too_many_requests")
     anderer = db.scalar(select(User).where(User.email == adresse, User.id != user.id))
     if anderer is not None:
         raise errors.conflict("email_taken")
@@ -102,8 +104,6 @@ def email_eintragen(body: schemas.EmailRequest, request: Request, user: User = D
     basis = mail_adresse(db)
     if not mail.kann_senden(db) or not basis:
         raise errors.ApiError(503, "mail_unavailable")
-    if _zu_viele(f"email:{user.id}", 5, 3600):
-        raise errors.ApiError(429, "too_many_requests")
     einmal.verwerfen(db, "email_bestaetigen", user.id)
     wert = einmal.erzeugen(db, "email_bestaetigen", EMAIL_GUELTIG, user_id=user.id, email=adresse)
     user.email_pending = adresse
@@ -251,8 +251,14 @@ def passwort_aendern(body: schemas.PasswordChangeRequest, request: Request, user
         from app.access import terms_verlangen
 
         terms_verlangen(user, db)
-    if methode is not None and not verify_password(body.current_password or "", methode.secret):
-        raise errors.ApiError(401, "wrong_password")
+    if methode is not None:
+        from app.begrenzung import ZAEHLER
+        from app.routers.auth import passwort_versuch
+
+        versuch = passwort_versuch(request, user.id)  # 0.4.170: vor dem Passwortvergleich
+        if not verify_password(body.current_password or "", methode.secret):
+            raise errors.ApiError(401, "wrong_password")
+        ZAEHLER.freigeben(versuch)
     if passwort_zu_schwach(body.new_password or "", user.username, user.display_name):
         raise errors.bad_request("weak_password")
     alt = user.token_version
@@ -321,7 +327,7 @@ def dienst_start(provider: str, request: Request, challenge: str = "", purpose: 
     # Bindung an diesen Browser. Apple antwortet per Formular (POST von fremder Seite) → über HTTPS SameSite=None,
     # sonst (Heimnetz ohne HTTPS) Lax; nur der Rückweg-Pfad bekommt das Cookie.
     https = basis.startswith("https://")
-    # 0.4.165 (S68): über HTTPS mit Vorsatz „__Host-“ (Pfad dann „/“), sonst wie bisher nur der Rückweg-Pfad
+    # 0.4.165: über HTTPS mit Vorsatz „__Host-“ (Pfad dann „/“), sonst wie bisher nur der Rückweg-Pfad
     kekse.setzen(antwort, request, anmeldedienste.bindung_cookie(zustand), geheimnis, pfad="/auth/oidc/", sicher=https,
                  max_age=int(anmeldedienste.ZUSTAND_GUELTIG.total_seconds()), httponly=True,
                  samesite="none" if https else "lax")
@@ -357,7 +363,7 @@ def _zur_app(ziel: str, status: int = 303, state: str = "", request: Request | N
 
 
 def _bindung(request: Request, db: Session, state: str) -> dict:
-    """0.4.165 (S68): nur das Bindungs-Cookie dieses Ablaufs unter dem erwarteten Namen (über HTTPS „__Host-…“);
+    """0.4.165: nur das Bindungs-Cookie dieses Ablaufs unter dem erwarteten Namen (über HTTPS „__Host-…“);
     kommt es doppelt, gilt keins."""
     basis = anmeldedienste.bindung_cookie(state)
     wert = kekse.lesen(request, basis, sicher=oeffentliche_adresse(db, request).startswith("https://"))

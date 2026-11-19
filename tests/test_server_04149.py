@@ -1,5 +1,5 @@
-"""Server 0.4.149: frischer zweiter Faktor je Sitzung und auf allen Wegen zu Schlüsseln (S57), Merkzeichen und
-Challenge (S58), Sicht der Urheberin auf übernommene Vorschläge nach späteren Änderungen (S56-Rest)."""
+"""Server 0.4.149: frischer zweiter Faktor je Sitzung und auf allen Wegen zu Schlüsseln, Merkzeichen und
+Challenge, Sicht der Urheberin auf übernommene Vorschläge nach späteren Änderungen."""
 import time
 
 from sqlalchemy import select
@@ -12,7 +12,7 @@ from tests.test_step2a import API
 from tests.test_verwaltung import admin  # noqa: F401
 
 
-# ---------------------------------------------------------------- S57: frisch nur in dieser Sitzung
+# ---------------------------------------------------------------- frisch nur in dieser Sitzung
 def test_frisch_gilt_nur_fuer_die_sitzung(dbs, admin):  # noqa: F811
     from app.verwaltung import zweiter_faktor as zf
 
@@ -93,7 +93,7 @@ def test_assistent_und_zugaenge_verlangen_frischen_faktor(client, dbs, admin, mo
     assert "bestaetigen" not in r.headers["location"]
 
 
-# ---------------------------------------------------------------- S58
+# ----------------------------------------------------------------
 def test_merkzeichen_nur_aus_dem_richtigen_cookie_und_immer_neu(client, dbs, admin, konto_post):  # noqa: F811
     from app import vertraut
     from app.models import VertrautesGeraet
@@ -195,7 +195,7 @@ def test_rechteentzug_ueber_die_kommandozeile_entfernt_vertraute_geraete(dbs, ad
     assert {om.role for om in dbs.scalars(select(OrgMember).where(OrgMember.user_id == chef.id))} == {"member"}
 
 
-# ---------------------------------------------------------------- S56-Rest
+# ----------------------------------------------------------------
 def test_urheberin_sieht_spaetere_aenderungen(client, world):
     from tests.test_server_04144 import _eigene, _eintrag, _vorschlagen
 

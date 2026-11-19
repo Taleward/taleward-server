@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from fastapi.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFile
 from sqlalchemy.orm import Session
 
@@ -85,13 +86,18 @@ async def create_profile(
     vp = db.get(VoiceProfile, user.id)
     if vp is not None and vp.status == "processing":
         raise errors.conflict("voice_processing")
-    dauer = _dauer(daten)
+    dauer = await run_in_threadpool(_dauer, daten)  # ffprobe: eigener Faden
     if dauer is not None and dauer < MIN_AUFNAHME_SEKUNDEN:
         raise errors.bad_request("voice_too_short", "voice_too_short", sekunden=int(dauer))
     lernen = None if learn_from_sessions is None else learn_from_sessions == "true"
-    vp = stimmprofile.anlegen(db, user.id, daten, lernen)
-    db.commit()
+    vp = await run_in_threadpool(_anlegen, db, user.id, daten, lernen)
     return _out(db, vp, sprache(request))
+
+
+def _anlegen(db: Session, user_id: str, daten: bytes, lernen: bool | None):
+    vp = stimmprofile.anlegen(db, user_id, daten, lernen)
+    db.commit()
+    return vp
 
 
 @router.patch("/me/voice-profile", response_model=schemas.VoiceProfileOut)

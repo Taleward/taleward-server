@@ -1,5 +1,5 @@
 """Server 0.4.144 (Schnittstelle 0.4.27 + 0.4.28): Gerätekennung bei der App-Anmeldung, Vorschläge von Spielenden,
-Merken, Pronomen, Zähler – mit den Prüfkriterien des Sicherheits-Chats (S56 und Bedingungen 1–23)."""
+Merken, Pronomen, Zähler."""
 import json
 from datetime import datetime, timedelta, timezone
 
@@ -36,7 +36,7 @@ def _eigene(client, w, h=None):
     return {p["id"]: p for p in client.get(f"{API}/campaigns/{w['cid']}/player-proposals", headers=h or w["pl"]).json()}
 
 
-# ---------------------------------------------------------------- Vorschläge: S56
+# ---------------------------------------------------------------- Vorschläge
 def test_s56_urheberin_sieht_abgelehnt_und_verborgen_gleich(client, world):
     w = world
     geheim = _eintrag(client, w, name="Graf Orlok", visibility="gm_only")
@@ -169,7 +169,7 @@ def test_aufbewahrung_austritt_und_auskunft(client, world, dbs):
     neu = _vorschlagen(client, w, title="Neu").json()
     auskunft = client.get(f"{API}/me/export", headers=w["pl"]).json()
     zustaende = {p["title"]: p["state"] for p in auskunft["playerProposals"]}
-    assert zustaende == {"Alt": "closed", "Neu": "open"}  # wie die Person ihn sieht (S56)
+    assert zustaende == {"Alt": "closed", "Neu": "open"}  # wie die Person ihn sieht
     p = dbs.get(PlayerProposal, alt["id"])
     p.decided_at = utcnow() - timedelta(days=91)
     dbs.commit()

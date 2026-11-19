@@ -1,23 +1,23 @@
-"""Discord-Bot (Schnittstelle 0.4.32, S63 mit B1–B13).
+"""Discord-Bot (Schnittstelle 0.4.32).
 
 Ein Bot nimmt Online-Runden im Sprachkanal je Person als eigene Spur auf. Hier liegt alles, was der Server dafür
 prüft; die Wege stehen in app/routers/discord.py.
 
 Verbindlich:
 - Alles standardmäßig aus (Schalter `discord.bot` in der Verwaltung). Aus → alle Bot-Wege 404.
-- Bot-Schlüssel (B1): mindestens 32 Byte Zufall, gespeichert nur als SHA-256, einmal angezeigt, widerrufbar; nur
+- Bot-Schlüssel: mindestens 32 Byte Zufall, gespeichert nur als SHA-256, einmal angezeigt, widerrufbar; nur
   `/bot/…` und der Upload eigener Runden. Erzeugen und Widerrufen nur in der Verwaltung mit frischem zweitem Faktor.
-- Verbindung Kampagne ↔ Gilde nur über einen Link bzw. Drei-Wörter-Code vom Bot (B3: ≥ 128 Bit bzw. drei Wörter aus
-  WOERTER, nur Prüfsumme, einmalig, 15 Minuten), eingelöst von der SL mit genau der Discord-ID des Befehls (B4, frisch
-  geprüft). Die Verbindung gehört dem Schlüssel, der den Link ausgestellt hat (Y4), und gilt nur, solange die
-  verbindende Person aktive SL ist und ihr Konto noch mit dieser Discord-ID verknüpft ist (B5) – sonst löst sie sich.
-- Bereitschaft je Discord-ID nur ready | consent_required | link_required, ohne Namen (B11).
-- Gäste stimmen nur über einen eigenen Link für diese Runde zu (consentSource link, B6); ihre Discord-ID liegt nur als
-  Prüfsumme an der Runde und nur, bis die Aufnahme hochgeladen ist (B7).
-- Widerruf (B8): ein Mitglied, das in der App widerruft, ist sofort nicht mehr ready, verliert seine Spur samt
+- Verbindung Kampagne ↔ Gilde nur über einen Link bzw. Drei-Wörter-Code vom Bot (≥ 128 Bit bzw. drei Wörter aus
+  WOERTER, nur Prüfsumme, einmalig, 15 Minuten), eingelöst von der SL mit genau der Discord-ID des Befehls (frisch
+  geprüft). Die Verbindung gehört dem Schlüssel, der den Link ausgestellt hat, und gilt nur, solange die
+  verbindende Person aktive SL ist und ihr Konto noch mit dieser Discord-ID verknüpft ist – sonst löst sie sich.
+- Bereitschaft je Discord-ID nur ready | consent_required | link_required, ohne Namen.
+- Gäste stimmen nur über einen eigenen Link für diese Runde zu (consentSource link); ihre Discord-ID liegt nur als
+  Prüfsumme an der Runde und nur, bis die Aufnahme hochgeladen ist.
+- Widerruf: ein Mitglied, das in der App widerruft, ist sofort nicht mehr ready, verliert seine Spur samt
   angekommener Teile; ein Gast über DELETE …/tracks.
-- Mengen (B9, B10): 12 Spuren, 6 Stunden, 10 Bot-Runden je Kampagne und Tag, Grenzen je Schlüssel und Kampagne.
-- Protokoll je Kampagne (B12) ohne Audio und ohne Anzeigenamen von Gästen.
+- Mengen: 12 Spuren, 6 Stunden, 10 Bot-Runden je Kampagne und Tag, Grenzen je Schlüssel und Kampagne.
+- Protokoll je Kampagne ohne Audio und ohne Anzeigenamen von Gästen.
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ SCHALTER = "discord.bot"
 LINK_MINUTEN = 15
 LINKS_JE_STUNDE = 10  # je Discord-ID
 ZUSTIMMUNGSLINKS_JE_RUNDE = 5  # je Discord-ID und Runde
-BEREITSCHAFT_JE_STUNDE = 360  # je Kampagne bzw. je laufender Bot-Runde (D5.1: der Takt alle 30 s braucht 120)
+BEREITSCHAFT_JE_STUNDE = 360  # je Kampagne bzw. je laufender Bot-Runde (der Takt alle 30 s braucht 120)
 BEREITSCHAFT_IDS = 25
 RUNDEN_JE_TAG = 10  # je Kampagne
 MAX_SPUREN = 12
@@ -90,7 +90,7 @@ def _hash(wert: str) -> str:
 
 
 def id_hash(discord_id: str) -> str:
-    """Prüfsumme einer Discord-ID (Gäste, B7) – mit eigenem Präfix, damit sie nicht mit Geheimnissen verwechselt wird."""
+    """Prüfsumme einer Discord-ID (Gäste) – mit eigenem Präfix, damit sie nicht mit Geheimnissen verwechselt wird."""
     return _hash("discord-id:" + discord_id)
 
 
@@ -117,7 +117,7 @@ VERLAUF_ARTEN = {
     "zustimmung_mitglied": "consent_member", "zustimmung_gast": "consent_guest",
 }
 VERLAUF_HOECHSTENS = 200
-VERLAUF_TAGE = 365  # Wartung löscht ältere Einträge (Sicherheits-Chat 08.11.)
+VERLAUF_TAGE = 365  # Wartung löscht ältere Einträge
 
 
 def verlauf(db: Session, c: Campaign) -> list[dict]:
@@ -139,7 +139,7 @@ def verlauf(db: Session, c: Campaign) -> list[dict]:
     return aus
 
 
-# ---------------------------------------------------------------- Bot-Schlüssel (B1)
+# ---------------------------------------------------------------- Bot-Schlüssel
 def schluessel_erzeugen(db: Session, name: str, von: str) -> tuple[str, BotKey]:
     klartext = "twb_" + secrets.token_urlsafe(32)
     k = BotKey(name=aliasse.zeichen_bereinigen(name)[:80] or "Discord-Bot", hash=_hash(klartext), created_by=von)
@@ -179,7 +179,7 @@ def konto_zu(db: Session, discord_id: str) -> User | None:
 # ---------------------------------------------------------------- Verbindung Kampagne ↔ Gilde
 def verbindung(db: Session, c: Campaign | str) -> DiscordConnection | None:
     """Gültige Verbindung oder None. Löst sie, wenn die verbindende Person nicht mehr aktive SL ist, ihr Konto nicht
-    mehr mit der Discord-ID verknüpft ist (B5) oder der Schlüssel widerrufen wurde (dann ruht sie: Y4)."""
+    mehr mit der Discord-ID verknüpft ist oder der Schlüssel widerrufen wurde (dann ruht sie)."""
     cid = c if isinstance(c, str) else c.id
     v = db.get(DiscordConnection, cid)
     if v is None:
@@ -274,7 +274,7 @@ def link_einloesen(db: Session, user: User, token: str | None, code: str | None,
                                        Member.left_at.is_(None)))
     if m is None or m.role != "gm":
         raise errors.not_found("campaign")
-    if discord_id_von(db, user.id) != link.discord_user_id:  # B4: frisch prüfen
+    if discord_id_von(db, user.id) != link.discord_user_id:  # frisch prüfen
         raise errors.conflict("discord_link_required")
     # einmalig und atomar
     n = db.execute(update(DiscordLink).where(DiscordLink.id == link.id, DiscordLink.used_at.is_(None))
@@ -384,7 +384,7 @@ def bereitschaft(db: Session, k: BotKey, campaign_id: str, ids: list[str], sessi
         s = db.get(GameSession, session_id[:64])
         if s is None or s.campaign_id != c.id or s.bot_key_id != k.id:
             s = None
-    # D5.1: Der Takt einer laufenden Bot-Runde zählt für sich, damit Klicks auf „Zustimmen“ und /taleward bereit ihn nie
+    # Der Takt einer laufenden Bot-Runde zählt für sich, damit Klicks auf „Zustimmen“ und /taleward bereit ihn nie
     # ausbremsen (sonst kämen Widerrufe beim Bot nicht mehr an). Die Grenze je Bot-Schlüssel gilt zusätzlich.
     topf = f"discord-bereit-runde:{s.id}" if s is not None and s.state == "recording" else f"discord-bereit:{c.id}"
     if not ZAEHLER.versuch(topf, BEREITSCHAFT_JE_STUNDE, 3600):
@@ -456,7 +456,7 @@ def ereignis(db: Session, k: BotKey, session_id: str, typ: str, at: datetime) ->
     elif typ == "discarded":
         protokoll(db, c.id, "aufnahme_verworfen", runde=s.id)
         angekommen = db.scalar(select(exists().where(Upload.session_id == s.id)))
-        if angekommen or _hat_inhalt(db, s):  # Y1: nichts löschen, was die SL schon geschrieben hat
+        if angekommen or _hat_inhalt(db, s):  # nichts löschen, was die SL schon geschrieben hat
             runde_beenden(db, s)
         else:
             from app.routers.sessions import runde_entfernen
@@ -465,7 +465,7 @@ def ereignis(db: Session, k: BotKey, session_id: str, typ: str, at: datetime) ->
 
 
 def merken(db: Session, k: BotKey, session_id: str, discord_id: str, at: datetime, note: str | None) -> dict:
-    """0.4.35 (M2): Stelle für ein Mitglied merken. Nur eigene Bot-Runde in recording; das Mitglied nur über die
+    """0.4.35: Stelle für ein Mitglied merken. Nur eigene Bot-Runde in recording; das Mitglied nur über die
     verknüpfte Discord-ID unter den Anwesenden dieser Runde mit Spur und gültiger Zustimmung – sonst 404 ohne Grund. Gast
     → 409. Danach genau wie „Merken“ in der App (spielende.merken: 200 je Runde, 60/min je Mitglied). Antwort ohne
     Kennung der Merkstelle."""
@@ -546,7 +546,7 @@ def bot_spur_verwerfen(db: Session, k: BotKey, session_id: str, attendee_id: str
 
 
 def widerruf_in_der_app(db: Session, m: Member) -> None:
-    """B8: Ein Mitglied widerruft seine Zustimmung – laufende bzw. noch nicht verarbeitete Bot-Runden der Kampagne
+    """Ein Mitglied widerruft seine Zustimmung – laufende bzw. noch nicht verarbeitete Bot-Runden der Kampagne
     verlieren seine Spur sofort."""
     for a, s in db.execute(select(Attendee, GameSession).join(GameSession, GameSession.id == Attendee.session_id)
                            .where(Attendee.member_id == m.id, GameSession.bot_key_id.is_not(None),
@@ -555,7 +555,7 @@ def widerruf_in_der_app(db: Session, m: Member) -> None:
 
 
 def gaeste_vergessen(db: Session, s: GameSession) -> None:
-    """B7: Discord-Prüfsummen von Gästen nur, solange die Runde aufnimmt bzw. bis der Upload abgeschlossen ist."""
+    """Discord-Prüfsummen von Gästen nur, solange die Runde aufnimmt bzw. bis der Upload abgeschlossen ist."""
     for a in db.scalars(select(Attendee).where(Attendee.session_id == s.id, Attendee.discord_hash.is_not(None))):
         a.discord_hash = None
     db.execute(ConsentLink.__table__.delete().where(ConsentLink.session_id == s.id))
@@ -626,7 +626,7 @@ def zustimmen(db: Session, token: str, user: User | None, gastname: str | None, 
                 from app.access import terms_verlangen
 
                 terms_verlangen(user, db)  # wie PUT …/recording-consent
-                set_recording_consent(db, m, True)  # gilt für alle Aufnahmen der Kampagne bis zum Widerruf (Y2)
+                set_recording_consent(db, m, True)  # gilt für alle Aufnahmen der Kampagne bis zum Widerruf
             a = db.scalar(select(Attendee).where(Attendee.session_id == s.id, Attendee.member_id == m.id))
             if a is None:
                 pos = db.scalar(select(func.max(Attendee.position)).where(Attendee.session_id == s.id))
@@ -650,7 +650,7 @@ def zustimmen(db: Session, token: str, user: User | None, gastname: str | None, 
         db.add(a)
     a.guest_name, a.character_name, a.consent, a.consent_source, a.consent_at = name, figur, True, "link", utcnow()
     a.consent_fassung = CONSENT_FASSUNG
-    protokoll(db, c.id, "zustimmung_gast", runde=s.id)  # ohne Namen (B12)
+    protokoll(db, c.id, "zustimmung_gast", runde=s.id)  # ohne Namen
     db.flush()
     return a
 
@@ -665,7 +665,7 @@ def _verbrauchen(db: Session, z: ConsentLink) -> bool:
 
 # ---------------------------------------------------------------- Upload mit Bot-Schlüssel
 def upload_pruefen(db: Session, k: BotKey, s: GameSession, files) -> dict[str, Attendee]:
-    """B9/Y3: nur Runden dieses Schlüssels in recording, nur trackAttendeeId, nur Spuren mit Zustimmung."""
+    """nur Runden dieses Schlüssels in recording, nur trackAttendeeId, nur Spuren mit Zustimmung."""
     c, _v = _kampagne_fuer_bot(db, k, s.campaign_id)
     if s.bot_key_id != k.id:
         raise errors.not_found("session")
@@ -738,7 +738,7 @@ def abschluss_pruefen(db: Session, s: GameSession, up: Upload) -> None:
 
 
 def erlaubte_sekunden(s: GameSession) -> int:
-    """B9: Höchstlänge der Spuren einer Bot-Runde – nie über MAX_STUNDEN, und nicht deutlich länger als die Zeit
+    """Höchstlänge der Spuren einer Bot-Runde – nie über MAX_STUNDEN, und nicht deutlich länger als die Zeit
     zwischen Startton und Ende (gemeldetes Ende, sonst jetzt); 10 % und 10 Minuten Spielraum."""
     start = _utc(s.recording_started_at or s.played_at)
     ende = _utc(s.bot_gestoppt_at) or utcnow()

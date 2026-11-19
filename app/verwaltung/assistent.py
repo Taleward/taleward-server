@@ -72,13 +72,27 @@ def _alte_sitzung(request: Request, db: Session) -> User | None:
 
 
 @router.get("/einrichtung", response_class=HTMLResponse)
-def einrichtung_seite(request: Request, code: str = "", db: Session = Depends(get_db), fehler: str = ""):
+def einrichtung_seite(request: Request, code: str = "", db: Session = Depends(get_db)):
+    return _einrichtung_zeigen(request, code, db, zaehlt_schon=False)
+
+
+def _einrichtung_zeigen(request: Request, code: str, db: Session, fehler: str = "", zaehlt_schon: bool = True):
+    """Seite der Ersteinrichtung. `zaehlt_schon`: der Aufrufer (das Formular) hat den Versuch schon gezählt."""
     alt = _alte_sitzung(request, db)
     if alt is None and not einrichtung.braucht_einrichtung(db):
         return RedirectResponse("/verwaltung/anmelden", status_code=303)
     if not code and alt is None and einrichtung.heimnetz_ohne_code(request, db):
         code = einrichtung.code_erzeugen(db)  # Taleward-Box: Code wird still ins Formular gelegt
-    gueltig = alt is not None or einrichtung.code_pruefen(db, code)
+    gueltig = alt is not None
+    if not gueltig and code and not zaehlt_schon:  # 0.4.170: ein Code in der Adresse wird wie im Formular gezählt
+        versuch = _versuch(begrenzung.adresse(request), None)
+        if versuch is None:
+            code, fehler = "", fehler or tr(request)("Zu viele Fehlversuche. Bitte in ein paar Minuten erneut versuchen.")
+        elif einrichtung.code_pruefen(db, code):
+            begrenzung.ZAEHLER.freigeben(versuch)
+            gueltig = True
+    elif not gueltig:
+        gueltig = einrichtung.code_pruefen(db, code)
     return _seite(request, "einrichtung.html", None, db, fehler=fehler, code=code if gueltig else "",
                   code_falsch=bool(code) and not gueltig, alt=alt is not None,
                   csrf_wert=getattr(request.state, "csrf", ""))
@@ -98,15 +112,15 @@ def einrichtung_abschliessen(request: Request, code: str = Form(""), username: s
         adresse_ = begrenzung.adresse(request)
         versuch = _versuch(adresse_, None)
         if versuch is None:
-            return einrichtung_seite(request, "", db, _("Zu viele Fehlversuche. Bitte in ein paar Minuten erneut versuchen."))
+            return _einrichtung_zeigen(request, "", db, _("Zu viele Fehlversuche. Bitte in ein paar Minuten erneut versuchen."))
         if not einrichtung.code_pruefen(db, code):
-            antwort = einrichtung_seite(request, code, db)
+            antwort = _einrichtung_zeigen(request, code, db)
             antwort.status_code = 400
             return antwort
         begrenzung.ZAEHLER.freigeben(versuch)  # Code stimmt – Formfehler zählen nicht als Fehlversuch
 
     def fehler(text: str):
-        antwort = einrichtung_seite(request, code, db, text)
+        antwort = _einrichtung_zeigen(request, code, db, text)
         antwort.status_code = 400
         return antwort
 
@@ -244,7 +258,7 @@ def betrieb_speichern(request: Request, mistral_key: str = Form(""), hf_token: s
                       db: Session = Depends(get_db)):
     from app.verwaltung.router import _frisch_verlangen
 
-    # 0.4.149 (S57): neue Schlüssel auch im Assistenten nur mit frischem Faktor – wie unter Transkription/Zusammenfassung
+    # 0.4.149: neue Schlüssel auch im Assistenten nur mit frischem Faktor – wie unter Transkription/Zusammenfassung
     _frisch_verlangen(request, db, user, bool(mistral_key.strip() or hf_token.strip()))
     _ = tr(request)
     art = einrichtung.betriebsart(db)
@@ -330,7 +344,7 @@ def zusammenfassung_speichern(request: Request, wahl: str = Form(""), mistral_ke
                               user: User = Depends(verwalter), db: Session = Depends(get_db)):
     from app.verwaltung.router import _frisch_verlangen
 
-    _frisch_verlangen(request, db, user, bool(mistral_key.strip()))  # 0.4.149 (S57)
+    _frisch_verlangen(request, db, user, bool(mistral_key.strip()))  # 0.4.149
     _ = tr(request)
     if wahl == "api":
         key = mistral_key.strip()
@@ -345,7 +359,7 @@ def zusammenfassung_speichern(request: Request, wahl: str = Form(""), mistral_ke
                            art=einrichtung.betriebsart(db), llm=llm_konfig(db), mistral=False, hinweis="")
         from app.verwaltung.router import _umleitung_pruefen
 
-        bisher = llm_konfig(db)  # 0.4.152 (S57.3): gespeicherter Schlüssel nur mit frischem Faktor an eine neue Adresse
+        bisher = llm_konfig(db)  # 0.4.152: gespeicherter Schlüssel nur mit frischem Faktor an eine neue Adresse
         _umleitung_pruefen(request, db, user, bool(bisher.api_key) and not key, bisher.api_url, MISTRAL_URL)
         meta_schreiben(db, "llm.art", "api")
         meta_schreiben(db, "llm.api_url", MISTRAL_URL)
@@ -651,7 +665,7 @@ def sicherung_schritt(request: Request, user: User = Depends(verwalter), db: Ses
 
 
 @router.post("/assistent/sicherung/jetzt", dependencies=[Depends(csrf_pruefen)])
-def sicherung_jetzt(user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):  # 0.4.149 (S57)
+def sicherung_jetzt(user: User = Depends(faktor_frisch), db: Session = Depends(get_db)):  # 0.4.149
     from app import sicherung
 
     e = sicherung.einstellungen(db)
@@ -670,7 +684,7 @@ def spielleitung(request: Request, angelegt: str = "", user: User = Depends(verw
 
 @router.post("/assistent/spielleitung", dependencies=[Depends(csrf_pruefen)])
 def spielleitung_anlegen(request: Request, username: str = Form(""), display_name: str = Form(""),
-                         password: str = Form(""), user: User = Depends(faktor_frisch),  # 0.4.149 (S57)
+                         password: str = Form(""), user: User = Depends(faktor_frisch),  # 0.4.149
                          db: Session = Depends(get_db)):
     from app.cli import _neues_konto
     from app.konto import registrierung

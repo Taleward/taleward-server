@@ -109,7 +109,7 @@ def _laden(db: Session) -> Signierer | None:
 
 
 def signierer(db: Session) -> Signierer:
-    """Den Schlüssel holen, beim ersten Mal anlegen. 0.4.152 (S61): Angelegt wird nur, wenn wirklich keiner gespeichert
+    """Den Schlüssel holen, beim ersten Mal anlegen. 0.4.152: Angelegt wird nur, wenn wirklich keiner gespeichert
     ist – ein gespeicherter, der sich nicht öffnen lässt, bleibt stehen (NichtLesbar). Legen zwei Anfragen zugleich
     den ersten an, gewinnt eine; die andere liest deren Schlüssel."""
     from sqlalchemy.exc import IntegrityError
@@ -186,7 +186,7 @@ def fuer_mich(db: Session, me) -> dict | None:
         neu = ShareKey(member_id=me.id, key_id=secrets.token_urlsafe(12), key=b64u(os.urandom(32)),
                        bindung=_bindung(me))
         try:
-            with db.begin_nested():  # 0.4.152 (S61): zwei gleichzeitige erste Aufrufe – einer legt an
+            with db.begin_nested():  # 0.4.152: zwei gleichzeitige erste Aufrufe – einer legt an
                 db.add(neu)
             k = neu
         except IntegrityError:

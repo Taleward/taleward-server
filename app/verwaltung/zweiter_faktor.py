@@ -142,7 +142,7 @@ def bestaetigen(db: Session, user_id: str, eingabe: str) -> list[str] | None:
     meta_schreiben(db, _schluessel(user_id), json.dumps({
         "geheim": _zu(geheim), "zuletzt": fenster, "codes": [_hash(c) for c in codes], "seit": int(time.time())}))
     _loeschen(db, _neu_schluessel(user_id))
-    faktor_fassung_erhoehen(db, user_id)  # S44: neuer Faktor, neue Wiederherstellungscodes → vertraute Geräte ungültig
+    faktor_fassung_erhoehen(db, user_id)  # neuer Faktor, neue Wiederherstellungscodes → vertraute Geräte ungültig
     from app import konto_mail
     from app.models import User
 
@@ -157,7 +157,7 @@ def ausschalten(db: Session, user_id: str) -> None:
     from app import passkeys
 
     passkeys.alle_entfernen(db, user_id)  # 0.4.143: ohne Code kein Passkey (TOTP ist der Rückweg)
-    faktor_fassung_erhoehen(db, user_id)  # S44: vertraute Geräte werden ungültig
+    faktor_fassung_erhoehen(db, user_id)  # vertraute Geräte werden ungültig
     frisch_vergessen(db, user_id)
     if war_an:
         from app import konto_mail
@@ -213,7 +213,7 @@ def pruefen(db: Session, user_id: str, eingabe: str, jetzt: float | None = None)
     return False
 
 
-# ---------------------------------------------------------------- Faktor-Fassung und frischer Faktor (0.4.143, S44)
+# ---------------------------------------------------------------- Faktor-Fassung und frischer Faktor (0.4.143)
 FRISCH_SEKUNDEN = 5 * 60
 
 
@@ -236,7 +236,7 @@ def _sitzung_ok(sitzung: str | None) -> bool:
 
 def frisch_merken(db: Session, user_id: str, bereich: str = "verwaltung", *, sitzung: str) -> None:
     """Der zweite Faktor (Code oder Passkey) wurde gerade gezeigt – Schritte, die ihn frisch verlangen, gehen jetzt
-    FRISCH_SEKUNDEN lang, und nur in genau dieser Sitzung (jti des Sitzungs-Cookies, 0.4.149: S57). Eine andere
+    FRISCH_SEKUNDEN lang, und nur in genau dieser Sitzung (jti des Sitzungs-Cookies, 0.4.149). Eine andere
     Sitzung desselben Kontos – etwa über ein vertrautes Gerät – muss den Faktor selbst zeigen. Auf einem vertrauten
     Gerät wird das beim Anmelden nicht gesetzt."""
     if not _sitzung_ok(sitzung):

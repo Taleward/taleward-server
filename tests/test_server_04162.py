@@ -1,4 +1,4 @@
-"""Server 0.4.162: D5.1 (Bereitschaft je laufender Bot-Runde) und Rechtstexte des Discord-Bots auf dem Server."""
+"""Server 0.4.162.1 (Bereitschaft je laufender Bot-Runde) und Rechtstexte des Discord-Bots auf dem Server."""
 from pathlib import Path
 
 from tests.test_server_04143 import _chef, _faktor_an
@@ -8,7 +8,7 @@ from tests.test_step2a import API
 from tests.test_verwaltung import admin  # noqa: F401 (Fixture)
 
 
-# ---------------------------------------------------------------- D5.1
+# ----------------------------------------------------------------
 def test_takt_der_laufenden_runde_zaehlt_fuer_sich(client, bot, dbs, monkeypatch):  # noqa: F811
     from app import discord_bot
 
@@ -64,8 +64,9 @@ def test_vorlagen_aus_den_angaben_ohne_interna(dbs):
     assert "https://taleward.moorbach.example/datenschutz" in ds and "Stand:" not in ds
     # nichts Internes im öffentlichen Repo
     quelle = (Path(__file__).parent.parent / "app" / "rechtstexte_bot.py").read_text(encoding="utf-8")
-    for wort in ("netcup", "Hemer", "Goldacker", "Nürnberg", "Düsseldorf", "Welk", "info@taleward"):
-        assert wort not in quelle
+    import re as _re
+
+    assert "@taleward" not in quelle and not _re.search(r"\b\d{5}\b", quelle)  # keine Adresse, keine Postleitzahl
 
 
 def test_veroeffentlichen_nur_ohne_klammern_und_mit_faktor(client, dbs, admin):  # noqa: F811

@@ -1,6 +1,7 @@
 import re
 from datetime import datetime, timezone
 
+from fastapi.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -144,6 +145,9 @@ def join(body: schemas.JoinRequest, request: Request, user: User = Depends(curre
     mit_platzcode = bool(inv.member_id)
     if me is None:
         frueher = db.scalar(select(Member).where(Member.campaign_id == c.id, Member.user_id == user.id))
+        if frueher is not None and frueher.removed_at is not None and inv.created_at <= frueher.removed_at:
+            # 0.4.170: wer entfernt wurde, braucht eine neue Einladung – die alte gilt für diese Person nicht mehr
+            raise errors.ApiError(404, "invite_invalid")
         # 0.4.8: offener Platz aus einem Umzug – per Platz-Einladung oder über die Kennung des Charakters
         if inv.member_id:
             platz = db.get(Member, inv.member_id)
@@ -164,7 +168,7 @@ def join(body: schemas.JoinRequest, request: Request, user: User = Depends(curre
                 umzug.eingenommen_melden(db, me)
         elif frueher is not None:  # verlassen oder entfernt: mit neuer Einladung wieder aktiv (0.4.5), als Spieler
             me = frueher
-            me.left_at, me.role, me.joined_at = None, "player", utcnow()
+            me.left_at, me.removed_at, me.role, me.joined_at = None, None, "player", utcnow()
             from app import teilen
 
             teilen.vergessen(db, me.id)  # 0.4.30: Wiedereintritt = neuer Schlüssel
@@ -248,7 +252,7 @@ def patch_campaign(
         c.system = body.system
     if "system_name" in f:
         c.system_name = (body.system_name or "").strip() or None
-    if f & _NUR_AUSSCHALTEN:  # 0.4.25 (G16): derselbe Prüfweg wie PATCH …/settings, zählt die Fassung hoch
+    if f & _NUR_AUSSCHALTEN:  # 0.4.25: derselbe Prüfweg wie PATCH …/settings, zählt die Fassung hoch
         from app import kampagnen_einstellungen
 
         kampagnen_einstellungen.aendern(db, c, me, user, _einstellungen(body))
@@ -406,6 +410,7 @@ def remove_member(campaignId: str, memberId: str, user: User = Depends(current_u
     set_move_consent(db, target, False)  # 0.4.8
     target.character_backstory = None
     target.left_at = utcnow()
+    target.removed_at = target.left_at if target.id != me.id else None
     from app import teilen
 
     teilen.vergessen(db, target.id)  # 0.4.30
@@ -507,7 +512,7 @@ async def put_cover(campaignId: str, request: Request, user: User = Depends(curr
     c, me = _load(db, campaignId, user)
     require_gm(me)
     daten = await _koerper(request, COVER_MAX_BYTES)
-    cover_speichern(c.id, daten, request.headers.get("content-type"))
+    await run_in_threadpool(cover_speichern, c.id, daten, request.headers.get("content-type"))  # Bild: eigener Faden
     c.cover_preset, c.cover_image_updated_at = None, utcnow()
     db.commit()
     db.refresh(c)
@@ -560,7 +565,8 @@ async def put_portrait(campaignId: str, memberId: str, request: Request,
     if m.id != me.id:
         raise errors.forbidden("forbidden.portrait")
     daten = await _koerper(request, PORTRAIT_MAX_BYTES)
-    portrait_speichern(m.id, daten, request.headers.get("content-type"), crop_x, crop_y, crop_size)
+    await run_in_threadpool(portrait_speichern, m.id, daten, request.headers.get("content-type"), crop_x, crop_y,
+                            crop_size)  # Bild: eigener Faden
     m.portrait_updated_at = utcnow()
     db.commit()
     db.refresh(m)

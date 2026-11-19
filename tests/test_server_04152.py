@@ -1,6 +1,6 @@
-"""Server 0.4.152: gespeicherte Zugänge nur mit frischem Faktor an ein neues Ziel (S57.3), Kopplungscode nur für die
-Sitzung, die ihn erzeugt hat (S57.4), Sicherungsordner nie im Daten- oder Programmordner (S60), Teilen-Schlüssel ohne
-Überschreiben und ohne Wettlauf (S61), `reset-password` über den gemeinsamen Weg (S55), Datenordner 700."""
+"""Server 0.4.152: gespeicherte Zugänge nur mit frischem Faktor an ein neues Ziel, Kopplungscode nur für die
+Sitzung, die ihn erzeugt hat, Sicherungsordner nie im Daten- oder Programmordner, Teilen-Schlüssel ohne
+Überschreiben und ohne Wettlauf, `reset-password` über den gemeinsamen Weg, Datenordner 700."""
 import os
 import time
 
@@ -20,7 +20,7 @@ def _bestaetigen(r) -> bool:
     return r.status_code == 303 and r.headers["location"].startswith("/verwaltung/bestaetigen")
 
 
-# ---------------------------------------------------------------- S57.3
+# ----------------------------------------------------------------
 def test_gespeicherter_schluessel_nicht_an_neue_adresse(client, dbs, admin):  # noqa: F811
     chef = _chef(dbs)
     _faktor_an(client, dbs, chef.id)
@@ -77,7 +77,7 @@ def test_assistent_leitet_gespeicherten_schluessel_nicht_um(client, dbs, admin):
     assert _bestaetigen(r) and meta_lesen(dbs, "llm.api_url") == "https://anderer.example/v1"
 
 
-# ---------------------------------------------------------------- S57.4
+# ----------------------------------------------------------------
 def test_kopplungscode_nur_fuer_die_erzeugende_sitzung(client, dbs, admin):  # noqa: F811
     from app import koppeln
     from tests.faktor_hilfe import sitzung
@@ -93,7 +93,7 @@ def test_kopplungscode_nur_fuer_die_erzeugende_sitzung(client, dbs, admin):  # n
     assert koppeln.code_fuer(dbs, sitzung(client)) is None
 
 
-# ---------------------------------------------------------------- S60
+# ----------------------------------------------------------------
 def test_sicherungsordner_nicht_im_daten_oder_programmordner(client, dbs, admin, tmp_path_factory):  # noqa: F811
     from app import sicherung
     from app.config import get_settings
@@ -141,7 +141,7 @@ def test_web_app_liefert_keine_archive(client, dbs, tmp_path_factory, monkeypatc
     assert client.get("/app/TALEWARD.ZIP").status_code == 404
 
 
-# ---------------------------------------------------------------- S61
+# ----------------------------------------------------------------
 def test_signierschluessel_wird_nie_ersetzt(dbs, monkeypatch):
     from app import teilen
     from app.models import ServerMeta
@@ -190,7 +190,7 @@ def test_gleichzeitiger_erster_mitgliedsschluessel(client, world, dbs, monkeypat
     assert teilen.fuer_mich(dbs, dbs.get(Member, world["pl_member"])) == vorher
 
 
-# ---------------------------------------------------------------- S55 und Datenordner
+# ---------------------------------------------------------------- reset-password und Datenordner
 def test_reset_password_ueber_den_gemeinsamen_weg(dbs, admin):  # noqa: F811
     from typer.testing import CliRunner
 

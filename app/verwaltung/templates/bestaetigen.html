@@ -1,7 +1,7 @@
 {% extends "basis.html" %}
 {% block titel %}{{ _("Zweiten Faktor bestätigen") }}{% endblock %}
 {% block inhalt %}
-{# 0.4.143 (S44): Schritte mit Geld, Schlüsseln oder am Faktor selbst verlangen den zweiten Faktor frisch #}
+{# 0.4.143: Schritte mit Geld, Schlüsseln oder am Faktor selbst verlangen den zweiten Faktor frisch #}
 <div class="anmeldung">
   {% if not user %}{% include "_kopf_marke.html" %}{% endif %}
   <div class="karte">
